@@ -37,7 +37,7 @@ public:
 	/** * Configures the grid container visual style.
 	 * Logic: Hides the background border if bShowBackground is false.
 	 */
-
+	
 	UFUNCTION()
 	void AddItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 
@@ -131,15 +131,15 @@ private:
 	                    TSet<int32>& OutTentativelyClaimed,
 	                    const FGameplayTag& ItemTypeTag, const int32 MaxStackSize) const;
 
-	UAZ_Inv_CommonUI_SlottedItem* CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem, const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment,
-	                                                const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment, int32 Index,
+	UAZ_Inv_CommonUI_SlottedItem* CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem, const FAZ_Inv_CommonUI_GridFragment* GridFragment,
+	                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment, int32 Index,
 	                                                bool bStackable, int32 StackAmount) const;
 
 	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, const int32 StackAmountOverride = -1);
 
-	FVector2D GetDrawSize(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment) const;
+	FVector2D GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const;
 	
-	void SetSlottedItemImage(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment, const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment,
+	void SetSlottedItemImage(const FAZ_Inv_CommonUI_GridFragment* GridFragment, const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
 	                         UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const;
 
 	bool IsInGridBounds(const int32 StartIndex, const FIntPoint& ItemDimensions) const;
@@ -148,6 +148,11 @@ private:
 	int32 GetStackAmount(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
 	int32 DetermineFillAmountForSlot(const bool bStackable, const int32 MaxStackSize, const int32 AmountToFill,
 	                                 const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
+	
+	void AddItemToGridSlots(const FAZ_Inv_CommonUI_SlotAvailabilityResult& SlotAvailabilityResult, UAZ_Inv_CommonUI_InventoryItem* NewItem);
+	void AddItemAtIndex(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackable, int32 StackAmount);
+	void UpdateGridSlots(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackableItem, int32 StackAmount);
+	void AddSlottedItemToPanel(const int32 Index, const FAZ_Inv_CommonUI_GridFragment* GridFragment, UAZ_Inv_CommonUI_SlottedItem* SlottedItem ) const;
 	
 	bool IsIndexClaimed(const TSet<int32>& CheckedIndices, const int32 Index) const;
 

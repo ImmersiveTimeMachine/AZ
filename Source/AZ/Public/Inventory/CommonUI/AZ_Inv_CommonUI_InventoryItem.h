@@ -38,3 +38,13 @@ private:
 	UPROPERTY(Replicated)
 	int32 TotalStackCount{0};
 };
+
+template<typename FragmentType>
+requires std::derived_from<FragmentType, FAZ_Inv_CommonUI_ItemFragment>
+const FragmentType* GetFragment(const UAZ_Inv_CommonUI_InventoryItem* Item, const FGameplayTag& Tag)
+{
+	if (!IsValid(Item)) return nullptr;
+
+	const FAZ_Inv_CommonUI_ItemManifest& Manifest = Item->GetItemManifest();
+	return Manifest.GetFragmentOfTypeByTag<FragmentType>(Tag);
+}

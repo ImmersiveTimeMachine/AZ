@@ -3,6 +3,7 @@
 
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryGrid.h"
 
+#include "AZ_GameplayTags.h"
 #include "Components/Border.h"
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
@@ -225,7 +226,7 @@ bool UAZ_Inv_CommonUI_InventoryGrid::HasRoomAtIndex(const UAZ_Inv_CommonUI_GridS
 	return bHasRoomAtIndex;
 }
 
-FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment) const
+FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const
 {
 	if (!GridFragment)
 	{
@@ -236,8 +237,8 @@ FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_Gri
 	return FVector2D(GridFragment->GetGridSize()) * IconTileWidth;
 }
 
-void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment,
-                                                         const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment,
+void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_GridFragment* GridFragment,
+                                                         const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
                                                          UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const
 {
 	if (!SlottedItem || !ImageFragment)
@@ -254,10 +255,10 @@ void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_
 }
 
 UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem,
-                                                                                const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment,
-                                                                                const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment, int32 Index,
+                                                                                const FAZ_Inv_CommonUI_GridFragment* GridFragment,
+                                                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment, const int32 Index,
                                                                                 bool bStackable,
-                                                                                int32 StackAmount) const
+                                                                                const int32 StackAmount) const
 {
 	if (!NewItem || !SlottedItemClass)
 	{
@@ -317,7 +318,7 @@ bool UAZ_Inv_CommonUI_InventoryGrid::IsInGridBounds(const int32 StartIndex, cons
 
 FIntPoint UAZ_Inv_CommonUI_InventoryGrid::GetItemDimensions(const FAZ_Inv_CommonUI_ItemManifest& Manifest) const
 {
-	const auto* GridFragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_Grid_Fragment>();
+	const auto* GridFragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_GridFragment>();
 	return GridFragment
 		? GridFragment->GetGridSize()
 		: FIntPoint(1, 1);
@@ -344,6 +345,74 @@ int32 UAZ_Inv_CommonUI_InventoryGrid::DetermineFillAmountForSlot(const bool bSta
 		: 1;
 }
 
+void UAZ_Inv_CommonUI_InventoryGrid::AddItemToGridSlots(const FAZ_Inv_CommonUI_SlotAvailabilityResult& SlotAvailabilityResult,
+	UAZ_Inv_CommonUI_InventoryItem* NewItem)
+{
+	for (const auto& AvailableItem : SlotAvailabilityResult.AvailableSlots)
+	{
+		AddItemAtIndex(NewItem, AvailableItem.Index, SlotAvailabilityResult.bIsStackable, AvailableItem.AmountToFill);
+		UpdateGridSlots(NewItem, AvailableItem.Index, SlotAvailabilityResult.bIsStackable, AvailableItem.AmountToFill);
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::AddItemAtIndex(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackable, int32 StackAmount)
+{
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(NewItem, Tags.Item_Fragment_Grid);
+	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(NewItem, Tags.Item_Fragment_Icon);
+	if (!GridFragment || !ImageFragment) return;
+
+	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = CreateSlottedItem(NewItem, GridFragment, ImageFragment, Index, bStackable, StackAmount);
+	AddSlottedItemToPanel(Index, GridFragment, SlottedItem);
+
+	SlottedItems.Add(Index, SlottedItem);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::UpdateGridSlots(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackableItem, int32 StackAmount)
+{
+	check(GridSlots.IsValidIndex(Index));
+
+	if (bStackableItem)
+	{
+		GridSlots[Index]->SetStackCount(StackAmount);
+	}
+
+	const FAZ_GameplayTags Tags = FAZ_GameplayTags::Get();
+	const auto GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(NewItem, Tags.Item_Fragment_Grid);
+	const FIntPoint Dimensions = GridFragment ? GridFragment->GetGridSize() : FIntPoint(1, 1);
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		GridSlot->SetInventoryItem(NewItem);
+		GridSlot->SetUpperLeftIndex(Index);
+		GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
+		GridSlot->SetOccupiedTexture();
+		GridSlot->SetAvailable(false);
+	});
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::AddSlottedItemToPanel(const int32 Index, const FAZ_Inv_CommonUI_GridFragment* GridFragment,
+	UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const
+{
+	if (!SlottedItem || !GridFragment || !InventoryGridPanel) return;
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	const int32 Row = Index / ColumnCount;
+	const int32 Col = Index % ColumnCount;
+
+	const FIntPoint ItemDimensions = GridFragment->GetGridSize();
+
+	if (UGridSlot* GridSlot = InventoryGridPanel->AddChildToGrid(SlottedItem, Row, Col))
+	{
+		GridSlot->SetRowSpan(ItemDimensions.Y);
+		GridSlot->SetColumnSpan(ItemDimensions.X);
+		GridSlot->SetHorizontalAlignment(HAlign_Fill);
+		GridSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+}
+
 TArray<UAZ_Inv_CommonUI_GridSlot*> UAZ_Inv_CommonUI_InventoryGrid::GetAllGridSlots() const
 {
 	TArray<UAZ_Inv_CommonUI_GridSlot*> Tmp;
@@ -363,7 +432,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddItem(UAZ_Inv_CommonUI_InventoryItem* Ite
 
 	FAZ_Inv_CommonUI_SlotAvailabilityResult Result = HasRoomForItem(Item);
 
-	//TODO AddItemToGridSlots(Result, Item);
+	AddItemToGridSlots(Result, Item);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::SetupGridContainer()

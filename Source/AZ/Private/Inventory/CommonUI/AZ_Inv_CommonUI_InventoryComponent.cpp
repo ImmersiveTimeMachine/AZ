@@ -7,7 +7,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
-#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_Item_Fragment.h"
+#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "Inventory/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
 #include "Net/UnrealNetwork.h"
 

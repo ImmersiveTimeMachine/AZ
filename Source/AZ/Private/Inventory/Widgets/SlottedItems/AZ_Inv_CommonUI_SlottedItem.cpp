@@ -6,7 +6,7 @@
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryItem.h"
-#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_Item_Fragment.h"
+#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "Inventory/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
 
 void UAZ_Inv_CommonUI_SlottedItem::SetInventoryItem(TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> InInventoryItem)
@@ -30,7 +30,7 @@ void UAZ_Inv_CommonUI_SlottedItem::SetInventoryItem(TWeakObjectPtr<UAZ_Inv_Commo
 		const FAZ_Inv_CommonUI_ItemManifest& Manifest = InventoryItem->GetItemManifest();
 
 		// Try to find an image fragment to display the icon
-		if (const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_Image_Fragment>())
+		if (const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_ImageFragment>())
 		{
 			if (UTexture2D* Icon = ImageFragment->GetIcon())
 			{

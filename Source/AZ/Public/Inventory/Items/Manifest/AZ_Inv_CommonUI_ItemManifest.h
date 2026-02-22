@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_Item_Fragment.h"
+#include "Inventory/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "Inventory/Types/AZ_Inv_GridTypes.h"
 
 #include "AZ_Inv_CommonUI_ItemManifest.generated.h"
@@ -12,14 +12,14 @@ class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_CompositeBaseWidget;
 
 template <typename T>
-concept DerivedFromCommonUIItemFragment = std::derived_from<T, FAZ_Inv_CommonUI_Item_Fragment>;
+concept DerivedFromCommonUIItemFragment = std::derived_from<T, FAZ_Inv_CommonUI_ItemFragment>;
 
 USTRUCT(BlueprintType)
 struct AZ_API FAZ_Inv_CommonUI_ItemManifest
 {
 	GENERATED_BODY()
 	
-	TArray<TInstancedStruct<FAZ_Inv_CommonUI_Item_Fragment>>& GetFragmentsMutable() { return Fragments; }
+	TArray<TInstancedStruct<FAZ_Inv_CommonUI_ItemFragment>>& GetFragmentsMutable() { return Fragments; }
 	UAZ_Inv_CommonUI_InventoryItem* Manifest(UObject* NewOuter);
 	EInv_ItemCategory GetItemCategory() const {return ItemCategory;}
 	FGameplayTag GetItemTypeTag() const { return ItemTypeTag; }
@@ -35,7 +35,7 @@ struct AZ_API FAZ_Inv_CommonUI_ItemManifest
 	template <DerivedFromCommonUIItemFragment T>
 	T* GetFragmentOfTypeMutable();
 
-	template <typename T> requires std::derived_from<T, FAZ_Inv_CommonUI_Item_Fragment>
+	template <typename T> requires std::derived_from<T, FAZ_Inv_CommonUI_ItemFragment>
 	TArray<const T*> GetAllFragmentsOfType() const;
 
 	
@@ -53,7 +53,7 @@ private:
 			Think of it as TArray<std::unique_ptr<BaseStruct>>, but UE-friendly and struct-based.
 	 */
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta = (ExcludeBaseStruct))
-	TArray<TInstancedStruct<FAZ_Inv_CommonUI_Item_Fragment>> Fragments;
+	TArray<TInstancedStruct<FAZ_Inv_CommonUI_ItemFragment>> Fragments;
 	
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	EInv_ItemCategory ItemCategory{EInv_ItemCategory::None};
@@ -108,11 +108,11 @@ T* FAZ_Inv_CommonUI_ItemManifest::GetFragmentOfTypeMutable()
 	return nullptr;
 }
 
-template <typename T> requires std::derived_from<T, FAZ_Inv_CommonUI_Item_Fragment>
+template <typename T> requires std::derived_from<T, FAZ_Inv_CommonUI_ItemFragment>
 TArray<const T*> FAZ_Inv_CommonUI_ItemManifest::GetAllFragmentsOfType() const
 {
 	TArray<const T*> Result;
-	for (const TInstancedStruct<FAZ_Inv_CommonUI_Item_Fragment>& Fragment : Fragments)
+	for (const TInstancedStruct<FAZ_Inv_CommonUI_ItemFragment>& Fragment : Fragments)
 	{
 		if (const T* FragmentPtr = Fragment.GetPtr<T>())
 		{

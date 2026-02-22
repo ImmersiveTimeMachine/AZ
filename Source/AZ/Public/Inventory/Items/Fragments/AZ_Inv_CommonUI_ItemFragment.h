@@ -6,7 +6,7 @@
 #include "GameplayTagContainer.h"
 #include "StructUtils/InstancedStruct.h"
 
-#include "AZ_Inv_CommonUI_Item_Fragment.generated.h"
+#include "AZ_Inv_CommonUI_ItemFragment.generated.h"
 
 /**
  * 
@@ -16,17 +16,17 @@ class UAZ_Inv_CommonUI_CompositeBaseWidget;
 class UAZ_Inv_CompositeBase;
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_Item_Fragment
+struct FAZ_Inv_CommonUI_ItemFragment
 {
 	GENERATED_BODY()
 
-	FAZ_Inv_CommonUI_Item_Fragment() = default;
-	FAZ_Inv_CommonUI_Item_Fragment(const FAZ_Inv_CommonUI_Item_Fragment& Other) = default;
-	FAZ_Inv_CommonUI_Item_Fragment(FAZ_Inv_CommonUI_Item_Fragment&& Other) noexcept = default;
-	FAZ_Inv_CommonUI_Item_Fragment& operator=(const FAZ_Inv_CommonUI_Item_Fragment& Other) = default;
-	FAZ_Inv_CommonUI_Item_Fragment& operator=(FAZ_Inv_CommonUI_Item_Fragment&& Other) noexcept = default;
+	FAZ_Inv_CommonUI_ItemFragment() = default;
+	FAZ_Inv_CommonUI_ItemFragment(const FAZ_Inv_CommonUI_ItemFragment& Other) = default;
+	FAZ_Inv_CommonUI_ItemFragment(FAZ_Inv_CommonUI_ItemFragment&& Other) noexcept = default;
+	FAZ_Inv_CommonUI_ItemFragment& operator=(const FAZ_Inv_CommonUI_ItemFragment& Other) = default;
+	FAZ_Inv_CommonUI_ItemFragment& operator=(FAZ_Inv_CommonUI_ItemFragment&& Other) noexcept = default;
 	
-	virtual ~FAZ_Inv_CommonUI_Item_Fragment() {}
+	virtual ~FAZ_Inv_CommonUI_ItemFragment() {}
 
 private:
 
@@ -42,7 +42,7 @@ public:
 };	
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_InventoryItem_Fragment : public FAZ_Inv_CommonUI_Item_Fragment
+struct FAZ_Inv_CommonUI_InventoryItem_Fragment : public FAZ_Inv_CommonUI_ItemFragment
 {
 	GENERATED_BODY()
 
@@ -52,7 +52,7 @@ protected:
 };
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_Grid_Fragment : public FAZ_Inv_CommonUI_Item_Fragment
+struct FAZ_Inv_CommonUI_GridFragment : public FAZ_Inv_CommonUI_ItemFragment
 {
 	GENERATED_BODY()
 
@@ -77,7 +77,7 @@ public:
 };
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_Image_Fragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
+struct FAZ_Inv_CommonUI_ImageFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
 {
 	GENERATED_BODY()
 	
@@ -113,7 +113,7 @@ private:
 };
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_Stackable_Fragment : public FAZ_Inv_CommonUI_Item_Fragment
+struct FAZ_Inv_CommonUI_Stackable_Fragment : public FAZ_Inv_CommonUI_ItemFragment
 {
 	GENERATED_BODY()
 
