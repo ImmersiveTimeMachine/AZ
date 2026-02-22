@@ -1,0 +1,542 @@
+﻿#pragma once
+#include <GameplayTagContainer.h>
+
+/**
+ * */
+struct AZ_API FAZ_GameplayTags
+{
+    static const FAZ_GameplayTags& Get() { return GameplayTags; }
+    static void InitializeNativeGameplayTags();
+
+    // Primary Attributes 
+    FGameplayTag Attributes_Primary_Strength;
+    FGameplayTag Attributes_Primary_Agility;       // Assuming Agility from previous discussion
+    FGameplayTag Attributes_Primary_Resilience;
+    FGameplayTag Attributes_Primary_Intelligence;
+    FGameplayTag Attributes_Primary_Expertise;
+
+    // Secondary Attributes - Combat
+    FGameplayTag Attributes_Secondary_Combat_MaxHealth;
+    FGameplayTag Attributes_Secondary_Combat_HealthRegenRate;
+    FGameplayTag Attributes_Secondary_Combat_MeleeDamage;
+    FGameplayTag Attributes_Secondary_Combat_RangedDamage;
+    FGameplayTag Attributes_Secondary_Combat_Accuracy;
+    FGameplayTag Attributes_Secondary_Combat_ReloadSpeed;
+    FGameplayTag Attributes_Secondary_Combat_RecoilControl;
+    FGameplayTag Attributes_Secondary_Combat_CriticalHitChance;
+    FGameplayTag Attributes_Secondary_Combat_CriticalHitDamage;
+    FGameplayTag Attributes_Secondary_Combat_AttackSpeed;
+    FGameplayTag Attributes_Secondary_Combat_Armor;
+    FGameplayTag Attributes_Secondary_Combat_PhysicalResistance;
+    FGameplayTag Attributes_Secondary_Combat_ExplosiveResistance;
+    FGameplayTag Attributes_Secondary_Combat_ElementalDamage;         // ADDED
+    FGameplayTag Attributes_Secondary_Combat_ArmorPenetration;       // ADDED
+    FGameplayTag Attributes_Secondary_Combat_KnockbackChance;        // ADDED
+    FGameplayTag Attributes_Secondary_Combat_HeavyWeaponHandling;    // ADDED
+    FGameplayTag Attributes_Secondary_Combat_EvasionChance;          // ADDED
+    FGameplayTag Attributes_Secondary_Combat_StaggerResistance;       // ADDED
+    FGameplayTag Attributes_Secondary_Combat_WeakSpotDetection;       // ADDED
+    FGameplayTag Attributes_Secondary_Combat_StatusEffectDuration;   // ADDED (duration of effects player inflicts)
+
+
+    // Secondary Attributes - Survival
+    FGameplayTag Attributes_Secondary_Survival_MaxStamina;
+    FGameplayTag Attributes_Secondary_Survival_StaminaRegenRate;
+    FGameplayTag Attributes_Secondary_Survival_CarryWeight;
+    FGameplayTag Attributes_Secondary_Survival_MovementSpeed;
+    FGameplayTag Attributes_Secondary_Survival_DiseaseResistance;
+    FGameplayTag Attributes_Secondary_Survival_InfectionResistance;
+    FGameplayTag Attributes_Secondary_Survival_PoisonResistance;
+    FGameplayTag Attributes_Secondary_Survival_StatusEffectResistance; // ADDED (general resistance to effects on player)
+    FGameplayTag Attributes_Secondary_Survival_HungerRate;
+    FGameplayTag Attributes_Secondary_Survival_ThirstRate;
+
+    // Secondary Attributes - Utility
+    FGameplayTag Attributes_Secondary_Utility_Perception;
+    FGameplayTag Attributes_Secondary_Utility_CraftingSpeed;
+    FGameplayTag Attributes_Secondary_Utility_CraftingQuality;
+    FGameplayTag Attributes_Secondary_Utility_RepairEfficiency;
+    FGameplayTag Attributes_Secondary_Utility_HackingSpeed;
+    FGameplayTag Attributes_Secondary_Utility_Lockpicking;
+    FGameplayTag Attributes_Secondary_Utility_Stealth;
+    FGameplayTag Attributes_Secondary_Utility_Barter;
+    FGameplayTag Attributes_Secondary_Utility_ExperienceGainRate;
+    FGameplayTag Attributes_Secondary_Utility_InteractionStrength;    // ADDED
+    FGameplayTag Attributes_Secondary_Utility_CooldownReduction;      // ADDED (for abilities/gadgets)
+    FGameplayTag Attributes_Secondary_Utility_ResourcePool;           // ADDED (e.g., Focus/Energy Max)
+    FGameplayTag Attributes_Secondary_Utility_ResourceRegenRate;     // ADDED (e.g., Focus/Energy Regen)
+    FGameplayTag Attributes_Secondary_Utility_HealingEffectiveness;   // ADDED
+
+    // Vital Attributes
+    FGameplayTag Attributes_Vital_CurrentHealth;
+    FGameplayTag Attributes_Vital_CurrentStamina;
+    // Consider adding FGameplayTag Attributes_Vital_CurrentResource; if you have a ResourcePool
+
+    // Tags for Humanoid Infected Attributes
+    FGameplayTag Infected_Humanoid_Health;
+    FGameplayTag Infected_Humanoid_MaxHealth;
+    FGameplayTag Infected_Humanoid_MovementSpeed;
+    FGameplayTag Infected_Humanoid_Perception;
+    FGameplayTag Infected_Humanoid_Aggression;
+    FGameplayTag Infected_Humanoid_Armor;
+    FGameplayTag Infected_Humanoid_MeleeDamage;
+    FGameplayTag Infected_Humanoid_RangedDamage;    // If applicable
+    FGameplayTag Infected_Humanoid_AttackSpeed;
+    FGameplayTag Infected_Humanoid_AttackRange;
+    FGameplayTag Infected_Humanoid_Accuracy;        // If applicable
+    FGameplayTag Infected_Humanoid_Resistance;      // General or specific
+    
+    // Tags for Human Antagonist Attributes
+    FGameplayTag Antagonist_Human_Health;
+    FGameplayTag Antagonist_Human_MaxHealth;
+    FGameplayTag Antagonist_Human_MovementSpeed;
+    FGameplayTag Antagonist_Human_Perception;
+    FGameplayTag Antagonist_Human_Aggression;
+    FGameplayTag Antagonist_Human_Armor;
+    FGameplayTag Antagonist_Human_MeleeDamage;
+    FGameplayTag Antagonist_Human_RangedDamage;
+    FGameplayTag Antagonist_Human_Accuracy;
+    FGameplayTag Antagonist_Human_AttackSpeed;
+    FGameplayTag Antagonist_Human_AttackRange;
+    FGameplayTag Antagonist_Human_Morale;
+
+    // Tags for Animal Infected Attributes
+    FGameplayTag Infected_Animal_Health;
+    FGameplayTag Infected_Animal_MaxHealth;
+    FGameplayTag Infected_Animal_MovementSpeed;
+    FGameplayTag Infected_Animal_Perception;
+    FGameplayTag Infected_Animal_Aggression;
+    FGameplayTag Infected_Animal_Damage;           // General or specific (e.g., MeleeDamage)
+    FGameplayTag Infected_Animal_AttackSpeed;
+    FGameplayTag Infected_Animal_AttackRange;
+    FGameplayTag Infected_Animal_Disease;          // Or Resistance if it's about player resisting them
+
+    // Tags for Boss Attributes
+    FGameplayTag Boss_ChargeDamage;
+    FGameplayTag Boss_GroundSlamRadius;
+    FGameplayTag Boss_ToxicCloudDuration;
+    FGameplayTag Boss_PsionicPower;
+    FGameplayTag Boss_SummoningCooldown;
+    FGameplayTag Boss_MutationLevel;
+
+    // ... other Gameplay Tags ...
+    FGameplayTag GameplayEffect_Input_Magnitude; // This seems like a generic tag for effect magnitude
+    FGameplayTag GameplayEffect_CharacterInitTag; 
+
+    // Input Actions (Replaces "Input Attributes")
+    FGameplayTag Input_Action_None; // For no specific input, or default
+
+    // --- Core Combat Actions ---
+    FGameplayTag Input_Action_PrimaryAttack;    // e.g., Fire weapon, main melee swing
+    FGameplayTag Input_Action_SecondaryAttack;   // e.g., Alt-fire, heavy melee attack, block
+    FGameplayTag Input_Action_Aim;             // Aim down sights or focus
+    FGameplayTag Input_Action_Reload;          // (You had this, it's good)
+    FGameplayTag Input_Action_MeleeAttack;     // If a dedicated melee button distinct from primary/secondary
+    FGameplayTag Input_Action_ThrowGrenade;    // Or use tactical equipment
+
+    // --- Movement Actions ---
+    FGameplayTag Input_Action_Jump;            // Replaces InputTag_SpaceBar
+    FGameplayTag Input_Action_Crouch;
+    FGameplayTag Input_Action_ToggleCrouch;   // If you have both hold and toggle
+    FGameplayTag Input_Action_Sprint;          // Hold or toggle
+    FGameplayTag Input_Action_Dodge;           // If applicable
+    FGameplayTag Input_Action_Move;           // If applicable
+
+    // --- Interaction & UI ---
+    FGameplayTag Input_Action_Interact;        // Use, open door, talk, loot
+    FGameplayTag Input_Action_OpenInventory;
+    FGameplayTag Input_Action_OpenMap;
+    FGameplayTag Input_Action_OpenJournal;     // Or quests, codex, etc.
+    FGameplayTag Input_Action_PauseGame;       // Open main menu
+
+    // --- Ability / Item / Weapon Management ---
+    FGameplayTag Input_Action_UseAbility1;     // Replaces InputTag_1
+    FGameplayTag Input_Action_UseAbility2;     // Replaces InputTag_2
+    FGameplayTag Input_Action_UseAbility3;     // Replaces InputTag_3
+    FGameplayTag Input_Action_UseAbility4;     // Replaces InputTag_4
+    // Add more if needed: Input_Action_UseAbility5, etc.
+
+    FGameplayTag Input_Action_NextWeapon;
+    FGameplayTag Input_Action_PreviousWeapon;
+    FGameplayTag Input_Action_EquipWeaponSlot1; // For direct weapon selection
+    FGameplayTag Input_Action_EquipWeaponSlot2;
+    FGameplayTag Input_Action_EquipWeaponSlot3; 
+    // ... etc. for direct weapon slots if you have more than next/prev
+
+    FGameplayTag Input_Action_UseQuickHeal;    // If you have a dedicated heal button
+    FGameplayTag Input_Action_UseQuickItem;    // For a generic "use selected quickslot item"
+
+    // --- Vehicle Actions (If Applicable) ---
+    // FGameplayTag Input_Action_EnterExitVehicle;
+    // FGameplayTag Input_Action_AccelerateVehicle;
+    // FGameplayTag Input_Action_BrakeVehicle;
+    // FGameplayTag Input_Action_SteerLeftVehicle;
+    // FGameplayTag Input_Action_SteerRightVehicle;
+
+    // ... other game-specific actions ...
+
+    // Player Fight Status (Consider renaming to Ability_Status_*)
+    FGameplayTag Abilities_Status_Locked;
+    FGameplayTag Abilities_Status_Eligible;
+    FGameplayTag Abilities_Status_Unlocked;
+    FGameplayTag Abilities_Status_Equipped;
+
+    // Attack Type (Consider renaming to Ability_Activation_*)
+    FGameplayTag Abilities_Type_Offensive; // Or Ability_Type_Active_Offensive
+    FGameplayTag Abilities_Type_Passive;
+    FGameplayTag Abilities_Type_None;
+
+    // Weapon Type Tags
+    FGameplayTag Weapon_None;
+    FGameplayTag Weapon_Pistol;
+    FGameplayTag Weapon_Rifle;
+    FGameplayTag Weapon_RocketLauncher;
+    FGameplayTag Weapon_Shotgun;
+    FGameplayTag Weapon_SMG;
+    FGameplayTag Weapon_Melee;
+
+    // Movement State Tags
+    FGameplayTag Movement_Idle;
+    FGameplayTag Movement_Walking;
+    FGameplayTag Movement_Running;
+    FGameplayTag Movement_Sprinting;
+    FGameplayTag Movement_Crouching;
+    FGameplayTag Movement_Jumping;
+    FGameplayTag Movement_Falling;
+
+    // Combat State Tags
+    FGameplayTag Combat_Aiming;
+    FGameplayTag Combat_Blocking;
+    FGameplayTag Combat_Attacking;
+    FGameplayTag Combat_Reloading;
+
+    // Character State Tags
+    FGameplayTag Character_Dead;
+    FGameplayTag Character_Dying;
+    FGameplayTag Character_Stunned;
+    FGameplayTag Character_Interacting;
+
+    // Equipment State Tags
+    FGameplayTag State_Equipped_Weapon_Primary;
+    FGameplayTag State_Equipped_Weapon_Secondary;
+    FGameplayTag State_Equipped_Weapon_Sidearm;
+    FGameplayTag State_Equipped_Weapon_Melee;
+    FGameplayTag State_Equipped_Armor_Head;
+    FGameplayTag State_Equipped_Armor_Chest;
+    FGameplayTag State_Equipped_Armor_Legs;
+    FGameplayTag State_Equipped_Armor_Hands;
+    FGameplayTag State_Equipped_Armor_Feet;
+    FGameplayTag State_Equipped_Consumable_QuickSlot1;
+
+    // Animation Modifier Tags
+    FGameplayTag Animation_HipFire;
+    FGameplayTag Animation_ADS; // Aim Down Sights
+    
+    // --- Animation State Tags ---
+    // These tags are granted by passive abilities to represent the final, unambiguous
+    // animation state for the AnimBP to read. Each corresponds to one UGA_AnimationState child.
+
+    // --- Animation State Tags ---
+    // These tags are granted by passive abilities to represent the final, unambiguous
+    // animation state for the AnimBP to read.
+   
+    // Unarmed States (Weapon.None)
+    FGameplayTag Ability_Animation_Unarmed_Idle;
+    FGameplayTag Ability_Animation_Unarmed_Walking;
+    FGameplayTag Ability_Animation_Unarmed_Running;
+    FGameplayTag Ability_Animation_Unarmed_Sprinting;
+    FGameplayTag Ability_Animation_Unarmed_CrouchingIdle;
+    FGameplayTag Ability_Animation_Unarmed_CrouchingWalking;
+    FGameplayTag Ability_Animation_Unarmed_Attack_Light;
+    FGameplayTag Ability_Animation_Unarmed_Attack_Heavy;
+    FGameplayTag Ability_Animation_Unarmed_Jumping;
+    FGameplayTag Ability_Animation_Unarmed_Falling;
+
+    // Pistol States (Weapon.Pistol)
+    FGameplayTag Ability_Animation_Pistol_Idle;
+    FGameplayTag Ability_Animation_Pistol_Walking;
+    FGameplayTag Ability_Animation_Pistol_Running;
+    FGameplayTag Ability_Animation_Pistol_Sprinting;
+    FGameplayTag Ability_Animation_Pistol_CrouchingIdle;
+    FGameplayTag Ability_Animation_Pistol_CrouchingWalking;
+    FGameplayTag Ability_Animation_Pistol_AimingIdle;
+    FGameplayTag Ability_Animation_Pistol_AimingWalking;
+    FGameplayTag Ability_Animation_Pistol_Fire;
+    FGameplayTag Ability_Animation_Pistol_AimingFire;
+    FGameplayTag Ability_Animation_Pistol_Reloading;
+    FGameplayTag Ability_Animation_Pistol_Jumping;
+    FGameplayTag Ability_Animation_Pistol_Falling;
+
+    // Rifle States (Weapon.Rifle, Weapon.SMG, etc.)
+    FGameplayTag Ability_Animation_Rifle_Idle;
+    FGameplayTag Ability_Animation_Rifle_Walking;
+    FGameplayTag Ability_Animation_Rifle_Running;
+    FGameplayTag Ability_Animation_Rifle_Sprinting;
+    FGameplayTag Ability_Animation_Rifle_CrouchingIdle;
+    FGameplayTag Ability_Animation_Rifle_CrouchingWalking;
+    FGameplayTag Ability_Animation_Rifle_AimingIdle;
+    FGameplayTag Ability_Animation_Rifle_AimingWalking;
+    FGameplayTag Ability_Animation_Rifle_Fire;
+    FGameplayTag Ability_Animation_Rifle_AimingFire;
+    FGameplayTag Ability_Animation_Rifle_Reloading;
+    FGameplayTag Ability_Animation_Rifle_Jumping;
+    FGameplayTag Ability_Animation_Rifle_Falling;
+
+    // Melee Weapon States (Weapon.Melee)
+    FGameplayTag Ability_Animation_Melee_Idle;
+    FGameplayTag Ability_Animation_Melee_Walking;
+    FGameplayTag Ability_Animation_Melee_Running;
+    FGameplayTag Ability_Animation_Melee_Sprinting;
+    FGameplayTag Ability_Animation_Melee_CrouchingIdle;
+    FGameplayTag Ability_Animation_Melee_CrouchingWalking;
+    FGameplayTag Ability_Animation_Melee_Attack_Light;
+    FGameplayTag Ability_Animation_Melee_Attack_Heavy;
+    FGameplayTag Ability_Animation_Melee_Block;
+    FGameplayTag Ability_Animation_Melee_Jumping;
+    FGameplayTag Ability_Animation_Melee_Falling;
+
+    // General Character States (Overrides)
+    FGameplayTag Ability_Animation_Character_Stunned;
+    FGameplayTag Ability_Animation_Character_Dying;
+    FGameplayTag Ability_Animation_Character_Dead;
+    FGameplayTag Ability_Animation_Character_Interacting;
+
+    // In your FGameplayTags.h file, inside the struct FGameplayTags definition
+
+    // --- Animation State Tags ---
+    // These tags are granted by passive abilities to represent the final, unambiguous
+    // animation state for the AnimBP to read.
+
+    // Unarmed States
+    FGameplayTag Animation_State_Unarmed_Idle;
+    FGameplayTag Animation_State_Unarmed_Walking;
+    FGameplayTag Animation_State_Unarmed_Running;
+    FGameplayTag Animation_State_Unarmed_Sprinting;
+    FGameplayTag Animation_State_Unarmed_CrouchingIdle;
+    FGameplayTag Animation_State_Unarmed_CrouchingWalking;
+    FGameplayTag Animation_State_Unarmed_Attack_Light;
+    FGameplayTag Animation_State_Unarmed_Attack_Heavy;
+    FGameplayTag Animation_State_Unarmed_StartJumping;
+    FGameplayTag Animation_State_Unarmed_EndJumping;
+    FGameplayTag Animation_State_Unarmed_Jumping;
+    FGameplayTag Animation_State_Unarmed_Falling;
+
+    // Pistol States
+    FGameplayTag Animation_State_Pistol_Idle;
+    FGameplayTag Animation_State_Pistol_Walking;
+    FGameplayTag Animation_State_Pistol_Running;
+    FGameplayTag Animation_State_Pistol_Sprinting;
+    FGameplayTag Animation_State_Pistol_CrouchingIdle;
+    FGameplayTag Animation_State_Pistol_CrouchingWalking;
+    FGameplayTag Animation_State_Pistol_AimingIdle;
+    FGameplayTag Animation_State_Pistol_AimingWalking;
+    FGameplayTag Animation_State_Pistol_Fire;
+    FGameplayTag Animation_State_Pistol_AimingFire;
+    FGameplayTag Animation_State_Pistol_Reloading;
+    FGameplayTag Animation_State_Pistol_Jumping;
+    FGameplayTag Animation_State_Pistol_Falling;
+
+    // Rifle States (can be reused for SMG, Shotgun etc. or you can make unique ones)
+    FGameplayTag Animation_State_Rifle_Idle;
+    FGameplayTag Animation_State_Rifle_Walking;
+    FGameplayTag Animation_State_Rifle_Running;
+    FGameplayTag Animation_State_Rifle_Sprinting;
+    FGameplayTag Animation_State_Rifle_CrouchingIdle;
+    FGameplayTag Animation_State_Rifle_CrouchingWalking;
+    FGameplayTag Animation_State_Rifle_AimingIdle;
+    FGameplayTag Animation_State_Rifle_AimingWalking;
+    FGameplayTag Animation_State_Rifle_Fire;
+    FGameplayTag Animation_State_Rifle_AimingFire;
+    FGameplayTag Animation_State_Rifle_Reloading;
+    FGameplayTag Animation_State_Rifle_Jumping;
+    FGameplayTag Animation_State_Rifle_Falling;
+
+    // Melee Weapon States
+    FGameplayTag Animation_State_Melee_Idle;
+    FGameplayTag Animation_State_Melee_Walking;
+    FGameplayTag Animation_State_Melee_Running;
+    FGameplayTag Animation_State_Melee_Sprinting;
+    FGameplayTag Animation_State_Melee_CrouchingIdle;
+    FGameplayTag Animation_State_Melee_CrouchingWalking;
+    FGameplayTag Animation_State_Melee_Attack_Light;
+    FGameplayTag Animation_State_Melee_Attack_Heavy;
+    FGameplayTag Animation_State_Melee_Block;
+    FGameplayTag Animation_State_Melee_Jumping;
+    FGameplayTag Animation_State_Melee_Falling;
+
+    // General Character States (Overrides)
+    FGameplayTag Animation_State_Character_Stunned;
+    FGameplayTag Animation_State_Character_Dying;
+    FGameplayTag Animation_State_Character_Dead;
+    FGameplayTag Animation_State_Character_Interacting;
+
+    // --- Equipment Slot Tags ---
+    // These tags represent the specific slots on a character where items can be equipped.
+
+    // Weapon Slots
+    FGameplayTag Equipment_Slot_PrimaryWeapon;    // e.g., for Rifles, Shotguns
+    FGameplayTag Equipment_Slot_SecondaryWeapon;  // e.g., for SMGs, smaller rifles
+    FGameplayTag Equipment_Slot_Sidearm;          // e.g., for Pistols
+    FGameplayTag Equipment_Slot_Melee;            // e.g., for Knives, Swords
+
+    // Armor Slots
+    FGameplayTag Equipment_Slot_Head;
+    FGameplayTag Equipment_Slot_Chest;
+    FGameplayTag Equipment_Slot_Legs;
+    FGameplayTag Equipment_Slot_Hands;
+    FGameplayTag Equipment_Slot_Feet;
+    FGameplayTag Equipment_Slot_Back;             // e.g., for Capes or Backpacks
+
+    // Accessory Slots
+    FGameplayTag Equipment_Slot_Amulet;
+    FGameplayTag Equipment_Slot_Ring1;
+    FGameplayTag Equipment_Slot_Ring2;
+    FGameplayTag Equipment_Slot_Belt;
+
+    // Quick Slots (for consumables or usable items)
+    FGameplayTag Equipment_Slot_QuickSlot1;
+    FGameplayTag Equipment_Slot_QuickSlot2;
+    FGameplayTag Equipment_Slot_QuickSlot3;
+    FGameplayTag Equipment_Slot_QuickSlot4;
+
+    // ============================================================
+    // ITEM TYPE TAGS
+    // Defines what the item fundamentally is.
+    // ============================================================
+
+    // --- Weapon Types ---
+    FGameplayTag Item_Type_Weapon_Pistol; // Standard sidearm, moderate damage, common ammo.
+    FGameplayTag Item_Type_Weapon_Rifle; // High-accuracy ranged weapon, higher damage.
+    FGameplayTag Item_Type_Weapon_Shotgun; // Close-range, high spread and stopping power.
+    FGameplayTag Item_Type_Weapon_SMG; // High rate of fire, low damage per shot.
+    FGameplayTag Item_Type_Weapon_RocketLauncher; // Heavy weapon with explosive ammo.
+    FGameplayTag Item_Type_Weapon_Melee; // Hand-to-hand weapon, low range, no ammo needed.
+    FGameplayTag Item_Type_Weapon_Tool; // Dual-purpose tools (crowbar, axe) usable as melee or for puzzles.
+
+    // --- Ammunition Types ---
+    FGameplayTag Item_Type_Ammo_Pistol; // Standard pistol rounds.
+    FGameplayTag Item_Type_Ammo_Rifle; // Rifle cartridges.
+    FGameplayTag Item_Type_Ammo_Shotgun; // Shotgun shells.
+    FGameplayTag Item_Type_Ammo_SMG; // Submachine gun ammunition.
+    FGameplayTag Item_Type_Ammo_Rocket; // Rocket or grenade launcher ammo.
+    FGameplayTag Item_Type_Ammo_Special; // Rare or elemental ammo (silver, incendiary, etc).
+
+    // --- Armor / Equipment Types ---
+    FGameplayTag Item_Type_Armor_Head; // Helmet, mask, or head protection.
+    FGameplayTag Item_Type_Armor_Chest; // Body armor or tactical vest.
+    FGameplayTag Item_Type_Armor_Legs; // Leg protection gear.
+    FGameplayTag Item_Type_Armor_Hands; // Gloves or protective handwear.
+    FGameplayTag Item_Type_Armor_Feet; // Boots or foot armor.
+    FGameplayTag Item_Type_Armor_Back; // Backpacks or back-mounted protection.
+    FGameplayTag Item_Type_Armor_FullBody; // Complete suit (hazmat, tactical, or bio suit).
+
+    // --- Accessory Types ---
+    FGameplayTag Item_Type_Accessory_Amulet; // Occult or protective item worn on neck.
+    FGameplayTag Item_Type_Accessory_Ring; // Magical or status-enhancing ring.
+    FGameplayTag Item_Type_Accessory_Belt; // Utility belt or wearable equipment modifier.
+    FGameplayTag Item_Type_Accessory_Charm; // Small item granting passive bonus or curse.
+	FGameplayTag Item_Type_Accessory_Cloak;
+	FGameplayTag Item_Type_Accessory_Mask;
+
+    // --- Consumable Types ---
+    FGameplayTag Item_Type_Consumable_Health; // Heals health (medkit, bandage).
+    FGameplayTag Item_Type_Consumable_Buff; // Temporary stat boost (adrenaline, stimpack).
+    FGameplayTag Item_Type_Consumable_Throwable; // Usable item that can be thrown (grenade, molotov).
+    FGameplayTag Item_Type_Consumable_Antidote; // Cures infection, toxin, or corruption effects.
+    FGameplayTag Item_Type_Consumable_Food; // Restores partial health or stamina.
+    FGameplayTag Item_Type_Consumable_Psych; // Stabilizes sanity or reduces fear.
+
+    // --- Weapon Attachment Types ---
+    FGameplayTag Item_Type_Attachment_Scope; // Increases zoom or accuracy.
+    FGameplayTag Item_Type_Attachment_Magazine; // Expands ammo capacity.
+    FGameplayTag Item_Type_Attachment_Muzzle; // Reduces recoil or suppresses sound.
+    FGameplayTag Item_Type_Attachment_Grip; // Improves handling or accuracy.
+    FGameplayTag Item_Type_Attachment_Stock; // Improves stability.
+    FGameplayTag Item_Type_Attachment_Laser; // Adds aiming laser or tracking.
+    FGameplayTag Item_Type_Attachment_Light; // Adds flashlight or tactical light source.
+
+    // --- Crafting & Resource Types ---
+    FGameplayTag Item_Type_Material_Scrap; // Basic crafting metal and parts.
+    FGameplayTag Item_Type_Material_Electronics; // Circuit boards, wires, and tech components.
+    FGameplayTag Item_Type_Material_Chemicals; // Chemical reagents for crafting ammo or meds.
+    FGameplayTag Item_Type_Material_Biological; // Organic samples, tissue, spores.
+    FGameplayTag Item_Type_Material_Powder; // Gunpowder or other powdered reagent.
+    FGameplayTag Item_Type_Material_Fluid; // Solvent, fuel, acid, or oil.
+
+    // --- Keys, Notes & Quest Items ---
+    FGameplayTag Item_Type_Key; // Traditional key for doors or locks.
+    FGameplayTag Item_Type_KeyCard; // Electronic or magnetic access card.
+    FGameplayTag Item_Type_Document; // Notes, journals, or letters revealing lore or clues.
+    FGameplayTag Item_Type_PuzzleItem; // Artifacts or emblems used to unlock puzzle mechanisms.
+    FGameplayTag Item_Type_QuestItem; // Core item required for progression or storyline.
+
+    // --- Currency & Valuables ---
+    FGameplayTag Item_Type_Currency; // Money or tradable credits.
+    FGameplayTag Item_Type_Junk; // Sellable trash or broken parts.
+    FGameplayTag Item_Type_Valuable; // High-value items (watches, gems, relics).
+
+    // Defines how the item behaves in systems (inventory, trade, combat, etc.).
+    FGameplayTag Item_Property_Stackable;           // Can stack multiple units in one slot.
+    FGameplayTag Item_Property_Equippable;          // Can be equipped in gear or weapon slot.
+    FGameplayTag Item_Property_Consumable;          // Consumed on use (disappears after activation).
+    FGameplayTag Item_Property_Droppable;           // Can be dropped from inventory.
+    FGameplayTag Item_Property_QuestItem;           // Cannot be dropped, sold, or destroyed.
+    FGameplayTag Item_Property_Tradeable;           // Can be sold or exchanged with NPCs.
+    FGameplayTag Item_Property_Craftable;           // Can be used in crafting recipes.
+    FGameplayTag Item_Property_Breakable;           // Has durability and can break on use.
+    FGameplayTag Item_Property_Cursed;              // Has negative or supernatural side effects.
+    FGameplayTag Item_Property_Hidden;              // Hidden or inactive until revealed.
+    FGameplayTag Item_Property_LimitedUse;          // Has limited number of uses or charges.
+    FGameplayTag Item_Property_Fragile;             // Easily breaks or loses effectiveness.
+
+    // Defines quality, drop rate, and thematic importance.
+    FGameplayTag Item_Rarity_Common;                // Everyday or easily found item.
+    FGameplayTag Item_Rarity_Uncommon;              // Slightly better or rarer item.
+    FGameplayTag Item_Rarity_Rare;                  // Hard-to-find, more powerful item.
+    FGameplayTag Item_Rarity_Epic;                  // Unique or story-related item.
+    FGameplayTag Item_Rarity_Legendary;             // Iconic, extremely rare item.
+    FGameplayTag Item_Rarity_Prototype;             // Experimental or prototype gear.
+    FGameplayTag Item_Rarity_Cursed;                // Strong but dangerous or cursed item.
+    FGameplayTag Item_Rarity_Relic;                 // Ancient or occult artifact.
+
+    // Special tags for fear, sanity, and atmosphere systems — ideal for survival horror mechanics.
+    FGameplayTag Item_Effect_FearReduction;         // Reduces character fear or panic level.
+    FGameplayTag Item_Effect_SanityBoost;           // Restores mental stability or focus.
+    FGameplayTag Item_Effect_NoiseMaker;            // Attracts nearby enemies when used.
+    FGameplayTag Item_Effect_LightSource;           // Emits light (flashlight, candle, flare).
+    FGameplayTag Item_Effect_Holy;                  // Repels or damages supernatural entities.
+    FGameplayTag Item_Effect_Tainted;               // Attracts enemies or corrupts user over time.
+
+    // ============================================================
+    // ITEM FRAGMENT TAGS
+    // Defines fragment types for inventory items.
+    // ============================================================
+    FGameplayTag Item_Fragment_Grid;
+    FGameplayTag Item_Fragment_Stats;
+	FGameplayTag Item_Fragment_Stats_Mode_1;
+	FGameplayTag Item_Fragment_Stats_Mode_2;
+	FGameplayTag Item_Fragment_Stats_Mode_3;
+	FGameplayTag Item_Fragment_Stats_Mode_4;
+	FGameplayTag Item_Fragment_Stats_Mode_5;
+	FGameplayTag Item_Fragment_PrimaryStats;
+	FGameplayTag Item_Fragment_SecondaryStats;
+    FGameplayTag Item_Fragment_Visual;     
+    FGameplayTag Item_Fragment_Icon;
+	FGameplayTag Item_Fragment_Name;
+	FGameplayTag Item_Fragment_Type;
+	FGameplayTag Item_Fragment_Text;
+	FGameplayTag Item_Fragment_Value;
+	FGameplayTag Item_Fragment_Level;
+    FGameplayTag Item_Fragment_Stackable;
+    FGameplayTag Item_Fragment_Consumable;
+	FGameplayTag Item_Fragment_Equipment;
+    FGameplayTag Item_Fragment_Durability;
+    FGameplayTag Item_Fragment_Modification;
+    FGameplayTag Item_Fragment_Metadata;
+	
+    
+
+private:
+    
+    static FAZ_GameplayTags GameplayTags;
+};

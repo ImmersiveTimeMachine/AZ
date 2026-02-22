@@ -1,0 +1,57 @@
+# Visual Studio 2015
+.vs/
+
+# Unreal Engine
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+Script/
+
+# Xcode
+.xcodeproj/
+.xcworkspace/
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+*.ipa
+
+# Editor
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.user
+*.userosscache
+*.sln.docstates
+*.opensdf
+*.sdf
+*.suo

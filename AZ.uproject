@@ -1,0 +1,50 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{91826852-4824-732C-D218-F48725E2841A}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "AZ",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"GameplayAbilities",
+				"AIModule",
+				"UMG",
+				"EnhancedInput",
+				"CoreUObject"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		},
+		{
+			"Name": "AnimationWarping",
+			"Enabled": true
+		},
+		{
+			"Name": "CommonUI",
+			"Enabled": true
+		},
+		{
+			"Name": "AIAssistant",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayBehaviors",
+			"Enabled": true
+		}
+	]
+}

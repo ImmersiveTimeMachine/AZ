@@ -1,0 +1,203 @@
+﻿// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AZ_Inv_CommonUI_InventoryComponent.h"
+#include "Blueprint/UserWidget.h"
+#include "Inventory/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
+#include "Inventory/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
+#include "Inventory/Widgets/SlottedItems/AZ_Inv_CommonUI_SlottedItem.h"
+#include "AZ_Inv_CommonUI_InventoryGrid.generated.h"
+
+class UAZ_Inv_CommonUI_ItemPopUp;
+class UCommonButtonBase;
+class UGridPanel;
+class UScrollBox;
+class UBorder;
+class USizeBox;
+class UAZ_Inv_CommonUI_GridSlot;
+
+UCLASS()
+class AZ_API UAZ_Inv_CommonUI_InventoryGrid : public UUserWidget
+{
+	GENERATED_BODY()
+
+public:
+	// ---------------------------------------------------
+	// FUNCTIONS
+	// ---------------------------------------------------
+
+	// Optional: Override NativeConstruct to apply your colors/logic immediately in C++
+	virtual void NativeConstruct() override;
+	virtual void NativePreConstruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+	//protected:
+	//virtual FGeometry GetTickSpaceGeometry(const FGeometry& MyGeometry) const override;
+	/** * Configures the grid container visual style.
+	 * Logic: Hides the background border if bShowBackground is false.
+	 */
+
+	UFUNCTION()
+	void AddItem(UAZ_Inv_CommonUI_InventoryItem* Item);
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
+	void SetupGridContainer();
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
+	virtual void SetupPreviewSlots(bool bIsDesignTime);
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
+	void SetScrollbarStyle();
+
+	// ---------------------------------------------------
+	// CONFIGURATION (Matches your "Grid Container" Category)
+	// ---------------------------------------------------
+
+	/** The class of the slot widget to spawn (e.g., WBP_InventorySlot) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_GridSlot> GridSlotWidgetClass;
+
+	/*UPROPERTY()
+	TArray<TObjectPtr<UAZ_Inv_CommonUI_Slot>> GridSlots;*/
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	bool bShowBackground;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	FVector2D GridSize;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	float ContentHeight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	float TileSize{100.0f};
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	float BarCornerRadius;
+
+	// ---------------------------------------------------
+	// STYLING
+	// ---------------------------------------------------
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	FLinearColor BarNormalColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	FLinearColor BarTransparentColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	FLinearColor BarHighlightedColor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory")
+	FLinearColor BarDragColor;
+
+	// ---------------------------------------------------
+	// BINDINGS (WIDGETS)
+	// ---------------------------------------------------
+
+	UPROPERTY(BlueprintReadWrite, meta = (BindWidget), Category = "AZ|Inventory")
+	TObjectPtr<UBorder> GridContainerBorder;
+
+	UPROPERTY(BlueprintReadWrite, meta = (BindWidget), Category = "AZ|Inventory")
+	TObjectPtr<USizeBox> ItemsSizeBox;
+
+	UPROPERTY(BlueprintReadWrite, meta = (BindWidget), Category = "AZ|Inventory")
+	TObjectPtr<UScrollBox> ItemsScrollBox;
+
+	UPROPERTY(BlueprintReadWrite, meta = (BindWidget), Category = "AZ|Inventory")
+	TObjectPtr<UGridPanel> InventoryGridPanel;
+
+	UPROPERTY(BlueprintReadWrite, meta = (BindWidget), Category = "AZ|Inventory")
+	TObjectPtr<USizeBox> ContentSizeBox;
+
+	// ---------------------------------------------------
+	// LAYOUT CONFIG (merged from Horror)
+	// ---------------------------------------------------
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory", meta = (AllowPrivateAccess = "true"))
+	float GridContainerHeight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory", meta = (AllowPrivateAccess = "true"))
+	FVector4 GridPadding; // X=Left, Y=Top, Z=Right, W=Bottom
+
+	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
+
+private:
+	bool MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
+	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackAmountOverride = -1);
+
+	bool HasRoomAtIndex(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const FIntPoint& Dimensions, const TSet<int32>& CheckedIndices,
+	                    TSet<int32>& OutTentativelyClaimed,
+	                    const FGameplayTag& ItemTypeTag, const int32 MaxStackSize) const;
+
+	UAZ_Inv_CommonUI_SlottedItem* CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem, const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment,
+	                                                const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment, int32 Index,
+	                                                bool bStackable, int32 StackAmount) const;
+
+	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, const int32 StackAmountOverride = -1);
+
+	FVector2D GetDrawSize(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment) const;
+	
+	void SetSlottedItemImage(const FAZ_Inv_CommonUI_Grid_Fragment* GridFragment, const FAZ_Inv_CommonUI_Image_Fragment* ImageFragment,
+	                         UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const;
+
+	bool IsInGridBounds(const int32 StartIndex, const FIntPoint& ItemDimensions) const;
+	FIntPoint GetItemDimensions(const FAZ_Inv_CommonUI_ItemManifest& Manifest) const;
+
+	int32 GetStackAmount(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
+	int32 DetermineFillAmountForSlot(const bool bStackable, const int32 MaxStackSize, const int32 AmountToFill,
+	                                 const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
+	
+	bool IsIndexClaimed(const TSet<int32>& CheckedIndices, const int32 Index) const;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "AZ|Inventory")
+	EInv_ItemCategory ItemCategory;
+
+	UPROPERTY(EditDefaultsOnly, Category="AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_GridSlot> GridSlotClass;
+
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_SlottedItem> SlottedItemClass;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UAZ_Inv_CommonUI_GridSlot>> GridSlots;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_HoverItem> HoverItemClass;
+
+	UPROPERTY()
+	TObjectPtr<UAZ_Inv_CommonUI_HoverItem> HoverItem;
+
+	UPROPERTY()
+	TObjectPtr<UAZ_Inv_CommonUI_ItemPopUp> ItemPopUp;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_ItemPopUp> ItemPopUpClass;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	FVector2D ItemPopUpOffset;
+
+	UPROPERTY()
+	TMap<int32, TObjectPtr<UAZ_Inv_CommonUI_SlottedItem>> SlottedItems;
+
+
+	void ConstructGrid();
+
+	UFUNCTION()
+	void OnGridSlotClicked(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnGridSlotHovered(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnGridSlotUnhovered(UCommonButtonBase* Button);
+
+	// ---------------------------------------------------
+	// LOGIC & DATA
+	// ---------------------------------------------------
+
+	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;
+
+	TArray<UAZ_Inv_CommonUI_GridSlot*> GetAllGridSlots() const;
+
+	TArray<UAZ_Inv_CommonUI_GridSlot*> SlotsByIndex;
+};
