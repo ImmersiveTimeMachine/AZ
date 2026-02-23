@@ -85,12 +85,15 @@ FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomF
 	return HasRoomForItem(ItemComponent->GetItemManifest());
 }
 
-void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex, const int32 PreviousGridIndex)
+void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex,
+                                                     const int32 PreviousGridIndex)
 {
 	AssignHoverItem(InventoryItem);
 
 	HoverItem->SetPreviousGridIndex(PreviousGridIndex);
-	HoverItem->UpdateStackCount(InventoryItem->IsStackable() ? GridSlots[GridIndex]->GetStackCount() : 0);
+	HoverItem->UpdateStackCount(InventoryItem->IsStackable()
+		? GridSlots[GridIndex]->GetStackCount()
+		: 0);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem)
@@ -103,7 +106,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(InventoryItem, Tags.Item_Fragment_Grid);
 	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(InventoryItem, Tags.Item_Fragment_Icon);
-	
+
 	if (!GridFragment || !ImageFragment) return;
 
 	const FVector2D DrawSize = GetDrawSize(GridFragment);
@@ -171,6 +174,29 @@ FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomF
 		// How much to fill?
 		const int32 AmountToFillInSlot = DetermineFillAmountForSlot(Result.bIsStackable, MaxStackSize, AmountToFill, GridSlot);
 		if (AmountToFillInSlot == 0) continue;
+
+		CheckedIndices.Append(TentativelyClaimed);
+
+		// Update the amount left to fill
+		Result.TotalRoomToFill += AmountToFillInSlot;
+		Result.AvailableSlots.Emplace(
+			FInv_SlotAvailability{
+				GridSlot->GetInventoryItem().IsValid()
+				? GridSlot->GetUpperLeftIndex()
+				: GridSlot->GetIndex(),
+				Result.bIsStackable
+				? AmountToFillInSlot
+				: 0,
+				GridSlot->GetInventoryItem().IsValid()
+			}
+		);
+
+		AmountToFill -= AmountToFillInSlot;
+
+		// How much is the Remainder?
+		Result.RemainingRooms = AmountToFill;
+
+		if (AmountToFill == 0) return Result;
 	}
 
 	return Result;
@@ -222,7 +248,7 @@ bool UAZ_Inv_CommonUI_InventoryGrid::HasRoomAtIndex(const UAZ_Inv_CommonUI_GridS
 			// Empty slot – tentatively claim it
 			if (!CandidateSlot->GetInventoryItem().IsValid())
 			{
-				OutTentativelyClaimed.Add(Index);
+				OutTentativelyClaimed.Add(CandidateSlot->GetIndex());
 				continue;
 			}
 
@@ -291,7 +317,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_
 
 UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem,
                                                                                 const FAZ_Inv_CommonUI_GridFragment* GridFragment,
-                                                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment, const int32 Index,
+                                                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
+                                                                                const int32 Index,
                                                                                 bool bStackable,
                                                                                 const int32 StackAmount) const
 {
@@ -381,7 +408,7 @@ int32 UAZ_Inv_CommonUI_InventoryGrid::DetermineFillAmountForSlot(const bool bSta
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::AddItemToGridSlots(const FAZ_Inv_CommonUI_SlotAvailabilityResult& SlotAvailabilityResult,
-	UAZ_Inv_CommonUI_InventoryItem* NewItem)
+                                                        UAZ_Inv_CommonUI_InventoryItem* NewItem)
 {
 	for (const auto& AvailableItem : SlotAvailabilityResult.AvailableSlots)
 	{
@@ -414,22 +441,24 @@ void UAZ_Inv_CommonUI_InventoryGrid::UpdateGridSlots(UAZ_Inv_CommonUI_InventoryI
 
 	const FAZ_GameplayTags Tags = FAZ_GameplayTags::Get();
 	const auto GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(NewItem, Tags.Item_Fragment_Grid);
-	const FIntPoint Dimensions = GridFragment ? GridFragment->GetGridSize() : FIntPoint(1, 1);
+	const FIntPoint Dimensions = GridFragment
+		? GridFragment->GetGridSize()
+		: FIntPoint(1, 1);
 
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 
 	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
-	{
-		GridSlot->SetInventoryItem(NewItem);
-		GridSlot->SetUpperLeftIndex(Index);
-		GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
-		GridSlot->SetOccupiedTexture();
-		GridSlot->SetAvailable(false);
-	});
+		{
+			GridSlot->SetInventoryItem(NewItem);
+			GridSlot->SetUpperLeftIndex(Index);
+			GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
+			GridSlot->SetOccupiedTexture();
+			GridSlot->SetAvailable(false);
+		});
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::AddSlottedItemToPanel(const int32 Index, const FAZ_Inv_CommonUI_GridFragment* GridFragment,
-	UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const
+                                                           UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const
 {
 	if (!SlottedItem || !GridFragment || !InventoryGridPanel) return;
 
@@ -502,7 +531,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 	// We convert the float size (e.g., 5.0, 4.0) into integers for the loop.
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 	const int32 RowCount = FMath::TruncToInt(GridSize.Y);
-	
+
 	SlotsByIndex.SetNum(ColumnCount * RowCount);
 
 	// Note: In C++, "i < Count" is the same as BP's "0 to Count-1"
@@ -512,6 +541,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 		{
 			if (UAZ_Inv_CommonUI_GridSlot* GridSlot = CreateWidget<UAZ_Inv_CommonUI_GridSlot>(this, GridSlotWidgetClass))
 			{
+				GridSlots.Add(GridSlot);
 				GridSlot->OnSlotHovered().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotHovered);
 				GridSlot->OnSlotUnhovered().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotUnhovered);
 				GridSlot->OnSlotClicked().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotClicked);
