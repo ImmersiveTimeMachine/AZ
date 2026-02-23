@@ -4,6 +4,7 @@
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryGrid.h"
 
 #include "AZ_GameplayTags.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
@@ -84,7 +85,41 @@ FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomF
 	return HasRoomForItem(ItemComponent->GetItemManifest());
 }
 
-//
+void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex, const int32 PreviousGridIndex)
+{
+	AssignHoverItem(InventoryItem);
+
+	HoverItem->SetPreviousGridIndex(PreviousGridIndex);
+	HoverItem->UpdateStackCount(InventoryItem->IsStackable() ? GridSlots[GridIndex]->GetStackCount() : 0);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem)
+{
+	if (!IsValid(HoverItem))
+	{
+		HoverItem = CreateWidget<UAZ_Inv_CommonUI_HoverItem>(GetOwningPlayer(), HoverItemClass);
+	}
+
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(InventoryItem, Tags.Item_Fragment_Grid);
+	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(InventoryItem, Tags.Item_Fragment_Icon);
+	
+	if (!GridFragment || !ImageFragment) return;
+
+	const FVector2D DrawSize = GetDrawSize(GridFragment);
+
+	FSlateBrush IconBrush;
+	IconBrush.SetResourceObject(ImageFragment->GetIcon());
+	IconBrush.DrawAs = ESlateBrushDrawType::Image;
+	IconBrush.ImageSize = DrawSize * UWidgetLayoutLibrary::GetViewportScale(this);
+
+	HoverItem->SetImageBrush(IconBrush);
+	HoverItem->SetGridDimensions(GridFragment->GetGridSize());
+	HoverItem->SetInventoryItem(InventoryItem);
+	HoverItem->SetIsStackable(InventoryItem->IsStackable());
+
+	GetOwningPlayer()->SetMouseCursorWidget(EMouseCursor::Default, HoverItem);
+}
 
 FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomForItem(const UAZ_Inv_CommonUI_InventoryItem* Item,
                                                                                        const int32 StackAmountOverride)
@@ -467,6 +502,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 	// We convert the float size (e.g., 5.0, 4.0) into integers for the loop.
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 	const int32 RowCount = FMath::TruncToInt(GridSize.Y);
+	
+	SlotsByIndex.SetNum(ColumnCount * RowCount);
 
 	// Note: In C++, "i < Count" is the same as BP's "0 to Count-1"
 	for (int32 Col = 0; Col < RowCount; Col++)

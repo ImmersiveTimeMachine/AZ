@@ -29,17 +29,17 @@ void UAZ_Inv_CommonUI_InventoryItem::SetItemManifest(const FAZ_Inv_CommonUI_Item
 	ItemManifest = FInstancedStruct::Make<FAZ_Inv_CommonUI_ItemManifest>(Manifest);
 }
 
-FAZ_Inv_CommonUI_ItemManifest UAZ_Inv_CommonUI_InventoryItem::GetItemManifest() const
+const FAZ_Inv_CommonUI_ItemManifest& UAZ_Inv_CommonUI_InventoryItem::GetItemManifest() const
 {
-	// Add a check to make invalid state explicit
-	if (!ensureMsgf(ItemManifest.IsValid(), TEXT("ItemManifestData is invalid, returning default manifest")))
+	if (const FAZ_Inv_CommonUI_ItemManifest* ManifestPtr = ItemManifest.GetPtr<FAZ_Inv_CommonUI_ItemManifest>())
 	{
-		static const FAZ_Inv_CommonUI_ItemManifest DefaultManifest;
-		return DefaultManifest;
+		return *ManifestPtr;
 	}
-	return ItemManifest.Get<FAZ_Inv_CommonUI_ItemManifest>();
-}
 
+	ensureMsgf(false, TEXT("ItemManifestData is invalid or wrong type, returning default manifest"));
+	static const FAZ_Inv_CommonUI_ItemManifest DefaultManifest;
+	return DefaultManifest;
+}
 FAZ_Inv_CommonUI_ItemManifest& UAZ_Inv_CommonUI_InventoryItem::GetItemManifestMutable()
 {
 	ensure(ItemManifest.IsValid());

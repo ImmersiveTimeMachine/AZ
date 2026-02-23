@@ -24,10 +24,9 @@ public:
 	bool IsStackable() const;
 	bool IsConsumable() const;
 	
-	void SetItemManifest(const FAZ_Inv_CommonUI_ItemManifest& Manifest);
-	FAZ_Inv_CommonUI_ItemManifest GetItemManifest() const;
-	FAZ_Inv_CommonUI_ItemManifest& GetItemManifestMutable();
-	
+	        void SetItemManifest(const FAZ_Inv_CommonUI_ItemManifest& Manifest);
+	        const FAZ_Inv_CommonUI_ItemManifest& GetItemManifest() const;
+	        FAZ_Inv_CommonUI_ItemManifest& GetItemManifestMutable();	
 	int32 GetTotalStackCount() const { return TotalStackCount; }
 	void SetTotalStackCount(const int32 Count) { TotalStackCount = Count; }
 	

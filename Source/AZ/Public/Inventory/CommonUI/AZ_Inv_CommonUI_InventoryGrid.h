@@ -40,6 +40,12 @@ public:
 	
 	UFUNCTION()
 	void AddItem(UAZ_Inv_CommonUI_InventoryItem* Item);
+	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
+	void AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem);
+	void SetOwningGridPanel(UGridPanel* OwningGridPanel)
+	{
+		InventoryGridPanel = OwningGridPanel;
+	}
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
 	void SetupGridContainer();
@@ -121,8 +127,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory", meta = (AllowPrivateAccess = "true"))
 	FVector4 GridPadding; // X=Left, Y=Top, Z=Right, W=Bottom
 
-	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
-
 private:
 	bool MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackAmountOverride = -1);
@@ -153,6 +157,7 @@ private:
 	void AddItemAtIndex(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackable, int32 StackAmount);
 	void UpdateGridSlots(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackableItem, int32 StackAmount);
 	void AddSlottedItemToPanel(const int32 Index, const FAZ_Inv_CommonUI_GridFragment* GridFragment, UAZ_Inv_CommonUI_SlottedItem* SlottedItem ) const;
+	void AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex, const int32 PreviousGridIndex);
 	
 	bool IsIndexClaimed(const TSet<int32>& CheckedIndices, const int32 Index) const;
 
@@ -204,5 +209,6 @@ private:
 
 	TArray<UAZ_Inv_CommonUI_GridSlot*> GetAllGridSlots() const;
 
+	UPROPERTY()
 	TArray<UAZ_Inv_CommonUI_GridSlot*> SlotsByIndex;
 };
