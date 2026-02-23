@@ -114,7 +114,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 	FSlateBrush IconBrush;
 	IconBrush.SetResourceObject(ImageFragment->GetIcon());
 	IconBrush.DrawAs = ESlateBrushDrawType::Image;
-	IconBrush.ImageSize = DrawSize * UWidgetLayoutLibrary::GetViewportScale(this);
+	IconBrush.ImageSize = DrawSize;
 
 	HoverItem->SetImageBrush(IconBrush);
 	HoverItem->SetGridDimensions(GridFragment->GetGridSize());
@@ -289,15 +289,31 @@ bool UAZ_Inv_CommonUI_InventoryGrid::HasRoomAtIndex(const UAZ_Inv_CommonUI_GridS
 
 FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const
 {
-	if (!GridFragment)
+	FVector2D BaseTileSize(TileSize, TileSize);
+
+	// Try to fetch the actual size from the first slot if available and layout has occurred
+	if (GridSlots.IsValidIndex(0) && GridSlots[0])
 	{
-		return FVector2D(TileSize, TileSize);
+		const FVector2D CachedSize = GridSlots[0]->GetCachedGeometry().GetLocalSize();
+		if (CachedSize.X > 0.f && CachedSize.Y > 0.f)
+		{
+			BaseTileSize = CachedSize;
+		}
 	}
 
-	const float IconTileWidth = TileSize - GridFragment->GetGridPadding() * 2;
-	return FVector2D(GridFragment->GetGridSize()) * IconTileWidth;
-}
+	if (!GridFragment)
+	{
+		return BaseTileSize;
+	}
 
+	const FVector2D GridDimensions = FVector2D(GridFragment->GetGridSize());
+	const float GridFragmentGridPadding = GridFragment->GetGridPadding() * 2.f;
+
+	return FVector2D(
+		(BaseTileSize.X - GridFragmentGridPadding) * GridDimensions.X,
+		(BaseTileSize.Y - GridFragmentGridPadding) * GridDimensions.Y
+	);
+}
 void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_GridFragment* GridFragment,
                                                          const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
                                                          UAZ_Inv_CommonUI_SlottedItem* SlottedItem) const
@@ -463,6 +479,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddSlottedItemToPanel(const int32 Index, co
 	if (!SlottedItem || !GridFragment || !InventoryGridPanel) return;
 
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	if (ColumnCount <= 0) return;
+
 	const int32 Row = Index / ColumnCount;
 	const int32 Col = Index % ColumnCount;
 
@@ -474,6 +492,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddSlottedItemToPanel(const int32 Index, co
 		GridSlot->SetColumnSpan(ItemDimensions.X);
 		GridSlot->SetHorizontalAlignment(HAlign_Fill);
 		GridSlot->SetVerticalAlignment(VAlign_Fill);
+		GridSlot->SetPadding(FMargin(1.0f));
 	}
 }
 
@@ -522,10 +541,10 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 	}
 
 	// Calculate TileSize dynamically based on ContentHeight and RowCount
-	if (GridSize.Y > 0)
+	/*if (GridSize.Y > 0)
 	{
 		TileSize = ContentHeight / GridSize.Y;
-	}
+	}*/
 
 	InventoryGridPanel->ClearChildren();
 	// We convert the float size (e.g., 5.0, 4.0) into integers for the loop.
