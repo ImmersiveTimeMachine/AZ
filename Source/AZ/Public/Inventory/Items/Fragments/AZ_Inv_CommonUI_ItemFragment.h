@@ -133,3 +133,153 @@ public:
 	int32 GetStackCount() const { return StackCount; }
 	void SetStackCount(const int32 InStackCount) { StackCount = InStackCount; }
 };
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_LabeledNumberFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
+{
+	GENERATED_BODY()
+
+	virtual void Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const override;
+	virtual void Manifest() override;
+	float GetValue() const { return Value; }
+
+	bool bRandomizeOnManifest{true};
+
+private:
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	FText Text_Label{};
+
+	UPROPERTY(VisibleAnywhere, Category = "AZ|Inventory")
+	float Value{0.f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float Min{0};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float Max{0};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	bool bCollapseLabel{false};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	bool bCollapseValue{false};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	int32 MinFractionalDigits{1};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	int32 MaxFractionalDigits{1};
+};
+
+// Consume Fragments
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_ConsumeModifier : public FAZ_Inv_CommonUI_LabeledNumberFragment
+{
+	GENERATED_BODY()
+
+	virtual void OnConsume(APlayerController* PC) {}
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_ConsumableFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
+{
+	GENERATED_BODY()
+
+	virtual void OnConsume(APlayerController* PC);
+	virtual void Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const override;
+	virtual void Manifest() override;
+private:
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta = (ExcludeBaseStruct))
+	TArray<TInstancedStruct<FAZ_Inv_CommonUI_ConsumeModifier>> ConsumeModifiers;
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_HealthPotionFragment : public FAZ_Inv_CommonUI_ConsumeModifier
+{
+	GENERATED_BODY()
+
+	virtual void OnConsume(APlayerController* PC) override;
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_ManaPotionFragment : public FAZ_Inv_CommonUI_ConsumeModifier
+{
+	GENERATED_BODY()
+
+	virtual void OnConsume(APlayerController* PC) override;
+};
+
+// Equipment
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_EquipModifier : public FAZ_Inv_CommonUI_LabeledNumberFragment
+{
+	GENERATED_BODY()
+
+	virtual void OnEquip(APlayerController* PC) {}
+	virtual void OnUnequip(APlayerController* PC) {}
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_StrengthModifier : public FAZ_Inv_CommonUI_EquipModifier
+{
+	GENERATED_BODY()
+
+	virtual void OnEquip(APlayerController* PC) override;
+	virtual void OnUnequip(APlayerController* PC) override;
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_ArmorModifier : public FAZ_Inv_CommonUI_EquipModifier
+{
+	GENERATED_BODY()
+
+	virtual void OnEquip(APlayerController* PC) override;
+	virtual void OnUnequip(APlayerController* PC) override;
+};
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_DamageModifier : public FAZ_Inv_CommonUI_EquipModifier
+{
+	GENERATED_BODY()
+
+	virtual void OnEquip(APlayerController* PC) override;
+	virtual void OnUnequip(APlayerController* PC) override;
+};
+
+class AAZ_Inv_EquipActor;
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_EquipmentFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
+{
+	GENERATED_BODY()
+
+	bool bEquipped{false};
+	void OnEquip(APlayerController* PC);
+	void OnUnequip(APlayerController* PC);
+	virtual void Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const override;
+	virtual void Manifest() override;
+
+	AAZ_Inv_EquipActor* SpawnAttachedActor(USkeletalMeshComponent* AttachMesh) const;
+	void DestroyAttachedActor() const;
+	FGameplayTag GetEquipmentType() const { return EquipmentType; }
+	void SetEquippedActor(AAZ_Inv_EquipActor* EquipActor);
+
+private:
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TArray<TInstancedStruct<FAZ_Inv_CommonUI_EquipModifier>> EquipModifiers;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<AAZ_Inv_EquipActor> EquipActorClass = nullptr;
+
+	TWeakObjectPtr<AAZ_Inv_EquipActor> EquippedActor = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	FName SocketAttachPoint{NAME_None};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	FGameplayTag EquipmentType = FGameplayTag::EmptyTag;
+};
