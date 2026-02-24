@@ -13,6 +13,9 @@
 
 class UAZ_Inv_CommonUI_InventoryComponent;
 class UAZ_Inv_InventoryComponent;
+class UAZ_Inv_CommonUI_HoverItem;
+class UAZ_Inv_CommonUI_InventoryItem;
+class UAZ_Inv_CommonUI_GameInventoryMenu;
 
 /**
  * Static helper library for inventory-related operations.
@@ -54,6 +57,11 @@ public:
 	template<typename T, typename FuncT>
 	static void ForEach2D(TArray<T>& Array, int32 Index, const FIntPoint& Range2D, int32 GridColumns, const FuncT& Function);
 	static UAZ_Inv_InventoryMenuBase* GetInventoryWidget(const APlayerController* PlayerController);
+
+	static void CommonUI_ItemHovered(APlayerController* PC, UAZ_Inv_CommonUI_InventoryItem* Item);
+	static void CommonUI_ItemUnhovered(APlayerController* PC);
+	static UAZ_Inv_CommonUI_HoverItem* CommonUI_GetHoverItem(APlayerController* PC);
+	static UAZ_Inv_CommonUI_GameInventoryMenu* CommonUI_GetInventoryWidget(const APlayerController* PlayerController);
 };
 
 template<typename T, typename FuncT>

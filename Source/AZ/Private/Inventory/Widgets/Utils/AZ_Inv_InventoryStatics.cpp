@@ -5,7 +5,9 @@
 #include "GameplayTagsManager.h"
 #include "GameFramework/PlayerController.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "Inventory/CommonUI/AZ_Inv_CommonUI_GameInventoryMenu.h"
 #include "Inventory/Items/HoverItem/AZ_Inv_HoverItem.h"
+#include "Inventory/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 #include "Inventory/Widgets/Screens/AZ_Inv_InventoryMenuBase.h"
 
 UAZ_Inv_InventoryComponent* UAZ_Inv_InventoryStatics::GetInventoryComponent(const APlayerController* PlayerController)
@@ -112,6 +114,49 @@ UAZ_Inv_HoverItem* UAZ_Inv_InventoryStatics::GetHoverItem(APlayerController* PC)
 UAZ_Inv_InventoryMenuBase* UAZ_Inv_InventoryStatics::GetInventoryWidget(const APlayerController* PlayerController)
 {
 	const UAZ_Inv_InventoryComponent* IC = GetInventoryComponent(PlayerController);
+	if (!IsValid(IC)) return nullptr;
+
+	return IC->GetInventoryMenu();
+}
+
+void UAZ_Inv_InventoryStatics::CommonUI_ItemHovered(APlayerController* PC, UAZ_Inv_CommonUI_InventoryItem* Item)
+{
+	UAZ_Inv_CommonUI_InventoryComponent* IC = Get_CommonUI_InventoryComponent(PC);
+	if (!IsValid(IC)) return;
+
+	UAZ_Inv_CommonUI_GameInventoryMenu* Menu = IC->GetInventoryMenu();
+	if (!IsValid(Menu)) return;
+
+	if (Menu->HasHoverItem()) return;
+
+	Menu->OnItemHovered(Item);
+}
+
+void UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(APlayerController* PC)
+{
+	UAZ_Inv_CommonUI_InventoryComponent* IC = Get_CommonUI_InventoryComponent(PC);
+	if (!IsValid(IC)) return;
+
+	UAZ_Inv_CommonUI_GameInventoryMenu* Menu = IC->GetInventoryMenu();
+	if (!IsValid(Menu)) return;
+
+	Menu->OnItemUnHovered();
+}
+
+UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_InventoryStatics::CommonUI_GetHoverItem(APlayerController* PC)
+{
+	UAZ_Inv_CommonUI_InventoryComponent* IC = Get_CommonUI_InventoryComponent(PC);
+	if (!IsValid(IC)) return nullptr;
+
+	UAZ_Inv_CommonUI_GameInventoryMenu* Menu = IC->GetInventoryMenu();
+	if (!IsValid(Menu)) return nullptr;
+
+	return Menu->GetHoverItem();
+}
+
+UAZ_Inv_CommonUI_GameInventoryMenu* UAZ_Inv_InventoryStatics::CommonUI_GetInventoryWidget(const APlayerController* PlayerController)
+{
+	const UAZ_Inv_CommonUI_InventoryComponent* IC = Get_CommonUI_InventoryComponent(PlayerController);
 	if (!IsValid(IC)) return nullptr;
 
 	return IC->GetInventoryMenu();
