@@ -25,9 +25,8 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "Inventory System Pro")
 	TObjectPtr<UCommonTextBlock> TextRef;
 	
-	/** * Main entry point for button configuration.
-	 * Blueprint: SetupButton
-	 */
+	FCommonButtonBaseClicked& OnButtonClicked() { return OnButtonBaseClicked; }
+
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory Button")
 	void SetupButton();
 
