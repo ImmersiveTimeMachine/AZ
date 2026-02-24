@@ -53,8 +53,12 @@ class AZ_API UAZ_Inv_CommonUI_GridSlot : public UAZ_Inv_CommonUI_Button
 	EInv_CommonUI_GridSlotState GridSlotState;
 
 
+protected:
+	virtual void NativePreConstruct() override;
+	virtual void NativeOnClicked() override;
+
 public:
-	
+
 	void SetOccupiedTexture();
 	void SetUnoccupiedTexture();
 	void SetSelectedTexture();

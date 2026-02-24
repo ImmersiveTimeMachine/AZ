@@ -5,21 +5,43 @@
 
 #include "Inventory/Widgets/ItemPopUp/AZ_Inv_CommonUI_ItemPopUp.h"
 
+void UAZ_Inv_CommonUI_GridSlot::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+	SetIsSelectable(true);
+	SetIsToggleable(true);
+}
+
+void UAZ_Inv_CommonUI_GridSlot::NativeOnClicked()
+{
+	// Preserve selection state through clicks — we manage selection programmatically,
+	// so prevent CommonUI's click-to-toggle from interfering
+	const bool bWasSelected = GetSelected();
+	Super::NativeOnClicked();
+	if (GetSelected() != bWasSelected)
+	{
+		SetIsSelected(bWasSelected, false);
+	}
+}
 
 void UAZ_Inv_CommonUI_GridSlot::SetOccupiedTexture()
 {
+	SetIsSelected(true);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetUnoccupiedTexture()
 {
+	SetIsSelected(false);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetSelectedTexture()
 {
+	SetIsSelected(true);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetGrayedOutTexture()
 {
+	SetIsSelected(true);
 }
 
 UAZ_Inv_CommonUI_ItemPopUp* UAZ_Inv_CommonUI_GridSlot::GetItemPopUp() const
