@@ -3,10 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AZ_Inv_CommonUI_GridSlot.h"
 #include "AZ_Inv_CommonUI_InventoryComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Inventory/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 #include "Inventory/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
+#include "Inventory/Types/AZ_Inv_GridTypes.h"
 #include "Inventory/Widgets/SlottedItems/AZ_Inv_CommonUI_SlottedItem.h"
 #include "AZ_Inv_CommonUI_InventoryGrid.generated.h"
 
@@ -42,10 +44,14 @@ public:
 	void AddItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
 	void AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem);
-	void SetOwningGridPanel(UGridPanel* OwningGridPanel)
-	{
-		InventoryGridPanel = OwningGridPanel;
-	}
+	bool HasHoverItem() const;
+	UAZ_Inv_CommonUI_HoverItem* GetHoverItem() const;
+	float GetTileSize() const;
+	void ClearHoverItem();
+	void HideCursor();
+	void ShowCursor();
+	void OnHide();
+	void DropItem();
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
 	void SetupGridContainer();
@@ -200,6 +206,60 @@ private:
 	void OnGridSlotHovered(UCommonButtonBase* Button);
 	UFUNCTION()
 	void OnGridSlotUnhovered(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnSlottedItemClicked(UCommonButtonBase* Button);
+
+	UFUNCTION()
+	void AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result);
+
+	UFUNCTION()
+	void OnPopUpMenuSplit(int32 SplitAmount, int32 Index);
+	UFUNCTION()
+	void OnPopUpMenuConsume(int32 Index);
+	UFUNCTION()
+	void OnPopUpMenuDrop(int32 Index);
+
+	void PutDownOnIndex(int32 Index);
+	void PutHoverItemBack();
+	void RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, int32 GridIndex);
+	void PickUp(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, int32 GridIndex);
+	void CreateItemPopUp(int32 GridIndex);
+
+	// Stack interaction helpers
+	bool IsSameStackable(const UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem) const;
+	bool ShouldSwapStackCounts(int32 RoomInClickedSlot, int32 HoveredStackCount, int32 MaxStackSize) const;
+	void SwapStackCounts(int32 ClickedStackCount, int32 HoveredStackCount, int32 Index);
+	bool ShouldConsumeHoverItemStacks(int32 HoveredStackCount, int32 RoomInClickedSlot) const;
+	void ConsumeHoverItemStacks(int32 ClickedStackCount, int32 HoveredStackCount, int32 Index);
+	bool ShouldFillInStack(int32 RoomInClickedSlot, int32 HoveredStackCount) const;
+	void FillInStack(int32 FillAmount, int32 Remainder, int32 Index);
+	void SwapWithHoverItem(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, int32 GridIndex);
+
+	// Highlight system
+	void HighlightSlots(int32 Index, const FIntPoint& Dimensions);
+	void UnHighlightSlots(int32 Index, const FIntPoint& Dimensions);
+	void ChangeHoverType(int32 Index, const FIntPoint& Dimensions, EInv_CommonUI_GridSlotState GridSlotState);
+
+	// Tile tracking
+	void UpdateTileParameters(const FVector2D& GridPosition, const FVector2D& MousePosition);
+	void OnTileParametersUpdated(const FAZ_Inv_TileParameters& Parameters);
+	FIntPoint CalculateHoveredCoordinates(const FVector2D& GridPosition, const FVector2D& MousePosition) const;
+	EAZ_Inv_TileQuadrant CalculateTileQuadrant(const FVector2D& GridPosition, const FVector2D& MousePosition) const;
+	FIntPoint CalculateStartingCoordinate(const FIntPoint& Coordinate, const FIntPoint& Dimensions, EAZ_Inv_TileQuadrant Quadrant) const;
+	FAZ_Inv_CommonUI_SpaceQueryResult CheckHoverPosition(const FIntPoint& Position, const FIntPoint& Dimensions);
+	bool CursorExitedGrid(const FVector2D& BoundaryPos, const FVector2D& BoundarySize, const FVector2D& Location);
+
+	// Cursor widget helpers
+	UUserWidget* GetVisibleCursorWidget();
+	UUserWidget* GetHiddenCursorWidget();
+
+	// Data helpers
+	bool HasValidItem(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
+	bool IsUpperLeftSlot(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot) const;
+	bool DoesItemTypeMatch(const UAZ_Inv_CommonUI_InventoryItem* SubItem, const FGameplayTag& ItemType) const;
+	bool CheckSlotConstraints(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot,
+	                          const TSet<int32>& CheckedIndices, TSet<int32>& OutTentativelyClaimed,
+	                          const FGameplayTag& ItemType, int32 MaxStackSize) const;
 
 	// ---------------------------------------------------
 	// LOGIC & DATA
@@ -211,4 +271,28 @@ private:
 
 	UPROPERTY()
 	TArray<UAZ_Inv_CommonUI_GridSlot*> SlotsByIndex;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UUserWidget> VisibleCursorWidgetClass;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UUserWidget> HiddenCursorWidgetClass;
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> VisibleCursorWidget;
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> HiddenCursorWidget;
+
+	// Tile tracking state
+	bool bMouseWithinGrid{false};
+	bool bLastMouseWithinGrid{false};
+	int32 LastHighlightedIndex{INDEX_NONE};
+	FIntPoint LastHighlightedDimensions{FIntPoint::ZeroValue};
+
+	FAZ_Inv_TileParameters TileParameters;
+	FAZ_Inv_TileParameters LastTileParameters;
+
+	int32 ItemDropIndex{INDEX_NONE};
+	FAZ_Inv_CommonUI_SpaceQueryResult CurrentQueryResult;
 };

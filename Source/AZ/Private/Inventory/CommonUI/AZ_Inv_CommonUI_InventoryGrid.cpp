@@ -4,6 +4,7 @@
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryGrid.h"
 
 #include "AZ_GameplayTags.h"
+#include "Inventory/Widgets/ItemPopUp/AZ_Inv_CommonUI_ItemPopUp.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
 #include "Components/GridPanel.h"
@@ -14,6 +15,7 @@
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_GridSlot.h"
 #include "Inventory/Widgets/Utils/AZ_Inv_InventoryStatics.h"
+#include "Inventory/Widgets/Utils/AZ_Inv_WidgetUtils.h"
 
 void UAZ_Inv_CommonUI_InventoryGrid::NativeConstruct()
 {
@@ -37,7 +39,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeConstruct()
 	ensure(CommonUI_InventoryComponent.IsValid());
 
 	CommonUI_InventoryComponent->OnItemAdded.AddDynamic(this, &ThisClass::AddItem);
-	/*InventoryComponent->OnStackChange.AddDynamic(this, &ThisClass::AddStacks);*/
+	CommonUI_InventoryComponent->OnStackChange.AddDynamic(this, &ThisClass::AddStacks);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::NativePreConstruct()
@@ -71,6 +73,18 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativePreConstruct()
 void UAZ_Inv_CommonUI_InventoryGrid::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (!IsValid(HoverItem)) return;
+
+	const FVector2D GridPosition = UAZ_Inv_WidgetUtils::GetWidgetPosition(InventoryGridPanel);
+	const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+
+	if (CursorExitedGrid(GridPosition, UAZ_Inv_WidgetUtils::GetWidgetSize(InventoryGridPanel), MousePosition))
+	{
+		return;
+	}
+
+	UpdateTileParameters(GridPosition, MousePosition);
 }
 
 bool UAZ_Inv_CommonUI_InventoryGrid::MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const
@@ -357,6 +371,7 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 		}
 
 		SlottedItem->UpdateStackCount(StackAmount);
+		SlottedItem->OnItemClicked().AddDynamic(this, &ThisClass::OnSlottedItemClicked);
 	}
 
 	return SlottedItem;
@@ -468,7 +483,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::UpdateGridSlots(UAZ_Inv_CommonUI_InventoryI
 			GridSlot->SetInventoryItem(NewItem);
 			GridSlot->SetUpperLeftIndex(Index);
 			GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
-			GridSlot->SetOccupiedTexture();
+			GridSlot->SetUnoccupiedTexture();
 			GridSlot->SetAvailable(false);
 		});
 }
@@ -573,10 +588,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 					SlotsByIndex[LinearIndex] = GridSlot;
 				}
 
-				// The Blueprint connects the Outer Loop (Col) to 'InColumn' 
-				// and the Inner Loop (Row) to 'InRow'.
-
-				if (UGridSlot* NewSlotVisual = InventoryGridPanel->AddChildToGrid(GridSlot, Row, Col))
+				// Standard: outer loop (Col = row index) → InRow, inner loop (Row = column index) → InColumn
+				if (UGridSlot* NewSlotVisual = InventoryGridPanel->AddChildToGrid(GridSlot, Col, Row))
 				{
 					NewSlotVisual->SetHorizontalAlignment(HAlign_Fill);
 
@@ -594,21 +607,48 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotClicked(UCommonButtonBase* Button)
 {
+	if (!IsValid(HoverItem)) return;
+	if (!GridSlots.IsValidIndex(ItemDropIndex)) return;
+
+	if (CurrentQueryResult.ValidItem.IsValid() && GridSlots.IsValidIndex(CurrentQueryResult.UpperLeftIndex))
+	{
+		if (SlottedItems.Contains(CurrentQueryResult.UpperLeftIndex))
+		{
+			UAZ_Inv_CommonUI_SlottedItem* TargetSlottedItem = SlottedItems.FindChecked(CurrentQueryResult.UpperLeftIndex);
+			OnSlottedItemClicked(TargetSlottedItem);
+		}
+		return;
+	}
+
+	if (!IsInGridBounds(ItemDropIndex, HoverItem->GetGridDimensions())) return;
+	auto GridSlot = GridSlots[ItemDropIndex];
+	if (!GridSlot->GetInventoryItem().IsValid())
+	{
+		PutDownOnIndex(ItemDropIndex);
+	}
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotHovered(UCommonButtonBase* Button)
 {
-	if (UAZ_Inv_CommonUI_GridSlot* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Button); GridSlot->IsAvailable())
+	if (IsValid(HoverItem)) return;
+
+	UAZ_Inv_CommonUI_GridSlot* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Button);
+	if (GridSlot && GridSlot->IsAvailable())
 	{
 		GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
+		GridSlot->SetOccupiedTexture();
 	}
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotUnhovered(UCommonButtonBase* Button)
 {
-	if (UAZ_Inv_CommonUI_GridSlot* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Button); GridSlot->IsAvailable())
+	if (IsValid(HoverItem)) return;
+
+	UAZ_Inv_CommonUI_GridSlot* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Button);
+	if (GridSlot && GridSlot->IsAvailable())
 	{
 		GridSlot->SetState(EInv_CommonUI_GridSlotState::Unoccupied);
+		GridSlot->SetUnoccupiedTexture();
 	}
 }
 
@@ -625,6 +665,73 @@ void UAZ_Inv_CommonUI_InventoryGrid::SetupPreviewSlots(bool bIsDesignTime)
 	{
 		return;
 	}
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::HasHoverItem() const
+{
+	return IsValid(HoverItem);
+}
+
+UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_CommonUI_InventoryGrid::GetHoverItem() const
+{
+	return HoverItem;
+}
+
+float UAZ_Inv_CommonUI_InventoryGrid::GetTileSize() const
+{
+	return TileSize;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::ClearHoverItem()
+{
+	if (!IsValid(HoverItem)) return;
+
+	// Force-deselect highlighted slots regardless of availability —
+	// UnHighlightSlots would re-select occupied slots, so deselect directly
+	if (LastHighlightedIndex != INDEX_NONE)
+	{
+		const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+		UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, LastHighlightedIndex, LastHighlightedDimensions, ColumnCount,
+			[](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+			{
+				GridSlot->SetUnoccupiedTexture();
+			});
+	}
+	LastHighlightedIndex = INDEX_NONE;
+	LastHighlightedDimensions = FIntPoint::ZeroValue;
+
+	HoverItem->SetInventoryItem(nullptr);
+	HoverItem->SetIsStackable(false);
+	HoverItem->SetPreviousGridIndex(INDEX_NONE);
+	HoverItem->UpdateStackCount(0);
+	HoverItem->SetImageBrush(FSlateNoResource());
+
+	HoverItem->RemoveFromParent();
+	HoverItem = nullptr;
+
+	ShowCursor();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::HideCursor()
+{
+	if (!IsValid(GetOwningPlayer())) return;
+	GetOwningPlayer()->SetMouseCursorWidget(EMouseCursor::Default, GetHiddenCursorWidget());
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::ShowCursor()
+{
+	if (!IsValid(GetOwningPlayer())) return;
+	GetOwningPlayer()->SetMouseCursorWidget(EMouseCursor::Default, GetVisibleCursorWidget());
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnHide()
+{
+	if (IsValid(ItemPopUp))
+	{
+		ItemPopUp->RemoveFromParent();
+		ItemPopUp = nullptr;
+	}
+	PutHoverItemBack();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::SetScrollbarStyle()
@@ -677,4 +784,608 @@ void UAZ_Inv_CommonUI_InventoryGrid::SetScrollbarStyle()
 		? FMargin(0.f)
 		: FMargin(5.f, 2.f, 2.f, 2.f);
 	ItemsScrollBox->SetScrollbarPadding(NewPadding);
+}
+
+// =============================================================================
+// Slotted Item Click Handler
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemClicked(UCommonButtonBase* Button)
+{
+	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
+	if (!SlottedItem) return;
+
+	const int32 GridIndex = SlottedItem->GetGridIndex();
+	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
+	check(GridSlots.IsValidIndex(GridIndex));
+
+	auto* ClickedInventoryItem = GridSlots[GridIndex]->GetInventoryItem().Get();
+
+	if (!IsValid(HoverItem))
+	{
+		PickUp(ClickedInventoryItem, GridIndex);
+		return;
+	}
+
+	// Do the hovered item and the clicked inventory item share a type, and are they stackable?
+	if (IsSameStackable(ClickedInventoryItem))
+	{
+		const int32 ClickedStackCount = GridSlots[GridIndex]->GetStackCount();
+		const auto* StackableFragment = ClickedInventoryItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();
+		const int32 MaxStackSize = StackableFragment->GetMaxStackSize();
+		const int32 RoomInClickedSlot = MaxStackSize - ClickedStackCount;
+		const int32 HoveredStackCount = HoverItem->GetStackCount();
+
+		if (ShouldSwapStackCounts(RoomInClickedSlot, HoveredStackCount, MaxStackSize))
+		{
+			SwapStackCounts(ClickedStackCount, HoveredStackCount, GridIndex);
+			return;
+		}
+
+		if (ShouldConsumeHoverItemStacks(HoveredStackCount, RoomInClickedSlot))
+		{
+			ConsumeHoverItemStacks(ClickedStackCount, HoveredStackCount, GridIndex);
+			return;
+		}
+
+		if (ShouldFillInStack(RoomInClickedSlot, HoveredStackCount))
+		{
+			FillInStack(RoomInClickedSlot, HoveredStackCount - RoomInClickedSlot, GridIndex);
+			return;
+		}
+
+		if (RoomInClickedSlot == 0)
+		{
+			return;
+		}
+	}
+
+	if (CurrentQueryResult.ValidItem.IsValid())
+	{
+		SwapWithHoverItem(ClickedInventoryItem, GridIndex);
+	}
+}
+
+// =============================================================================
+// Stack Change Handler
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result)
+{
+	if (!Result.Item.IsValid()) return;
+	if (!MatchesCategory(Result.Item.Get())) return;
+
+	for (const auto& Availability : Result.AvailableSlots)
+	{
+		if (Availability.bItemAtIndex)
+		{
+			const auto& GridSlot = GridSlots[Availability.Index];
+			const auto& ExistingSlottedItem = SlottedItems.FindChecked(Availability.Index);
+			ExistingSlottedItem->UpdateStackCount(GridSlot->GetStackCount() + Availability.AmountToFill);
+			GridSlot->SetStackCount(GridSlot->GetStackCount() + Availability.AmountToFill);
+		}
+		else
+		{
+			AddItemAtIndex(Result.Item.Get(), Availability.Index, Result.bIsStackable, Availability.AmountToFill);
+			UpdateGridSlots(Result.Item.Get(), Availability.Index, Result.bIsStackable, Availability.AmountToFill);
+		}
+	}
+}
+
+// =============================================================================
+// PopUp Menu Handlers
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuSplit(int32 SplitAmount, int32 Index)
+{
+	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
+	if (!IsValid(RightClickedItem)) return;
+	if (!RightClickedItem->IsStackable()) return;
+
+	const int32 UpperLeftIndex = GridSlots[Index]->GetUpperLeftIndex();
+	UAZ_Inv_CommonUI_GridSlot* UpperLeftGridSlot = GridSlots[UpperLeftIndex];
+	const int32 StackCount = UpperLeftGridSlot->GetStackCount();
+	const int32 NewStackCount = StackCount - SplitAmount;
+
+	UpperLeftGridSlot->SetStackCount(NewStackCount);
+	SlottedItems.FindChecked(UpperLeftIndex)->UpdateStackCount(NewStackCount);
+
+	AssignHoverItem(RightClickedItem, UpperLeftIndex, UpperLeftIndex);
+	HoverItem->UpdateStackCount(SplitAmount);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuConsume(int32 Index)
+{
+	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
+	if (!IsValid(RightClickedItem)) return;
+
+	const int32 UpperLeftIndex = GridSlots[Index]->GetUpperLeftIndex();
+	UAZ_Inv_CommonUI_GridSlot* UpperLeftGridSlot = GridSlots[UpperLeftIndex];
+	const int32 NewStackCount = UpperLeftGridSlot->GetStackCount() - 1;
+
+	UpperLeftGridSlot->SetStackCount(NewStackCount);
+	SlottedItems.FindChecked(UpperLeftIndex)->UpdateStackCount(NewStackCount);
+
+	CommonUI_InventoryComponent->Server_ConsumeItem(RightClickedItem);
+
+	if (NewStackCount <= 0)
+	{
+		RemoveItemFromGrid(RightClickedItem, Index);
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDrop(int32 Index)
+{
+	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
+	if (!IsValid(RightClickedItem)) return;
+
+	PickUp(RightClickedItem, Index);
+	DropItem();
+}
+
+// =============================================================================
+// Item Placement
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::PutDownOnIndex(const int32 Index)
+{
+	AddItemAtIndex(HoverItem->GetInventoryItem(), Index, HoverItem->IsStackable(), HoverItem->GetStackCount());
+	UpdateGridSlots(HoverItem->GetInventoryItem(), Index, HoverItem->IsStackable(), HoverItem->GetStackCount());
+	ClearHoverItem();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::PutHoverItemBack()
+{
+	if (!IsValid(HoverItem)) return;
+
+	FAZ_Inv_CommonUI_SlotAvailabilityResult Result = HasRoomForItem(HoverItem->GetInventoryItem(), HoverItem->GetStackCount());
+	Result.Item = HoverItem->GetInventoryItem();
+
+	AddStacks(Result);
+	ClearHoverItem();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex)
+{
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(InventoryItem, Tags.Item_Fragment_Grid);
+	if (!GridFragment) return;
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, GridIndex, GridFragment->GetGridSize(), ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		GridSlot->SetInventoryItem(nullptr);
+		GridSlot->SetUpperLeftIndex(INDEX_NONE);
+		GridSlot->SetState(EInv_CommonUI_GridSlotState::Unoccupied);
+		GridSlot->SetUnoccupiedTexture();
+		GridSlot->SetAvailable(true);
+		GridSlot->SetStackCount(0);
+	});
+
+	if (SlottedItems.Contains(GridIndex))
+	{
+		TObjectPtr<UAZ_Inv_CommonUI_SlottedItem> FoundSlottedItem;
+		SlottedItems.RemoveAndCopyValue(GridIndex, FoundSlottedItem);
+		FoundSlottedItem->RemoveFromParent();
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::PickUp(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, const int32 GridIndex)
+{
+	AssignHoverItem(ClickedInventoryItem, GridIndex, GridIndex);
+	RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::DropItem()
+{
+	if (!IsValid(HoverItem)) return;
+	if (!IsValid(HoverItem->GetInventoryItem())) return;
+
+	CommonUI_InventoryComponent->Server_DropItem(HoverItem->GetInventoryItem(), HoverItem->GetStackCount());
+
+	ClearHoverItem();
+	ShowCursor();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
+{
+	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[GridIndex]->GetInventoryItem().Get();
+	if (!IsValid(RightClickedItem)) return;
+	if (IsValid(GridSlots[GridIndex]->GetItemPopUp())) return;
+
+	ItemPopUp = CreateWidget<UAZ_Inv_CommonUI_ItemPopUp>(this, ItemPopUpClass);
+	ItemPopUp->SetGridIndex(GridIndex);
+	GridSlots[GridIndex]->SetItemPopUp(ItemPopUp);
+
+	ItemPopUp->AddToViewport(100);
+	const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+	ItemPopUp->SetPositionInViewport(MousePosition - ItemPopUpOffset);
+
+	const int32 SliderMax = GridSlots[GridIndex]->GetStackCount() - 1;
+	if (RightClickedItem->IsStackable() && SliderMax > 0)
+	{
+		ItemPopUp->OnSplit.BindDynamic(this, &ThisClass::OnPopUpMenuSplit);
+		ItemPopUp->SetSliderParams(SliderMax, FMath::Max(1, GridSlots[GridIndex]->GetStackCount() / 2));
+	}
+	else
+	{
+		ItemPopUp->CollapseSplitButton();
+	}
+
+	ItemPopUp->OnDrop.BindDynamic(this, &ThisClass::OnPopUpMenuDrop);
+
+	if (RightClickedItem->IsConsumable())
+	{
+		ItemPopUp->OnConsume.BindDynamic(this, &ThisClass::OnPopUpMenuConsume);
+	}
+	else
+	{
+		ItemPopUp->CollapseConsumeButton();
+	}
+}
+
+// =============================================================================
+// Stack Interaction Helpers
+// =============================================================================
+
+bool UAZ_Inv_CommonUI_InventoryGrid::IsSameStackable(const UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem) const
+{
+	const bool bIsSameItem = ClickedInventoryItem == HoverItem->GetInventoryItem();
+	const bool bIsStackable = ClickedInventoryItem->IsStackable();
+	return bIsSameItem && bIsStackable && HoverItem->GetItemType().MatchesTagExact(ClickedInventoryItem->GetItemManifest().GetItemTypeTag());
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::ShouldSwapStackCounts(const int32 RoomInClickedSlot, const int32 HoveredStackCount, const int32 MaxStackSize) const
+{
+	return RoomInClickedSlot == 0 && HoveredStackCount < MaxStackSize;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::SwapStackCounts(const int32 ClickedStackCount, const int32 HoveredStackCount, const int32 Index)
+{
+	UAZ_Inv_CommonUI_GridSlot* GridSlot = GridSlots[Index];
+	GridSlot->SetStackCount(HoveredStackCount);
+
+	UAZ_Inv_CommonUI_SlottedItem* ClickedSlottedItem = SlottedItems.FindChecked(Index);
+	ClickedSlottedItem->UpdateStackCount(HoveredStackCount);
+
+	HoverItem->UpdateStackCount(ClickedStackCount);
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::ShouldConsumeHoverItemStacks(const int32 HoveredStackCount, const int32 RoomInClickedSlot) const
+{
+	return RoomInClickedSlot >= HoveredStackCount;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::ConsumeHoverItemStacks(const int32 ClickedStackCount, const int32 HoveredStackCount, const int32 Index)
+{
+	const int32 NewClickedStackCount = ClickedStackCount + HoveredStackCount;
+
+	GridSlots[Index]->SetStackCount(NewClickedStackCount);
+	SlottedItems.FindChecked(Index)->UpdateStackCount(NewClickedStackCount);
+	ClearHoverItem();
+	ShowCursor();
+
+	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(
+		GridSlots[Index]->GetInventoryItem().Get(), FAZ_GameplayTags::Get().Item_Fragment_Grid);
+	const FIntPoint Dimensions = GridFragment ? GridFragment->GetGridSize() : FIntPoint(1, 1);
+	HighlightSlots(Index, Dimensions);
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::ShouldFillInStack(const int32 RoomInClickedSlot, const int32 HoveredStackCount) const
+{
+	return RoomInClickedSlot < HoveredStackCount;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::FillInStack(const int32 FillAmount, const int32 Remainder, const int32 Index)
+{
+	UAZ_Inv_CommonUI_GridSlot* GridSlot = GridSlots[Index];
+	const int32 NewStackCount = GridSlot->GetStackCount() + FillAmount;
+
+	GridSlot->SetStackCount(NewStackCount);
+
+	UAZ_Inv_CommonUI_SlottedItem* ClickedSlottedItem = SlottedItems.FindChecked(Index);
+	ClickedSlottedItem->UpdateStackCount(NewStackCount);
+
+	HoverItem->UpdateStackCount(Remainder);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::SwapWithHoverItem(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, const int32 GridIndex)
+{
+	if (!IsValid(HoverItem)) return;
+
+	UAZ_Inv_CommonUI_InventoryItem* TempInventoryItem = HoverItem->GetInventoryItem();
+	const int32 TempStackCount = HoverItem->GetStackCount();
+	const bool bTempIsStackable = HoverItem->IsStackable();
+
+	AssignHoverItem(ClickedInventoryItem, GridIndex, HoverItem->GetPreviousGridIndex());
+	RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
+	AddItemAtIndex(TempInventoryItem, ItemDropIndex, bTempIsStackable, TempStackCount);
+	UpdateGridSlots(TempInventoryItem, ItemDropIndex, bTempIsStackable, TempStackCount);
+}
+
+// =============================================================================
+// Highlight System
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::HighlightSlots(const int32 Index, const FIntPoint& Dimensions)
+{
+	if (!bMouseWithinGrid) return;
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		GridSlot->SetOccupiedTexture();
+	});
+	LastHighlightedDimensions = Dimensions;
+	LastHighlightedIndex = Index;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::UnHighlightSlots(const int32 Index, const FIntPoint& Dimensions)
+{
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		if (GridSlot->IsAvailable())
+		{
+			GridSlot->SetUnoccupiedTexture();
+		}
+		else
+		{
+			GridSlot->SetOccupiedTexture();
+		}
+	});
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::ChangeHoverType(const int32 Index, const FIntPoint& Dimensions, EInv_CommonUI_GridSlotState GridSlotState)
+{
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [State = GridSlotState](UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		switch (State)
+		{
+		case EInv_CommonUI_GridSlotState::Occupied:
+			GridSlot->SetState(EInv_CommonUI_GridSlotState::Occupied);
+			GridSlot->SetOccupiedTexture();
+			break;
+		case EInv_CommonUI_GridSlotState::Unoccupied:
+			GridSlot->SetState(EInv_CommonUI_GridSlotState::Unoccupied);
+			GridSlot->SetUnoccupiedTexture();
+			break;
+		case EInv_CommonUI_GridSlotState::GrayedOut:
+			GridSlot->SetState(EInv_CommonUI_GridSlotState::GrayedOut);
+			GridSlot->SetGrayedOutTexture();
+			break;
+		case EInv_CommonUI_GridSlotState::Selected:
+			GridSlot->SetState(EInv_CommonUI_GridSlotState::Selected);
+			GridSlot->SetSelectedTexture();
+			break;
+		}
+	});
+
+	LastHighlightedIndex = Index;
+	LastHighlightedDimensions = Dimensions;
+}
+
+// =============================================================================
+// Tile Tracking
+// =============================================================================
+
+bool UAZ_Inv_CommonUI_InventoryGrid::CursorExitedGrid(const FVector2D& BoundaryPos, const FVector2D& BoundarySize, const FVector2D& Location)
+{
+	bLastMouseWithinGrid = bMouseWithinGrid;
+	bMouseWithinGrid = UAZ_Inv_WidgetUtils::IsWithinBounds(BoundaryPos, BoundarySize, Location);
+	if (!bMouseWithinGrid && bLastMouseWithinGrid)
+	{
+		UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+		return true;
+	}
+	return false;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::UpdateTileParameters(const FVector2D& GridPosition, const FVector2D& MousePosition)
+{
+	if (!bMouseWithinGrid) return;
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	const FIntPoint HoveredTileCoordinates = CalculateHoveredCoordinates(GridPosition, MousePosition);
+
+	LastTileParameters = TileParameters;
+	TileParameters.TileCoordinats = HoveredTileCoordinates;
+	TileParameters.TileIndex = UAZ_Inv_WidgetUtils::GetIndexFromPosition(HoveredTileCoordinates, ColumnCount);
+	TileParameters.TileQuadrant = CalculateTileQuadrant(GridPosition, MousePosition);
+
+	OnTileParametersUpdated(TileParameters);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnTileParametersUpdated(const FAZ_Inv_TileParameters& Parameters)
+{
+	if (!IsValid(HoverItem)) return;
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	const FIntPoint Dimensions = HoverItem->GetGridDimensions();
+
+	const FIntPoint StartingCoordinate = CalculateStartingCoordinate(Parameters.TileCoordinats, Dimensions, Parameters.TileQuadrant);
+	ItemDropIndex = UAZ_Inv_WidgetUtils::GetIndexFromPosition(StartingCoordinate, ColumnCount);
+
+	CurrentQueryResult = CheckHoverPosition(StartingCoordinate, Dimensions);
+
+	if (CurrentQueryResult.bHasSpace)
+	{
+		HighlightSlots(ItemDropIndex, Dimensions);
+		return;
+	}
+	UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+
+	if (CurrentQueryResult.ValidItem.IsValid() && GridSlots.IsValidIndex(CurrentQueryResult.UpperLeftIndex))
+	{
+		const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(
+			CurrentQueryResult.ValidItem.Get(), FAZ_GameplayTags::Get().Item_Fragment_Grid);
+		if (!GridFragment) return;
+
+		ChangeHoverType(CurrentQueryResult.UpperLeftIndex, GridFragment->GetGridSize(), EInv_CommonUI_GridSlotState::GrayedOut);
+	}
+}
+
+FIntPoint UAZ_Inv_CommonUI_InventoryGrid::CalculateHoveredCoordinates(const FVector2D& GridPosition, const FVector2D& MousePosition) const
+{
+	// Derive actual tile size from grid panel geometry
+	const FVector2D GridPanelSize = UAZ_Inv_WidgetUtils::GetWidgetSize(InventoryGridPanel);
+	const float ActualTileW = GridSize.X > 0 ? GridPanelSize.X / GridSize.X : TileSize;
+	const float ActualTileH = GridSize.Y > 0 ? GridPanelSize.Y / GridSize.Y : TileSize;
+
+	return FIntPoint(
+		FMath::FloorToInt32((MousePosition.X - GridPosition.X) / ActualTileW),
+		FMath::FloorToInt32((MousePosition.Y - GridPosition.Y) / ActualTileH)
+	);
+}
+
+EAZ_Inv_TileQuadrant UAZ_Inv_CommonUI_InventoryGrid::CalculateTileQuadrant(const FVector2D& GridPosition, const FVector2D& MousePosition) const
+{
+	const FVector2D GridPanelSize = UAZ_Inv_WidgetUtils::GetWidgetSize(InventoryGridPanel);
+	const float ActualTileW = GridSize.X > 0 ? GridPanelSize.X / GridSize.X : TileSize;
+	const float ActualTileH = GridSize.Y > 0 ? GridPanelSize.Y / GridSize.Y : TileSize;
+
+	const float TileLocalX = FMath::Fmod(MousePosition.X - GridPosition.X, ActualTileW);
+	const float TileLocalY = FMath::Fmod(MousePosition.Y - GridPosition.Y, ActualTileH);
+
+	const bool bIsTop = TileLocalY < ActualTileH / 2.f;
+	const bool bIsLeft = TileLocalX < ActualTileW / 2.f;
+
+	if (bIsTop && bIsLeft) return EAZ_Inv_TileQuadrant::TopLeft;
+	if (bIsTop && !bIsLeft) return EAZ_Inv_TileQuadrant::TopRight;
+	if (!bIsTop && bIsLeft) return EAZ_Inv_TileQuadrant::BottomLeft;
+	return EAZ_Inv_TileQuadrant::BottomRight;
+}
+
+FIntPoint UAZ_Inv_CommonUI_InventoryGrid::CalculateStartingCoordinate(const FIntPoint& Coordinate, const FIntPoint& Dimensions, const EAZ_Inv_TileQuadrant Quadrant) const
+{
+	const int32 HasEvenWidth = Dimensions.X % 2 == 0 ? 1 : 0;
+	const int32 HasEvenHeight = Dimensions.Y % 2 == 0 ? 1 : 0;
+
+	FIntPoint StartingCoord;
+	switch (Quadrant)
+	{
+	case EAZ_Inv_TileQuadrant::TopLeft:
+		StartingCoord.X = Coordinate.X - FMath::FloorToInt(0.5f * Dimensions.X);
+		StartingCoord.Y = Coordinate.Y - FMath::FloorToInt(0.5f * Dimensions.Y);
+		break;
+	case EAZ_Inv_TileQuadrant::TopRight:
+		StartingCoord.X = Coordinate.X - FMath::FloorToInt(0.5f * Dimensions.X) + HasEvenWidth;
+		StartingCoord.Y = Coordinate.Y - FMath::FloorToInt(0.5f * Dimensions.Y);
+		break;
+	case EAZ_Inv_TileQuadrant::BottomLeft:
+		StartingCoord.X = Coordinate.X - FMath::FloorToInt(0.5f * Dimensions.X);
+		StartingCoord.Y = Coordinate.Y - FMath::FloorToInt(0.5f * Dimensions.Y) + HasEvenHeight;
+		break;
+	case EAZ_Inv_TileQuadrant::BottomRight:
+		StartingCoord.X = Coordinate.X - FMath::FloorToInt(0.5f * Dimensions.X) + HasEvenWidth;
+		StartingCoord.Y = Coordinate.Y - FMath::FloorToInt(0.5f * Dimensions.Y) + HasEvenHeight;
+		break;
+	default:
+		return FIntPoint(-1, -1);
+	}
+	return StartingCoord;
+}
+
+FAZ_Inv_CommonUI_SpaceQueryResult UAZ_Inv_CommonUI_InventoryGrid::CheckHoverPosition(const FIntPoint& Position, const FIntPoint& Dimensions)
+{
+	FAZ_Inv_CommonUI_SpaceQueryResult Result;
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+
+	if (!IsInGridBounds(UAZ_Inv_WidgetUtils::GetIndexFromPosition(Position, ColumnCount), Dimensions)) return Result;
+
+	Result.bHasSpace = true;
+
+	TSet<int32> OccupiedUpperLeftIndices;
+	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, UAZ_Inv_WidgetUtils::GetIndexFromPosition(Position, ColumnCount), Dimensions, ColumnCount,
+		[&](const UAZ_Inv_CommonUI_GridSlot* GridSlot)
+	{
+		if (GridSlot->GetInventoryItem().IsValid())
+		{
+			OccupiedUpperLeftIndices.Add(GridSlot->GetUpperLeftIndex());
+			Result.bHasSpace = false;
+		}
+	});
+
+	if (OccupiedUpperLeftIndices.Num() == 1)
+	{
+		const int32 Index = *OccupiedUpperLeftIndices.CreateConstIterator();
+		Result.ValidItem = GridSlots[Index]->GetInventoryItem();
+		Result.UpperLeftIndex = GridSlots[Index]->GetUpperLeftIndex();
+	}
+
+	return Result;
+}
+
+// =============================================================================
+// Cursor Widget Helpers
+// =============================================================================
+
+UUserWidget* UAZ_Inv_CommonUI_InventoryGrid::GetVisibleCursorWidget()
+{
+	if (!IsValid(GetOwningPlayer())) return nullptr;
+	if (!IsValid(VisibleCursorWidget) && VisibleCursorWidgetClass)
+	{
+		VisibleCursorWidget = CreateWidget<UUserWidget>(GetOwningPlayer(), VisibleCursorWidgetClass);
+	}
+	return VisibleCursorWidget;
+}
+
+UUserWidget* UAZ_Inv_CommonUI_InventoryGrid::GetHiddenCursorWidget()
+{
+	if (!IsValid(GetOwningPlayer())) return nullptr;
+	if (!IsValid(HiddenCursorWidget) && HiddenCursorWidgetClass)
+	{
+		HiddenCursorWidget = CreateWidget<UUserWidget>(GetOwningPlayer(), HiddenCursorWidgetClass);
+	}
+	return HiddenCursorWidget;
+}
+
+// =============================================================================
+// Data Helpers
+// =============================================================================
+
+bool UAZ_Inv_CommonUI_InventoryGrid::HasValidItem(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const
+{
+	return GridSlot->GetInventoryItem().IsValid();
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::IsUpperLeftSlot(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot) const
+{
+	return SubGridSlot->GetUpperLeftIndex() == GridSlot->GetIndex();
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::DoesItemTypeMatch(const UAZ_Inv_CommonUI_InventoryItem* SubItem, const FGameplayTag& ItemType) const
+{
+	return SubItem->GetItemManifest().GetItemTypeTag().MatchesTagExact(ItemType);
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::CheckSlotConstraints(const UAZ_Inv_CommonUI_GridSlot* GridSlot,
+                                                           const UAZ_Inv_CommonUI_GridSlot* SubGridSlot,
+                                                           const TSet<int32>& CheckedIndices,
+                                                           TSet<int32>& OutTentativelyClaimed,
+                                                           const FGameplayTag& ItemType,
+                                                           const int32 MaxStackSize) const
+{
+	if (IsIndexClaimed(CheckedIndices, SubGridSlot->GetIndex())) return false;
+
+	if (!HasValidItem(SubGridSlot))
+	{
+		OutTentativelyClaimed.Add(SubGridSlot->GetIndex());
+		return true;
+	}
+
+	if (!IsUpperLeftSlot(GridSlot, SubGridSlot)) return false;
+
+	const UAZ_Inv_CommonUI_InventoryItem* SubItem = SubGridSlot->GetInventoryItem().Get();
+	if (!SubItem->IsStackable()) return false;
+
+	if (!DoesItemTypeMatch(SubItem, ItemType)) return false;
+
+	if (GridSlot->GetStackCount() >= MaxStackSize) return false;
+
+	return true;
 }
