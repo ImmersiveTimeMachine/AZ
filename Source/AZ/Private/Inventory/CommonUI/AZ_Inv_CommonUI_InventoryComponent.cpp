@@ -174,9 +174,14 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_EquipSlotClicked_Implementation
 void UAZ_Inv_CommonUI_InventoryComponent::Multicast_EquipSlotClicked_Implementation(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip,
 	UAZ_Inv_CommonUI_InventoryItem* ItemToUnequip)
 {
-	// Equipment Component will listen to these delegates
-	//OnItemEquipped.Broadcast(ItemToEquip);
-	//OnItemUnequipped.Broadcast(ItemToUnequip);
+	if (IsValid(ItemToEquip))
+	{
+		OnItemEquipped.Broadcast(ItemToEquip);
+	}
+	if (IsValid(ItemToUnequip))
+	{
+		OnItemUnequipped.Broadcast(ItemToUnequip);
+	}
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::AddRepSubObjects(UObject* SubObjects)

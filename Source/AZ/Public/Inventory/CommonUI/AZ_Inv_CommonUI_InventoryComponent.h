@@ -71,6 +71,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AZ|Inventory")
 	FCommonUI_StackChange OnStackChange;
 
+	FCommonUI_ItemEquipStatusChanged OnItemEquipped;
+	FCommonUI_ItemEquipStatusChanged OnItemUnequipped;
+	FCommonUI_InventoryMenuToggled OnInventoryMenuToggled;
+
+	UAZ_Inv_CommonUI_GameInventoryMenu* GetInventoryMenu() const { return InventoryMenu; }
+
 private:
 	
 	UPROPERTY(Replicated)
