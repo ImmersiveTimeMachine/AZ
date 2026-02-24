@@ -110,3 +110,13 @@ struct FAZ_Inv_SpaceQueryResult
 	// Upper left index of the valid item, if there is one
 	int32 UpperLeftIndex{INDEX_NONE};
 };
+
+USTRUCT()
+struct FAZ_Inv_CommonUI_SpaceQueryResult
+{
+	GENERATED_BODY()
+
+	bool bHasSpace{false};
+	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> ValidItem = nullptr;
+	int32 UpperLeftIndex{INDEX_NONE};
+};
