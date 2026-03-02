@@ -3,17 +3,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AZ_Inv_CommonUI_ItemComponent.h"
 #include "CommonActivatableWidget.h"
+#include "Inventory/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 #include "Inventory/Types/AZ_Inv_GridTypes.h"
 #include "AZ_Inv_CommonUI_GameInventoryMenu.generated.h"
 
-class UAZ_Inv_CommonUI_ItemComponent;
-class UAZ_Inv_CommonUI_InventoryItem;
-class UAZ_Inv_CommonUI_HoverItem;
+// Forward Declarations
+class UBorder;
+class UCanvasPanel;
+class UHorizontalBox;
+class UInputAction;
+class UCommonActivatableWidgetSwitcher;
+
+DECLARE_DELEGATE(FOnInventoryMenuBackAction);
 
 /**
- * CommonUI inventory menu widget.
- * Widget layout and references are configured in the Blueprint (AZ_WBP_GameInventoryMenu).
+ * C++ Base Class for AZ_WBP_GameInventoryMenu
  */
 UCLASS()
 class AZ_API UAZ_Inv_CommonUI_GameInventoryMenu : public UCommonActivatableWidget
@@ -22,10 +28,49 @@ class AZ_API UAZ_Inv_CommonUI_GameInventoryMenu : public UCommonActivatableWidge
 
 public:
 
+	FOnInventoryMenuBackAction OnBackAction;
+
 	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent) const;
 	void OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void OnItemUnHovered();
 	bool HasHoverItem() const;
 	UAZ_Inv_CommonUI_HoverItem* GetHoverItem() const;
 	float GetTileSize() const;
+
+protected:
+
+	virtual void NativeConstruct() override;
+	virtual void NativeOnActivated() override;
+	virtual void NativeOnDeactivated() override;
+
+	// -- Input Actions (set in Blueprint, bound to IMC_AZ_InventoryMenu) --
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> TabLeftAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> TabRightAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> BackAction;
+
+	// -- Bound Widgets --
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	UCanvasPanel* MainCanvas;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	UBorder* BackgroundBorder;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UCommonActivatableWidgetSwitcher* MenuSwitcher;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	UCanvasPanel* InventoryCanvas;
+
+private:
+
+	void HandleTabLeft();
+	void HandleTabRight();
+	void HandleBack();
 };
