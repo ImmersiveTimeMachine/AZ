@@ -25,6 +25,8 @@ public:
 	void SetInventoryItem(TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> InInventoryItem);
 
 	void SetImageBrush(const FSlateBrush& Brush);
+	
+	void SetIsStackable(bool bInIsStackable) { bIsStackable = bInIsStackable; }
 
 	// Updates the stack count text. Hides it if count <= 1.
 	void UpdateStackCount(int32 InStackCount);
@@ -85,4 +87,5 @@ private:
 	int32 GridIndex = INDEX_NONE;
 	FIntPoint GridDimensions = FIntPoint(1, 1);
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> InventoryItem;
+	bool bIsStackable{false};
 };

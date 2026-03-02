@@ -47,7 +47,6 @@ void UAZ_Inv_CommonUI_SlottedItem::SetImageBrush(const FSlateBrush& Brush)
 	if (Image_Icon)
 	{
 		Image_Icon->SetBrush(Brush);
-		Image_Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 }
 
@@ -58,10 +57,10 @@ void UAZ_Inv_CommonUI_SlottedItem::UpdateStackCount(int32 InStackCount)
 		return;
 	}
 
-	if (InStackCount > 1)
+	if (InStackCount > 0)
 	{
 		Text_StackCount->SetText(FText::AsNumber(InStackCount));
-		Text_StackCount->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Text_StackCount->SetVisibility(ESlateVisibility::Visible);
 	}
 	else
 	{
