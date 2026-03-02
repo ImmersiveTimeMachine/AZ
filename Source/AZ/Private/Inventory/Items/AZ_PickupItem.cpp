@@ -7,6 +7,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "Inventory/Components/AZ_Inv_InventoryComponent.h"
 #include "Inventory/Items/AZ_Inv_ItemComponent.h"
 #include "Inventory/Widgets/HUD/AZ_InventoryHudWidget.h"
@@ -56,10 +57,8 @@ void AAZ_PickupItem::BeginPlay()
 {
 	Super::BeginPlay();
 
-	//const auto* InventoryComponent = FindComponentByClass<UAZ_Inv_ItemComponent>();
-	
-	const auto* InventoryComponent = FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>();
-	ensure(IsValid(InventoryComponent));
+	const auto* ItemComponent = FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>();
+	ensure(IsValid(ItemComponent));
 
 	if (PickupSphere)
 	{
