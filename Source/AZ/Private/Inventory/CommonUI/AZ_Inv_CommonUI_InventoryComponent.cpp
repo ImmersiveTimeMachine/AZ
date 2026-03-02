@@ -201,27 +201,35 @@ void UAZ_Inv_CommonUI_InventoryComponent::ConstructInventory()
 		return;
 
 	InventoryMenu = CreateWidget<UAZ_Inv_CommonUI_GameInventoryMenu>(OwningController.Get(), InventoryScreenClass);
+	InventoryMenu->OnBackAction.BindUObject(this, &ThisClass::CloseInventoryMenu);
 	InventoryMenu->AddToViewport();
 	CloseInventoryMenu();
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::OpenInventoryMenu()
 {
-	if (!IsValid(InventoryMenu) && OwningController.IsValid())
+	if (!IsValid(InventoryMenu) || !OwningController.IsValid())
 		return;
 
-	InventoryMenu->SetVisibility(ESlateVisibility::Visible);
-	bInventoryMenuOpen = true;
-
+	// Set input mode BEFORE activating so CommonUI can register bindings properly.
 	FInputModeGameAndUI InputMode;
 	OwningController->SetInputMode(InputMode);
 	OwningController->SetShowMouseCursor(true);
+
+	InventoryMenu->SetVisibility(ESlateVisibility::Visible);
+	InventoryMenu->ActivateWidget();
+	bInventoryMenuOpen = true;
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::CloseInventoryMenu()
 {
-	if (!IsValid(InventoryMenu) && OwningController.IsValid())
+	if (!IsValid(InventoryMenu) || !OwningController.IsValid())
 		return;
+
+	if (bInventoryMenuOpen)
+	{
+		InventoryMenu->DeactivateWidget();
+	}
 
 	InventoryMenu->SetVisibility(ESlateVisibility::Collapsed);
 	bInventoryMenuOpen = false;
