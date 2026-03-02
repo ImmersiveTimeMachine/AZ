@@ -290,6 +290,10 @@ private:
 	int32 LastHighlightedIndex{INDEX_NONE};
 	FIntPoint LastHighlightedDimensions{FIntPoint::ZeroValue};
 
+	// Cell size tracking for resize handling
+	FVector2D LastCellSize{FVector2D::ZeroVector};
+	void RefreshSlottedItemImages();
+
 	FAZ_Inv_TileParameters TileParameters;
 	FAZ_Inv_TileParameters LastTileParameters;
 

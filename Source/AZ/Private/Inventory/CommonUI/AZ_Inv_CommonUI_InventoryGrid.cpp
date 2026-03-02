@@ -74,6 +74,17 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeTick(const FGeometry& MyGeometry, flo
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+	// Detect cell size changes (handles window resize / fullscreen toggle)
+	if (GridSlots.IsValidIndex(0) && GridSlots[0])
+	{
+		const FVector2D CurrentCellSize = GridSlots[0]->GetCachedGeometry().GetLocalSize();
+		if (CurrentCellSize.X > 0.f && CurrentCellSize.Y > 0.f && !CurrentCellSize.Equals(LastCellSize, 1.f))
+		{
+			LastCellSize = CurrentCellSize;
+			RefreshSlottedItemImages();
+		}
+	}
+
 	if (!IsValid(HoverItem)) return;
 
 	const FVector2D GridPosition = UAZ_Inv_WidgetUtils::GetWidgetPosition(InventoryGridPanel);
@@ -128,7 +139,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 	FSlateBrush IconBrush;
 	IconBrush.SetResourceObject(ImageFragment->GetIcon());
 	IconBrush.DrawAs = ESlateBrushDrawType::Image;
-	IconBrush.ImageSize = DrawSize;
+	IconBrush.ImageSize = DrawSize * UWidgetLayoutLibrary::GetViewportScale(this);
 
 	HoverItem->SetImageBrush(IconBrush);
 	HoverItem->SetGridDimensions(GridFragment->GetGridSize());
@@ -305,7 +316,7 @@ FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_Gri
 {
 	FVector2D BaseTileSize(TileSize, TileSize);
 
-	// Try to fetch the actual size from the first slot if available and layout has occurred
+	// Use actual grid cell size when geometry is available (after layout)
 	if (GridSlots.IsValidIndex(0) && GridSlots[0])
 	{
 		const FVector2D CachedSize = GridSlots[0]->GetCachedGeometry().GetLocalSize();
@@ -345,6 +356,24 @@ void UAZ_Inv_CommonUI_InventoryGrid::SetSlottedItemImage(const FAZ_Inv_CommonUI_
 	SlottedItem->SetImageBrush(Brush);
 }
 
+void UAZ_Inv_CommonUI_InventoryGrid::RefreshSlottedItemImages()
+{
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+
+	for (auto& [Index, SlottedItem] : SlottedItems)
+	{
+		if (!IsValid(SlottedItem)) continue;
+
+		const TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> InvItem = SlottedItem->GetInventoryItem();
+		if (!InvItem.IsValid()) continue;
+
+		const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(InvItem.Get(), Tags.Item_Fragment_Grid);
+		const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(InvItem.Get(), Tags.Item_Fragment_Icon);
+
+		SetSlottedItemImage(GridFragment, ImageFragment, SlottedItem);
+	}
+}
+
 UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem,
                                                                                 const FAZ_Inv_CommonUI_GridFragment* GridFragment,
                                                                                 const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
@@ -370,7 +399,9 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 			SlottedItem->SetGridDimensions(GridFragment->GetGridSize());
 		}
 
-		SlottedItem->UpdateStackCount(StackAmount);
+		SlottedItem->SetIsStackable(bStackable);
+		const int32 StackUpdateAmount = StackAmount > 0 ? StackAmount : 0;
+		SlottedItem->UpdateStackCount(StackUpdateAmount);
 		SlottedItem->OnItemClicked().AddDynamic(this, &ThisClass::OnSlottedItemClicked);
 	}
 
