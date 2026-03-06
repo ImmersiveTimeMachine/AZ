@@ -10,6 +10,7 @@
 #include "AZ_Inv_CommonUI_GameInventoryMenu.generated.h"
 
 // Forward Declarations
+class UAZ_Inv_CommonUI_InventorySwitcherPanel;
 class UBorder;
 class UCanvasPanel;
 class UHorizontalBox;
@@ -67,6 +68,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	UCanvasPanel* InventoryCanvas;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	TObjectPtr<UAZ_Inv_CommonUI_InventorySwitcherPanel> InventorySwitcherPanel;
 
 private:
 
