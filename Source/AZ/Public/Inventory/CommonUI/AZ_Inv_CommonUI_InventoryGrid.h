@@ -13,6 +13,7 @@
 #include "AZ_Inv_CommonUI_InventoryGrid.generated.h"
 
 class UAZ_Inv_CommonUI_ItemPopUp;
+class UCanvasPanel;
 class UCommonButtonBase;
 class UGridPanel;
 class UScrollBox;
@@ -48,6 +49,7 @@ public:
 	UAZ_Inv_CommonUI_HoverItem* GetHoverItem() const;
 	float GetTileSize() const;
 	void ClearHoverItem();
+	void SetOwningCanvas(UCanvasPanel* OwningCanvas);
 	void HideCursor();
 	void ShowCursor();
 	void OnHide();
@@ -264,6 +266,8 @@ private:
 	// ---------------------------------------------------
 	// LOGIC & DATA
 	// ---------------------------------------------------
+
+	TWeakObjectPtr<UCanvasPanel> OwningCanvasPanel;
 
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;
 
