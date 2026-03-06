@@ -71,28 +71,34 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::HandleBack()
 
 FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_GameInventoryMenu::HasRoomForItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent) const
 {
+	if (InventorySwitcherPanel) return InventorySwitcherPanel->HasRoomForItem(ItemComponent);
 	return FAZ_Inv_CommonUI_SlotAvailabilityResult();
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
+	if (InventorySwitcherPanel) InventorySwitcherPanel->OnItemHovered(Item);
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OnItemUnHovered()
 {
+	if (InventorySwitcherPanel) InventorySwitcherPanel->OnItemUnHovered();
 }
 
 bool UAZ_Inv_CommonUI_GameInventoryMenu::HasHoverItem() const
 {
+	if (InventorySwitcherPanel) return InventorySwitcherPanel->HasHoverItem();
 	return false;
 }
 
 UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_CommonUI_GameInventoryMenu::GetHoverItem() const
 {
+	if (InventorySwitcherPanel) return InventorySwitcherPanel->GetHoverItem();
 	return nullptr;
 }
 
 float UAZ_Inv_CommonUI_GameInventoryMenu::GetTileSize() const
 {
+	if (InventorySwitcherPanel) return InventorySwitcherPanel->GetTileSize();
 	return 0.f;
 }

@@ -61,20 +61,17 @@ void UAZ_Inv_CommonUI_InventoryComponent::ToggleInventoryMenu()
 void UAZ_Inv_CommonUI_InventoryComponent::TryAddItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent)
 {
 	auto Result = InventoryMenu->HasRoomForItem(ItemComponent);
-	
-	UAZ_Inv_CommonUI_InventoryItem* FoundItem = InventoryList.FindFirstItemByTypeTag(ItemComponent->GetItemManifest().GetItemTypeTag());
-	Result.Item = FoundItem;
-	
-	// For debug only
-	
-	Result.TotalRoomToFill = 1;
-	
-	//
 
 	if (Result.TotalRoomToFill == 0)
-	{ 
+	{
 		OnNoRoomInInventory.Broadcast();
 		return;
+	}
+
+	// Only look for an existing item when the incoming item is stackable.
+	if (Result.bIsStackable)
+	{
+		Result.Item = InventoryList.FindFirstItemByTypeTag(ItemComponent->GetItemManifest().GetItemTypeTag());
 	}
 
 	if (Result.Item.IsValid() && Result.bIsStackable)
@@ -84,7 +81,7 @@ void UAZ_Inv_CommonUI_InventoryComponent::TryAddItem(UAZ_Inv_CommonUI_ItemCompon
 		OnStackChange.Broadcast(Result);
 		Server_AddStacksToItem(ItemComponent, Result.TotalRoomToFill, Result.RemainingRooms);
 	}
-	else if (Result.TotalRoomToFill > 0)
+	else
 	{
 		Server_AddNewItem(ItemComponent, Result.bIsStackable ? Result.TotalRoomToFill : 0, Result.RemainingRooms);
 	}

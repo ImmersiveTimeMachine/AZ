@@ -4,12 +4,17 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "GameplayTagContainer.h"
 #include "Inventory/Types/AZ_Inv_GridTypes.h"
 #include "AZ_Inv_CommonUI_InventorySwitcherPanel.generated.h"
 
+class UAZ_Inv_CommonUI_EquippedGridSlot;
+class UAZ_Inv_CommonUI_EquippedSlottedItem;
 class UAZ_Inv_CommonUI_HoverItem;
 class UAZ_Inv_CommonUI_InventoryGrid;
+class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
+class UAZ_Inv_CommonUI_ItemDescription;
 // Forward Declarations
 class UCanvasPanel;
 class UCommonActivatableWidgetSwitcher;
@@ -51,12 +56,16 @@ public:
 	UAZ_Inv_CommonUI_HoverItem* GetHoverItem() const;
 	float GetTileSize() const;
 
-	/** Pass the owning canvas to all inventory grids. */
+	void OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item);
+	void OnItemUnHovered();
+
+	/** Pass the owning canvas to all inventory grids and store it for description positioning. */
 	void SetOwningCanvas(UCanvasPanel* OwningCanvas);
 
 protected:
 
 	virtual void NativeOnInitialized() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void NativeDestruct() override;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
@@ -129,5 +138,59 @@ private:
 	/** Helper to get all grids mapped to their buttons for iteration. */
 	TMap<UAZ_Inv_CommonUI_InventoryGrid*, UCommonButtonBase*> GetGridButtonMap() const;
 
+	// -- Equipped Grid Slot System --
+
+	UFUNCTION()
+	void HandleEquippedGridSlotClicked(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, const FGameplayTag& EquipmentTypeTag);
+
+	UFUNCTION()
+	void HandleEquippedSlottedItemClicked(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem);
+
+	bool CanEquipHoverItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, const FGameplayTag& EquipmentTypeTag) const;
+	UAZ_Inv_CommonUI_EquippedGridSlot* FindSlotWithEquippedItem(UAZ_Inv_CommonUI_InventoryItem* EquippedItem) const;
+	void ClearSlotOfItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot);
+	void RemoveEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem);
+	void MakeEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* OldSlottedItem, UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, UAZ_Inv_CommonUI_InventoryItem* ItemToEquip);
+	void BroadcastSlotClickedDelegates(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip, UAZ_Inv_CommonUI_InventoryItem* ItemToUnequip) const;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UAZ_Inv_CommonUI_EquippedGridSlot>> EquippedGridSlots;
+
+	// -- Item Description System --
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_ItemDescription> ItemDescriptionClass;
+
+	UPROPERTY()
+	TObjectPtr<UAZ_Inv_CommonUI_ItemDescription> ItemDescription;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	TSubclassOf<UAZ_Inv_CommonUI_ItemDescription> EquippedItemDescriptionClass;
+
+	UPROPERTY()
+	TObjectPtr<UAZ_Inv_CommonUI_ItemDescription> EquippedItemDescription;
+
+	FTimerHandle DescriptionTimer;
+	FTimerHandle EquippedDescriptionTimer;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float DescriptionTimerDelay = 0.5f;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float EquippedDescriptionTimerDelay = 0.5f;
+
+	UAZ_Inv_CommonUI_ItemDescription* GetItemDescription();
+	UAZ_Inv_CommonUI_ItemDescription* GetEquippedItemDescription();
+
+	UFUNCTION()
+	void ShowEquippedItemDescription(UAZ_Inv_CommonUI_InventoryItem* Item);
+
+	bool IsItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item) const;
+	UAZ_Inv_CommonUI_InventoryItem* GetEquippedItemByEquipmentType(const FGameplayTag& EquipmentType) const;
+
+	void SetItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description, UCanvasPanel* Canvas) const;
+	void SetEquippedItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description, UAZ_Inv_CommonUI_ItemDescription* EquipDescription, UCanvasPanel* Canvas) const;
+
+	TWeakObjectPtr<UCanvasPanel> OwningCanvasPanel;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryGrid> ActiveGrid;
 };

@@ -11,14 +11,19 @@ public class AZ : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"Slate",
 			"SlateCore",
-			"GameplayAbilities", 
+			"GameplayAbilities",
 			"GameplayTags",
 			"GameplayTasks",
 			"Paper2D",
-			"CinematicCamera", 
+			"CinematicCamera",
 			"Niagara",
 			"UMG"
 		});
+
+		if (Target.Type == TargetType.Editor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd" });
+		}
 		
 		OptimizeCode = CodeOptimization.Never;
 	}
