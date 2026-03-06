@@ -5,12 +5,18 @@
 
 #include "Input/CommonUIInputTypes.h"
 #include "CommonActivatableWidgetSwitcher.h"
+#include "Inventory/CommonUI/AZ_Inv_CommonUI_InventorySwitcherPanel.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "Inventory/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	if (InventorySwitcherPanel)
+	{
+		InventorySwitcherPanel->SetOwningCanvas(MainCanvas);
+	}
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
