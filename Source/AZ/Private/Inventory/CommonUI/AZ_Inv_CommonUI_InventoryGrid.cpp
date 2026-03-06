@@ -7,6 +7,8 @@
 #include "Inventory/Widgets/ItemPopUp/AZ_Inv_CommonUI_ItemPopUp.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
 #include "Components/ScrollBox.h"
@@ -743,6 +745,11 @@ void UAZ_Inv_CommonUI_InventoryGrid::ClearHoverItem()
 	ShowCursor();
 }
 
+void UAZ_Inv_CommonUI_InventoryGrid::SetOwningCanvas(UCanvasPanel* OwningCanvas)
+{
+	OwningCanvasPanel = OwningCanvas;
+}
+
 void UAZ_Inv_CommonUI_InventoryGrid::HideCursor()
 {
 	if (!IsValid(GetOwningPlayer())) return;
@@ -1029,9 +1036,19 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 	ItemPopUp->SetGridIndex(GridIndex);
 	GridSlots[GridIndex]->SetItemPopUp(ItemPopUp);
 
-	ItemPopUp->AddToViewport(100);
-	const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
-	ItemPopUp->SetPositionInViewport(MousePosition - ItemPopUpOffset);
+	if (OwningCanvasPanel.IsValid())
+	{
+		OwningCanvasPanel->AddChild(ItemPopUp);
+		UCanvasPanelSlot* CanvasSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ItemPopUp);
+		const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+		CanvasSlot->SetPosition(MousePosition - ItemPopUpOffset);
+	}
+	else
+	{
+		ItemPopUp->AddToViewport(100);
+		const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+		ItemPopUp->SetPositionInViewport(MousePosition - ItemPopUpOffset);
+	}
 
 	const int32 SliderMax = GridSlots[GridIndex]->GetStackCount() - 1;
 	if (RightClickedItem->IsStackable() && SliderMax > 0)
