@@ -36,6 +36,6 @@ public:
 	}
 
 private:
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
 	FGameplayTag FragmentTag;
 };
