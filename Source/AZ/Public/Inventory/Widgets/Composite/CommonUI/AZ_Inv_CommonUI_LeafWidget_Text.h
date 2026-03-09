@@ -6,17 +6,14 @@
 #include "AZ_Inv_CommonUI_LeafWidget.h"
 #include "AZ_Inv_CommonUI_LeafWidget_Text.generated.h"
 
-class UTextBlock;
+class UCommonTextBlock;
+class UCommonTextStyle;
 
-/**
- * CommonUI version of text leaf widget.
- * Provides functionality for displaying text with configurable font size.
- */
 UCLASS()
 class AZ_API UAZ_Inv_CommonUI_LeafWidget_Text : public UAZ_Inv_CommonUI_LeafWidget
 {
 	GENERATED_BODY()
-	
+
 public:
 	void SetText(const FText& Text) const;
 	virtual void NativePreConstruct() override;
@@ -24,8 +21,11 @@ public:
 private:
 
 	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UTextBlock> Text_LeafText;
+	TObjectPtr<UCommonTextBlock> Text_LeafText;
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	int32 FontSize{12};
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	FText PreviewText;
+
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	TSubclassOf<UCommonTextStyle> TextStyle;
 };

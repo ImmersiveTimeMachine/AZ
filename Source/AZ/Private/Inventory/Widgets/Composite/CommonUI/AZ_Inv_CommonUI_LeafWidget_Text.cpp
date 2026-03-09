@@ -2,7 +2,7 @@
 
 #include "Inventory/Widgets/Composite/CommonUI/AZ_Inv_CommonUI_LeafWidget_Text.h"
 
-#include "Components/TextBlock.h"
+#include "CommonTextBlock.h"
 
 void UAZ_Inv_CommonUI_LeafWidget_Text::SetText(const FText& Text) const
 {
@@ -12,9 +12,19 @@ void UAZ_Inv_CommonUI_LeafWidget_Text::SetText(const FText& Text) const
 void UAZ_Inv_CommonUI_LeafWidget_Text::NativePreConstruct()
 {
 	Super::NativePreConstruct();
-	
-	FSlateFontInfo FontInfo = Text_LeafText->GetFont();
-	FontInfo.Size = FontSize;
-	
-	Text_LeafText->SetFont(FontInfo);
+
+	if (!Text_LeafText)
+	{
+		return;
+	}
+
+	if (TextStyle)
+	{
+		Text_LeafText->SetStyle(TextStyle);
+	}
+
+	if (!PreviewText.IsEmpty())
+	{
+		Text_LeafText->SetText(PreviewText);
+	}
 }
