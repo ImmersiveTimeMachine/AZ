@@ -7,34 +7,37 @@
 #include "AZ_Inv_CommonUI_LeafWidget.h"
 #include "AZ_Inv_CommonUI_LeafWidget_LabeledValue.generated.h"
 
-class UTextBlock;
+class UCommonTextBlock;
+class UCommonTextStyle;
 
-/**
- * CommonUI version of labeled value leaf widget.
- * Displays a label-value pair with independent font size controls.
- */
 UCLASS()
 class AZ_API UAZ_Inv_CommonUI_LeafWidget_LabeledValue : public UAZ_Inv_CommonUI_LeafWidget
 {
 	GENERATED_BODY()
-	
+
 public:
 
 	void SetText_Label(const FText& Text, bool bCollapse) const;
 	void SetText_Value(const FText& Text, bool bCollapse) const;
 	virtual void NativePreConstruct() override;
-	
+
 private:
 
 	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UTextBlock> Text_Label;
+	TObjectPtr<UCommonTextBlock> Text_Label;
 
 	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UTextBlock> Text_Value;
+	TObjectPtr<UCommonTextBlock> Text_Value;
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	int32 FontSize_Label{12};
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	FText PreviewLabel;
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	int32 FontSize_Value{18};
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	FText PreviewValue;
+
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	TSubclassOf<UCommonTextStyle> LabelStyle;
+
+	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	TSubclassOf<UCommonTextStyle> ValueStyle;
 };

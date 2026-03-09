@@ -2,7 +2,7 @@
 
 #include "Inventory/Widgets/Composite/CommonUI/AZ_Inv_CommonUI_LeafWidget_LabeledValue.h"
 
-#include "Components/TextBlock.h"
+#include "CommonTextBlock.h"
 
 void UAZ_Inv_CommonUI_LeafWidget_LabeledValue::SetText_Label(const FText& Text, bool bCollapse) const
 {
@@ -27,14 +27,29 @@ void UAZ_Inv_CommonUI_LeafWidget_LabeledValue::SetText_Value(const FText& Text, 
 void UAZ_Inv_CommonUI_LeafWidget_LabeledValue::NativePreConstruct()
 {
 	Super::NativePreConstruct();
-	
-	FSlateFontInfo FontInfo_Label = Text_Label->GetFont();
-	FontInfo_Label.Size = FontSize_Label;
-	
-	Text_Label->SetFont(FontInfo_Label);
 
-	FSlateFontInfo FontInfo_Value = Text_Value->GetFont();
-	FontInfo_Value.Size = FontSize_Value;
-	
-	Text_Value->SetFont(FontInfo_Value);
+	if (!Text_Label || !Text_Value)
+	{
+		return;
+	}
+
+	if (LabelStyle)
+	{
+		Text_Label->SetStyle(LabelStyle);
+	}
+
+	if (ValueStyle)
+	{
+		Text_Value->SetStyle(ValueStyle);
+	}
+
+	if (!PreviewLabel.IsEmpty())
+	{
+		Text_Label->SetText(PreviewLabel);
+	}
+
+	if (!PreviewValue.IsEmpty())
+	{
+		Text_Value->SetText(PreviewValue);
+	}
 }
