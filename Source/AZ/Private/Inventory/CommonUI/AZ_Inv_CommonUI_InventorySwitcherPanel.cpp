@@ -13,7 +13,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/Image.h"
-#include "Components/VerticalBox.h"
+#include "Components/HorizontalBox.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryGrid.h"
 #include "Inventory/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
@@ -24,9 +24,6 @@
 #include "Inventory/Widgets/Components/AZ_Inv_CommonUI_EquippedGridSlot.h"
 #include "Inventory/Widgets/SlottedItems/AZ_Inv_CommonUI_EquippedSlottedItem.h"
 #include "Inventory/Widgets/Utils/AZ_Inv_InventoryStatics.h"
-#include "Inventory/Widgets/Utils/AZ_Inv_WidgetUtils.h"
-#include "Blueprint/WidgetLayoutLibrary.h"
-#include "Components/CanvasPanelSlot.h"
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeOnInitialized()
 {
@@ -61,10 +58,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeTick(const FGeometry& MyGeom
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	if (!IsValid(ItemDescription)) return;
-	// TODO: Uncomment once ItemDescription widgets are fully tested
-	//SetItemDescriptionSizeAndPosition(ItemDescription, OwningCanvasPanel.Get());
-	//SetEquippedItemDescriptionSizeAndPosition(ItemDescription, EquippedItemDescription, OwningCanvasPanel.Get());
+	// Description widgets are now docked in ItemDescriptionHBox — no tick repositioning needed.
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
@@ -181,9 +175,9 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetItemDescription(const FText& In
 		ItemDescriptionText->SetText(InText);
 	}
 
-	if (ItemDescriptionVBox)
+	if (ItemDescriptionHBox)
 	{
-		ItemDescriptionVBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		ItemDescriptionHBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 }
 
@@ -199,9 +193,9 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::ClearItemDescription()
 		ItemDescriptionText->SetText(FText::GetEmpty());
 	}
 
-	if (ItemDescriptionVBox)
+	if (ItemDescriptionHBox)
 	{
-		ItemDescriptionVBox->SetVisibility(ESlateVisibility::Collapsed);
+		ItemDescriptionHBox->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }
 
@@ -472,18 +466,19 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::BroadcastSlotClickedDelegates(UAZ_
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
-	const auto& Manifest = Item->GetItemManifest();
-	UAZ_Inv_CommonUI_ItemDescription* DescriptionWidget = GetItemDescription();
-	DescriptionWidget->SetVisibility(ESlateVisibility::Collapsed);
+	if (!IsValid(ItemDescription)) return;
+	ItemDescription->SetVisibility(ESlateVisibility::Collapsed);
 
 	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(DescriptionTimer);
 	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(EquippedDescriptionTimer);
 
 	FTimerDelegate DescriptionTimerDelegate;
-	DescriptionTimerDelegate.BindLambda([this, Item, &Manifest, DescriptionWidget]()
+	DescriptionTimerDelegate.BindLambda([this, Item]()
 	{
-		GetItemDescription()->SetVisibility(ESlateVisibility::HitTestInvisible);
-		Manifest.AssimilateInventoryFragments(DescriptionWidget);
+		if (!IsValid(Item) || !IsValid(ItemDescription)) return;
+		const auto& Manifest = Item->GetItemManifest();
+		ItemDescription->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Manifest.AssimilateInventoryFragments(ItemDescription);
 
 		FTimerDelegate EquippedDescriptionTimerDelegate;
 		EquippedDescriptionTimerDelegate.BindUObject(this, &ThisClass::ShowEquippedItemDescription, Item);
@@ -495,28 +490,25 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnItemHovered(UAZ_Inv_CommonUI_Inv
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnItemUnHovered()
 {
-	GetItemDescription()->SetVisibility(ESlateVisibility::Collapsed);
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(DescriptionTimer);
-	GetEquippedItemDescription()->SetVisibility(ESlateVisibility::Collapsed);
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(EquippedDescriptionTimer);
-}
-
-UAZ_Inv_CommonUI_ItemDescription* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetItemDescription()
-{
-	if (!IsValid(ItemDescription) && OwningCanvasPanel.IsValid())
+	if (IsValid(ItemDescription))
 	{
-		ItemDescription = CreateWidget<UAZ_Inv_CommonUI_ItemDescription>(GetOwningPlayer(), ItemDescriptionClass);
-		OwningCanvasPanel->AddChild(ItemDescription);
+		ItemDescription->SetVisibility(ESlateVisibility::Collapsed);
 	}
-	return ItemDescription;
+	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(DescriptionTimer);
+
+	if (IsValid(EquippedItemDescription))
+	{
+		EquippedItemDescription->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(EquippedDescriptionTimer);
 }
 
 UAZ_Inv_CommonUI_ItemDescription* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetEquippedItemDescription()
 {
-	if (!IsValid(EquippedItemDescription) && OwningCanvasPanel.IsValid())
+	if (!IsValid(EquippedItemDescription) && IsValid(ItemDescriptionHBox))
 	{
 		EquippedItemDescription = CreateWidget<UAZ_Inv_CommonUI_ItemDescription>(GetOwningPlayer(), EquippedItemDescriptionClass);
-		OwningCanvasPanel->AddChild(EquippedItemDescription);
+		ItemDescriptionHBox->AddChild(EquippedItemDescription);
 	}
 	return EquippedItemDescription;
 }
@@ -540,40 +532,4 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowEquippedItemDescription(UAZ_In
 	EquippedDescriptionWidget->Collapse();
 	EquippedDescriptionWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
 	EquippedItemManifest.AssimilateInventoryFragments(EquippedDescriptionWidget);
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description, UCanvasPanel* Canvas) const
-{
-	UCanvasPanelSlot* ItemDescriptionCPS = UWidgetLayoutLibrary::SlotAsCanvasSlot(Description);
-	if (!IsValid(ItemDescriptionCPS)) return;
-
-	const FVector2D ItemDescriptionSize = Description->GetBoxSize();
-	ItemDescriptionCPS->SetSize(ItemDescriptionSize);
-
-	FVector2D ClampedPosition = UAZ_Inv_WidgetUtils::GetClampedWidgetPosition(
-		UAZ_Inv_WidgetUtils::GetWidgetSize(Canvas),
-		ItemDescriptionSize,
-		UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer()));
-
-	ItemDescriptionCPS->SetPosition(ClampedPosition);
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetEquippedItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description,
-	UAZ_Inv_CommonUI_ItemDescription* EquipDescription, UCanvasPanel* Canvas) const
-{
-	UCanvasPanelSlot* ItemDescriptionCPS = UWidgetLayoutLibrary::SlotAsCanvasSlot(Description);
-	UCanvasPanelSlot* EquippedItemDescriptionCPS = UWidgetLayoutLibrary::SlotAsCanvasSlot(EquipDescription);
-	if (!IsValid(ItemDescriptionCPS) || !IsValid(EquippedItemDescriptionCPS)) return;
-
-	const FVector2D ItemDescriptionSize = Description->GetBoxSize();
-	const FVector2D EquippedItemDescriptionSize = EquipDescription->GetBoxSize();
-
-	FVector2D ClampedPosition = UAZ_Inv_WidgetUtils::GetClampedWidgetPosition(
-		UAZ_Inv_WidgetUtils::GetWidgetSize(Canvas),
-		ItemDescriptionSize,
-		UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer()));
-	ClampedPosition.X -= EquippedItemDescriptionSize.X;
-
-	EquippedItemDescriptionCPS->SetSize(EquippedItemDescriptionSize);
-	EquippedItemDescriptionCPS->SetPosition(ClampedPosition);
 }
