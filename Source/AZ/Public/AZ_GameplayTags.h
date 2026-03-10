@@ -533,8 +533,24 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Item_Fragment_Durability;
     FGameplayTag Item_Fragment_Modification;
     FGameplayTag Item_Fragment_Metadata;
-	
-    
+
+	// Weapon detail tags (for item description UI)
+	FGameplayTag Item_Fragment_Description;
+	FGameplayTag Item_Fragment_MagazineSize;
+	FGameplayTag Item_Fragment_Ammo;
+	FGameplayTag Item_Fragment_Ammo_Diff;
+	FGameplayTag Item_Fragment_Damage;
+	FGameplayTag Item_Fragment_Damage_Diff;
+	FGameplayTag Item_Fragment_Range;
+	FGameplayTag Item_Fragment_Range_Diff;
+	FGameplayTag Item_Fragment_Reload;
+	FGameplayTag Item_Fragment_Reload_Diff;
+	FGameplayTag Item_Fragment_Condition;
+	FGameplayTag Item_Fragment_Accuracy;
+	FGameplayTag Item_Fragment_Recoil;
+	FGameplayTag Item_Fragment_Weight;
+
+
 
 private:
     
