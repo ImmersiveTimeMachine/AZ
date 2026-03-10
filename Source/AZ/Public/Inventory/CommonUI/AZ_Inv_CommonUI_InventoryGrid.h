@@ -210,6 +210,10 @@ private:
 	void OnGridSlotUnhovered(UCommonButtonBase* Button);
 	UFUNCTION()
 	void OnSlottedItemClicked(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnSlottedItemHovered(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnSlottedItemUnhovered(UCommonButtonBase* Button);
 
 	UFUNCTION()
 	void AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result);
