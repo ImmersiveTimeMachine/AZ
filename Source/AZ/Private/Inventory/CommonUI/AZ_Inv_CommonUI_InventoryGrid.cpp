@@ -405,6 +405,8 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 		const int32 StackUpdateAmount = StackAmount > 0 ? StackAmount : 0;
 		SlottedItem->UpdateStackCount(StackUpdateAmount);
 		SlottedItem->OnItemClicked().AddDynamic(this, &ThisClass::OnSlottedItemClicked);
+		SlottedItem->OnItemHovered().AddDynamic(this, &ThisClass::OnSlottedItemHovered);
+		SlottedItem->OnItemUnhovered().AddDynamic(this, &ThisClass::OnSlottedItemUnhovered);
 	}
 
 	return SlottedItem;
@@ -882,6 +884,26 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemClicked(UCommonButtonBase* But
 	{
 		SwapWithHoverItem(ClickedInventoryItem, GridIndex);
 	}
+}
+
+// =============================================================================
+// Slotted Item Hover Handlers
+// =============================================================================
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemHovered(UCommonButtonBase* Button)
+{
+	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
+	if (!SlottedItem) return;
+
+	UAZ_Inv_CommonUI_InventoryItem* Item = SlottedItem->GetInventoryItem().Get();
+	if (!IsValid(Item)) return;
+
+	UAZ_Inv_InventoryStatics::CommonUI_ItemHovered(GetOwningPlayer(), Item);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemUnhovered(UCommonButtonBase* Button)
+{
+	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
 }
 
 // =============================================================================
