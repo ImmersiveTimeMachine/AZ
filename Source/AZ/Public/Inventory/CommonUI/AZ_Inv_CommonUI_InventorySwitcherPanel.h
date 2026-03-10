@@ -23,7 +23,6 @@ class UCommonTextBlock;
 class UCommonRichTextBlock;
 class UHorizontalBox;
 class UImage;
-class UVerticalBox;
 
 /**
  * C++ Base Class for AZ_WBP_GameInventorySwitcher
@@ -109,14 +108,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	UCommonTextBlock* ActiveSelectionLabelText;	
 
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	UCommonTextBlock* ItemNameText;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	UCommonRichTextBlock* ItemDescriptionText;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
-	UVerticalBox* ItemDescriptionVBox;
+	UHorizontalBox* ItemDescriptionHBox;
 	
 private:
 
@@ -158,10 +157,7 @@ private:
 
 	// -- Item Description System --
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	TSubclassOf<UAZ_Inv_CommonUI_ItemDescription> ItemDescriptionClass;
-
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UAZ_Inv_CommonUI_ItemDescription> ItemDescription;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
@@ -179,7 +175,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	float EquippedDescriptionTimerDelay = 0.5f;
 
-	UAZ_Inv_CommonUI_ItemDescription* GetItemDescription();
 	UAZ_Inv_CommonUI_ItemDescription* GetEquippedItemDescription();
 
 	UFUNCTION()
@@ -187,9 +182,6 @@ private:
 
 	bool IsItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	UAZ_Inv_CommonUI_InventoryItem* GetEquippedItemByEquipmentType(const FGameplayTag& EquipmentType) const;
-
-	void SetItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description, UCanvasPanel* Canvas) const;
-	void SetEquippedItemDescriptionSizeAndPosition(UAZ_Inv_CommonUI_ItemDescription* Description, UAZ_Inv_CommonUI_ItemDescription* EquipDescription, UCanvasPanel* Canvas) const;
 
 	TWeakObjectPtr<UCanvasPanel> OwningCanvasPanel;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryGrid> ActiveGrid;
