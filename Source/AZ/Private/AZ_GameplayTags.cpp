@@ -573,4 +573,20 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Item_Fragment_Durability,       FName("Item.Fragment.Durability"),       TEXT("Fragment: Durability/Condition"));
     AddTag(GameplayTags.Item_Fragment_Modification,     FName("Item.Fragment.Modification"),     TEXT("Fragment: Modifications"));
     AddTag(GameplayTags.Item_Fragment_Metadata,         FName("Item.Fragment.Metadata"),         TEXT("Fragment: Metadata"));
+
+    // Weapon detail tags (for item description UI)
+    AddTag(GameplayTags.Item_Fragment_Description,     FName("Item.Fragment.Description"),     TEXT("Fragment: Description subtitle"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize,    FName("Item.Fragment.MagazineSize"),    TEXT("Fragment: Magazine size"));
+    AddTag(GameplayTags.Item_Fragment_Ammo,            FName("Item.Fragment.Ammo"),            TEXT("Fragment: Ammo count"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Diff,       FName("Item.Fragment.Ammo.Diff"),       TEXT("Fragment: Ammo comparison diff"));
+    AddTag(GameplayTags.Item_Fragment_Damage,          FName("Item.Fragment.Damage"),          TEXT("Fragment: Damage value"));
+    AddTag(GameplayTags.Item_Fragment_Damage_Diff,     FName("Item.Fragment.Damage.Diff"),     TEXT("Fragment: Damage comparison diff"));
+    AddTag(GameplayTags.Item_Fragment_Range,           FName("Item.Fragment.Range"),           TEXT("Fragment: Range value"));
+    AddTag(GameplayTags.Item_Fragment_Range_Diff,      FName("Item.Fragment.Range.Diff"),      TEXT("Fragment: Range comparison diff"));
+    AddTag(GameplayTags.Item_Fragment_Reload,          FName("Item.Fragment.Reload"),          TEXT("Fragment: Reload speed"));
+    AddTag(GameplayTags.Item_Fragment_Reload_Diff,     FName("Item.Fragment.Reload.Diff"),     TEXT("Fragment: Reload comparison diff"));
+    AddTag(GameplayTags.Item_Fragment_Condition,       FName("Item.Fragment.Condition"),       TEXT("Fragment: Condition percentage"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy,        FName("Item.Fragment.Accuracy"),        TEXT("Fragment: Accuracy rating"));
+    AddTag(GameplayTags.Item_Fragment_Recoil,          FName("Item.Fragment.Recoil"),          TEXT("Fragment: Recoil rating"));
+    AddTag(GameplayTags.Item_Fragment_Weight,          FName("Item.Fragment.Weight"),          TEXT("Fragment: Weight"));
 }
