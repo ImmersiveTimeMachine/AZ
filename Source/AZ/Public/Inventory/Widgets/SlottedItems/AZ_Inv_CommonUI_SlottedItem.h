@@ -74,6 +74,11 @@ public:
 		return OnButtonBaseUnhovered;
 	}
 
+	FCommonButtonBaseClicked& OnItemRightClicked()
+	{
+		return OnButtonBaseRightClicked;
+	}
+
 protected:
 	// Bindings to widgets in the UMG Designer, ported from the old UAZ_Inv_SlottedItem
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))

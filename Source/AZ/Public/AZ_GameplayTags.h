@@ -523,6 +523,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Item_Fragment_Visual;     
     FGameplayTag Item_Fragment_Icon;
 	FGameplayTag Item_Fragment_Name;
+	FGameplayTag Item_Fragment_Name_StaticText;
 	FGameplayTag Item_Fragment_Type;
 	FGameplayTag Item_Fragment_Text;
 	FGameplayTag Item_Fragment_Value;
@@ -533,22 +534,76 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Item_Fragment_Durability;
     FGameplayTag Item_Fragment_Modification;
     FGameplayTag Item_Fragment_Metadata;
+	FGameplayTag Item_Fragment_Ammo_Primary_Name;
+	FGameplayTag Item_Fragment_Ammo_Secondary_Name;
 
 	// Weapon detail tags (for item description UI)
 	FGameplayTag Item_Fragment_Description;
+
 	FGameplayTag Item_Fragment_MagazineSize;
+	FGameplayTag Item_Fragment_MagazineSize_Text;
+	FGameplayTag Item_Fragment_MagazineSize_Value;
+	FGameplayTag Item_Fragment_MagazineSize_MaxValue;
+	FGameplayTag Item_Fragment_MagazineSize_StaticText;
+	FGameplayTag Item_Fragment_MagazineSize_Diff;
+		
 	FGameplayTag Item_Fragment_Ammo;
+	FGameplayTag Item_Fragment_Ammo_Text;
+	FGameplayTag Item_Fragment_Ammo_Value;
+	FGameplayTag Item_Fragment_Ammo_MaxValue;
+	FGameplayTag Item_Fragment_Ammo_Separator;
+	FGameplayTag Item_Fragment_Ammo_StaticText;
 	FGameplayTag Item_Fragment_Ammo_Diff;
+
 	FGameplayTag Item_Fragment_Damage;
+	FGameplayTag Item_Fragment_Damage_Text;
+	FGameplayTag Item_Fragment_Damage_Value;
+	FGameplayTag Item_Fragment_Damage_MaxValue;
+	FGameplayTag Item_Fragment_Damage_Separator;
+	FGameplayTag Item_Fragment_Damage_StaticText;
 	FGameplayTag Item_Fragment_Damage_Diff;
+
 	FGameplayTag Item_Fragment_Range;
+	FGameplayTag Item_Fragment_Range_Text;
+	FGameplayTag Item_Fragment_Range_Value;
+	FGameplayTag Item_Fragment_Range_MaxValue;
+	FGameplayTag Item_Fragment_Range_StaticText;
 	FGameplayTag Item_Fragment_Range_Diff;
+
 	FGameplayTag Item_Fragment_Reload;
+	FGameplayTag Item_Fragment_Reload_Text;
+	FGameplayTag Item_Fragment_Reload_Value;
+	FGameplayTag Item_Fragment_Reload_MaxValue;
+	FGameplayTag Item_Fragment_Reload_StaticText;
 	FGameplayTag Item_Fragment_Reload_Diff;
+
 	FGameplayTag Item_Fragment_Condition;
+	FGameplayTag Item_Fragment_Condition_Text;
+	FGameplayTag Item_Fragment_Condition_Value;
+	FGameplayTag Item_Fragment_Condition_MaxValue;
+	FGameplayTag Item_Fragment_Condition_StaticText;
+	FGameplayTag Item_Fragment_Condition_Diff;
+
 	FGameplayTag Item_Fragment_Accuracy;
+	FGameplayTag Item_Fragment_Accuracy_Text;
+	FGameplayTag Item_Fragment_Accuracy_Value;
+	FGameplayTag Item_Fragment_Accuracy_MaxValue;
+	FGameplayTag Item_Fragment_Accuracy_StaticText;
+	FGameplayTag Item_Fragment_Accuracy_Diff;
+
 	FGameplayTag Item_Fragment_Recoil;
+	FGameplayTag Item_Fragment_Recoil_Text;
+	FGameplayTag Item_Fragment_Recoil_Value;
+	FGameplayTag Item_Fragment_Recoil_MaxValue;
+	FGameplayTag Item_Fragment_Recoil_StaticText;
+	FGameplayTag Item_Fragment_Recoil_Diff;
+
 	FGameplayTag Item_Fragment_Weight;
+	FGameplayTag Item_Fragment_Weight_Text;
+	FGameplayTag Item_Fragment_Weight_Value;
+	FGameplayTag Item_Fragment_Weight_MaxValue;
+	FGameplayTag Item_Fragment_Weight_StaticText;
+	FGameplayTag Item_Fragment_Weight_Diff;
 
 
 

@@ -38,3 +38,13 @@ void UAZ_Inv_CommonUI_Button::NativePreConstruct()
 {
 	Super::NativePreConstruct();
 }
+
+FReply UAZ_Inv_CommonUI_Button::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		OnButtonBaseRightClicked.Broadcast(this);
+		return FReply::Handled();
+	}
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}

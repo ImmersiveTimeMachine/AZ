@@ -54,6 +54,7 @@ public:
 	void ShowCursor();
 	void OnHide();
 	void DropItem();
+	bool HasActivePopUp() const;
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
 	void SetupGridContainer();
@@ -214,10 +215,14 @@ private:
 	void OnSlottedItemHovered(UCommonButtonBase* Button);
 	UFUNCTION()
 	void OnSlottedItemUnhovered(UCommonButtonBase* Button);
+	UFUNCTION()
+	void OnSlottedItemRightClicked(UCommonButtonBase* Button);
 
 	UFUNCTION()
 	void AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result);
 
+	UFUNCTION()
+	void OnPopUpMenuDismissed();
 	UFUNCTION()
 	void OnPopUpMenuSplit(int32 SplitAmount, int32 Index);
 	UFUNCTION()
@@ -230,6 +235,7 @@ private:
 	void RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, int32 GridIndex);
 	void PickUp(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, int32 GridIndex);
 	void CreateItemPopUp(int32 GridIndex);
+	void DestroyItemPopUp();
 
 	// Stack interaction helpers
 	bool IsSameStackable(const UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem) const;

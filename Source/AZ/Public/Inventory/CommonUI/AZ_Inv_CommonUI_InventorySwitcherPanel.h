@@ -57,6 +57,7 @@ public:
 
 	void OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void OnItemUnHovered();
+	bool HasActivePopUp() const;
 
 	/** Pass the owning canvas to all inventory grids and store it for description positioning. */
 	void SetOwningCanvas(UCanvasPanel* OwningCanvas);

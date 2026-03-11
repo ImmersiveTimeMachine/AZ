@@ -563,6 +563,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Item_Fragment_Visual,           FName("Item.Fragment.Visual"),           TEXT("Fragment: Visual/Display"));
     AddTag(GameplayTags.Item_Fragment_Icon,             FName("Item.Fragment.Icon"),             TEXT("Fragment: Icon"));
     AddTag(GameplayTags.Item_Fragment_Name,             FName("Item.Fragment.Name"),             TEXT("Fragment: Name"));
+	AddTag(GameplayTags.Item_Fragment_Name_StaticText,  FName("Item.Fragment.Name.StaticText"),  TEXT("Fragment: Name StaticText"));
     AddTag(GameplayTags.Item_Fragment_Type,             FName("Item.Fragment.Type"),             TEXT("Fragment: Type"));
     AddTag(GameplayTags.Item_Fragment_Text,             FName("Item.Fragment.Text"),             TEXT("Fragment: Text"));
     AddTag(GameplayTags.Item_Fragment_Value,            FName("Item.Fragment.Value"),            TEXT("Fragment: Value"));
@@ -575,18 +576,72 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Item_Fragment_Metadata,         FName("Item.Fragment.Metadata"),         TEXT("Fragment: Metadata"));
 
     // Weapon detail tags (for item description UI)
-    AddTag(GameplayTags.Item_Fragment_Description,     FName("Item.Fragment.Description"),     TEXT("Fragment: Description subtitle"));
-    AddTag(GameplayTags.Item_Fragment_MagazineSize,    FName("Item.Fragment.MagazineSize"),    TEXT("Fragment: Magazine size"));
-    AddTag(GameplayTags.Item_Fragment_Ammo,            FName("Item.Fragment.Ammo"),            TEXT("Fragment: Ammo count"));
-    AddTag(GameplayTags.Item_Fragment_Ammo_Diff,       FName("Item.Fragment.Ammo.Diff"),       TEXT("Fragment: Ammo comparison diff"));
-    AddTag(GameplayTags.Item_Fragment_Damage,          FName("Item.Fragment.Damage"),          TEXT("Fragment: Damage value"));
-    AddTag(GameplayTags.Item_Fragment_Damage_Diff,     FName("Item.Fragment.Damage.Diff"),     TEXT("Fragment: Damage comparison diff"));
-    AddTag(GameplayTags.Item_Fragment_Range,           FName("Item.Fragment.Range"),           TEXT("Fragment: Range value"));
-    AddTag(GameplayTags.Item_Fragment_Range_Diff,      FName("Item.Fragment.Range.Diff"),      TEXT("Fragment: Range comparison diff"));
-    AddTag(GameplayTags.Item_Fragment_Reload,          FName("Item.Fragment.Reload"),          TEXT("Fragment: Reload speed"));
-    AddTag(GameplayTags.Item_Fragment_Reload_Diff,     FName("Item.Fragment.Reload.Diff"),     TEXT("Fragment: Reload comparison diff"));
-    AddTag(GameplayTags.Item_Fragment_Condition,       FName("Item.Fragment.Condition"),       TEXT("Fragment: Condition percentage"));
-    AddTag(GameplayTags.Item_Fragment_Accuracy,        FName("Item.Fragment.Accuracy"),        TEXT("Fragment: Accuracy rating"));
-    AddTag(GameplayTags.Item_Fragment_Recoil,          FName("Item.Fragment.Recoil"),          TEXT("Fragment: Recoil rating"));
-    AddTag(GameplayTags.Item_Fragment_Weight,          FName("Item.Fragment.Weight"),          TEXT("Fragment: Weight"));
+    AddTag(GameplayTags.Item_Fragment_Description,            FName("Item.Fragment.Description"),            TEXT("Fragment: Description subtitle"));
+
+    AddTag(GameplayTags.Item_Fragment_MagazineSize,           FName("Item.Fragment.MagazineSize"),           TEXT("Fragment: Magazine size"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize_Text,      FName("Item.Fragment.MagazineSize.Text"),      TEXT("Fragment: Magazine size label"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize_Value,     FName("Item.Fragment.MagazineSize.Value"),     TEXT("Fragment: Magazine size current value"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize_MaxValue,  FName("Item.Fragment.MagazineSize.MaxValue"),  TEXT("Fragment: Magazine size max value"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize_StaticText,FName("Item.Fragment.MagazineSize.StaticText"),TEXT("Fragment: Magazine size static text"));
+    AddTag(GameplayTags.Item_Fragment_MagazineSize_Diff,     FName("Item.Fragment.MagazineSize.Diff"),     TEXT("Fragment: Magazine size comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Ammo,                   FName("Item.Fragment.Ammo"),                   TEXT("Fragment: Ammo count"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Text,              FName("Item.Fragment.Ammo.Text"),              TEXT("Fragment: Ammo label"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Value,             FName("Item.Fragment.Ammo.Value"),             TEXT("Fragment: Ammo current value"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_MaxValue,          FName("Item.Fragment.Ammo.MaxValue"),          TEXT("Fragment: Ammo max value"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Separator,          FName("Item.Fragment.Ammo.Separator"),          TEXT("Fragment: Ammo separator"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_StaticText,         FName("Item.Fragment.Ammo.StaticText"),         TEXT("Fragment: Ammo static text"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Primary_Name,      FName("Item.Fragment.Ammo.Primary.Name"),      TEXT("Fragment: Ammo primary name"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Secondary_Name,    FName("Item.Fragment.Ammo.Secondary.Name"),    TEXT("Fragment: Ammo secondary name"));
+    AddTag(GameplayTags.Item_Fragment_Ammo_Diff,              FName("Item.Fragment.Ammo.Diff"),              TEXT("Fragment: Ammo comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Damage,                 FName("Item.Fragment.Damage"),                 TEXT("Fragment: Damage value"));
+    AddTag(GameplayTags.Item_Fragment_Damage_Text,            FName("Item.Fragment.Damage.Text"),            TEXT("Fragment: Damage label"));
+    AddTag(GameplayTags.Item_Fragment_Damage_Value,           FName("Item.Fragment.Damage.Value"),           TEXT("Fragment: Damage current value"));
+    AddTag(GameplayTags.Item_Fragment_Damage_MaxValue,        FName("Item.Fragment.Damage.MaxValue"),        TEXT("Fragment: Damage max value"));
+    AddTag(GameplayTags.Item_Fragment_Damage_Separator,       FName("Item.Fragment.Damage.Separator"),       TEXT("Fragment: Damage separator"));
+    AddTag(GameplayTags.Item_Fragment_Damage_StaticText,      FName("Item.Fragment.Damage.StaticText"),      TEXT("Fragment: Damage static text"));
+    AddTag(GameplayTags.Item_Fragment_Damage_Diff,            FName("Item.Fragment.Damage.Diff"),            TEXT("Fragment: Damage comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Range,                  FName("Item.Fragment.Range"),                  TEXT("Fragment: Range value"));
+    AddTag(GameplayTags.Item_Fragment_Range_Text,             FName("Item.Fragment.Range.Text"),             TEXT("Fragment: Range label"));
+    AddTag(GameplayTags.Item_Fragment_Range_Value,            FName("Item.Fragment.Range.Value"),            TEXT("Fragment: Range current value"));
+    AddTag(GameplayTags.Item_Fragment_Range_MaxValue,         FName("Item.Fragment.Range.MaxValue"),         TEXT("Fragment: Range max value"));
+    AddTag(GameplayTags.Item_Fragment_Range_StaticText,      FName("Item.Fragment.Range.StaticText"),      TEXT("Fragment: Range static text"));
+    AddTag(GameplayTags.Item_Fragment_Range_Diff,             FName("Item.Fragment.Range.Diff"),             TEXT("Fragment: Range comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Reload,                 FName("Item.Fragment.Reload"),                 TEXT("Fragment: Reload speed"));
+    AddTag(GameplayTags.Item_Fragment_Reload_Text,            FName("Item.Fragment.Reload.Text"),            TEXT("Fragment: Reload label"));
+    AddTag(GameplayTags.Item_Fragment_Reload_Value,           FName("Item.Fragment.Reload.Value"),           TEXT("Fragment: Reload current value"));
+    AddTag(GameplayTags.Item_Fragment_Reload_MaxValue,        FName("Item.Fragment.Reload.MaxValue"),        TEXT("Fragment: Reload max value"));
+    AddTag(GameplayTags.Item_Fragment_Reload_StaticText,      FName("Item.Fragment.Reload.StaticText"),      TEXT("Fragment: Reload static text"));
+    AddTag(GameplayTags.Item_Fragment_Reload_Diff,            FName("Item.Fragment.Reload.Diff"),            TEXT("Fragment: Reload comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Condition,              FName("Item.Fragment.Condition"),              TEXT("Fragment: Condition percentage"));
+    AddTag(GameplayTags.Item_Fragment_Condition_Text,         FName("Item.Fragment.Condition.Text"),         TEXT("Fragment: Condition label"));
+    AddTag(GameplayTags.Item_Fragment_Condition_Value,        FName("Item.Fragment.Condition.Value"),        TEXT("Fragment: Condition current value"));
+    AddTag(GameplayTags.Item_Fragment_Condition_MaxValue,     FName("Item.Fragment.Condition.MaxValue"),     TEXT("Fragment: Condition max value"));
+    AddTag(GameplayTags.Item_Fragment_Condition_StaticText,   FName("Item.Fragment.Condition.StaticText"),   TEXT("Fragment: Condition static text"));
+    AddTag(GameplayTags.Item_Fragment_Condition_Diff,        FName("Item.Fragment.Condition.Diff"),        TEXT("Fragment: Condition comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Accuracy,               FName("Item.Fragment.Accuracy"),               TEXT("Fragment: Accuracy rating"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy_Text,          FName("Item.Fragment.Accuracy.Text"),          TEXT("Fragment: Accuracy label"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy_Value,         FName("Item.Fragment.Accuracy.Value"),         TEXT("Fragment: Accuracy current value"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy_MaxValue,      FName("Item.Fragment.Accuracy.MaxValue"),      TEXT("Fragment: Accuracy max value"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy_StaticText,   FName("Item.Fragment.Accuracy.StaticText"),   TEXT("Fragment: Accuracy static text"));
+    AddTag(GameplayTags.Item_Fragment_Accuracy_Diff,         FName("Item.Fragment.Accuracy.Diff"),         TEXT("Fragment: Accuracy comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Recoil,                 FName("Item.Fragment.Recoil"),                 TEXT("Fragment: Recoil rating"));
+    AddTag(GameplayTags.Item_Fragment_Recoil_Text,            FName("Item.Fragment.Recoil.Text"),            TEXT("Fragment: Recoil label"));
+    AddTag(GameplayTags.Item_Fragment_Recoil_Value,           FName("Item.Fragment.Recoil.Value"),           TEXT("Fragment: Recoil current value"));
+    AddTag(GameplayTags.Item_Fragment_Recoil_MaxValue,        FName("Item.Fragment.Recoil.MaxValue"),        TEXT("Fragment: Recoil max value"));
+    AddTag(GameplayTags.Item_Fragment_Recoil_StaticText,     FName("Item.Fragment.Recoil.StaticText"),     TEXT("Fragment: Recoil static text"));
+    AddTag(GameplayTags.Item_Fragment_Recoil_Diff,           FName("Item.Fragment.Recoil.Diff"),           TEXT("Fragment: Recoil comparison diff"));
+
+    AddTag(GameplayTags.Item_Fragment_Weight,                 FName("Item.Fragment.Weight"),                 TEXT("Fragment: Weight"));
+    AddTag(GameplayTags.Item_Fragment_Weight_Text,            FName("Item.Fragment.Weight.Text"),            TEXT("Fragment: Weight label"));
+    AddTag(GameplayTags.Item_Fragment_Weight_Value,           FName("Item.Fragment.Weight.Value"),           TEXT("Fragment: Weight current value"));
+    AddTag(GameplayTags.Item_Fragment_Weight_MaxValue,        FName("Item.Fragment.Weight.MaxValue"),        TEXT("Fragment: Weight max value"));
+    AddTag(GameplayTags.Item_Fragment_Weight_StaticText,      FName("Item.Fragment.Weight.StaticText"),      TEXT("Fragment: Weight static text"));
+    AddTag(GameplayTags.Item_Fragment_Weight_Diff,           FName("Item.Fragment.Weight.Diff"),           TEXT("Fragment: Weight comparison diff"));
 }

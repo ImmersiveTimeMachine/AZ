@@ -66,6 +66,11 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabRight()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleBack()
 {
+	// Skip back if a popup is currently active (right-click was on an item)
+	if (InventorySwitcherPanel && InventorySwitcherPanel->HasActivePopUp())
+	{
+		return;
+	}
 	OnBackAction.ExecuteIfBound();
 }
 

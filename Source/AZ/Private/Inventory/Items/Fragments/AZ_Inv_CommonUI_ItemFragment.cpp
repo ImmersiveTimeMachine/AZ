@@ -60,13 +60,13 @@ void FAZ_Inv_CommonUI_LabeledNumberFragment::Assimilate(UAZ_Inv_CommonUI_Composi
 	LabeledValue->SetText_Value(FText::AsNumber(Value, &Options), bCollapseValue);
 }
 
-void FAZ_Inv_CommonUI_LabeledNumberFragment::Manifest()
+void FAZ_Inv_CommonUI_RandomizedNumberFragment::Manifest()
 {
-	FAZ_Inv_CommonUI_InventoryItem_Fragment::Manifest();
+	FAZ_Inv_CommonUI_LabeledNumberFragment::Manifest();
 
 	if (bRandomizeOnManifest)
 	{
-		Value = FMath::FRandRange(Min, Max);
+		SetValue(FMath::FRandRange(Min, Max));
 	}
 	bRandomizeOnManifest = false;
 }

@@ -140,24 +140,20 @@ struct FAZ_Inv_CommonUI_LabeledNumberFragment : public FAZ_Inv_CommonUI_Inventor
 	GENERATED_BODY()
 
 	virtual void Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const override;
-	virtual void Manifest() override;
-	float GetValue() const { return Value; }
 
-	bool bRandomizeOnManifest{true};
+	float GetValue() const { return Value; }
+	void SetValue(float InValue) { Value = InValue; }
+
+	FText GetLabel() const { return Text_Label; }
+	void SetLabel(const FText& InLabel) { Text_Label = InLabel; }
 
 private:
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	FText Text_Label{};
 
-	UPROPERTY(VisibleAnywhere, Category = "AZ|Inventory")
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	float Value{0.f};
-
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	float Min{0};
-
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	float Max{0};
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	bool bCollapseLabel{false};
@@ -172,10 +168,28 @@ private:
 	int32 MaxFractionalDigits{1};
 };
 
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_RandomizedNumberFragment : public FAZ_Inv_CommonUI_LabeledNumberFragment
+{
+	GENERATED_BODY()
+
+	virtual void Manifest() override;
+
+	bool bRandomizeOnManifest{true};
+
+private:
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float Min{0};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	float Max{0};
+};
+
 // Consume Fragments
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_ConsumeModifier : public FAZ_Inv_CommonUI_LabeledNumberFragment
+struct FAZ_Inv_CommonUI_ConsumeModifier : public FAZ_Inv_CommonUI_RandomizedNumberFragment
 {
 	GENERATED_BODY()
 
@@ -215,7 +229,7 @@ struct FAZ_Inv_CommonUI_ManaPotionFragment : public FAZ_Inv_CommonUI_ConsumeModi
 // Equipment
 
 USTRUCT(BlueprintType)
-struct FAZ_Inv_CommonUI_EquipModifier : public FAZ_Inv_CommonUI_LabeledNumberFragment
+struct FAZ_Inv_CommonUI_EquipModifier : public FAZ_Inv_CommonUI_RandomizedNumberFragment
 {
 	GENERATED_BODY()
 

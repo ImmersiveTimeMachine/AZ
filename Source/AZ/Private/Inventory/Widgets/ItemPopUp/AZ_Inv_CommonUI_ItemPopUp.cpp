@@ -27,7 +27,7 @@ void UAZ_Inv_CommonUI_ItemPopUp::NativeOnInitialized()
 void UAZ_Inv_CommonUI_ItemPopUp::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
 {
 	Super::NativeOnMouseLeave(InMouseEvent);
-	RemoveFromParent();
+	OnDismissed.ExecuteIfBound();
 }
 
 int32 UAZ_Inv_CommonUI_ItemPopUp::GetSplitAmount() const

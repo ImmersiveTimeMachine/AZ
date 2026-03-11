@@ -308,6 +308,12 @@ float UAZ_Inv_CommonUI_InventorySwitcherPanel::GetTileSize() const
 	return 0.f;
 }
 
+bool UAZ_Inv_CommonUI_InventorySwitcherPanel::HasActivePopUp() const
+{
+	if (ActiveGrid.IsValid()) return ActiveGrid->HasActivePopUp();
+	return false;
+}
+
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::IsItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item) const
 {
 	auto* Found = EquippedGridSlots.FindByPredicate([Item](const UAZ_Inv_CommonUI_EquippedGridSlot* GridSlot)

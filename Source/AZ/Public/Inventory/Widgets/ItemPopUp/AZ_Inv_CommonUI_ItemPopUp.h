@@ -12,6 +12,7 @@ class USizeBox;
 class UTextBlock;
 class USlider;
 
+DECLARE_DYNAMIC_DELEGATE(FAZ_CommonUI_PopUpMenuDismissed);
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FAZ_CommonUI_PopUpMenuSplit, int32, SplitAmount, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuDrop, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuConsume, int32, Index);
@@ -29,6 +30,7 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 
+	FAZ_CommonUI_PopUpMenuDismissed OnDismissed;
 	FAZ_CommonUI_PopUpMenuSplit OnSplit;
 	FAZ_CommonUI_PopUpMenuDrop OnDrop;
 	FAZ_CommonUI_PopUpMenuConsume OnConsume;

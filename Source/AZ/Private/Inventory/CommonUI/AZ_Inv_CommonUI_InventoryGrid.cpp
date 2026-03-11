@@ -407,6 +407,7 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 		SlottedItem->OnItemClicked().AddDynamic(this, &ThisClass::OnSlottedItemClicked);
 		SlottedItem->OnItemHovered().AddDynamic(this, &ThisClass::OnSlottedItemHovered);
 		SlottedItem->OnItemUnhovered().AddDynamic(this, &ThisClass::OnSlottedItemUnhovered);
+		SlottedItem->OnItemRightClicked().AddDynamic(this, &ThisClass::OnSlottedItemRightClicked);
 	}
 
 	return SlottedItem;
@@ -906,6 +907,19 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemUnhovered(UCommonButtonBase* B
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
 }
 
+void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemRightClicked(UCommonButtonBase* Button)
+{
+	if (IsValid(HoverItem)) return;
+
+	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
+	if (!SlottedItem) return;
+
+	const int32 GridIndex = SlottedItem->GetGridIndex();
+	if (!GridSlots.IsValidIndex(GridIndex)) return;
+
+	CreateItemPopUp(GridIndex);
+}
+
 // =============================================================================
 // Stack Change Handler
 // =============================================================================
@@ -972,6 +986,11 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuConsume(int32 Index)
 	{
 		RemoveItemFromGrid(RightClickedItem, Index);
 	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDismissed()
+{
+	DestroyItemPopUp();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDrop(int32 Index)
@@ -1048,11 +1067,32 @@ void UAZ_Inv_CommonUI_InventoryGrid::DropItem()
 	ShowCursor();
 }
 
+bool UAZ_Inv_CommonUI_InventoryGrid::HasActivePopUp() const
+{
+	return IsValid(ItemPopUp);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::DestroyItemPopUp()
+{
+	if (IsValid(ItemPopUp))
+	{
+		const int32 PrevIndex = ItemPopUp->GetGridIndex();
+		if (GridSlots.IsValidIndex(PrevIndex))
+		{
+			GridSlots[PrevIndex]->SetItemPopUp(nullptr);
+		}
+		ItemPopUp->RemoveFromParent();
+		ItemPopUp = nullptr;
+	}
+}
+
 void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 {
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[GridIndex]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
-	if (IsValid(GridSlots[GridIndex]->GetItemPopUp())) return;
+	if (!ItemPopUpClass) return;
+
+	DestroyItemPopUp();
 
 	ItemPopUp = CreateWidget<UAZ_Inv_CommonUI_ItemPopUp>(this, ItemPopUpClass);
 	ItemPopUp->SetGridIndex(GridIndex);
@@ -1083,6 +1123,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 		ItemPopUp->CollapseSplitButton();
 	}
 
+	ItemPopUp->OnDismissed.BindDynamic(this, &ThisClass::OnPopUpMenuDismissed);
 	ItemPopUp->OnDrop.BindDynamic(this, &ThisClass::OnPopUpMenuDrop);
 
 	if (RightClickedItem->IsConsumable())

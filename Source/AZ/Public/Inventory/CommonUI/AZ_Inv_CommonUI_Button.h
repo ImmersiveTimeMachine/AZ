@@ -26,6 +26,7 @@ public:
 	TObjectPtr<UCommonTextBlock> TextRef;
 	
 	FCommonButtonBaseClicked& OnButtonClicked() { return OnButtonBaseClicked; }
+	FCommonButtonBaseClicked& OnButtonRightClicked() { return OnButtonBaseRightClicked; }
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory Button")
 	void SetupButton();
@@ -64,4 +65,7 @@ public:
 protected:
 	// Optional: Override PreConstruct to auto-assign the text
 	virtual void NativePreConstruct() override;
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	FCommonButtonBaseClicked OnButtonBaseRightClicked;
 };
