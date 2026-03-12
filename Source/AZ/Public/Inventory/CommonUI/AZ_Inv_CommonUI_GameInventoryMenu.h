@@ -44,7 +44,7 @@ protected:
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
 
-	// -- Input Actions (set in Blueprint, bound to IMC_AZ_InventoryMenu) --
+	// -- Input Actions (bound via base class InputMapping = IMC_AZ_InventoryMenu) --
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> TabLeftAction;
@@ -54,6 +54,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> BackAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> ContextMenuAction;
 
 	// -- Bound Widgets --
 
@@ -77,4 +80,5 @@ private:
 	void HandleTabLeft();
 	void HandleTabRight();
 	void HandleBack();
+	void HandleContextMenu();
 };

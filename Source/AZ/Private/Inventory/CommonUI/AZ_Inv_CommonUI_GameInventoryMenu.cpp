@@ -16,6 +16,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 	if (InventorySwitcherPanel)
 	{
 		InventorySwitcherPanel->SetOwningCanvas(MainCanvas);
+		InventorySwitcherPanel->SetContextMenuAction(ContextMenuAction);
 	}
 }
 
@@ -23,8 +24,12 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 {
 	Super::NativeOnActivated();
 
-	// Register input action bindings — these are active only while the widget is activated.
-	// CommonUI automatically pushes the Input Mapping Context assigned in Blueprint (IMC_AZ_InventoryMenu).
+	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("NativeOnActivated called"));
+
+	// IMC is pushed automatically by base class UCommonActivatableWidget::ActivateMappingContext()
+	// via the InputMapping property set in Blueprint (IMC_AZ_InventoryMenu).
+
+	// Register input action bindings — active only while the widget is activated.
 
 	if (TabLeftAction)
 	{
@@ -40,12 +45,22 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 	{
 		RegisterUIActionBinding(FBindUIActionArgs(BackAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleBack)));
 	}
+
+	if (ContextMenuAction)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Registering ContextMenuAction: %s"), *ContextMenuAction->GetName()));
+		RegisterUIActionBinding(FBindUIActionArgs(ContextMenuAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleContextMenu)));
+	}
+	else
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("ContextMenuAction is NULL!"));
+	}
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnDeactivated()
 {
 	Super::NativeOnDeactivated();
-	// CommonUI automatically clears registered action bindings on deactivation.
+	// Base class handles IMC removal and clears registered action bindings.
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabLeft()
@@ -100,6 +115,12 @@ UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_CommonUI_GameInventoryMenu::GetHoverItem() c
 {
 	if (InventorySwitcherPanel) return InventorySwitcherPanel->GetHoverItem();
 	return nullptr;
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::HandleContextMenu()
+{
+	GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow, TEXT("HandleContextMenu triggered"));
+	if (InventorySwitcherPanel) InventorySwitcherPanel->TryShowContextMenu();
 }
 
 float UAZ_Inv_CommonUI_GameInventoryMenu::GetTileSize() const

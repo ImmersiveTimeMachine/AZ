@@ -50,6 +50,21 @@ void UAZ_Inv_CommonUI_SlottedItem::SetImageBrush(const FSlateBrush& Brush)
 	}
 }
 
+FReply UAZ_Inv_CommonUI_SlottedItem::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	const FKey PressedKey = InMouseEvent.GetEffectingButton();
+
+	// Left-click is handled by CommonUI button system (OnItemClicked).
+	// For any other mouse button, broadcast the key so the grid can check the IMC mapping.
+	if (PressedKey != EKeys::LeftMouseButton)
+	{
+		OnMouseButtonDownDelegate.Broadcast(this, PressedKey);
+		return FReply::Handled();
+	}
+
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
 void UAZ_Inv_CommonUI_SlottedItem::UpdateStackCount(int32 InStackCount)
 {
 	if (!Text_StackCount)

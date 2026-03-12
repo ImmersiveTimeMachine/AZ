@@ -11,6 +11,8 @@ class UImage;
 class UTextBlock;
 class UAZ_Inv_CommonUI_InventoryItem;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAZ_SlottedItemMouseButtonDown, UCommonButtonBase*, Button, FKey, PressedKey);
+
 /**
  * A widget representing an item placed in the inventory grid.
  * It's a button to allow for clicking, dragging, etc. and is managed by the Inventory Grid.
@@ -74,12 +76,13 @@ public:
 		return OnButtonBaseUnhovered;
 	}
 
-	FCommonButtonBaseClicked& OnItemRightClicked()
+	FAZ_SlottedItemMouseButtonDown& OnItemMouseButtonDown()
 	{
-		return OnButtonBaseRightClicked;
+		return OnMouseButtonDownDelegate;
 	}
 
 protected:
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	// Bindings to widgets in the UMG Designer, ported from the old UAZ_Inv_SlottedItem
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UImage> Image_Icon;
@@ -93,4 +96,6 @@ private:
 	FIntPoint GridDimensions = FIntPoint(1, 1);
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> InventoryItem;
 	bool bIsStackable{false};
+
+	FAZ_SlottedItemMouseButtonDown OnMouseButtonDownDelegate;
 };

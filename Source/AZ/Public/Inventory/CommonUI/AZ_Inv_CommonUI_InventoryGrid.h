@@ -16,6 +16,7 @@ class UAZ_Inv_CommonUI_ItemPopUp;
 class UCanvasPanel;
 class UCommonButtonBase;
 class UGridPanel;
+class UInputAction;
 class UScrollBox;
 class UBorder;
 class USizeBox;
@@ -55,6 +56,8 @@ public:
 	void OnHide();
 	void DropItem();
 	bool HasActivePopUp() const;
+	void TryShowContextMenu();
+	void SetContextMenuAction(UInputAction* InAction) { ContextMenuAction = InAction; }
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
 	void SetupGridContainer();
@@ -197,6 +200,8 @@ private:
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	FVector2D ItemPopUpOffset;
 
+	TObjectPtr<UInputAction> ContextMenuAction;
+
 	UPROPERTY()
 	TMap<int32, TObjectPtr<UAZ_Inv_CommonUI_SlottedItem>> SlottedItems;
 
@@ -216,7 +221,7 @@ private:
 	UFUNCTION()
 	void OnSlottedItemUnhovered(UCommonButtonBase* Button);
 	UFUNCTION()
-	void OnSlottedItemRightClicked(UCommonButtonBase* Button);
+	void OnSlottedItemMouseButtonDown(UCommonButtonBase* Button, FKey PressedKey);
 
 	UFUNCTION()
 	void AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result);
@@ -312,5 +317,6 @@ private:
 	FAZ_Inv_TileParameters LastTileParameters;
 
 	int32 ItemDropIndex{INDEX_NONE};
+	int32 LastHoveredGridIndex{INDEX_NONE};
 	FAZ_Inv_CommonUI_SpaceQueryResult CurrentQueryResult;
 };

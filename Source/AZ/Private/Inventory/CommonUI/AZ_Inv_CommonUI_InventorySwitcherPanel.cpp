@@ -314,6 +314,18 @@ bool UAZ_Inv_CommonUI_InventorySwitcherPanel::HasActivePopUp() const
 	return false;
 }
 
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::TryShowContextMenu()
+{
+	if (ActiveGrid.IsValid()) ActiveGrid->TryShowContextMenu();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetContextMenuAction(UInputAction* InAction)
+{
+	if (Grid_Equippables) Grid_Equippables->SetContextMenuAction(InAction);
+	if (Grid_Consumables) Grid_Consumables->SetContextMenuAction(InAction);
+	if (Grid_Craftables) Grid_Craftables->SetContextMenuAction(InAction);
+}
+
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::IsItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item) const
 {
 	auto* Found = EquippedGridSlots.FindByPredicate([Item](const UAZ_Inv_CommonUI_EquippedGridSlot* GridSlot)

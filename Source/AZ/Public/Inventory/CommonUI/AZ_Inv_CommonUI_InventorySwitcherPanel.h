@@ -15,6 +15,7 @@ class UAZ_Inv_CommonUI_InventoryGrid;
 class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
 class UAZ_Inv_CommonUI_ItemDescription;
+class UInputAction;
 // Forward Declarations
 class UCanvasPanel;
 class UCommonActivatableWidgetSwitcher;
@@ -58,6 +59,8 @@ public:
 	void OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void OnItemUnHovered();
 	bool HasActivePopUp() const;
+	void TryShowContextMenu();
+	void SetContextMenuAction(UInputAction* InAction);
 
 	/** Pass the owning canvas to all inventory grids and store it for description positioning. */
 	void SetOwningCanvas(UCanvasPanel* OwningCanvas);

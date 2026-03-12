@@ -12,6 +12,7 @@
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
 #include "Components/ScrollBox.h"
+#include "EnhancedInputSubsystems.h"
 #include "Components/SizeBoxSlot.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
@@ -22,6 +23,11 @@
 void UAZ_Inv_CommonUI_InventoryGrid::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	if (ItemsScrollBox)
+	{
+		ItemsScrollBox->SetAllowRightClickDragScrolling(false);
+	}
 
 	FTimerHandle DelayHandle;
 	GetWorld()->GetTimerManager().SetTimer(
@@ -407,7 +413,7 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 		SlottedItem->OnItemClicked().AddDynamic(this, &ThisClass::OnSlottedItemClicked);
 		SlottedItem->OnItemHovered().AddDynamic(this, &ThisClass::OnSlottedItemHovered);
 		SlottedItem->OnItemUnhovered().AddDynamic(this, &ThisClass::OnSlottedItemUnhovered);
-		SlottedItem->OnItemRightClicked().AddDynamic(this, &ThisClass::OnSlottedItemRightClicked);
+		SlottedItem->OnItemMouseButtonDown().AddDynamic(this, &ThisClass::OnSlottedItemMouseButtonDown);
 	}
 
 	return SlottedItem;
@@ -896,6 +902,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemHovered(UCommonButtonBase* But
 	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
 	if (!SlottedItem) return;
 
+	LastHoveredGridIndex = SlottedItem->GetGridIndex();
+
 	UAZ_Inv_CommonUI_InventoryItem* Item = SlottedItem->GetInventoryItem().Get();
 	if (!IsValid(Item)) return;
 
@@ -904,20 +912,36 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemHovered(UCommonButtonBase* But
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemUnhovered(UCommonButtonBase* Button)
 {
+	LastHoveredGridIndex = INDEX_NONE;
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
 }
 
-void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemRightClicked(UCommonButtonBase* Button)
+void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemMouseButtonDown(UCommonButtonBase* Button, FKey PressedKey)
+{
+	// Check if the pressed key is mapped to ContextMenuAction in the active IMC.
+	if (ContextMenuAction)
+	{
+		if (const auto* PC = GetOwningPlayer())
+		{
+			if (const auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+			{
+				TArray<FKey> MappedKeys = Subsystem->QueryKeysMappedToAction(ContextMenuAction);
+				if (MappedKeys.Contains(PressedKey))
+				{
+					TryShowContextMenu();
+					return;
+				}
+			}
+		}
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::TryShowContextMenu()
 {
 	if (IsValid(HoverItem)) return;
+	if (!GridSlots.IsValidIndex(LastHoveredGridIndex)) return;
 
-	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
-	if (!SlottedItem) return;
-
-	const int32 GridIndex = SlottedItem->GetGridIndex();
-	if (!GridSlots.IsValidIndex(GridIndex)) return;
-
-	CreateItemPopUp(GridIndex);
+	CreateItemPopUp(LastHoveredGridIndex);
 }
 
 // =============================================================================
