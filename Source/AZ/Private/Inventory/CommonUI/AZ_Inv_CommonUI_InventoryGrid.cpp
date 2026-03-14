@@ -994,6 +994,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuSplit(int32 SplitAmount, int32 I
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuConsume(int32 Index)
 {
+	DestroyItemPopUp();
+
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
 
@@ -1019,11 +1021,23 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDismissed()
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDrop(int32 Index)
 {
+	DestroyItemPopUp();
+
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
 
 	PickUp(RightClickedItem, Index);
 	DropItem();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuEquip(int32 Index)
+{
+	DestroyItemPopUp();
+
+	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
+	if (!IsValid(RightClickedItem)) return;
+
+	CommonUI_InventoryComponent->Server_EquipSlotClicked(RightClickedItem, nullptr);
 }
 
 // =============================================================================
@@ -1157,6 +1171,15 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 	else
 	{
 		ItemPopUp->CollapseConsumeButton();
+	}
+
+	if (RightClickedItem->GetItemManifest().GetItemCategory() == EInv_ItemCategory::Equippable)
+	{
+		ItemPopUp->OnEquip.BindDynamic(this, &ThisClass::OnPopUpMenuEquip);
+	}
+	else
+	{
+		ItemPopUp->CollapseEquipButton();
 	}
 }
 

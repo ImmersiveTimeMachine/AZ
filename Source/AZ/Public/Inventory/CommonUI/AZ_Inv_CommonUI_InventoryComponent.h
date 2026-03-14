@@ -95,6 +95,8 @@ private:
 	void CloseInventoryMenu();
 	void ConstructInventory();
 	
+	void SpawnDroppedItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount);
+
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	float DropSpawnAngleMin = -85.f;
 
@@ -102,10 +104,10 @@ private:
 	float DropSpawnAngleMax = 85.f;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	float DropSpawnDistanceMin = 10.f;
+	float DropSpawnDistanceMin = 150.f;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
-	float DropSpawnDistanceMax = 50.f;
+	float DropSpawnDistanceMax = 250.f;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	float RelativeSpawnElevation = 70.f;

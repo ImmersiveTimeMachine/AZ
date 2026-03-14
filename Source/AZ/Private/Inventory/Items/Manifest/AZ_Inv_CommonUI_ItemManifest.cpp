@@ -36,15 +36,14 @@ void FAZ_Inv_CommonUI_ItemManifest::SpawnPickupActor(const UObject* WorldContext
 {
 	if (!IsValid(PickupActorClass) || !IsValid(WorldContextObject)) return;
 
-	const AActor* SpawnedActor = WorldContextObject->GetWorld()->SpawnActor<AActor>(PickupActorClass, SpawnLocation, SpawnRotation);
+	AActor* SpawnedActor = WorldContextObject->GetWorld()->SpawnActor<AActor>(PickupActorClass, SpawnLocation, SpawnRotation);
 	if (!IsValid(SpawnedActor)) return;
 
 	// Set the item manifest, item category, item type, etc.
-	const UAZ_Inv_CommonUI_ItemComponent* ItemComp = SpawnedActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>();
+	UAZ_Inv_CommonUI_ItemComponent* ItemComp = SpawnedActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>();
 	check(ItemComp);
 
-	
-	//ToDo ItemComp->InitItemManifest(*this);
+	ItemComp->InitItemManifest(*this);
 }
 
 void FAZ_Inv_CommonUI_ItemManifest::ClearFragments()

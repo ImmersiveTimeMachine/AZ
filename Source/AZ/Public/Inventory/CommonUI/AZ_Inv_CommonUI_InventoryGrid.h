@@ -234,6 +234,8 @@ private:
 	void OnPopUpMenuConsume(int32 Index);
 	UFUNCTION()
 	void OnPopUpMenuDrop(int32 Index);
+	UFUNCTION()
+	void OnPopUpMenuEquip(int32 Index);
 
 	void PutDownOnIndex(int32 Index);
 	void PutHoverItemBack();

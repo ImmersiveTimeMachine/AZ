@@ -22,7 +22,7 @@ public:
 	// Matches "Inventory System Pro - Mandatory References" in your screenshot.
     
 	/** The text block component used to display the button's label */
-	UPROPERTY(BlueprintReadWrite, Category = "Inventory System Pro")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Inventory System Pro")
 	TObjectPtr<UCommonTextBlock> TextRef;
 	
 	FCommonButtonBaseClicked& OnButtonClicked() { return OnButtonBaseClicked; }
@@ -48,7 +48,7 @@ public:
 	// Matches "Inventory Button" category.
     
 	/** The text to display on the button (Editable in Designer) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Button")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory Button")
 	FText ButtonText;
 
 	// ---------------------------------------------------
@@ -57,7 +57,7 @@ public:
 	// Matches "Runtime Variables (Do Not Edit)" category.
     
 	/** Reference to the parent or owner menu */
-	UPROPERTY(BlueprintReadWrite, Transient, Category = "Runtime Variables")
+	UPROPERTY(BlueprintReadWrite, Transient, Category = "AZ|Runtime Variables")
 	TObjectPtr<UUserWidget> InventoryMenu; 
 	// Note: Replace UUserWidget with UAZ_Inv_InventoryMenu if you have that C++ class defined.
 

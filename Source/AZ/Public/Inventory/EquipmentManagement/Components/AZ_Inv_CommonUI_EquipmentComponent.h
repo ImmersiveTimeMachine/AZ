@@ -14,7 +14,7 @@ class AAZ_Inv_EquipActor;
 struct FAZ_Inv_CommonUI_EquipmentFragment;
 class UAZ_Inv_CommonUI_InventoryComponent;
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Custom), Blueprintable, meta=(BlueprintSpawnableComponent))
 class AZ_API UAZ_Inv_CommonUI_EquipmentComponent : public UActorComponent
 {
 	GENERATED_BODY()

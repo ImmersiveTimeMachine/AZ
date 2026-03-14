@@ -16,11 +16,13 @@ void UAZ_Inv_CommonUI_ItemPopUp::NativeOnInitialized()
 	ensure(Button_Split);
 	ensure(Button_Drop);
 	ensure(Button_Consume);
+	ensure(Button_Equip);
 	ensure(Slider_Split);
 
 	Button_Split->OnButtonClicked().AddDynamic(this, &ThisClass::SplitButtonClicked);
 	Button_Drop->OnButtonClicked().AddDynamic(this, &ThisClass::DropButtonClicked);
 	Button_Consume->OnButtonClicked().AddDynamic(this, &ThisClass::ConsumeButtonClicked);
+	Button_Equip->OnButtonClicked().AddDynamic(this, &ThisClass::EquipButtonClicked);
 	Slider_Split->OnValueChanged.AddDynamic(this, &ThisClass::SliderValueChanged);
 }
 
@@ -56,6 +58,14 @@ void UAZ_Inv_CommonUI_ItemPopUp::CollapseConsumeButton() const
 	if (Button_Consume)
 	{
 		Button_Consume->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+void UAZ_Inv_CommonUI_ItemPopUp::CollapseEquipButton() const
+{
+	if (Button_Equip)
+	{
+		Button_Equip->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }
 
@@ -97,6 +107,14 @@ void UAZ_Inv_CommonUI_ItemPopUp::DropButtonClicked(UCommonButtonBase* Button)
 void UAZ_Inv_CommonUI_ItemPopUp::ConsumeButtonClicked(UCommonButtonBase* Button)
 {
 	if (OnConsume.ExecuteIfBound(GridIndex))
+	{
+		RemoveFromParent();
+	}
+}
+
+void UAZ_Inv_CommonUI_ItemPopUp::EquipButtonClicked(UCommonButtonBase* Button)
+{
+	if (OnEquip.ExecuteIfBound(GridIndex))
 	{
 		RemoveFromParent();
 	}

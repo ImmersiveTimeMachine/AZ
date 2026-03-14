@@ -16,6 +16,7 @@ DECLARE_DYNAMIC_DELEGATE(FAZ_CommonUI_PopUpMenuDismissed);
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FAZ_CommonUI_PopUpMenuSplit, int32, SplitAmount, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuDrop, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuConsume, int32, Index);
+DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuEquip, int32, Index);
 
 /**
  * CommonUI popup menu for item actions (split, drop, consume).
@@ -34,10 +35,12 @@ public:
 	FAZ_CommonUI_PopUpMenuSplit OnSplit;
 	FAZ_CommonUI_PopUpMenuDrop OnDrop;
 	FAZ_CommonUI_PopUpMenuConsume OnConsume;
+	FAZ_CommonUI_PopUpMenuEquip OnEquip;
 
 	int32 GetSplitAmount() const;
 	void CollapseSplitButton() const;
 	void CollapseConsumeButton() const;
+	void CollapseEquipButton() const;
 	void SetSliderParams(const float Max, const float Value) const;
 	FVector2D GetBoxSize() const;
 	void SetGridIndex(const int32 Index) { GridIndex = Index; }
@@ -53,6 +56,9 @@ private:
 
 	UPROPERTY(meta=(BindWidget))
 	TObjectPtr<UAZ_Inv_CommonUI_Button> Button_Consume;
+
+	UPROPERTY(meta=(BindWidget))
+	TObjectPtr<UAZ_Inv_CommonUI_Button> Button_Equip;
 
 	UPROPERTY(meta=(BindWidget))
 	TObjectPtr<USlider> Slider_Split;
@@ -73,6 +79,9 @@ private:
 
 	UFUNCTION()
 	void ConsumeButtonClicked(UCommonButtonBase* Button);
+
+	UFUNCTION()
+	void EquipButtonClicked(UCommonButtonBase* Button);
 
 	UFUNCTION()
 	void SliderValueChanged(float Value);

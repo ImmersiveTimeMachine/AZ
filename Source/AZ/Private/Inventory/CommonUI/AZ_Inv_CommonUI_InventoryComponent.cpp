@@ -16,7 +16,8 @@
 UAZ_Inv_CommonUI_InventoryComponent::UAZ_Inv_CommonUI_InventoryComponent() : InventoryList(this)
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	SetIsReplicatedByDefault(false);
+	SetIsReplicatedByDefault(true);
+	bReplicateUsingRegisteredSubObjectList = true;
 	bInventoryMenuOpen = false;
 }
 
@@ -139,7 +140,7 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_DropItem_Implementation(UAZ_Inv
 		Item->SetTotalStackCount(NewStackCount);
 	}
 
-	//SpawnDroppedItem(Item, StackCount);
+	SpawnDroppedItem(Item, StackCount);
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::Server_ConsumeItem_Implementation(UAZ_Inv_CommonUI_InventoryItem* Item)
@@ -154,12 +155,27 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_ConsumeItem_Implementation(UAZ_
 		Item->SetTotalStackCount(NewStackCount);
 	}
 
-	// Note: Consumable fragment handling will need to be implemented when you create consumable fragments for CommonUI
-	// For now, this checks if the item is consumable via the category system
-	if (Item->IsConsumable())
+	if (FAZ_Inv_CommonUI_ConsumableFragment* ConsumableFragment = Item->GetItemManifestMutable().GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_ConsumableFragment>())
 	{
-		// TODO: Implement consumable fragment logic when FAZ_Inv_CommonUI_Consumable_Fragment is created
+		ConsumableFragment->OnConsume(OwningController.Get());
 	}
+}
+
+void UAZ_Inv_CommonUI_InventoryComponent::SpawnDroppedItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount)
+{
+	const APawn* OwningPawn = OwningController->GetPawn();
+	FVector RotatedForward = OwningPawn->GetActorForwardVector();
+	RotatedForward = RotatedForward.RotateAngleAxis(FMath::FRandRange(DropSpawnAngleMin, DropSpawnAngleMax), FVector::UpVector);
+	FVector SpawnLocation = OwningPawn->GetActorLocation() + RotatedForward * FMath::FRandRange(DropSpawnDistanceMin, DropSpawnDistanceMax);
+	SpawnLocation.Z -= RelativeSpawnElevation;
+	const FRotator SpawnRotation = FRotator::ZeroRotator;
+
+	FAZ_Inv_CommonUI_ItemManifest& ItemManifest = Item->GetItemManifestMutable();
+	if (FAZ_Inv_CommonUI_Stackable_Fragment* StackableFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
+	{
+		StackableFragment->SetStackCount(StackCount);
+	}
+	ItemManifest.SpawnPickupActor(this, SpawnLocation, SpawnRotation);
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::Server_EquipSlotClicked_Implementation(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip,
