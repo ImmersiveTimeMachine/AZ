@@ -46,14 +46,8 @@ public:
 	AAZ_HeroCharacter();
 
 	// ========================================
-	// CAMERA PROPERTIES
+	// CAMERA — COMPONENTS
 	// ========================================
-
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera")
-	float Default1PFOV;
-
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera")
-	float Default3PFOV;
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "AZ|Camera")
 	class USpringArmComponent* ThirdPersonCameraBoom;
@@ -64,24 +58,122 @@ public:
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "AZ|Camera")
 	class UCameraComponent* FirstPersonCamera;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera")
-	float CameraBoomLocationX = 0.0f;
-
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera")
-	float CameraBoomLocationY = 50.0f;
-
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera")
-	float CameraBoomLocationZ = 68.492264f;
-
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Camera")
 	bool bIsFirstPersonPerspective{false};
 
 	// ========================================
-	// CHARACTER PROPERTIES
+	// CAMERA — BOOM / POSITION
 	// ========================================
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Character|Movement")
-	float RunSpeedMultiplayer{2.0f};
+	/** Distance from character to camera. RE-style ≈ 200-300. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Boom")
+	float CameraBoomArmLength = 250.f;
+
+	/** Right offset for over-the-shoulder view. Positive = right shoulder. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Boom")
+	float CameraBoomSocketOffsetY = 55.f;
+
+	/** Vertical offset. Roughly head height above root. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Boom")
+	float CameraBoomSocketOffsetZ = 60.f;
+
+	// ========================================
+	// CAMERA — LAG / SMOOTHING
+	// ========================================
+
+	/** Translation lag speed. Lower = more floaty/cinematic. 8-12 = responsive, 4-6 = heavy. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Lag")
+	float CameraLagSpeed = 10.f;
+
+	/** Rotation lag speed. Lower = more delay on turning. 8-12 = snappy, 4-6 = smooth. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Lag")
+	float CameraRotationLagSpeed = 12.f;
+
+	// ========================================
+	// CAMERA — FOV
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|FOV")
+	float Default1PFOV;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|FOV")
+	float Default3PFOV;
+
+	// ========================================
+	// MOVEMENT — SPEEDS
+	// ========================================
+
+	/** Brisk walk speed in cm/s (~7 km/h). Sprint is handled via GAS ability. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Speed")
+	float WalkSpeed = 195.f;
+
+	/** Crouched movement speed in cm/s (~3 km/h). */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Speed")
+	float CrouchSpeed = 90.f;
+
+	/** Sprint speed multiplier applied on top of WalkSpeed via GAS ability. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Speed")
+	float SprintSpeedMultiplier = 2.15f;
+
+	// ========================================
+	// MOVEMENT — ACCELERATION / DECELERATION
+	// ========================================
+
+	/** How fast the character reaches walk speed. 450 ≈ 0.43s from standstill. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Accel")
+	float Acceleration = 450.f;
+
+	/** Deceleration force when releasing input. Lower = longer slide. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Accel")
+	float BrakingDeceleration = 150.f;
+
+	/** Ground friction during normal movement. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Accel")
+	float MovementGroundFriction = 5.f;
+
+	/** Friction multiplier applied during braking (0-2). */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Accel")
+	float MovementBrakingFrictionFactor = 0.8f;
+
+	// ========================================
+	// MOVEMENT — JUMP / AIR
+	// ========================================
+
+	/** Initial upward velocity for a standing jump. 420 ≈ ~45cm peak at GravityScale 1.5. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Jump")
+	float JumpVelocity = 420.f;
+
+	/** Gravity multiplier. >1 = heavier, grounded feel. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Jump")
+	float JumpGravityScale = 1.5f;
+
+	/** Mid-air directional control (0 = none, 1 = full). Realistic ≈ 0.08. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Jump")
+	float JumpAirControl = 0.08f;
+
+	/** Air deceleration when no input. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Jump")
+	float AirBrakingDeceleration = 100.f;
+
+	/** Lateral air friction (subtle air resistance). */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Jump")
+	float AirLateralFriction = 0.2f;
+
+	// ========================================
+	// MOVEMENT — TERRAIN
+	// ========================================
+
+	/** Max height the character can step up (cm). Stair step ≈ 20-30cm. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Terrain")
+	float StepHeight = 30.f;
+
+	/** Max walkable slope angle in degrees. Comfortable human limit ≈ 35-40°. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Movement|Terrain")
+	float WalkableAngle = 38.f;
+
+	// ========================================
+	// CHARACTER PROPERTIES
+	// ========================================
 
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Character")
 	FName WeaponAttachPoint;

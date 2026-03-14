@@ -3,6 +3,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_Jump.h"
 
+#include "Animation/AZ_AnimInstance.h"
 #include "Character/AZ_HeroCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -24,8 +25,12 @@ void UAZ_GA_Jump::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const
 		}
 
 		auto* HeroCharacter = CastChecked<AAZ_HeroCharacter>(ActorInfo->AvatarActor.Get());
-		//HeroCharacter->GetCharacterMovement()->MaxWalkSpeed = 500.0f;
-		
+
+		if (auto* AzAnimInstance = Cast<UAZ_AnimInstance>(HeroCharacter->GetMesh()->GetAnimInstance()))
+		{
+			AzAnimInstance->bIsJumping = true;
+		}
+
 		HeroCharacter->Jump();
 	}
 

@@ -27,35 +27,62 @@ AAZ_HeroCharacter::AAZ_HeroCharacter()
     // Set size for collision capsule
     GetCapsuleComponent()->InitCapsuleSize(25.f, 90.0f);
 		
-    // Don't rotate when the controller rotates. Let that just affect the camera.
+    // RE-style: character faces where camera looks, strafes when moving sideways
     bUseControllerRotationPitch = false;
-    bUseControllerRotationYaw = false;
+    bUseControllerRotationYaw = true;
     bUseControllerRotationRoll = false;
 
     bReplicates = true;
 
-    // Configure character movement
-    GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
-    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // ...at this rotation rate
+    // Character does NOT rotate to face movement — camera controls facing
+    GetCharacterMovement()->bOrientRotationToMovement = false;
+    GetCharacterMovement()->bUseControllerDesiredRotation = false;
 
-    // Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
-    // instead of recompiling to adjust them
-    GetCharacterMovement()->JumpZVelocity = 700.f;
-    GetCharacterMovement()->AirControl = 0.35f;
-    GetCharacterMovement()->MaxWalkSpeed = 500.f;
-    GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
-    GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
-    GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
+    // Apply movement params from header properties
+    GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+    GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
+    GetCharacterMovement()->MinAnalogWalkSpeed = 15.f;
+    GetCharacterMovement()->MaxAcceleration = Acceleration;
+    GetCharacterMovement()->BrakingDecelerationWalking = BrakingDeceleration;
+    GetCharacterMovement()->GroundFriction = MovementGroundFriction;
+    GetCharacterMovement()->BrakingFrictionFactor = MovementBrakingFrictionFactor;
+    GetCharacterMovement()->bUseSeparateBrakingFriction = false;
+    GetCharacterMovement()->JumpZVelocity = JumpVelocity;
+    GetCharacterMovement()->GravityScale = JumpGravityScale;
+    GetCharacterMovement()->AirControl = JumpAirControl;
+    GetCharacterMovement()->AirControlBoostMultiplier = 0.f;
+    GetCharacterMovement()->BrakingDecelerationFalling = AirBrakingDeceleration;
+    GetCharacterMovement()->FallingLateralFriction = AirLateralFriction;
+    GetCharacterMovement()->MaxStepHeight = StepHeight;
+    GetCharacterMovement()->SetWalkableFloorAngle(WalkableAngle);
 
-    // Create a camera boom (pulls in towards the player if there is a collision)
+    // --- Camera Boom ---
     ThirdPersonCameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("ThirdPersonCameraBoom"));
     ThirdPersonCameraBoom->SetupAttachment(RootComponent);
-    ThirdPersonCameraBoom->TargetArmLength = 400.0f; // The camera follows at this distance behind the character	
-    ThirdPersonCameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
+    ThirdPersonCameraBoom->bUsePawnControlRotation = true;
 
-    // Create a follow camera
+    // RE-style over-the-shoulder: close, slightly right, head height
+    ThirdPersonCameraBoom->TargetArmLength = CameraBoomArmLength;
+    ThirdPersonCameraBoom->SocketOffset = FVector(0.f, CameraBoomSocketOffsetY, CameraBoomSocketOffsetZ);
+
+    // Camera lag: camera smoothly follows character movement (not rotation)
+    // Gives a natural weight/inertia feel when the character starts/stops
+    ThirdPersonCameraBoom->bEnableCameraLag = true;
+    ThirdPersonCameraBoom->CameraLagSpeed = CameraLagSpeed;
+    ThirdPersonCameraBoom->CameraLagMaxDistance = 50.f;
+
+    // Rotation lag: slight delay on camera rotation for cinematic feel
+    ThirdPersonCameraBoom->bEnableCameraRotationLag = true;
+    ThirdPersonCameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
+
+    // Collision: pull camera in when hitting walls
+    ThirdPersonCameraBoom->bDoCollisionTest = true;
+    ThirdPersonCameraBoom->ProbeSize = 12.f;
+    ThirdPersonCameraBoom->ProbeChannel = ECollisionChannel::ECC_Camera;
+
+    // --- Follow Camera ---
     ThirdPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("ThirdPersonCamera"));
-    ThirdPersonCamera->SetupAttachment(ThirdPersonCameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
+    ThirdPersonCamera->SetupAttachment(ThirdPersonCameraBoom, USpringArmComponent::SocketName);
     ThirdPersonCamera->bUsePawnControlRotation = false;
 
     EquipmentManagerComponent = CreateDefaultSubobject<UAZ_EquipmentManagerComponent>(TEXT("EquipmentManagerComponent"));
