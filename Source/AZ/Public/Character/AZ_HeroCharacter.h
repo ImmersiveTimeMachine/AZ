@@ -4,7 +4,7 @@
 #include "AbilitySystem/AttributeSets/AZ_HeroAttributeSet.h"
 #include "AZ/Public/Character/AZ_CharacterBase.h"
 #include "AZ/Public/Inventory/AZ_InventoryComponent.h"
-#include "Inventory/AZ_EquipmentManagerComponent.h"
+#include "Equipment/AZ_EquipmentManagerComponent.h"
 #include "AZ_HeroCharacter.generated.h"
 
 // Forward declarations
@@ -192,7 +192,7 @@ public:
 	UAZ_HeroAttributeSet* GetHeroAttributeSet() const;
 
 	// Mesh & Components
-	UFUNCTION(BlueprintCallable, Category = "Echo|HeroCharacter")
+	UFUNCTION(BlueprintCallable, Category = "AZ|Echo|HeroCharacter")
 	USkeletalMeshComponent* GetThirdPersonMesh() const;
 
 	FName GetWeaponAttachPoint() { return WeaponAttachPoint; }
@@ -202,12 +202,12 @@ public:
 	bool IsInFirstPersonPerspective() const { return bIsFirstPersonPerspective; }
 
 	// Weapon Management
-	UFUNCTION(BlueprintCallable, Category = "Echo|Inventory")
+	UFUNCTION(BlueprintCallable, Category = "AZ|Echo|Inventory")
 	AAZ_Weapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	bool DoesWeaponExistInInventory(AAZ_Weapon* InWeapon);
 
-	UFUNCTION(BlueprintCallable, Category = "GASShooter|Inventory")
+	UFUNCTION(BlueprintCallable, Category = "AZ|GASShooter|Inventory")
 	void EquipWeapon(AAZ_Weapon* NewWeapon);
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")

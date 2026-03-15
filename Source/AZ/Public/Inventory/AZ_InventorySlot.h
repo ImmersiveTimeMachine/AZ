@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "AZ_AssetManager.h"
-#include "AZ_Item.h"
+#include "Items/AZ_Item.h"
 #include "AZ_InventorySlot.generated.h"
 
 USTRUCT(BlueprintType)

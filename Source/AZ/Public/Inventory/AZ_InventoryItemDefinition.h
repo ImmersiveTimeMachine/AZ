@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AZ_Item.h"
+#include "Items/AZ_Item.h"
 #include "GameplayTagContainer.h"
 #include "Engine/DataAsset.h"
 #include "AZ_InventoryItemDefinition.generated.h"

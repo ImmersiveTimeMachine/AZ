@@ -1,10 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "Animation/AnimInstance.h"
 #include "AZ_AnimInstance.generated.h"
 
 class UCharacterMovementComponent;
+class UAbilitySystemComponent;
 
 UCLASS()
 class AZ_API UAZ_AnimInstance : public UAnimInstance
@@ -38,6 +40,34 @@ public:
 	float MaxGroundSpeed = 500.f;
 
 	// ========================================
+	// WEAPON STATE (driven by GAS tags)
+	// ========================================
+
+	/** Current weapon gameplay tag from the ASC. Used by ABP to select the correct locomotion state machine. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	FGameplayTag CurrentWeaponTag;
+
+	/** Index for Blend Poses by int: 0=Unarmed, 1=Rifle, 2=Pistol, 3=Shotgun, 4=Melee, etc. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	int32 WeaponAnimIndex = 0;
+
+	/** World-space transform of the weapon's left hand grip socket. Used by Hand IK in the AnimBP. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	FTransform LeftHandIKTransform;
+
+	/** Whether left hand IK should be active (weapon is equipped and has a grip socket). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	bool bUseLeftHandIK = false;
+
+	/** Socket name on the weapon mesh for the left hand grip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	FName LeftHandGripSocket{TEXT("LeftHandGrip")};
+
+	/** Offset from the grip socket to the palm center. Tweak in editor per character. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	FVector LeftHandIKOffset{FVector::ZeroVector};
+
+	// ========================================
 	// JUMP / FALL STATE
 	// ========================================
 
@@ -64,6 +94,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UCharacterMovementComponent> MovementComponent;
+
+	UPROPERTY()
+	TObjectPtr<UAbilitySystemComponent> CachedASC;
 
 private:
 

@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Character/AZ_CharacterBase.h"
 #include "GameFramework/PlayerController.h"
-#include "Inventory/Items/AZ_Inv_InventoryItem.h"
+#include "Items/AZ_Inv_InventoryItem.h"
 #include "AZ_PlayerController.generated.h"
 
 class UAZ_Inv_CommonUI_InventoryComponent;
@@ -90,6 +90,8 @@ protected:
 
 	UPROPERTY()
 	FString PickupMessage{TEXT("Press E to PickUp")};
+
+public:
 
 	UFUNCTION(BlueprintCallable)
 	void PrimaryInteract();
