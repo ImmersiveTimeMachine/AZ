@@ -24,7 +24,7 @@ AAZ_CharacterBase::AAZ_CharacterBase()
 	GetMesh()->SetGenerateOverlapEvents(true);
 
 	Weapon = CreateDefaultSubobject<USkeletalMeshComponent>("Weapon");
-	Weapon->SetupAttachment(GetMesh(), FName("WeaponHandSocket"));
+	Weapon->SetupAttachment(GetMesh(), RightHandSocketName);
 	Weapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;

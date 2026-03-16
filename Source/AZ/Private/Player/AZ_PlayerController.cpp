@@ -7,14 +7,14 @@
 #include "GameplayTagContainer.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AZ/AZ.h"
-#include "Inventory/Widgets/HUD/AZ_InventoryHudWidget.h"
+#include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
 #include "Character/AZ_HeroCharacter.h"
 #include "Input/AZ_EnhancedInputComponent.h"
 #include "Engine/LocalPlayer.h"
-#include "Inventory/Components/AZ_Inv_InventoryComponent.h"
-#include "Inventory/CommonUI/AZ_Inv_CommonUI_InventoryComponent.h"
-#include "Inventory/CommonUI/AZ_Inv_CommonUI_ItemComponent.h"
-#include "Inventory/Items/AZ_Inv_ItemComponent.h"
+#include "InventoryOld/Components/AZ_Inv_InventoryComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
+#include "Items/AZ_Inv_ItemComponent.h"
 
 
 void AAZ_PlayerController::BeginPlay()

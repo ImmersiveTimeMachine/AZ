@@ -110,7 +110,7 @@ void AAZ_Weapon::SetOwningCharacter(AAZ_HeroCharacter* InOwningCharacter)
 		//ObjectLiftingZone->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
-		auto res = AttachToComponent(OwningCharacter->GetThirdPersonMesh(), AttachmentRules, GripCarringPoint);
+		auto res = AttachToComponent(OwningCharacter->GetThirdPersonMesh(), AttachmentRules, CarrySocketName);
 		UE_LOG(LogTemp, Warning, TEXT("Attached To Component:  %s"), res ? TEXT("Success") : TEXT("Failed")
 );
 		/*AttachToComponent(OwningCharacter->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);*/
@@ -199,11 +199,9 @@ void AAZ_Weapon::Equip()
 		return;
 	}
 
-	FName AttachPoint = OwningCharacter->GetWeaponAttachPoint();
-	
 	if (WeaponMesh3P)
 	{
-		WeaponMesh3P->AttachToComponent(OwningCharacter->GetThirdPersonMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale, AttachPoint);
+		WeaponMesh3P->AttachToComponent(OwningCharacter->GetThirdPersonMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale, RelaxedSocketName);
 		WeaponMesh3P->SetRelativeLocation(WeaponMesh3PEquippedRelativeLocation);
 		WeaponMesh3P->SetRelativeRotation(FRotator(0, 0, -90.0f));
 		WeaponMesh3P->CastShadow = true;

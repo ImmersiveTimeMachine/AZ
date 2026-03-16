@@ -11,7 +11,7 @@
 #include "Components/SphereComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "Inventory/AZ_EquipmentManagerComponent.h"
+#include "Equipment/AZ_EquipmentManagerComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/AZ_PlayerController.h"
@@ -101,7 +101,7 @@ void AAZ_HeroCharacter::OnRep_EquippedWeapon()
     // If the new weapon is valid, attach it.
     if (EquippedWeapon)
     {
-        EquippedWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("WeaponHandSocket"));
+        EquippedWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, RightHandSocketName);
     }
     
     // Update the previous weapon for the next time this runs
@@ -316,81 +316,7 @@ bool AAZ_HeroCharacter::AddWeaponToInventory(AAZ_Weapon* NewWeapon)
          UE_LOG(LogTemp, Warning, TEXT("AAZ_HeroCharacter::AddWeaponToInventory: No authority to add weapon to inventory"));
          return false;
      }
- 
-    // Add weapon to inventory
-    
-    
-     /*if (DoesWeaponExistInInventory(NewWeapon))
-     {
-         USoundCue* PickupSound = NewWeapon->GetPickupSound();
- 
-         if (PickupSound && IsLocallyControlled())
-         {
-             UGameplayStatics::SpawnSoundAttached(PickupSound, GetRootComponent());
-         }
- 
-         if (GetLocalRole() < ROLE_Authority)
-         {
-             return false;
-         }
- 
-         // Create a dynamic instant Gameplay Effect to give the primary and secondary ammo
-         UGameplayEffect* GEAmmo = NewObject<UGameplayEffect>(GetTransientPackage(), FName(TEXT("Ammo")));
-         GEAmmo->DurationPolicy = EGameplayEffectDurationType::Instant;
- 
-         if (NewWeapon->PrimaryAmmoType != WeaponAmmoTypeNoneTag)
-         {
-             int32 Idx = GEAmmo->Modifiers.Num();
-             GEAmmo->Modifiers.SetNum(Idx + 1);
- 
-             FGameplayModifierInfo& InfoPrimaryAmmo = GEAmmo->Modifiers[Idx];
-             InfoPrimaryAmmo.ModifierMagnitude = FScalableFloat(NewWeapon->GetPrimaryClipAmmo());
-             InfoPrimaryAmmo.ModifierOp = EGameplayModOp::Additive;
-             if (const UAZ_WeaponAttributeSet* WeaponAttributeSet = GetAbilitySystemComponent()->GetSet<UAZ_WeaponAttributeSet>())
-             {
-                 InfoPrimaryAmmo.Attribute = WeaponAttributeSet->GetReserveAmmoAttributeFromTag(NewWeapon->PrimaryAmmoType);
-             }
-         }
- 
-         if (NewWeapon->SecondaryAmmoType != WeaponAmmoTypeNoneTag)
-         {
-             int32 Idx = GEAmmo->Modifiers.Num();
-             GEAmmo->Modifiers.SetNum(Idx + 1);
- 
-             FGameplayModifierInfo& InfoSecondaryAmmo = GEAmmo->Modifiers[Idx];
-             InfoSecondaryAmmo.ModifierMagnitude = FScalableFloat(NewWeapon->GetSecondaryClipAmmo());
-             InfoSecondaryAmmo.ModifierOp = EGameplayModOp::Additive;
-             if (const UAZ_WeaponAttributeSet* WeaponAttributeSet = GetAbilitySystemComponent()->GetSet<UAZ_WeaponAttributeSet>())
-             {
-                 InfoSecondaryAmmo.Attribute = WeaponAttributeSet->GetReserveAmmoAttributeFromTag(NewWeapon->SecondaryAmmoType);
-             }
-         }
- 
-         if (GEAmmo->Modifiers.Num() > 0)
-         {
-             AZ_AbilitySystemComponent->ApplyGameplayEffectToSelf(GEAmmo, 1.0f, AZ_AbilitySystemComponent->MakeEffectContext());
-         }
- 
-         NewWeapon->Destroy();
- 
-         return false;
-     }
- 
-     if (GetLocalRole() < ROLE_Authority)
-     {
-         return false;
-     }
- 
-     Inventory.Weapons.Add(NewWeapon);
-     NewWeapon->SetOwningCharacter(this);
-     NewWeapon->AddAbilities();
- 
-     if (bEquipWeapon)
-     {
-         EquipWeapon(NewWeapon);
-         ClientSyncCurrentWeapon(CurrentWeapon);
-     }
-     */
+	
      return true;
  }
 

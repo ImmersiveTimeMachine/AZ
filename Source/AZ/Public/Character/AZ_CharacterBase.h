@@ -60,17 +60,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Combat")
 	TObjectPtr<USkeletalMeshComponent> Weapon;
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	FName WeaponTipSocketName;
+	UPROPERTY(EditAnywhere, Category = "AZ|Sockets")
+	FName WeaponTipSocketName{TEXT("WeaponTipSocket")};
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	FName LeftHandSocketName;
+	UPROPERTY(EditAnywhere, Category = "AZ|Sockets")
+	FName LeftHandSocketName{TEXT("LeftHandSocket")};
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	FName RightHandSocketName;
+	UPROPERTY(EditAnywhere, Category = "AZ|Sockets")
+	FName RightHandSocketName{TEXT("WeaponHandSocket")};
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	FName TailSocketName;
+	UPROPERTY(EditAnywhere, Category = "AZ|Sockets")
+	FName TailSocketName{TEXT("TailSocket")};
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Abilities")
 	UAbilitySystemComponent* GetASC() const;

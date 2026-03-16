@@ -478,13 +478,15 @@ void UAZ_EquipmentManagerComponent::RefreshClientSheathedCosmetics()
 
 FName UAZ_EquipmentManagerComponent::ResolveSheathedSocketForSlot(const FGameplayTag& SlotTag) const
 {
+	static const FName DefaultFallbackSocket(TEXT("BackRifleSocket"));
+
 	const AAZ_CharacterBase* Char = Cast<AAZ_CharacterBase>(GetOwner());
-	if (!Char) return FName("back_socket");
+	if (!Char) return DefaultFallbackSocket;
 
 	const TMap<FGameplayTag, FName>& Map = Char->GetEquipmentSocketMap();
 	if (const FName* Found = Map.Find(SlotTag))
 	{
 		return *Found;
 	}
-	return FName("back_socket");
+	return DefaultFallbackSocket;
 }
