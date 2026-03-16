@@ -244,9 +244,9 @@ protected:
 	UPROPERTY()
 	AAZ_GATA_SphereTrace* SphereTraceTargetActor;
 
-	// Collision capsule for when weapon is in pickup mode
-	UPROPERTY(VisibleAnywhere)
-	class UCapsuleComponent* CollisionComp;
+	// Collision box for when weapon is in pickup mode
+	UPROPERTY(VisibleAnywhere, Category = "AZ|Weapon")
+	class UBoxComponent* CollisionComp;
 
 	UPROPERTY(VisibleAnywhere, Category = "AZ|Weapon")
 	USkeletalMeshComponent* WeaponMesh1P;

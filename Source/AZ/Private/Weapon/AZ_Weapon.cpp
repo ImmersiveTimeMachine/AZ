@@ -8,7 +8,7 @@
 #include "AbilitySystem/TargetActors/AZ_GATA_LineTrace.h"
 #include "AbilitySystem/TargetActors/AZ_GATA_SphereTrace.h"
 #include "Character/AZ_HeroCharacter.h"
-#include "Components/CapsuleComponent.h"
+#include "Components/BoxComponent.h"
 #include "Net/UnrealNetwork.h"
 
 
@@ -28,26 +28,26 @@ AAZ_Weapon::AAZ_Weapon()
 	ObjectLiftingZone->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	RootComponent = ObjectLiftingZone;*/
 	
-	CollisionComp = CreateDefaultSubobject<UCapsuleComponent>(FName("CollisionComponent"));
-	CollisionComp->InitCapsuleSize(40.0f, 50.0f);
-	CollisionComp->SetCollisionObjectType(COLLISION_PICKUP);
-	CollisionComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly); // Manually enable when in pickup mode
-	CollisionComp->SetCollisionResponseToAllChannels(ECR_Ignore);
-	CollisionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-	RootComponent = CollisionComp;
+	// Box collision for the weapon's physical presence in the world
+	CollisionComp = CreateDefaultSubobject<UBoxComponent>(FName("CollisionComponent"));
+	CollisionComp->SetBoxExtent(FVector(32.f, 32.f, 32.f));
+	CollisionComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	CollisionComp->SetCollisionResponseToAllChannels(ECR_Block);
+	CollisionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	CollisionComp->SetupAttachment(GetRootComponent());
 
 	WeaponMesh1P = CreateDefaultSubobject<USkeletalMeshComponent>(FName("WeaponMesh1P"));
 	WeaponMesh1P->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	WeaponMesh1P->CastShadow = false;
 	WeaponMesh1P->SetVisibility(false, true);
-	WeaponMesh1P->SetupAttachment(CollisionComp);
+	WeaponMesh1P->SetupAttachment(GetRootComponent());
 	WeaponMesh1P->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPose;
 
 	WeaponMesh3PickupRelativeLocation = FVector(0.0f, -25.0f, 0.0f);
 
 	WeaponMesh3P = CreateDefaultSubobject<USkeletalMeshComponent>(FName("WeaponMesh3P"));
 	WeaponMesh3P->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	WeaponMesh3P->SetupAttachment(CollisionComp);
+	WeaponMesh3P->SetupAttachment(GetRootComponent());
 	WeaponMesh3P->SetRelativeLocation(WeaponMesh3PickupRelativeLocation);
 	WeaponMesh3P->CastShadow = true;
 	WeaponMesh3P->SetVisibility(true, true);
