@@ -5,6 +5,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_AttributeSet.h"
+#include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "Inventory/AZ_InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -15,8 +16,11 @@ AAZ_PlayerState::AAZ_PlayerState()
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 
+	// Weapon attributes live on player ASC so they persist across weapon swaps
+	WeaponAttributeSet = CreateDefaultSubobject<UAZ_WeaponAttributeSet>("WeaponAttributeSet");
+
 	InventoryComponent = CreateDefaultSubobject<UAZ_InventoryComponent>(TEXT("Inventory"));
-	
+
 	SetNetUpdateFrequency(100.f);
 }
 

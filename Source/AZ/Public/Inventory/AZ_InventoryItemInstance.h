@@ -23,7 +23,7 @@ public:
 
 	
 	// The definition asset that describes this item
-	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Item")
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "AZ|Item")
 	TObjectPtr<UAZ_InventoryItemDefinition> ItemDefinition;
 
 	// ... you could add mutable state here, like Durability, Level, etc. ...

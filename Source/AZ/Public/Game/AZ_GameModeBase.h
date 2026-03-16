@@ -18,10 +18,10 @@ class AZ_API AAZ_GameModeBase : public AGameModeBase
 	
 public:
 
-	UPROPERTY(EditDefaultsOnly, Category = "Character Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Character Class Defaults")
 	TObjectPtr<UAZ_CharacterClassInfo> CharacterClassInfo;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Ability Info")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Ability Info")
 	TObjectPtr<UAZ_AbilityInfo> AbilityInfo;
 
 	UPROPERTY(EditDefaultsOnly)

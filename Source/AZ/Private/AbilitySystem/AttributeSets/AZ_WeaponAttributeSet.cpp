@@ -136,23 +136,6 @@ void UAZ_WeaponAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, Durability, COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, MaxDurability, COND_None, REPNOTIFY_Always);
 
-    // Optional Attributes
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, BurnChance, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, BurnDuration, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, BurnDamage, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, FreezeChance, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, FreezeDuration, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ShockChance, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ShockDamage, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ShockDuration, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ExplosionChance, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ExplosionRadius, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, ExplosionDamage, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, KnockbackStrength, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, SpreadModifier, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, RicochetChance, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, PierceCount, COND_None, REPNOTIFY_Always);
-    DOREPLIFETIME_CONDITION_NOTIFY(UAZ_WeaponAttributeSet, HomingStrength, COND_None, REPNOTIFY_Always);
 }
 
 

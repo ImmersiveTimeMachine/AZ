@@ -9,9 +9,9 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
-#include "Equipment/EquipActor/AZ_Inv_EquipActor.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
+#include "Weapon/AZ_Weapon.h"
 
 
 UAZ_Inv_CommonUI_EquipmentComponent::UAZ_Inv_CommonUI_EquipmentComponent()
@@ -31,7 +31,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::BeginPlay()
 	InitPlayerController();
 }
 
-// --- Pickup: spawn actor at carry socket (back/holster) ---
+// --- Pickup: spawn prop actor at carry socket ---
 void UAZ_Inv_CommonUI_EquipmentComponent::OnItemAdded(UAZ_Inv_CommonUI_InventoryItem* AddedItem)
 {
 	if (!IsValid(AddedItem)) return;
@@ -48,15 +48,25 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemAdded(UAZ_Inv_CommonUI_Inventory
 
 	if (OwningSkeletalMesh.IsValid())
 	{
-		AAZ_Inv_EquipActor* CarryActor = SpawnCarryActor(EquipmentFragment, OwningSkeletalMesh.Get());
-		if (CarryActor)
+		FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_WeaponStateFragment>();
+
+		if (WeaponState && WeaponState->IsWeaponItem())
 		{
-			ManagedActors.Add(CarryActor);
+			// Spawn weapon at carry socket in cosmetic mode
+			AActor* WeaponActor = SpawnWeaponActor(WeaponState->WeaponActorClass, OwningSkeletalMesh.Get());
+			if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(WeaponActor))
+			{
+				Weapon->MakeCosmetic();
+				Weapon->AttachToComponent(OwningSkeletalMesh.Get(),
+					FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+					Weapon->CarrySocketName);
+				EquipmentFragment->SetEquippedActor(Weapon);
+			}
 		}
 	}
 }
 
-// --- Equip: move actor to hand socket, grant abilities/modifiers, set weapon tag ---
+// --- Equip: weapon swap or reattach, grant abilities, set weapon tag ---
 void UAZ_Inv_CommonUI_EquipmentComponent::OnItemEquipped(UAZ_Inv_CommonUI_InventoryItem* EquippedItem)
 {
 	if (!IsValid(EquippedItem)) return;
@@ -68,8 +78,29 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemEquipped(UAZ_Inv_CommonUI_Invent
 
 	if (!bIsProxy)
 	{
+		FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_WeaponStateFragment>();
+
+		// State + modifiers
 		EquipmentFragment->OnEquip(OwningPlayerController.Get());
 
+		// World operations: reattach weapon to relaxed socket + push ASC state
+		if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(EquipmentFragment->GetEquippedActor()))
+		{
+			EquipmentFragment->ReattachActor(Weapon->RelaxedSocketName);
+
+			if (WeaponState)
+			{
+				if (APawn* Pawn = OwningPlayerController->GetPawn())
+				{
+					if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+					{
+						WeaponState->ApplyToASC(ASC);
+					}
+				}
+			}
+		}
+
+		// Abilities — source object is the equipped actor (weapon or prop)
 		if (FAZ_Inv_CommonUI_AbilityGrantFragment* AbilityFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_AbilityGrantFragment>())
 		{
 			AbilityFragment->OnEquip(OwningPlayerController.Get(), EquipmentFragment->GetEquippedActor());
@@ -86,7 +117,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemEquipped(UAZ_Inv_CommonUI_Invent
 	}
 }
 
-// --- Unequip: move actor back to carry socket, remove abilities/modifiers, clear weapon tag ---
+// --- Unequip: weapon swap back or reattach, remove abilities, clear weapon tag ---
 void UAZ_Inv_CommonUI_EquipmentComponent::OnItemUnequipped(UAZ_Inv_CommonUI_InventoryItem* UnequippedItem)
 {
 	if (!IsValid(UnequippedItem)) return;
@@ -98,6 +129,19 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemUnequipped(UAZ_Inv_CommonUI_Inve
 
 	if (!bIsProxy)
 	{
+		FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_WeaponStateFragment>();
+
+		// World operations: save ASC state + reattach weapon to carry socket
+		if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(EquipmentFragment->GetEquippedActor()))
+		{
+			if (WeaponState)
+			{
+				SaveWeaponStateToFragment(WeaponState);
+			}
+			EquipmentFragment->ReattachActor(Weapon->CarrySocketName);
+		}
+
+		// State + modifiers
 		EquipmentFragment->OnUnequip(OwningPlayerController.Get());
 
 		if (FAZ_Inv_CommonUI_AbilityGrantFragment* AbilityFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_AbilityGrantFragment>())
@@ -105,7 +149,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemUnequipped(UAZ_Inv_CommonUI_Inve
 			AbilityFragment->OnUnequip(OwningPlayerController.Get());
 		}
 
-		// Clear weapon tag — revert to unarmed
+		// Clear weapon tag
 		if (APawn* Pawn = OwningPlayerController->GetPawn())
 		{
 			if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn)))
@@ -116,7 +160,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemUnequipped(UAZ_Inv_CommonUI_Inve
 	}
 }
 
-// --- Drop: destroy actor, remove from managed list ---
+// --- Drop: save state if equipped, destroy, remove from managed list ---
 void UAZ_Inv_CommonUI_EquipmentComponent::OnItemDropped(UAZ_Inv_CommonUI_InventoryItem* DroppedItem)
 {
 	if (!IsValid(DroppedItem)) return;
@@ -128,21 +172,71 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemDropped(UAZ_Inv_CommonUI_Invento
 
 	if (!bIsProxy)
 	{
-		// If still equipped, remove abilities/modifiers first
 		if (EquipmentFragment->GetState() == EEquipmentState::Equipped)
 		{
+			FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_WeaponStateFragment>();
+
+			// Save weapon ASC state before dropping
+			if (WeaponState && WeaponState->IsWeaponItem())
+			{
+				SaveWeaponStateToFragment(WeaponState);
+			}
+
 			EquipmentFragment->OnUnequip(OwningPlayerController.Get());
 
 			if (FAZ_Inv_CommonUI_AbilityGrantFragment* AbilityFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_AbilityGrantFragment>())
 			{
 				AbilityFragment->OnUnequip(OwningPlayerController.Get());
 			}
+
+			// Clear weapon tag — revert to unarmed
+			if (APawn* Pawn = OwningPlayerController->GetPawn())
+			{
+				if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn)))
+				{
+					ASC->OnWeaponEquipped(FGameplayTag::EmptyTag);
+				}
+			}
 		}
 	}
 
-	RemoveManagedActor(EquipmentFragment->GetEquipmentType());
 	EquipmentFragment->OnDrop();
 }
+
+void UAZ_Inv_CommonUI_EquipmentComponent::SaveWeaponStateToFragment(FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState)
+{
+	if (!WeaponState || !OwningPlayerController.IsValid()) return;
+
+	if (APawn* Pawn = OwningPlayerController->GetPawn())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+		{
+			WeaponState->SaveFromASC(ASC);
+		}
+	}
+}
+
+AActor* UAZ_Inv_CommonUI_EquipmentComponent::SpawnWeaponActor(TSubclassOf<AActor> WeaponClass, USkeletalMeshComponent* AttachMesh)
+{
+	if (!WeaponClass || !IsValid(AttachMesh)) return nullptr;
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = GetOwner();
+	SpawnParams.Instigator = Cast<APawn>(GetOwner());
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* SpawnedActor = GetWorld()->SpawnActor<AActor>(WeaponClass, FTransform::Identity, SpawnParams);
+	if (!SpawnedActor) return nullptr;
+
+	if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(SpawnedActor))
+	{
+		Weapon->bSpawnWithCollision = false;
+	}
+
+	return SpawnedActor;
+}
+
+// --- Helpers ---
 
 void UAZ_Inv_CommonUI_EquipmentComponent::InitPlayerController()
 {
@@ -184,35 +278,6 @@ void UAZ_Inv_CommonUI_EquipmentComponent::InitInventoryComponent()
 	if (!InventoryComponent->OnItemDropped.IsAlreadyBound(this, &ThisClass::OnItemDropped))
 	{
 		InventoryComponent->OnItemDropped.AddDynamic(this, &ThisClass::OnItemDropped);
-	}
-}
-
-AAZ_Inv_EquipActor* UAZ_Inv_CommonUI_EquipmentComponent::SpawnCarryActor(FAZ_Inv_CommonUI_EquipmentFragment* EquipmentFragment,
-	USkeletalMeshComponent* AttachMesh)
-{
-	AAZ_Inv_EquipActor* SpawnedActor = EquipmentFragment->SpawnAttachedActor(AttachMesh, EquipmentFragment->GetCarrySocket());
-	if (!SpawnedActor) return nullptr;
-
-	SpawnedActor->SetEquipmentType(EquipmentFragment->GetEquipmentType());
-	SpawnedActor->SetOwner(GetOwner());
-	EquipmentFragment->SetEquippedActor(SpawnedActor);
-	return SpawnedActor;
-}
-
-AAZ_Inv_EquipActor* UAZ_Inv_CommonUI_EquipmentComponent::FindManagedActor(const FGameplayTag& EquipmentTypeTag)
-{
-	auto FoundActor = ManagedActors.FindByPredicate([&EquipmentTypeTag](const AAZ_Inv_EquipActor* Actor)
-	{
-		return Actor->GetEquipmentType().MatchesTagExact(EquipmentTypeTag);
-	});
-	return FoundActor ? *FoundActor : nullptr;
-}
-
-void UAZ_Inv_CommonUI_EquipmentComponent::RemoveManagedActor(const FGameplayTag& EquipmentTypeTag)
-{
-	if (AAZ_Inv_EquipActor* Actor = FindManagedActor(EquipmentTypeTag); IsValid(Actor))
-	{
-		ManagedActors.Remove(Actor);
 	}
 }
 

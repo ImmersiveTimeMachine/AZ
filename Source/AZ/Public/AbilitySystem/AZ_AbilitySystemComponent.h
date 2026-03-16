@@ -161,7 +161,7 @@ public:
 	// Returns amount of time left in current section
 	float GetCurrentMontageSectionTimeLeftForMesh(USkeletalMeshComponent* InMesh);
 
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "CharacterAbilities")
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|CharacterAbilities")
 	FGameplayAbilitySpecHandle FindAbilitySpecHandleForClass(TSubclassOf<UGameplayAbility> AbilityClass, UObject* OptionalSourceObject=nullptr);
 
 	// Attempts to activate the given ability handle and batch all RPCs into one. This will only batch all RPCs that happen
@@ -172,7 +172,7 @@ public:
 	// Single shots (semi auto fire) combine ActivateAbility, SendTargetData, and EndAbility into one RPC instead of three.
 	// Full auto shots combine ActivateAbility and SendTargetData into one RPC instead of two for the first bullet. Each subsequent
 	// bullet is one RPC for SendTargetData. We then send one final RPC for the EndAbility when we're done firing.
-	UFUNCTION(BlueprintCallable, Category = "CharacterAbilities")
+	UFUNCTION(BlueprintCallable, Category = "AZ|CharacterAbilities")
 	virtual bool BatchRPCTryActivateAbility(FGameplayAbilitySpecHandle InAbilityHandle, bool EndAbilityImmediately);
 
 

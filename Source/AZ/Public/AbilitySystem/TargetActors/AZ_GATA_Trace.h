@@ -17,60 +17,60 @@ public:
 	AAZ_GATA_Trace();
 
 // Base targeting spread (degrees)
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	float BaseSpread;
 
 	// Aiming spread modifier
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	float AimingSpreadMod;
 
 	// Continuous targeting: spread increment
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	float TargetingSpreadIncrement;
 
 	// Continuous targeting: max increment
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	float TargetingSpreadMax;
 
 	// Current spread from continuous targeting
 	float CurrentTargetingSpread;
 
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	bool bUseAimingSpreadMod;
 
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	FGameplayTag AimingTag;
 
-	UPROPERTY(BlueprintReadWrite, Category = "Accuracy")
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Accuracy")
 	FGameplayTag AimingRemovalTag;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	float MaxRange;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, config, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, config, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	FCollisionProfileName TraceProfile;
 
 	// Does the trace affect the aiming pitch
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	bool bTraceAffectsAimPitch;
 
 	// Maximum hit results to return per trace. 0 just returns the trace end point.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	int32 MaxHitResultsPerTrace;
 
 	// Number of traces to perform at one time. Single bullet weapons like rilfes will only do one trace.
 	// Multi-bullet weapons like shotguns can do multiple traces. Not intended to be used with PersistentHits.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	int32 NumberOfTraces;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	bool bIgnoreBlockingHits;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	bool bTraceFromPlayerViewPoint;
 
 	// HitResults will persist until Confirmation/Cancellation or until a new HitResult takes its place
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	bool bUsePersistentHitResults;
 
 	UFUNCTION(BlueprintCallable)

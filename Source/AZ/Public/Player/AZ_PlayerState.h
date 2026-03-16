@@ -12,6 +12,7 @@ class UAZ_InventoryComponent;
 class UAZ_LevelUpInfo;
 class UAttributeSet;
 class UAbilitySystemComponent;
+class UAZ_WeaponAttributeSet;
 
 // Multicast delegates for stat changes
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlayerStatChanged, int32 /*StatValue*/)
@@ -42,6 +43,9 @@ public:
 
 	UAttributeSet* GetAttributeSet() const { return AttributeSet; }
 	void SetAttributeSet(UAttributeSet* InAttributeSet);
+
+	UFUNCTION(BlueprintPure, Category = "AZ|AbilitySystem")
+	UAZ_WeaponAttributeSet* GetWeaponAttributeSet() const { return WeaponAttributeSet; }
 
 	// ========================================
 	// PROGRESSION CONFIGURATION
@@ -110,6 +114,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UAttributeSet> AttributeSet;
+
+	UPROPERTY(VisibleAnywhere, Category = "AZ|AbilitySystem")
+	TObjectPtr<UAZ_WeaponAttributeSet> WeaponAttributeSet;
 
 private:
 	// ========================================

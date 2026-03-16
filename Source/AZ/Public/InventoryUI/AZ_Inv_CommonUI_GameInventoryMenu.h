@@ -46,16 +46,16 @@ protected:
 
 	// -- Input Actions (bound via base class InputMapping = IMC_AZ_InventoryMenu) --
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> TabLeftAction;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> TabRightAction;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> BackAction;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> ContextMenuAction;
 
 	// -- Bound Widgets --

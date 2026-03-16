@@ -67,6 +67,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
 	FVector LeftHandIKOffset{FVector::ZeroVector};
 
+	/** Multiplier applied to blendspace speed inputs when a weapon is equipped.
+	 *  Increase to make weapon locomotion animations play faster (e.g. 1.3). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	float WeaponAnimSpeedMultiplier = 1.0f;
+
 	// ========================================
 	// JUMP / FALL STATE
 	// ========================================

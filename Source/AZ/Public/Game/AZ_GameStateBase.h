@@ -24,13 +24,13 @@ public:
 	
 	AAZ_GameStateBase();
 	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Difficulty")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "AZ|Difficulty")
 	EDifficultyLevel DifficultyLevel;
 
-	UFUNCTION(BlueprintCallable, Category = "Difficulty")
+	UFUNCTION(BlueprintCallable, Category = "AZ|Difficulty")
 	EDifficultyLevel GetDifficultyLevel() const { return DifficultyLevel; }
-    
-	UFUNCTION(BlueprintCallable, Category = "Difficulty")
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Difficulty")
 	void SetDifficultyLevel(EDifficultyLevel NewDifficultyLevel);
 
 protected:

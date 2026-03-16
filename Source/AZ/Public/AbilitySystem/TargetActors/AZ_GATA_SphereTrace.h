@@ -14,7 +14,7 @@ class AZ_API AAZ_GATA_SphereTrace : public AAZ_GATA_Trace
 public:
 	AAZ_GATA_SphereTrace();
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "Trace")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = true), Category = "AZ|Trace")
 	float TraceSphereRadius;
 
 	/**

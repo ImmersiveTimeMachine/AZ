@@ -21,28 +21,28 @@ public:
 	virtual bool IsSupportedForNetworking() const override { return true; }
 
 	// Lightweight identity (optional, but handy for UI/logic)
-	UFUNCTION(BlueprintPure, Category="Equipment")
+	UFUNCTION(BlueprintPure, Category="AZ|Equipment")
 	FGuid GetInstanceId() const { return InstanceId; }
 
 	// Initialize once when created (server-side)
-	UFUNCTION(BlueprintCallable, Category="Equipment")
+	UFUNCTION(BlueprintCallable, Category="AZ|Equipment")
 	void InitializeFromInventoryItem(UAZ_InventoryItemInstance* InInventoryInstance, FName InSlot);
 
 	// Equip/Unequip lifecycle toggles (server-side; will replicate state)
-	UFUNCTION(BlueprintCallable, Category="Equipment")
+	UFUNCTION(BlueprintCallable, Category="AZ|Equipment")
 	void SetEquipped(bool bInEquipped);
 
 	// Accessors
-	UFUNCTION(BlueprintPure, Category="Equipment")
+	UFUNCTION(BlueprintPure, Category="AZ|Equipment")
 	UAZ_InventoryItemDefinition* GetItemDefinition() const { return ItemDefinition; }
 
-	UFUNCTION(BlueprintPure, Category="Equipment")
+	UFUNCTION(BlueprintPure, Category="AZ|Equipment")
 	UAZ_InventoryItemInstance* GetSourceInventoryInstance() const { return SourceInventoryInstance; }
 
-	UFUNCTION(BlueprintPure, Category="Equipment")
+	UFUNCTION(BlueprintPure, Category="AZ|Equipment")
 	FName GetEquipmentSlot() const { return EquipmentSlot; }
 
-	UFUNCTION(BlueprintPure, Category="Equipment")
+	UFUNCTION(BlueprintPure, Category="AZ|Equipment")
 	bool IsEquipped() const { return bIsEquipped; }
 
 	// UObject
@@ -58,23 +58,23 @@ protected:
 
 protected:
 	// Underlying data driving visuals/stats (usually from the inventory definition)
-	UPROPERTY(Replicated, VisibleInstanceOnly, Category="Equipment")
+	UPROPERTY(Replicated, VisibleInstanceOnly, Category="AZ|Equipment")
 	TObjectPtr<UAZ_InventoryItemDefinition> ItemDefinition = nullptr;
 
 	// Optional back-reference to the inventory instance that produced this equipment
-	UPROPERTY(Replicated, VisibleInstanceOnly, Category="Equipment")
+	UPROPERTY(Replicated, VisibleInstanceOnly, Category="AZ|Equipment")
 	TObjectPtr<UAZ_InventoryItemInstance> SourceInventoryInstance = nullptr;
 
 	// Which slot we live in (e.g., "Head", "Chest", "PrimaryWeapon")
-	UPROPERTY(Replicated, VisibleInstanceOnly, Category="Equipment")
+	UPROPERTY(Replicated, VisibleInstanceOnly, Category="AZ|Equipment")
 	FName EquipmentSlot;
 
 	// Runtime identity (not required to replicate; derive as needed)
-	UPROPERTY(VisibleInstanceOnly, Category="Equipment")
+	UPROPERTY(VisibleInstanceOnly, Category="AZ|Equipment")
 	FGuid InstanceId;
 
 	// Equipped state replicated to owner
-	UPROPERTY(ReplicatedUsing=OnRep_Equipped, VisibleInstanceOnly, Category="Equipment")
+	UPROPERTY(ReplicatedUsing=OnRep_Equipped, VisibleInstanceOnly, Category="AZ|Equipment")
 	bool bIsEquipped = false;
 
 };

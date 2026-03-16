@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_WaitTargetDataUsingActor.h"
+#include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "AbilitySystem/TargetActors/AZ_GATA_LineTrace.h"
 #include "Weapon/AZ_Weapon.h"
 
@@ -85,7 +86,19 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 	FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(DamageGameplayEffect, GetAbilityLevel());
 	if (!SpecHandle.IsValid()) return;
 
-	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), BaseDamage);
+	// Read BaseDamage from player ASC WeaponAttributeSet, fall back to default
+	UAbilitySystemComponent* OwnerASC = GetAbilitySystemComponentFromActorInfo();
+	float Damage = BaseDamage;
+	if (OwnerASC)
+	{
+		const float ASCDamage = OwnerASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetBaseDamageAttribute());
+		if (ASCDamage > 0.f)
+		{
+			Damage = ASCDamage;
+		}
+	}
+
+	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), Damage);
 
 	// Apply to each target in the target data
 	for (int32 i = 0; i < Data.Num(); i++)
@@ -99,7 +112,7 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 				{
 					if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitActor))
 					{
-						GetAbilitySystemComponentFromActorInfo()->ApplyGameplayEffectSpecToTarget(
+						OwnerASC->ApplyGameplayEffectSpecToTarget(
 							*SpecHandle.Data.Get(), TargetASC);
 					}
 				}
@@ -110,14 +123,14 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 
 void UAZ_GA_Shoot::ConsumeAmmo()
 {
-	AAZ_Weapon* Weapon = GetEquippedWeapon();
-	if (!Weapon) return;
-	if (Weapon->HasInfiniteAmmo()) return;
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (!ASC) return;
 
-	const int32 CurrentAmmo = Weapon->GetPrimaryClipAmmo();
-	if (CurrentAmmo > 0)
+	// Read clip ammo from player ASC (using RifleClipAmmo as the active weapon's clip)
+	const float CurrentAmmo = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute());
+	if (CurrentAmmo > 0.f)
 	{
-		Weapon->SetPrimaryClipAmmo(CurrentAmmo - 1);
+		ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute(), CurrentAmmo - 1.f);
 	}
 }
 
@@ -219,7 +232,18 @@ void UAZ_GA_Shoot::ApplyDamageToTarget(AActor* HitActor, const FHitResult& HitRe
 	FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(DamageGameplayEffect, GetAbilityLevel());
 	if (!SpecHandle.IsValid()) return;
 
-	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), BaseDamage);
+	UAbilitySystemComponent* OwnerASC = GetAbilitySystemComponentFromActorInfo();
+	float Damage = BaseDamage;
+	if (OwnerASC)
+	{
+		const float ASCDamage = OwnerASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetBaseDamageAttribute());
+		if (ASCDamage > 0.f)
+		{
+			Damage = ASCDamage;
+		}
+	}
 
-	GetAbilitySystemComponentFromActorInfo()->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), Damage);
+
+	OwnerASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 }

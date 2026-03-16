@@ -9,9 +9,8 @@
 
 struct FGameplayTag;
 class UAZ_Inv_CommonUI_InventoryItem;
-struct FAZ_Inv_CommonUI_ItemManifest;
-class AAZ_Inv_EquipActor;
 struct FAZ_Inv_CommonUI_EquipmentFragment;
+struct FAZ_Inv_CommonUI_WeaponStateFragment;
 struct FAZ_Inv_CommonUI_AbilityGrantFragment;
 class UAZ_Inv_CommonUI_InventoryComponent;
 
@@ -55,13 +54,9 @@ private:
 
 	void InitPlayerController();
 	void InitInventoryComponent();
-	AAZ_Inv_EquipActor* SpawnCarryActor(FAZ_Inv_CommonUI_EquipmentFragment* EquipmentFragment, USkeletalMeshComponent* AttachMesh);
 
-	UPROPERTY()
-	TArray<TObjectPtr<AAZ_Inv_EquipActor>> ManagedActors;
-
-	AAZ_Inv_EquipActor* FindManagedActor(const FGameplayTag& EquipmentTypeTag);
-	void RemoveManagedActor(const FGameplayTag& EquipmentTypeTag);
+	AActor* SpawnWeaponActor(TSubclassOf<AActor> WeaponClass, USkeletalMeshComponent* AttachMesh);
+	void SaveWeaponStateToFragment(FAZ_Inv_CommonUI_WeaponStateFragment* WeaponState);
 
 	UFUNCTION()
 	void OnPossessedPawnChange(APawn* OldPawn, APawn* NewPawn);

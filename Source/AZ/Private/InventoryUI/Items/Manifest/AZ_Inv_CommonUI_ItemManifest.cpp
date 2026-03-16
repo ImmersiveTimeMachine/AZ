@@ -13,7 +13,10 @@ UAZ_Inv_CommonUI_InventoryItem* FAZ_Inv_CommonUI_ItemManifest::Manifest(UObject*
 	Item->SetItemManifest(*this);
 	for (auto& Fragment : Item->GetItemManifestMutable().GetFragmentsMutable())
 	{
-		Fragment.GetMutable().Manifest();
+		if (Fragment.IsValid())
+		{
+			Fragment.GetMutable().Manifest();
+		}
 	}
 	ClearFragments();
 
@@ -50,7 +53,10 @@ void FAZ_Inv_CommonUI_ItemManifest::ClearFragments()
 {
 	for (auto& Fragment : Fragments)
 	{
-		Fragment.Reset();
+		if (Fragment.IsValid())
+		{
+			Fragment.Reset();
+		}
 	}
 	Fragments.Empty();
 }

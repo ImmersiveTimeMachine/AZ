@@ -28,7 +28,7 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Inventory")
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="AZ|Inventory")
 	void TryAddItem(UAZ_Inv_ItemComponent* ItemComponent);
 
 	UFUNCTION(Server, Reliable)
@@ -88,7 +88,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UAZ_Inv_InventoryMenuBase> InventoryMenu;
 
-	UPROPERTY(EditAnywhere, Category="Inventory")
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory")
 	TSubclassOf<UAZ_Inv_InventoryMenuBase> InventoryScreenClass;
 
 	bool bInventoryMenuOpen;

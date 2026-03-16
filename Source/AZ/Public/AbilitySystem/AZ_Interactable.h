@@ -27,7 +27,7 @@ public:
 	*
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	bool IsAvailableForInteraction(UPrimitiveComponent* InteractionComponent) const;
 	virtual bool IsAvailableForInteraction_Implementation(UPrimitiveComponent* InteractionComponent) const;
 
@@ -36,7 +36,7 @@ public:
 	*
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	float GetInteractionDuration(UPrimitiveComponent* InteractionComponent) const;
 	virtual float GetInteractionDuration_Implementation(UPrimitiveComponent* InteractionComponent) const;
 
@@ -53,7 +53,7 @@ public:
 	*
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	void GetPreInteractSyncType(bool& bShouldSync, EAbilityTaskNetSyncType& Type, UPrimitiveComponent* InteractionComponent) const;
 	virtual void GetPreInteractSyncType_Implementation(bool& bShouldSync, EAbilityTaskNetSyncType& Type, UPrimitiveComponent* InteractionComponent) const;
 
@@ -69,7 +69,7 @@ public:
 	*
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	void GetPostInteractSyncType(bool& bShouldSync, EAbilityTaskNetSyncType& Type, UPrimitiveComponent* InteractionComponent) const;
 	void GetPostInteractSyncType_Implementation(bool& bShouldSync, EAbilityTaskNetSyncType& Type, UPrimitiveComponent* InteractionComponent) const;
 
@@ -89,7 +89,7 @@ public:
 	* @param InteractingActor The Actor interacting with this Actor. It will be the AvatarActor from a GameplayAbility.
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	void PreInteract(AActor* InteractingActor, UPrimitiveComponent* InteractionComponent);
 	virtual void PreInteract_Implementation(AActor* InteractingActor, UPrimitiveComponent* InteractionComponent) {};
 
@@ -107,7 +107,7 @@ public:
 	* @param InteractingActor The Actor interacting with this Actor. It will be the AvatarActor from a GameplayAbility.
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	void PostInteract(AActor* InteractingActor, UPrimitiveComponent* InteractionComponent);
 	virtual void PostInteract_Implementation(AActor* InteractingActor, UPrimitiveComponent* InteractionComponent) {};
 
@@ -117,7 +117,7 @@ public:
 	*
 	* @param InteractionComponent UPrimitiveComponent in case an Actor has many separate interactable areas.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable")
 	void CancelInteraction(UPrimitiveComponent* InteractionComponent);
 	virtual void CancelInteraction_Implementation(UPrimitiveComponent* InteractionComponent) {};
 
@@ -132,14 +132,14 @@ public:
 	* Registers an Actor interacting with this Interactable. Used to send a GameplayEvent to them when this Interactable
 	* wishes to cancel interaction prematurely (e.g. a reviving player dies mid-revival). Not meant to be overriden.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable|Do Not Override")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable|Do Not Override")
 	void RegisterInteracter(UPrimitiveComponent* InteractionComponent, AActor* InteractingActor);
 	void RegisterInteracter_Implementation(UPrimitiveComponent* InteractionComponent, AActor* InteractingActor);
 
 	/**
 	* Unregisters an interacting Actor from this Interactable. Not meant to be overriden.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable|Do Not Override")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable|Do Not Override")
 	void UnregisterInteracter(UPrimitiveComponent* InteractionComponent, AActor* InteractingActor);
 	void UnregisterInteracter_Implementation(UPrimitiveComponent* InteractionComponent, AActor* InteractingActor);
 
@@ -147,7 +147,7 @@ public:
 	* Interactable (or an external Actor, not the Interacter) wants to cancel the interaction (e.g. the reviving player
 	* dies mid-revival). Not meant to be overriden.
 	*/
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interactable|Do Not Override")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AZ|Interactable|Do Not Override")
 	void InteractableCancelInteraction(UPrimitiveComponent* InteractionComponent);
 	void InteractableCancelInteraction_Implementation(UPrimitiveComponent* InteractionComponent);
 

@@ -96,10 +96,10 @@ protected:
 	bool CanModifyInventory() const;
 
 	// --- Grid Properties ---
-	UPROPERTY(EditDefaultsOnly, Replicated, Category = "Inventory|Grid")
+	UPROPERTY(EditDefaultsOnly, Replicated, Category = "AZ|Inventory|Grid")
 	int32 GridWidth;
 
-	UPROPERTY(EditDefaultsOnly, Replicated, Category = "Inventory|Grid")
+	UPROPERTY(EditDefaultsOnly, Replicated, Category = "AZ|Inventory|Grid")
 	int32 GridHeight;
 
 	/** The replicated list of all unique item instances. This is the source of truth for the inventory. */

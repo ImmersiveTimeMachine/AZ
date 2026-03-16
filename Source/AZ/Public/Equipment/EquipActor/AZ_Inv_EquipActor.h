@@ -13,14 +13,13 @@ class AZ_API AAZ_Inv_EquipActor : public AActor
 	GENERATED_BODY()
 
 public:
-	// Sets default values for this actor's properties
 	AAZ_Inv_EquipActor();
-	
+
 	FGameplayTag GetEquipmentType() const { return EquipmentType; }
 	void SetEquipmentType(FGameplayTag Type) { EquipmentType = Type; }
-	
+
 private:
-	
+
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	FGameplayTag EquipmentType;
 };

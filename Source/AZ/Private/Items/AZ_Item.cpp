@@ -123,10 +123,6 @@ void AAZ_Item::BeginPlay()
 {
 	Super::BeginPlay();
 
-	
-
-	ensure(IsValid(ItemDefinition));
-
 	// Bind overlap events
 	if (PickupSphere)
 	{

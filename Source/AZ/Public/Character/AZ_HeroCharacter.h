@@ -175,9 +175,6 @@ public:
 	// CHARACTER PROPERTIES
 	// ========================================
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Character")
-	FName WeaponAttachPoint;
-
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	USkeletalMeshComponent* FirstPersonMesh;
 
@@ -195,7 +192,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Echo|HeroCharacter")
 	USkeletalMeshComponent* GetThirdPersonMesh() const;
 
-	FName GetWeaponAttachPoint() { return WeaponAttachPoint; }
+
 
 	// Character State
 	bool IsHeroAlive() const;
@@ -249,7 +246,7 @@ protected:
 
 	// This pointer holds the weapon that is currently spawned and in the player's hands.
 	// We add "ReplicatedUsing" to tell the engine to call a function when this changes on the client.
-	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_EquippedWeapon, Category = "Combat")
+	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_EquippedWeapon, Category = "AZ|Combat")
 	TObjectPtr<AAZ_Weapon> EquippedWeapon;
 
 	// This is the function that will be called on clients.

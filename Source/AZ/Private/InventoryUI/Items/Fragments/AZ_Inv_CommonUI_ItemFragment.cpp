@@ -9,7 +9,9 @@
 #include "Equipment/EquipActor/AZ_Inv_EquipActor.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
+#include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "AbilitySystemGlobals.h"
+#include "Weapon/AZ_Weapon.h"
 
 void FAZ_Inv_CommonUI_InventoryItem_Fragment::Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const
 {
@@ -183,6 +185,70 @@ void FAZ_Inv_CommonUI_DamageModifier::OnUnequip(APlayerController* PC)
 			GetValue()));
 }
 
+// --- WeaponStateFragment ---
+
+void FAZ_Inv_CommonUI_WeaponStateFragment::ApplyToASC(UAbilitySystemComponent* ASC) const
+{
+	if (!ASC) return;
+
+	const UAZ_WeaponAttributeSet* WeaponAS = ASC->GetSet<UAZ_WeaponAttributeSet>();
+	if (!WeaponAS) return;
+
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetBaseDamageAttribute(), BaseDamage);
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetFireRateAttribute(), FireRate);
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetReloadTimeAttribute(), ReloadSpeed);
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetSpreadModifierAttribute(), SpreadBase);
+
+	// Clip ammo — resolve by weapon tag
+	const FGameplayAttribute ClipAttr = WeaponAS->GetReserveAmmoAttributeFromTag(WeaponTag);
+	const FGameplayAttribute MaxClipAttr = WeaponAS->GetMaxReserveAmmoAttributeFromTag(WeaponTag);
+
+	// Use Rifle attributes as default for clip ammo
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute(), static_cast<float>(CurrentClipAmmo));
+	ASC->SetNumericAttributeBase(UAZ_WeaponAttributeSet::GetMaxRifleClipAmmoAttribute(), static_cast<float>(MaxClipAmmo));
+
+	// Reserve ammo via weapon tag
+	if (ClipAttr.IsValid())
+	{
+		ASC->SetNumericAttributeBase(ClipAttr, static_cast<float>(CurrentReserveAmmo));
+	}
+	if (MaxClipAttr.IsValid())
+	{
+		ASC->SetNumericAttributeBase(MaxClipAttr, static_cast<float>(MaxReserveAmmo));
+	}
+}
+
+void FAZ_Inv_CommonUI_WeaponStateFragment::SaveFromASC(UAbilitySystemComponent* ASC)
+{
+	if (!ASC) return;
+
+	const UAZ_WeaponAttributeSet* WeaponAS = ASC->GetSet<UAZ_WeaponAttributeSet>();
+	if (!WeaponAS) return;
+
+	BaseDamage = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetBaseDamageAttribute());
+	FireRate = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetFireRateAttribute());
+	ReloadSpeed = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetReloadTimeAttribute());
+	SpreadBase = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetSpreadModifierAttribute());
+
+	// Read clip ammo (using Rifle as default)
+	CurrentClipAmmo = static_cast<int32>(ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute()));
+	MaxClipAmmo = static_cast<int32>(ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetMaxRifleClipAmmoAttribute()));
+
+	// Read reserve ammo via weapon tag
+	const FGameplayAttribute ReserveAttr = WeaponAS->GetReserveAmmoAttributeFromTag(WeaponTag);
+	const FGameplayAttribute MaxReserveAttr = WeaponAS->GetMaxReserveAmmoAttributeFromTag(WeaponTag);
+	if (ReserveAttr.IsValid())
+	{
+		CurrentReserveAmmo = static_cast<int32>(ASC->GetNumericAttribute(ReserveAttr));
+	}
+	if (MaxReserveAttr.IsValid())
+	{
+		MaxReserveAmmo = static_cast<int32>(ASC->GetNumericAttribute(MaxReserveAttr));
+	}
+}
+
+// --- EquipmentFragment (pure state + modifiers) ---
+
 void FAZ_Inv_CommonUI_EquipmentFragment::OnPickup(APlayerController* PC)
 {
 	if (State != EEquipmentState::None) return;
@@ -194,13 +260,9 @@ void FAZ_Inv_CommonUI_EquipmentFragment::OnEquip(APlayerController* PC)
 	if (State == EEquipmentState::Equipped) return;
 	State = EEquipmentState::Equipped;
 
-	// Move actor from carry socket to equip socket
-	ReattachActor(EquipSocket);
-
 	for (auto& Modifier : EquipModifiers)
 	{
-		auto& ModRef = Modifier.GetMutable();
-		ModRef.OnEquip(PC);
+		Modifier.GetMutable().OnEquip(PC);
 	}
 }
 
@@ -209,13 +271,9 @@ void FAZ_Inv_CommonUI_EquipmentFragment::OnUnequip(APlayerController* PC)
 	if (State != EEquipmentState::Equipped) return;
 	State = EEquipmentState::Carried;
 
-	// Move actor back to carry socket
-	ReattachActor(CarrySocket);
-
 	for (auto& Modifier : EquipModifiers)
 	{
-		auto& ModRef = Modifier.GetMutable();
-		ModRef.OnUnequip(PC);
+		Modifier.GetMutable().OnUnequip(PC);
 	}
 }
 
@@ -230,8 +288,7 @@ void FAZ_Inv_CommonUI_EquipmentFragment::Assimilate(UAZ_Inv_CommonUI_CompositeBa
 	FAZ_Inv_CommonUI_InventoryItem_Fragment::Assimilate(Composite);
 	for (const auto& Modifier : EquipModifiers)
 	{
-		const auto& ModRef = Modifier.Get();
-		ModRef.Assimilate(Composite);
+		Modifier.Get().Assimilate(Composite);
 	}
 }
 
@@ -240,19 +297,8 @@ void FAZ_Inv_CommonUI_EquipmentFragment::Manifest()
 	FAZ_Inv_CommonUI_InventoryItem_Fragment::Manifest();
 	for (auto& Modifier : EquipModifiers)
 	{
-		auto& ModRef = Modifier.GetMutable();
-		ModRef.Manifest();
+		Modifier.GetMutable().Manifest();
 	}
-}
-
-AAZ_Inv_EquipActor* FAZ_Inv_CommonUI_EquipmentFragment::SpawnAttachedActor(USkeletalMeshComponent* AttachMesh, FName Socket) const
-{
-	if (!IsValid(EquipActorClass) || !IsValid(AttachMesh)) return nullptr;
-
-	AAZ_Inv_EquipActor* SpawnedActor = AttachMesh->GetWorld()->SpawnActor<AAZ_Inv_EquipActor>(EquipActorClass);
-	SpawnedActor->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
-
-	return SpawnedActor;
 }
 
 void FAZ_Inv_CommonUI_EquipmentFragment::ReattachActor(FName NewSocket) const
@@ -274,9 +320,9 @@ void FAZ_Inv_CommonUI_EquipmentFragment::DestroyAttachedActor()
 	}
 }
 
-void FAZ_Inv_CommonUI_EquipmentFragment::SetEquippedActor(AAZ_Inv_EquipActor* EquipActor)
+void FAZ_Inv_CommonUI_EquipmentFragment::SetEquippedActor(AActor* InActor)
 {
-	EquippedActor = EquipActor;
+	EquippedActor = InActor;
 }
 
 void FAZ_Inv_CommonUI_AbilityGrantFragment::OnEquip(APlayerController* PC, AActor* SourceObject)

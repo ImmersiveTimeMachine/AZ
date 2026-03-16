@@ -97,7 +97,7 @@ protected:
 	// -------------------------------
 
 	UFUNCTION()
-	void HandleBeginOverlap(UPrimitiveComponent* OverlappedComp,
+	virtual void HandleBeginOverlap(UPrimitiveComponent* OverlappedComp,
 	                        AActor* OtherActor,
 	                        UPrimitiveComponent* OtherComp,
 	                        int32 OtherBodyIndex,
@@ -105,7 +105,7 @@ protected:
 	                        const FHitResult& SweepResult);
 
 	UFUNCTION()
-	void HandleEndOverlap(UPrimitiveComponent* OverlappedComp,
+	virtual void HandleEndOverlap(UPrimitiveComponent* OverlappedComp,
 	                      AActor* OtherActor,
 	                      UPrimitiveComponent* OtherComp,
 	                      int32 OtherBodyIndex);

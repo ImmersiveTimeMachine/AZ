@@ -22,13 +22,13 @@ struct FAZCharacterClassDefaultInfo
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditDefaultsOnly, Category = "Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Class Defaults")
 	TSubclassOf<UGameplayEffect> PrimaryAttributes;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Class Defaults")
 	TArray<TSubclassOf<UGameplayAbility>> StartupAbilities;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Class Defaults")
 	FScalableFloat XPReward = FScalableFloat();
 };
 
@@ -39,25 +39,25 @@ class AZ_API UAZ_CharacterClassInfo : public UDataAsset
 
 public:
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Character Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Character Class Defaults")
 	TMap<EAZCharacterClass, FAZCharacterClassDefaultInfo> CharacterClassInformation;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults")
 	TSubclassOf<UGameplayEffect> PrimaryAttributes_SetByCaller;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults")
 	TSubclassOf<UGameplayEffect> SecondaryAttributes;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults")
 	TSubclassOf<UGameplayEffect> SecondaryAttributes_Infinite;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults")
 	TSubclassOf<UGameplayEffect> VitalAttributes;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults")
 	TArray<TSubclassOf<UGameplayAbility>> CommonAbilities;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Common Class Defaults|Damage")
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Common Class Defaults|Damage")
 	TObjectPtr<UCurveTable> DamageCalculationCoefficients;
 
 	FAZCharacterClassDefaultInfo GetClassDefaultInfo(EAZCharacterClass CharacterClass);

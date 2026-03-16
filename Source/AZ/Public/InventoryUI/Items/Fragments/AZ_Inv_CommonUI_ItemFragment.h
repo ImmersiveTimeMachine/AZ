@@ -266,6 +266,61 @@ struct FAZ_Inv_CommonUI_DamageModifier : public FAZ_Inv_CommonUI_EquipModifier
 	virtual void OnUnequip(APlayerController* PC) override;
 };
 
+// Weapon State Fragment - persistence for ammo/fire mode between equip cycles.
+// On equip: values → player ASC WeaponAttributeSet
+// On unequip: player ASC attributes → saved back to this fragment
+// Also holds the weapon actor class — the weapon to spawn when equipped.
+
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragment
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon", meta=(DisplayName="Weapon Actor Class (spawned on equip)"))
+	TSubclassOf<AActor> WeaponActorClass = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	int32 CurrentClipAmmo{30};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	int32 MaxClipAmmo{30};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	int32 CurrentReserveAmmo{90};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	int32 MaxReserveAmmo{90};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	float FireRate{10.f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	float BaseDamage{20.f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	float ReloadSpeed{2.f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	float SpreadBase{1.f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	float SpreadAim{0.5f};
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	FGameplayTag FireMode;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	FGameplayTag WeaponTag;
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
+	bool bInfiniteAmmo{false};
+
+	bool IsWeaponItem() const { return WeaponActorClass != nullptr; }
+
+	void SaveFromASC(class UAbilitySystemComponent* ASC);
+	void ApplyToASC(class UAbilitySystemComponent* ASC) const;
+};
+
 UENUM(BlueprintType)
 enum class EEquipmentState : uint8
 {
@@ -275,12 +330,15 @@ enum class EEquipmentState : uint8
 };
 
 class AAZ_Inv_EquipActor;
+
+// EquipmentFragment — pure state + modifiers.
+// The EquipmentComponent orchestrates spawning. Actors own their sockets.
+
 USTRUCT(BlueprintType)
 struct FAZ_Inv_CommonUI_EquipmentFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
 {
 	GENERATED_BODY()
 
-	// State transitions
 	void OnPickup(APlayerController* PC);
 	void OnEquip(APlayerController* PC);
 	void OnUnequip(APlayerController* PC);
@@ -289,15 +347,14 @@ struct FAZ_Inv_CommonUI_EquipmentFragment : public FAZ_Inv_CommonUI_InventoryIte
 	virtual void Assimilate(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const override;
 	virtual void Manifest() override;
 
-	AAZ_Inv_EquipActor* SpawnAttachedActor(USkeletalMeshComponent* AttachMesh, FName Socket) const;
 	void ReattachActor(FName NewSocket) const;
 	void DestroyAttachedActor();
+	void SetEquippedActor(AActor* InActor);
+
 	FGameplayTag GetEquipmentType() const { return EquipmentType; }
-	FName GetCarrySocket() const { return CarrySocket; }
-	FName GetEquipSocket() const { return EquipSocket; }
-	void SetEquippedActor(AAZ_Inv_EquipActor* EquipActor);
 	EEquipmentState GetState() const { return State; }
-	AAZ_Inv_EquipActor* GetEquippedActor() const { return EquippedActor.Get(); }
+	AActor* GetEquippedActor() const { return EquippedActor.Get(); }
+	TSubclassOf<AAZ_Inv_EquipActor> GetEquipActorClass() const { return EquipActorClass; }
 
 private:
 
@@ -306,16 +363,10 @@ private:
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	TArray<TInstancedStruct<FAZ_Inv_CommonUI_EquipModifier>> EquipModifiers;
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta=(DisplayName="Prop/Equipment Actor Class"))
 	TSubclassOf<AAZ_Inv_EquipActor> EquipActorClass = nullptr;
 
-	TWeakObjectPtr<AAZ_Inv_EquipActor> EquippedActor = nullptr;
-
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta=(DisplayName="Carry Socket (Back/Holster)"))
-	FName CarrySocket{NAME_None};
-
-	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta=(DisplayName="Equip Socket (Hand)"))
-	FName EquipSocket{NAME_None};
+	TWeakObjectPtr<AActor> EquippedActor = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	FGameplayTag EquipmentType = FGameplayTag::EmptyTag;

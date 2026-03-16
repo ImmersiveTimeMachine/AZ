@@ -7,7 +7,7 @@
 #include "GameplayTagContainer.h"
 #include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "GameFramework/Actor.h"
-#include "Inventory/AZ_Item.h"
+#include "Items/AZ_Item.h"
 #include "AZ_Weapon.generated.h"
 
 class UAZ_InventoryComponent;
@@ -86,11 +86,14 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AZ|Weapon")
 	FWeaponAmmoChangedDelegate OnMaxSecondaryClipAmmoChanged;
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Weapon")
-	FName GripCarringPoint{ TEXT("BackRifleSocket") };
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
+	FName CarrySocketName{ TEXT("BackRifleSocket") };
 
-	UPROPERTY(EditAnywhere, Category = "AZ|Weapon")
-	FName GripRHandPoint{ TEXT("RightHandRifleSocket") };
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
+	FName RelaxedSocketName{ TEXT("RightHandRifleSocketRelaxed") };
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
+	FName AimSocketName{ TEXT("RightHandRifleSocketAim") };
 
 	// Implement the interface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
@@ -198,7 +201,7 @@ public:
 	AAZ_GATA_SphereTrace* GetSphereTraceTargetActor();
 
 	/** MappingContext */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	UInputMappingContext* FireMappingContext;
 
 protected:
@@ -209,10 +212,10 @@ protected:
 	virtual void BeginPlay() override;
 
 	// Use a descriptive variable name, not the class name.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Abilities")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Abilities")
 	TObjectPtr<UAZ_AbilitySystemComponent> AbilitySystemComponent;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Abilities")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Abilities")
 	TObjectPtr<UAZ_WeaponAttributeSet> AttributeSet;
 
 	// How much ammo in the clip the gun starts with
@@ -320,7 +323,7 @@ protected:
 	UFUNCTION()
 	virtual void OnRep_MaxSecondaryClipAmmo(int32 OldMaxSecondaryClipAmmo);
 
-	UPROPERTY(BlueprintReadOnly, Category = "Weapon")
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	bool bIsCosmeticOnly = false;
 	
 };
