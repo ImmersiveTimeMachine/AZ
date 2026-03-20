@@ -41,6 +41,7 @@ AAZ_HeroCharacter::AAZ_HeroCharacter()
     // Apply movement params from header properties
     GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
     GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
+    GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
     GetCharacterMovement()->MinAnalogWalkSpeed = 15.f;
     GetCharacterMovement()->MaxAcceleration = Acceleration;
     GetCharacterMovement()->BrakingDecelerationWalking = BrakingDeceleration;

@@ -37,13 +37,13 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (bWasFalling && !bCurrentlyFalling)
 	{
 		bIsJumping = false;
-		bIsStartJumpLoop = false;
-		// Note: bIsEndJumpLanding is set by the anim notify on the Landing animation,
-		// NOT here. We only clear jump state on land.
 	}
 
 	bIsFalling = bCurrentlyFalling;
 	bWasFalling = bCurrentlyFalling;
+
+	// --- Crouch state ---
+	bIsCrouching = MovementComponent->IsCrouching();
 
 	// --- Cache ASC (may not be available until PlayerState replicates) ---
 	if (!CachedASC && OwningCharacter)

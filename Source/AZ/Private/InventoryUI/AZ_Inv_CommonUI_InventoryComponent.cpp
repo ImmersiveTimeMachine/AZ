@@ -168,18 +168,25 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_ConsumeItem_Implementation(UAZ_
 void UAZ_Inv_CommonUI_InventoryComponent::SpawnDroppedItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount)
 {
 	const APawn* OwningPawn = OwningController->GetPawn();
-	FVector RotatedForward = OwningPawn->GetActorForwardVector();
-	RotatedForward = RotatedForward.RotateAngleAxis(FMath::FRandRange(DropSpawnAngleMin, DropSpawnAngleMax), FVector::UpVector);
-	FVector SpawnLocation = OwningPawn->GetActorLocation() + RotatedForward * FMath::FRandRange(DropSpawnDistanceMin, DropSpawnDistanceMax);
-	SpawnLocation.Z -= RelativeSpawnElevation;
+	const FVector BaseForward = OwningPawn->GetActorForwardVector();
+	const FVector BaseLocation = OwningPawn->GetActorLocation();
 	const FRotator SpawnRotation = FRotator::ZeroRotator;
 
 	FAZ_Inv_CommonUI_ItemManifest& ItemManifest = Item->GetItemManifestMutable();
-	if (FAZ_Inv_CommonUI_Stackable_Fragment* StackableFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
+
+	// Spawn one pickup per item in the stack
+	for (int32 i = 0; i < FMath::Max(1, StackCount); ++i)
 	{
-		StackableFragment->SetStackCount(StackCount);
+		FVector RotatedForward = BaseForward.RotateAngleAxis(FMath::FRandRange(DropSpawnAngleMin, DropSpawnAngleMax), FVector::UpVector);
+		FVector SpawnLocation = BaseLocation + RotatedForward * FMath::FRandRange(DropSpawnDistanceMin, DropSpawnDistanceMax);
+		SpawnLocation.Z -= RelativeSpawnElevation;
+
+		if (FAZ_Inv_CommonUI_Stackable_Fragment* StackableFragment = ItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
+		{
+			StackableFragment->SetStackCount(1);
+		}
+		ItemManifest.SpawnPickupActor(this, SpawnLocation, SpawnRotation);
 	}
-	ItemManifest.SpawnPickupActor(this, SpawnLocation, SpawnRotation);
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::Server_EquipSlotClicked_Implementation(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip,

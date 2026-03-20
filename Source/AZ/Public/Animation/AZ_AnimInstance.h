@@ -80,17 +80,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement")
 	bool bIsFalling;
 
-	/** True if the character actively jumped (as opposed to walking off a ledge). Set by Jump ability, cleared on land. */
+	/** True if the character actively jumped (as opposed to walking off a ledge). Set by GA_Jump, cleared on land. */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|Movement")
 	bool bIsJumping;
 
-	/** Set by anim notify at the end of the JumpStart animation to transition into the FallLoop. */
-	UPROPERTY(BlueprintReadWrite, Category = "AZ|Movement")
-	bool bIsStartJumpLoop;
-
-	/** Set by anim notify at the end of the Landing animation to transition back to locomotion. */
-	UPROPERTY(BlueprintReadWrite, Category = "AZ|Movement")
-	bool bIsEndJumpLanding;
+	/** True while the character is crouching. Set by GA_Crouch, cleared on uncrouch. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement")
+	bool bIsCrouching;
 
 protected:
 
