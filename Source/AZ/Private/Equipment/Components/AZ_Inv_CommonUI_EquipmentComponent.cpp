@@ -8,6 +8,7 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "AbilitySystemGlobals.h"
+#include "AZ_GameplayTags.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
@@ -86,7 +87,18 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemEquipped(UAZ_Inv_CommonUI_Invent
 		// World operations: reattach weapon to relaxed socket + push ASC state
 		if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(EquipmentFragment->GetEquippedActor()))
 		{
+			ActiveWeapon = Weapon;
+			Weapon->Tags.AddUnique(FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName());
 			EquipmentFragment->ReattachActor(Weapon->RelaxedSocketName);
+
+			// Tag ASC with primary weapon equipped
+			if (APawn* Pawn = OwningPlayerController->GetPawn())
+			{
+				if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+				{
+					ASC->AddLooseGameplayTag(FAZ_GameplayTags::Get().State_Equipped_Weapon_Primary);
+				}
+			}
 
 			if (WeaponState)
 			{
@@ -141,6 +153,21 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemUnequipped(UAZ_Inv_CommonUI_Inve
 			EquipmentFragment->ReattachActor(Weapon->CarrySocketName);
 		}
 
+		if (ActiveWeapon.IsValid())
+		{
+			ActiveWeapon->Tags.Remove(FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName());
+		}
+		ActiveWeapon = nullptr;
+
+		// Remove primary weapon tag
+		if (APawn* Pawn = OwningPlayerController->GetPawn())
+		{
+			if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+			{
+				ASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Equipped_Weapon_Primary);
+			}
+		}
+
 		// State + modifiers
 		EquipmentFragment->OnUnequip(OwningPlayerController.Get());
 
@@ -189,12 +216,19 @@ void UAZ_Inv_CommonUI_EquipmentComponent::OnItemDropped(UAZ_Inv_CommonUI_Invento
 				AbilityFragment->OnUnequip(OwningPlayerController.Get());
 			}
 
-			// Clear weapon tag — revert to unarmed
+			if (ActiveWeapon.IsValid())
+			{
+				ActiveWeapon->Tags.Remove(FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName());
+			}
+			ActiveWeapon = nullptr;
+
+			// Clear weapon tags — revert to unarmed
 			if (APawn* Pawn = OwningPlayerController->GetPawn())
 			{
 				if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn)))
 				{
 					ASC->OnWeaponEquipped(FGameplayTag::EmptyTag);
+					ASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Equipped_Weapon_Primary);
 				}
 			}
 		}

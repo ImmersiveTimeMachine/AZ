@@ -195,6 +195,12 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Weapon_SMG;
     FGameplayTag Weapon_Melee;
 
+    // Weapon Slot Tags (on the weapon actor itself)
+    FGameplayTag Weapon_Slot_Primary;
+    FGameplayTag Weapon_Slot_Secondary;
+    FGameplayTag Weapon_Slot_Sidearm;
+    FGameplayTag Weapon_Slot_Melee;
+
     // Movement State Tags
     FGameplayTag Movement_Idle;
     FGameplayTag Movement_Walking;
@@ -203,17 +209,23 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Movement_Crouching;
     FGameplayTag Movement_Jumping;
     FGameplayTag Movement_Falling;
+    FGameplayTag Movement_Aiming;
+    FGameplayTag Movement_Swimming;
+    FGameplayTag Movement_Climbing;
 
     // Combat State Tags
     FGameplayTag Combat_Aiming;
     FGameplayTag Combat_Blocking;
     FGameplayTag Combat_Attacking;
     FGameplayTag Combat_Reloading;
+    FGameplayTag Combat_Firing;
+    FGameplayTag Combat_MeleeSwing;
 
     // Character State Tags
     FGameplayTag Character_Dead;
     FGameplayTag Character_Dying;
     FGameplayTag Character_Stunned;
+    FGameplayTag Character_Downed;
     FGameplayTag Character_Interacting;
 
     // Equipment State Tags

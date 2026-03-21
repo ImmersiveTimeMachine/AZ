@@ -5,6 +5,7 @@
 #include "AZ_GameplayTags.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Weapon/AZ_Weapon.h"
 
 void UAZ_AnimInstance::NativeInitializeAnimation()
 {
@@ -52,7 +53,6 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	// --- Weapon state from ASC tags ---
-	bUseLeftHandIK = false;
 	if (CachedASC)
 	{
 		FGameplayTagContainer OwnedTags;
@@ -94,28 +94,34 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			WeaponAnimIndex = 0;
 	}
 
-	// --- Left Hand IK: find weapon mesh socket ---
-	if (CurrentWeaponTag.IsValid() && OwningCharacter)
+	// --- Left Hand IK: find primary weapon's grip socket ---
+	bUseLeftHandIK = false;
+	if (bEnableLeftHandIK && CurrentWeaponTag.IsValid() && OwningCharacter)
 	{
+		const FName PrimaryTag = FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName();
 		TArray<AActor*> AttachedActors;
 		OwningCharacter->GetAttachedActors(AttachedActors);
 		for (AActor* Attached : AttachedActors)
 		{
-			if (USkeletalMeshComponent* WeaponMesh = Attached->FindComponentByClass<USkeletalMeshComponent>())
+			if (!Attached->ActorHasTag(PrimaryTag)) continue;
+
+			if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(Attached))
 			{
-				if (WeaponMesh->DoesSocketExist(LeftHandGripSocket))
+				if (USkeletalMeshComponent* WeaponMesh = Weapon->GetWeaponMesh3P())
 				{
-					FTransform SocketTransform = WeaponMesh->GetSocketTransform(LeftHandGripSocket, RTS_World);
-					// Apply palm offset in socket local space
-					SocketTransform.AddToTranslation(SocketTransform.GetRotation().RotateVector(LeftHandIKOffset));
-					// Convert to bone space relative to the character mesh
-					if (USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh())
+					const FName GripSocket = bIsAiming ? LeftHandGripAimSocket : LeftHandGripSocket;
+					if (WeaponMesh->DoesSocketExist(GripSocket))
 					{
-						LeftHandIKTransform = SocketTransform.GetRelativeTransform(CharMesh->GetComponentTransform());
+						FTransform SocketTransform = WeaponMesh->GetSocketTransform(GripSocket, RTS_World);
+						SocketTransform.AddToTranslation(SocketTransform.GetRotation().RotateVector(LeftHandIKOffset));
+						if (USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh())
+						{
+							LeftHandIKTransform = SocketTransform.GetRelativeTransform(CharMesh->GetComponentTransform());
+						}
+						bUseLeftHandIK = true;
 					}
-					bUseLeftHandIK = true;
-					break;
 				}
+				break;
 			}
 		}
 	}
@@ -136,5 +142,75 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		NormalizedWalkForwardSpeed = 0.f;
 		NormalizedWalkRightSpeed = 0.f;
+	}
+}
+
+void UAZ_AnimInstance::NativePostEvaluateAnimation()
+{
+	Super::NativePostEvaluateAnimation();
+
+	if (!OwningCharacter) return;
+
+	// --- Weapon aim positioning: copy AimSocket transform after animation is evaluated ---
+	if (bIsAiming && CurrentWeaponTag.IsValid())
+	{
+		if (!CachedPrimaryWeapon.IsValid())
+		{
+			const FName PrimaryTag = FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName();
+			TArray<AActor*> AttachedActors;
+			OwningCharacter->GetAttachedActors(AttachedActors);
+			for (AActor* Attached : AttachedActors)
+			{
+				if (Attached->ActorHasTag(PrimaryTag))
+				{
+					CachedPrimaryWeapon = Attached;
+					break;
+				}
+			}
+		}
+
+		if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(CachedPrimaryWeapon.Get()))
+		{
+			USceneComponent* WeaponRoot = Weapon->GetRootComponent();
+			USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh();
+
+			if (WeaponRoot && CharMesh)
+			{
+				const FTransform AimWorld = CharMesh->GetSocketTransform(Weapon->AimSocketName, RTS_World);
+
+				const FTransform AttachWorld = WeaponRoot->GetAttachParent()
+					? WeaponRoot->GetAttachParent()->GetSocketTransform(WeaponRoot->GetAttachSocketName())
+					: CharMesh->GetSocketTransform(Weapon->RelaxedSocketName, RTS_World);
+
+				const FTransform TargetRelative = AimWorld.GetRelativeTransform(AttachWorld);
+
+				// Smooth interpolation toward aim position
+				const float DT = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
+				const float Alpha = FMath::Clamp(DT * WeaponPoseInterpSpeed, 0.f, 1.f);
+				CurrentWeaponRelativeTransform.BlendWith(TargetRelative, Alpha);
+
+				WeaponRoot->SetRelativeTransform(CurrentWeaponRelativeTransform);
+			}
+		}
+	}
+	else if (CachedPrimaryWeapon.IsValid())
+	{
+		// Not aiming — smooth back to identity (RelaxedSocket)
+		if (USceneComponent* WeaponRoot = CachedPrimaryWeapon->GetRootComponent())
+		{
+			const float DT = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
+			const float Alpha = FMath::Clamp(DT * WeaponPoseInterpSpeed, 0.f, 1.f);
+			CurrentWeaponRelativeTransform.BlendWith(FTransform::Identity, Alpha);
+
+			WeaponRoot->SetRelativeTransform(CurrentWeaponRelativeTransform);
+
+			// Once close enough to identity, snap and clear cache
+			if (CurrentWeaponRelativeTransform.GetLocation().IsNearlyZero(0.1f))
+			{
+				WeaponRoot->SetRelativeTransform(FTransform::Identity);
+				CurrentWeaponRelativeTransform = FTransform::Identity;
+				CachedPrimaryWeapon = nullptr;
+			}
+		}
 	}
 }

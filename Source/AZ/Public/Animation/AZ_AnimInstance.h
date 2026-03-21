@@ -17,6 +17,7 @@ public:
 
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	virtual void NativePostEvaluateAnimation() override;
 
 	// ========================================
 	// BLENDSPACE INPUTS
@@ -55,13 +56,21 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	FTransform LeftHandIKTransform;
 
-	/** Whether left hand IK should be active (weapon is equipped and has a grip socket). */
+	/** Whether left hand IK is enabled (set in editor). Runtime: true only if enabled AND weapon has grip socket. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	bool bEnableLeftHandIK = true;
+
+	/** Runtime: true when IK is enabled AND weapon grip socket was found this frame. Read by ABP. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	bool bUseLeftHandIK = false;
 
-	/** Socket name on the weapon mesh for the left hand grip. */
+	/** Socket name on the weapon mesh for the left hand grip (relaxed pose). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
 	FName LeftHandGripSocket{TEXT("LeftHandGrip")};
+
+	/** Socket name on the weapon mesh for the left hand grip (aim pose). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	FName LeftHandGripAimSocket{TEXT("LeftHandGripAim")};
 
 	/** Offset from the grip socket to the palm center. Tweak in editor per character. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
@@ -71,6 +80,14 @@ public:
 	 *  Increase to make weapon locomotion animations play faster (e.g. 1.3). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
 	float WeaponAnimSpeedMultiplier = 1.0f;
+
+	/** Speed at which the weapon interpolates between relaxed and aim positions. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon|Positioning")
+	float WeaponPoseInterpSpeed = 15.f;
+
+	/** Socket on character mesh where weapon is always attached. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon|Positioning")
+	FName WeaponAttachSocket{TEXT("hand_r")};
 
 	// ========================================
 	// JUMP / FALL STATE
@@ -88,6 +105,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement")
 	bool bIsCrouching;
 
+	/** True while the character is aiming (ADS). Set/cleared by GA_Aim toggle. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement")
+	bool bIsAiming;
+
 protected:
 
 	UPROPERTY()
@@ -95,6 +116,12 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UCharacterMovementComponent> MovementComponent;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> CachedPrimaryWeapon;
+
+	/** Current interpolated relative transform for weapon positioning. */
+	FTransform CurrentWeaponRelativeTransform;
 
 	UPROPERTY()
 	TObjectPtr<UAbilitySystemComponent> CachedASC;

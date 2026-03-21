@@ -216,6 +216,9 @@ public:
 	UFUNCTION()
 	UAZ_EquipmentManagerComponent* GetEquipmentManagerComponent() const { return EquipmentManagerComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "AZ|Weapon")
+	AAZ_Weapon* GetEquippedWeapon() const { return EquippedWeapon; }
+
 	UFUNCTION()
 	void AttachItem(AAZ_Item* Item);
 

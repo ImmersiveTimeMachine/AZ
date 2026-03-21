@@ -13,6 +13,7 @@ struct FAZ_Inv_CommonUI_EquipmentFragment;
 struct FAZ_Inv_CommonUI_WeaponStateFragment;
 struct FAZ_Inv_CommonUI_AbilityGrantFragment;
 class UAZ_Inv_CommonUI_InventoryComponent;
+class AAZ_Weapon;
 
 UCLASS(ClassGroup=(Custom), Blueprintable, meta=(BlueprintSpawnableComponent))
 class AZ_API UAZ_Inv_CommonUI_EquipmentComponent : public UActorComponent
@@ -30,6 +31,9 @@ public:
 	}
 
 	void InitializeOwner(APlayerController* PlayerController);
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Equipment")
+	AAZ_Weapon* GetActiveWeapon() const { return ActiveWeapon.Get(); }
 
 protected:
 	virtual void BeginPlay() override;
@@ -60,6 +64,8 @@ private:
 
 	UFUNCTION()
 	void OnPossessedPawnChange(APawn* OldPawn, APawn* NewPawn);
+
+	TWeakObjectPtr<AAZ_Weapon> ActiveWeapon;
 
 	bool bIsProxy{false};
 };

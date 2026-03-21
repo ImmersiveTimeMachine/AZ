@@ -245,6 +245,12 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Weapon_SMG,             FName("Weapon.SMG"),             TEXT("SMG weapon type"));
     AddTag(GameplayTags.Weapon_Melee,           FName("Weapon.Melee"),           TEXT("Melee weapon type"));
 
+    // Weapon Slot Tags (applied to the weapon actor to identify its equipped slot)
+    AddTag(GameplayTags.Weapon_Slot_Primary,    FName("Weapon.Slot.Primary"),    TEXT("Weapon is in primary slot"));
+    AddTag(GameplayTags.Weapon_Slot_Secondary,  FName("Weapon.Slot.Secondary"),  TEXT("Weapon is in secondary slot"));
+    AddTag(GameplayTags.Weapon_Slot_Sidearm,    FName("Weapon.Slot.Sidearm"),    TEXT("Weapon is in sidearm slot"));
+    AddTag(GameplayTags.Weapon_Slot_Melee,      FName("Weapon.Slot.Melee"),      TEXT("Weapon is in melee slot"));
+
     // =========================================================
     // STATES (Movement, Combat, Character)
     // =========================================================
@@ -255,15 +261,21 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Movement_Crouching,     FName("Movement.Crouching"),     TEXT("Character is crouching"));
     AddTag(GameplayTags.Movement_Jumping,       FName("Movement.Jumping"),       TEXT("Character is jumping"));
     AddTag(GameplayTags.Movement_Falling,       FName("Movement.Falling"),       TEXT("Character is falling"));
+    AddTag(GameplayTags.Movement_Aiming,        FName("Movement.Aiming"),        TEXT("Character is aiming down sights"));
+    AddTag(GameplayTags.Movement_Swimming,      FName("Movement.Swimming"),      TEXT("Character is swimming"));
+    AddTag(GameplayTags.Movement_Climbing,      FName("Movement.Climbing"),      TEXT("Character is climbing/vaulting"));
 
     AddTag(GameplayTags.Combat_Aiming,          FName("Combat.Aiming"),          TEXT("Character is aiming"));
     AddTag(GameplayTags.Combat_Blocking,        FName("Combat.Blocking"),        TEXT("Character is blocking"));
     AddTag(GameplayTags.Combat_Attacking,       FName("Combat.Attacking"),       TEXT("Character is attacking"));
     AddTag(GameplayTags.Combat_Reloading,       FName("Combat.Reloading"),       TEXT("Character is reloading"));
+    AddTag(GameplayTags.Combat_Firing,          FName("Combat.Firing"),          TEXT("Character is actively firing"));
+    AddTag(GameplayTags.Combat_MeleeSwing,      FName("Combat.MeleeSwing"),      TEXT("Character is performing a melee swing"));
 
     AddTag(GameplayTags.Character_Dead,         FName("Character.Dead"),         TEXT("Character is dead"));
     AddTag(GameplayTags.Character_Dying,        FName("Character.Dying"),        TEXT("Character is dying"));
     AddTag(GameplayTags.Character_Stunned,      FName("Character.Stunned"),      TEXT("Character is stunned"));
+    AddTag(GameplayTags.Character_Downed,       FName("Character.Downed"),       TEXT("Character is downed (DBNO), can be revived"));
     AddTag(GameplayTags.Character_Interacting,  FName("Character.Interacting"),  TEXT("Character is interacting"));
 
     AddTag(GameplayTags.Animation_HipFire,      FName("Animation.HipFire"),      TEXT("Character is firing from hip"));
