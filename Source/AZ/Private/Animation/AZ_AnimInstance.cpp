@@ -3,7 +3,9 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "AZ_GameplayTags.h"
-#include "GameFramework/Character.h"
+#include "Camera/CameraComponent.h"
+#include "Character/AZ_HeroCharacter.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Weapon/AZ_Weapon.h"
 
@@ -123,6 +125,112 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				}
 				break;
 			}
+		}
+	}
+
+	// --- Camera interpolation (stance-dependent: stand / aim / crouch / crouch+aim) ---
+	if (AAZ_HeroCharacter* Hero = Cast<AAZ_HeroCharacter>(OwningCharacter))
+	{
+		// Determine target values based on current stance
+		float TargetFOV;
+		float TargetBoomLength;
+		float TargetOffsetY;
+		float TargetOffsetZ;
+		float InterpSpeed;
+
+		if (bIsAiming)
+		{
+			TargetFOV = Hero->AimFOV;
+			TargetBoomLength = bIsCrouching ? FMath::Min(Hero->AimBoomLength, Hero->CrouchBoomLength) : Hero->AimBoomLength;
+			TargetOffsetY = Hero->AimSocketOffsetY;
+			TargetOffsetZ = bIsCrouching ? Hero->CrouchSocketOffsetZ : Hero->AimSocketOffsetZ;
+			InterpSpeed = Hero->CameraAimInterpSpeed;
+		}
+		else if (bIsCrouching)
+		{
+			TargetFOV = Hero->Default3PFOV;
+			TargetBoomLength = Hero->CrouchBoomLength;
+			TargetOffsetY = Hero->CrouchSocketOffsetY;
+			TargetOffsetZ = Hero->CrouchSocketOffsetZ;
+			InterpSpeed = Hero->CameraCrouchInterpSpeed;
+		}
+		else
+		{
+			TargetFOV = Hero->Default3PFOV;
+			TargetBoomLength = Hero->CameraBoomArmLength;
+			TargetOffsetY = Hero->CameraBoomSocketOffsetY;
+			TargetOffsetZ = Hero->CameraBoomSocketOffsetZ;
+			InterpSpeed = Hero->CameraAimInterpSpeed;
+		}
+
+		// FOV
+		UCameraComponent* Camera = Hero->bIsFirstPersonPerspective
+			? Hero->FirstPersonCamera
+			: Hero->ThirdPersonCamera;
+		if (Camera)
+		{
+			Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, TargetFOV, DeltaSeconds, InterpSpeed));
+		}
+
+		// Spring arm
+		if (USpringArmComponent* Boom = Hero->ThirdPersonCameraBoom)
+		{
+			Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, TargetBoomLength, DeltaSeconds, InterpSpeed);
+
+			// Select directional offsets based on stance
+			FVector2D OffFwd, OffBwd, OffLt, OffRt;
+			if (bIsAiming)
+			{
+				OffFwd = Hero->CameraOffsetAimForward;
+				OffBwd = Hero->CameraOffsetAimBackward;
+				OffLt  = Hero->CameraOffsetAimLeft;
+				OffRt  = Hero->CameraOffsetAimRight;
+			}
+			else if (bIsCrouching)
+			{
+				OffFwd = Hero->CameraOffsetCrouchForward;
+				OffBwd = Hero->CameraOffsetCrouchBackward;
+				OffLt  = Hero->CameraOffsetCrouchLeft;
+				OffRt  = Hero->CameraOffsetCrouchRight;
+			}
+			else
+			{
+				OffFwd = Hero->CameraOffsetForward;
+				OffBwd = Hero->CameraOffsetBackward;
+				OffLt  = Hero->CameraOffsetLeft;
+				OffRt  = Hero->CameraOffsetRight;
+			}
+
+			// Blend per-direction offsets by movement speed
+			FVector2D MoveOffset(0.f, 0.f);
+
+			if (NormalizedWalkRightSpeed > 0.f)
+			{
+				MoveOffset += OffRt * NormalizedWalkRightSpeed;
+			}
+			else if (NormalizedWalkRightSpeed < 0.f)
+			{
+				MoveOffset += OffLt * FMath::Abs(NormalizedWalkRightSpeed);
+			}
+
+			if (NormalizedWalkForwardSpeed > 0.f)
+			{
+				MoveOffset += OffFwd * NormalizedWalkForwardSpeed;
+			}
+			else if (NormalizedWalkForwardSpeed < 0.f)
+			{
+				MoveOffset += OffBwd * FMath::Abs(NormalizedWalkForwardSpeed);
+			}
+
+			const float FinalOffsetY = TargetOffsetY + MoveOffset.X;
+			const float FinalOffsetZ = TargetOffsetZ + MoveOffset.Y;
+
+			const float MoveInterpSpeed = Hero->CameraMoveOffsetInterpSpeed;
+
+			FVector CurrentOffset = Boom->SocketOffset;
+			CurrentOffset.Y = FMath::FInterpTo(CurrentOffset.Y, FinalOffsetY, DeltaSeconds, MoveInterpSpeed);
+			CurrentOffset.Z = FMath::FInterpTo(CurrentOffset.Z, FinalOffsetZ, DeltaSeconds, MoveInterpSpeed);
+			Boom->SocketOffset = CurrentOffset;
 		}
 	}
 

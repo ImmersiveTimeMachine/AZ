@@ -29,7 +29,7 @@ void UAZ_GA_Aim::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const 
 
 	if (UAZ_AnimInstance* AnimInstance = Cast<UAZ_AnimInstance>(Character->GetMesh()->GetAnimInstance()))
 	{
-		// Toggle aim — NativePostEvaluateAnimation handles weapon positioning
+		// Toggle aim — AnimInstance handles weapon positioning + FOV interpolation
 		AnimInstance->bIsAiming = !AnimInstance->bIsAiming;
 	}
 

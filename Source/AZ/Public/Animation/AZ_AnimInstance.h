@@ -85,6 +85,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon|Positioning")
 	float WeaponPoseInterpSpeed = 15.f;
 
+
 	/** Socket on character mesh where weapon is always attached. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon|Positioning")
 	FName WeaponAttachSocket{TEXT("hand_r")};

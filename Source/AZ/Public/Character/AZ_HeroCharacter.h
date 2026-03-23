@@ -100,6 +100,97 @@ public:
 	float Default3PFOV;
 
 	// ========================================
+	// CAMERA — AIM (ADS)
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Aim")
+	float AimFOV = 55.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Aim")
+	float AimBoomLength = 120.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Aim")
+	float AimSocketOffsetY = 70.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Aim")
+	float AimSocketOffsetZ = 45.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Aim")
+	float CameraAimInterpSpeed = 10.f;
+
+	// ========================================
+	// CAMERA — CROUCH
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Crouch")
+	float CrouchBoomLength = 200.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Crouch")
+	float CrouchSocketOffsetY = 55.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Crouch")
+	float CrouchSocketOffsetZ = 30.f;
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Crouch")
+	float CameraCrouchInterpSpeed = 10.f;
+
+	// ========================================
+	// CAMERA — MOVEMENT OFFSET
+	// ========================================
+
+	// ========================================
+	// CAMERA — MOVEMENT OFFSET (DEFAULT / STAND)
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Default")
+	FVector2D CameraOffsetForward{0.f, 5.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Default")
+	FVector2D CameraOffsetBackward{0.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Default")
+	FVector2D CameraOffsetLeft{-15.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Default")
+	FVector2D CameraOffsetRight{15.f, 0.f};
+
+	// ========================================
+	// CAMERA — MOVEMENT OFFSET (AIM)
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Aim")
+	FVector2D CameraOffsetAimForward{0.f, 3.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Aim")
+	FVector2D CameraOffsetAimBackward{0.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Aim")
+	FVector2D CameraOffsetAimLeft{-10.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Aim")
+	FVector2D CameraOffsetAimRight{10.f, 0.f};
+
+	// ========================================
+	// CAMERA — MOVEMENT OFFSET (CROUCH)
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Crouch")
+	FVector2D CameraOffsetCrouchForward{0.f, 3.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Crouch")
+	FVector2D CameraOffsetCrouchBackward{0.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Crouch")
+	FVector2D CameraOffsetCrouchLeft{-12.f, 0.f};
+
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset|Crouch")
+	FVector2D CameraOffsetCrouchRight{12.f, 0.f};
+
+	/** Speed of movement offset interpolation. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Camera|Move Offset")
+	float CameraMoveOffsetInterpSpeed = 8.f;
+
+	// ========================================
 	// MOVEMENT — SPEEDS
 	// ========================================
 
