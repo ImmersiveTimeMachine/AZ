@@ -235,6 +235,27 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Abilities_Type_None,        FName("Ability.Type.None"),               TEXT("Ability Type: None."));
 
     // =========================================================
+    // ABILITY STATES (on ASC while ability is active)
+    // =========================================================
+    AddTag(GameplayTags.Ability_State_Shooting,       FName("Ability.State.Shooting"),       TEXT("Currently firing weapon"));
+    AddTag(GameplayTags.Ability_State_Reloading,      FName("Ability.State.Reloading"),      TEXT("Currently reloading"));
+    AddTag(GameplayTags.Ability_State_Aiming,         FName("Ability.State.Aiming"),         TEXT("Currently aiming down sights"));
+    AddTag(GameplayTags.Ability_State_Sprinting,      FName("Ability.State.Sprinting"),      TEXT("Currently sprinting"));
+    AddTag(GameplayTags.Ability_State_MeleeAttacking, FName("Ability.State.MeleeAttacking"), TEXT("Currently performing melee attack"));
+    AddTag(GameplayTags.Ability_State_Interacting,    FName("Ability.State.Interacting"),    TEXT("Currently interacting with object"));
+    AddTag(GameplayTags.Ability_State_Throwing,       FName("Ability.State.Throwing"),       TEXT("Currently throwing grenade/item"));
+
+    // =========================================================
+    // ABILITY COOLDOWNS
+    // =========================================================
+    AddTag(GameplayTags.Ability_Cooldown_Shoot,    FName("Ability.Cooldown.Shoot"),    TEXT("Cooldown: Shoot (fire rate)"));
+    AddTag(GameplayTags.Ability_Cooldown_Reload,   FName("Ability.Cooldown.Reload"),   TEXT("Cooldown: Reload"));
+    AddTag(GameplayTags.Ability_Cooldown_Melee,    FName("Ability.Cooldown.Melee"),    TEXT("Cooldown: Melee swing"));
+    AddTag(GameplayTags.Ability_Cooldown_Interact, FName("Ability.Cooldown.Interact"), TEXT("Cooldown: Interact"));
+    AddTag(GameplayTags.Ability_Cooldown_Dash,     FName("Ability.Cooldown.Dash"),     TEXT("Cooldown: Dash/dodge"));
+    AddTag(GameplayTags.Ability_Cooldown_Grenade,  FName("Ability.Cooldown.Grenade"),  TEXT("Cooldown: Grenade throw"));
+
+    // =========================================================
     // WEAPON TYPES
     // =========================================================
     AddTag(GameplayTags.Weapon_None,            FName("Weapon.None"),            TEXT("No weapon equipped"));

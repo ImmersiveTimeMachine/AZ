@@ -103,6 +103,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Ability")
 	AAZ_HeroCharacter* GetHeroCharacterFromActorInfo() const;
 
+	/** Find the primary weapon attached to the avatar actor by Weapon.Slot.Primary tag. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Ability")
+	class AAZ_Weapon* GetPrimaryWeapon() const;
+
 	// ----------------------------------------------------------------------------------------------------------------
 	//	Animation Support for multiple USkeletalMeshComponents on the AvatarActor
 	// ----------------------------------------------------------------------------------------------------------------

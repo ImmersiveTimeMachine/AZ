@@ -1,13 +1,15 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "AbilitySystem/Abilities/AZ_GA_Shoot.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Animation/AZ_AnimInstance.h"
+#include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_WaitTargetDataUsingActor.h"
 #include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "AbilitySystem/TargetActors/AZ_GATA_LineTrace.h"
+#include "GameFramework/Character.h"
+#include "Kismet/GameplayStatics.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "Weapon/AZ_Weapon.h"
 
 
@@ -15,6 +17,17 @@ UAZ_GA_Shoot::UAZ_GA_Shoot()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
+}
+
+bool UAZ_GA_Shoot::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+
+	return HasAmmo();
 }
 
 void UAZ_GA_Shoot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -32,12 +45,101 @@ void UAZ_GA_Shoot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		return;
 	}
 
-	// Try GASShooter pattern: weapon source → target actor → WaitTargetData
-	AAZ_Weapon* Weapon = GetEquippedWeapon();
+	bInputHeld = true;
+	ShotsFiredInBurst = 0;
+
+	SetShootingState(true);
+
+	// Fire first shot
+	FireShot();
+
+	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+}
+
+void UAZ_GA_Shoot::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	bInputHeld = false;
+
+	// Clear fire loop timer
+	if (const AActor* AvatarActor = GetAvatarActorFromActorInfo())
+	{
+		AvatarActor->GetWorldTimerManager().ClearTimer(FireLoopTimerHandle);
+	}
+
+	// bIsShooting is cleared by the timeout timer, not here
+
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UAZ_GA_Shoot::InputReleased(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo)
+{
+	bInputHeld = false;
+
+	// Auto fire ends when input is released
+	if (FireMode == EFireMode::Auto)
+	{
+		if (const AActor* AvatarActor = GetAvatarActorFromActorInfo())
+		{
+			AvatarActor->GetWorldTimerManager().ClearTimer(FireLoopTimerHandle);
+		}
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+	}
+}
+
+// --- Core: fire one shot ---
+void UAZ_GA_Shoot::FireShot()
+{
+	if (!HasAmmo())
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return;
+	}
+
+	AAZ_Weapon* Weapon = GetPrimaryWeapon();
+
+	// Reset shooting pose timeout
+	SetShootingState(true);
+
+	// Select montage based on fire mode
+	UAnimMontage* ActiveMontage = nullptr;
+	switch (FireMode)
+	{
+	case EFireMode::Single: ActiveMontage = FireMontageSingle; break;
+	case EFireMode::Auto:   ActiveMontage = FireMontageAuto; break;
+	}
+
+	// Montage (cosmetic)
+	if (ActiveMontage)
+	{
+		UAZ_AT_PlayMontageAndWaitForEvent* MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
+			this,
+			FName("FireMontage"),
+			ActiveMontage,
+			FGameplayTagContainer(),
+			1.f,
+			NAME_None,
+			true,
+			0.f
+		);
+		if (MontageTask)
+		{
+			MontageTask->OnCompleted.AddDynamic(this, &UAZ_GA_Shoot::OnMontageFinished);
+			MontageTask->OnBlendOut.AddDynamic(this, &UAZ_GA_Shoot::OnMontageFinished);
+			MontageTask->OnInterrupted.AddDynamic(this, &UAZ_GA_Shoot::OnMontageFinished);
+			MontageTask->OnCancelled.AddDynamic(this, &UAZ_GA_Shoot::OnMontageFinished);
+			MontageTask->ReadyForActivation();
+		}
+	}
+
+	// VFX + sound
+	PlayFireEffects(Weapon);
+
+	// Trace + damage
 	if (Weapon)
 	{
-		AAZ_GATA_LineTrace* TargetActor = Weapon->GetLineTraceTargetActor();
-		if (TargetActor)
+		if (AAZ_GATA_LineTrace* TargetActor = Weapon->GetLineTraceTargetActor())
 		{
 			ConfigureTargetActor(TargetActor);
 
@@ -46,7 +148,7 @@ void UAZ_GA_Shoot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 				FName("WaitTargetData"),
 				EGameplayTargetingConfirmation::Instant,
 				TargetActor,
-				true // bCreateKeyIfNotValidForMorePredicting — for batching
+				true
 			);
 
 			WaitTargetDataTask->ValidData.AddDynamic(this, &UAZ_GA_Shoot::OnTargetDataReady);
@@ -56,28 +158,135 @@ void UAZ_GA_Shoot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		}
 	}
 
-	// Fallback: raw line trace (no weapon source object)
+	// Fallback
 	PerformFallbackLineTrace();
-	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+	ConsumeAmmo();
+
+	// Schedule next shot for burst/auto
+	ShotsFiredInBurst++;
+	ScheduleNextShot();
 }
 
-void UAZ_GA_Shoot::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+void UAZ_GA_Shoot::PlayFireEffects(AAZ_Weapon* Weapon)
 {
-	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+	if (!Weapon) return;
+
+	USkeletalMeshComponent* WeaponMesh = Weapon->GetWeaponMesh3P();
+	if (!WeaponMesh) return;
+
+	if (MuzzleFlashEffect && WeaponMesh->DoesSocketExist(MuzzleSocketName))
+	{
+		UGameplayStatics::SpawnEmitterAttached(MuzzleFlashEffect, WeaponMesh, MuzzleSocketName,
+			FVector::ZeroVector, FRotator::ZeroRotator, EAttachLocation::SnapToTarget, true);
+	}
+
+	if (FireSound)
+	{
+		UGameplayStatics::SpawnSoundAttached(FireSound, WeaponMesh, MuzzleSocketName);
+	}
 }
 
 void UAZ_GA_Shoot::OnTargetDataReady(const FGameplayAbilityTargetDataHandle& Data)
 {
 	HandleDamage(Data);
 	ConsumeAmmo();
-	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+
+	ShotsFiredInBurst++;
+	ScheduleNextShot();
 }
 
 void UAZ_GA_Shoot::OnTargetDataCancelled(const FGameplayAbilityTargetDataHandle& Data)
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
 }
+
+void UAZ_GA_Shoot::OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData)
+{
+	// For single fire, end ability when montage finishes
+	// For burst/auto, the fire loop handles ability end
+	if (FireMode == EFireMode::Single)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+	}
+}
+
+void UAZ_GA_Shoot::ScheduleNextShot()
+{
+	switch (FireMode)
+	{
+	case EFireMode::Single:
+		if (!FireMontageSingle && !FireMontageAuto)
+		{
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		}
+		break;
+
+	case EFireMode::Auto:
+		{
+			const bool bBurstLimitReached = (BurstCount > 0) && (ShotsFiredInBurst >= BurstCount);
+
+			if (bInputHeld && HasAmmo() && !bBurstLimitReached)
+			{
+				if (const AActor* AvatarActor = GetAvatarActorFromActorInfo())
+				{
+					AvatarActor->GetWorldTimerManager().SetTimer(
+						FireLoopTimerHandle, this, &UAZ_GA_Shoot::OnFireDelayComplete,
+						TimeBetweenShots, false);
+				}
+			}
+			else
+			{
+				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+			}
+		}
+		break;
+	}
+}
+
+void UAZ_GA_Shoot::OnFireDelayComplete()
+{
+	FireShot();
+}
+
+// --- Helpers ---
+
+bool UAZ_GA_Shoot::HasAmmo() const
+{
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		return ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute()) > 0.f;
+	}
+	return false;
+}
+
+void UAZ_GA_Shoot::SetShootingState(bool bShooting)
+{
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character) return;
+
+	UAZ_AnimInstance* AnimInstance = Cast<UAZ_AnimInstance>(Character->GetMesh()->GetAnimInstance());
+	if (!AnimInstance) return;
+
+	AnimInstance->bIsShooting = bShooting;
+
+	if (bShooting)
+	{
+		// Reset the timeout timer
+		FTimerManager& TimerManager = Character->GetWorldTimerManager();
+		TimerManager.ClearTimer(ShootingPoseTimerHandle);
+
+		TWeakObjectPtr<UAZ_AnimInstance> WeakAnim = AnimInstance;
+		TimerManager.SetTimer(ShootingPoseTimerHandle, [WeakAnim]()
+		{
+			if (WeakAnim.IsValid())
+			{
+				WeakAnim->bIsShooting = false;
+			}
+		}, ShootingPoseTimeout, false);
+	}
+}
+
+// --- Damage ---
 
 void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 {
@@ -86,7 +295,6 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 	FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(DamageGameplayEffect, GetAbilityLevel());
 	if (!SpecHandle.IsValid()) return;
 
-	// Read BaseDamage from player ASC WeaponAttributeSet, fall back to default
 	UAbilitySystemComponent* OwnerASC = GetAbilitySystemComponentFromActorInfo();
 	float Damage = BaseDamage;
 	if (OwnerASC)
@@ -100,7 +308,6 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 
 	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), Damage);
 
-	// Apply to each target in the target data
 	for (int32 i = 0; i < Data.Num(); i++)
 	{
 		if (const FGameplayAbilityTargetData* TargetData = Data.Get(i))
@@ -112,8 +319,7 @@ void UAZ_GA_Shoot::HandleDamage(const FGameplayAbilityTargetDataHandle& Data)
 				{
 					if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitActor))
 					{
-						OwnerASC->ApplyGameplayEffectSpecToTarget(
-							*SpecHandle.Data.Get(), TargetASC);
+						OwnerASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 					}
 				}
 			}
@@ -126,7 +332,6 @@ void UAZ_GA_Shoot::ConsumeAmmo()
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return;
 
-	// Read clip ammo from player ASC (using RifleClipAmmo as the active weapon's clip)
 	const float CurrentAmmo = ASC->GetNumericAttribute(UAZ_WeaponAttributeSet::GetRifleClipAmmoAttribute());
 	if (CurrentAmmo > 0.f)
 	{
@@ -134,51 +339,44 @@ void UAZ_GA_Shoot::ConsumeAmmo()
 	}
 }
 
-AAZ_Weapon* UAZ_GA_Shoot::GetEquippedWeapon() const
-{
-	return Cast<AAZ_Weapon>(GetCurrentSourceObject());
-}
-
 void UAZ_GA_Shoot::ConfigureTargetActor(AAZ_GATA_LineTrace* TargetActor) const
 {
 	FGameplayAbilityTargetingLocationInfo StartLocation;
 	StartLocation.LocationType = EGameplayAbilityTargetingLocationType::SocketTransform;
 
-	AAZ_Weapon* Weapon = GetEquippedWeapon();
+	AAZ_Weapon* Weapon = GetPrimaryWeapon();
 	if (Weapon && Weapon->GetWeaponMesh3P())
 	{
 		StartLocation.SourceComponent = Weapon->GetWeaponMesh3P();
-		StartLocation.SourceSocketName = FName("Muzzle");
+		StartLocation.SourceSocketName = MuzzleSocketName;
 	}
 
 	TargetActor->Configure(
 		StartLocation,
-		FGameplayTag(),						// AimingTag
-		FGameplayTag(),						// AimingRemovalTag
+		FGameplayTag(),
+		FGameplayTag(),
 		FCollisionProfileName(TEXT("Weapon")),
 		FGameplayTargetDataFilterHandle(),
-		nullptr,							// ReticleClass
+		nullptr,
 		FWorldReticleParameters(),
-		false,								// bIgnoreBlockingHits
-		false,								// bShouldProduceTargetDataOnServer
-		false,								// bUsePersistentHitResults
-		bDebugTrace,						// bDebug
-		true,								// bTraceAffectsAimPitch
-		true,								// bTraceFromPlayerViewPoint
-		false,								// bUseAimingSpreadMod
+		false,
+		false,
+		false,
+		bDebugTrace,
+		true,
+		true,
+		false,
 		MaxRange,
 		BaseSpread,
-		0.f,								// AimingSpreadMod
-		0.f,								// TargetingSpreadIncrement
-		0.f,								// TargetingSpreadMax
-		1,									// MaxHitResultsPerTrace
-		1									// NumberOfTraces
+		0.f,
+		0.f,
+		0.f,
+		1,
+		1
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Fallback: raw line trace when no weapon source object is available
-// ---------------------------------------------------------------------------
+// --- Fallback trace ---
 
 void UAZ_GA_Shoot::PerformFallbackLineTrace()
 {
@@ -244,6 +442,5 @@ void UAZ_GA_Shoot::ApplyDamageToTarget(AActor* HitActor, const FHitResult& HitRe
 	}
 
 	SpecHandle.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(FName("Data.Damage")), Damage);
-
 	OwnerASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 }

@@ -48,6 +48,9 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// --- Crouch state ---
 	bIsCrouching = MovementComponent->IsCrouching();
 
+	// --- Combined aim pose (aiming or shooting) ---
+	bWantsAimPose = bIsAiming || bIsShooting;
+
 	// --- Cache ASC (may not be available until PlayerState replicates) ---
 	if (!CachedASC && OwningCharacter)
 	{
@@ -96,37 +99,6 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			WeaponAnimIndex = 0;
 	}
 
-	// --- Left Hand IK: find primary weapon's grip socket ---
-	bUseLeftHandIK = false;
-	if (bEnableLeftHandIK && CurrentWeaponTag.IsValid() && OwningCharacter)
-	{
-		const FName PrimaryTag = FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName();
-		TArray<AActor*> AttachedActors;
-		OwningCharacter->GetAttachedActors(AttachedActors);
-		for (AActor* Attached : AttachedActors)
-		{
-			if (!Attached->ActorHasTag(PrimaryTag)) continue;
-
-			if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(Attached))
-			{
-				if (USkeletalMeshComponent* WeaponMesh = Weapon->GetWeaponMesh3P())
-				{
-					const FName GripSocket = bIsAiming ? LeftHandGripAimSocket : LeftHandGripSocket;
-					if (WeaponMesh->DoesSocketExist(GripSocket))
-					{
-						FTransform SocketTransform = WeaponMesh->GetSocketTransform(GripSocket, RTS_World);
-						SocketTransform.AddToTranslation(SocketTransform.GetRotation().RotateVector(LeftHandIKOffset));
-						if (USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh())
-						{
-							LeftHandIKTransform = SocketTransform.GetRelativeTransform(CharMesh->GetComponentTransform());
-						}
-						bUseLeftHandIK = true;
-					}
-				}
-				break;
-			}
-		}
-	}
 
 	// --- Camera interpolation (stance-dependent: stand / aim / crouch / crouch+aim) ---
 	if (AAZ_HeroCharacter* Hero = Cast<AAZ_HeroCharacter>(OwningCharacter))
@@ -175,6 +147,14 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// Spring arm
 		if (USpringArmComponent* Boom = Hero->ThirdPersonCameraBoom)
 		{
+			// Compensate for capsule height change — boom is on root, root drops instantly
+			const float StandingHalfHeight = Hero->GetDefaultHalfHeight();
+			const float CrouchedHalfHeight = MovementComponent->GetCrouchedHalfHeight();
+			const float CapsuleDelta = bIsCrouching ? (StandingHalfHeight - CrouchedHalfHeight) : 0.f;
+			// Add capsule delta to target Z so the camera stays at the same world height
+			// Our interp then smoothly removes it
+			TargetOffsetZ += CapsuleDelta;
+
 			Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, TargetBoomLength, DeltaSeconds, InterpSpeed);
 
 			// Select directional offsets based on stance
@@ -222,45 +202,21 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				MoveOffset += OffBwd * FMath::Abs(NormalizedWalkForwardSpeed);
 			}
 
-			const float FinalOffsetY = TargetOffsetY + MoveOffset.X;
-			const float FinalOffsetZ = TargetOffsetZ + MoveOffset.Y;
-
-			const float MoveInterpSpeed = Hero->CameraMoveOffsetInterpSpeed;
-
+			// Interp base stance offset at stance speed, directional offset at move speed
 			FVector CurrentOffset = Boom->SocketOffset;
-			CurrentOffset.Y = FMath::FInterpTo(CurrentOffset.Y, FinalOffsetY, DeltaSeconds, MoveInterpSpeed);
-			CurrentOffset.Z = FMath::FInterpTo(CurrentOffset.Z, FinalOffsetZ, DeltaSeconds, MoveInterpSpeed);
+
+			// Base stance target (without movement)
+			const float BaseY = FMath::FInterpTo(CurrentOffset.Y - MoveOffset.X, TargetOffsetY, DeltaSeconds, InterpSpeed) + MoveOffset.X;
+			const float BaseZ = FMath::FInterpTo(CurrentOffset.Z - MoveOffset.Y, TargetOffsetZ, DeltaSeconds, InterpSpeed) + MoveOffset.Y;
+
+			CurrentOffset.Y = BaseY;
+			CurrentOffset.Z = BaseZ;
 			Boom->SocketOffset = CurrentOffset;
 		}
 	}
 
-	// --- Normalized blendspace inputs ---
-	// RE-style: character faces camera direction (bUseControllerRotationYaw).
-	// Use velocity transformed to local space so animation follows actual movement,
-	// including deceleration slide when input is released.
-	if (MaxGroundSpeed > UE_KINDA_SMALL_NUMBER && GroundSpeed > UE_KINDA_SMALL_NUMBER)
-	{
-		const FVector GroundVelocity(Velocity.X, Velocity.Y, 0.f);
-		const FVector LocalVelocity = OwningCharacter->GetActorRotation().UnrotateVector(GroundVelocity);
-
-		NormalizedWalkForwardSpeed = FMath::Clamp(LocalVelocity.X / MaxGroundSpeed, -1.f, 1.f);
-		NormalizedWalkRightSpeed = FMath::Clamp(LocalVelocity.Y / MaxGroundSpeed, -1.f, 1.f);
-	}
-	else
-	{
-		NormalizedWalkForwardSpeed = 0.f;
-		NormalizedWalkRightSpeed = 0.f;
-	}
-}
-
-void UAZ_AnimInstance::NativePostEvaluateAnimation()
-{
-	Super::NativePostEvaluateAnimation();
-
-	if (!OwningCharacter) return;
-
-	// --- Weapon aim positioning: copy AimSocket transform after animation is evaluated ---
-	if (bIsAiming && CurrentWeaponTag.IsValid())
+	// --- Weapon aim positioning + Left Hand IK (same pass = no frame lag) ---
+	if ((bIsAiming || bIsShooting) && CurrentWeaponTag.IsValid())
 	{
 		if (!CachedPrimaryWeapon.IsValid())
 		{
@@ -285,34 +241,35 @@ void UAZ_AnimInstance::NativePostEvaluateAnimation()
 			if (WeaponRoot && CharMesh)
 			{
 				const FTransform AimWorld = CharMesh->GetSocketTransform(Weapon->AimSocketName, RTS_World);
-
 				const FTransform AttachWorld = WeaponRoot->GetAttachParent()
 					? WeaponRoot->GetAttachParent()->GetSocketTransform(WeaponRoot->GetAttachSocketName())
 					: CharMesh->GetSocketTransform(Weapon->RelaxedSocketName, RTS_World);
-
 				const FTransform TargetRelative = AimWorld.GetRelativeTransform(AttachWorld);
 
-				// Smooth interpolation toward aim position
-				const float DT = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
-				const float Alpha = FMath::Clamp(DT * WeaponPoseInterpSpeed, 0.f, 1.f);
-				CurrentWeaponRelativeTransform.BlendWith(TargetRelative, Alpha);
+				if (bIsShooting)
+				{
+					CurrentWeaponRelativeTransform = TargetRelative;
+				}
+				else
+				{
+					const float Alpha = FMath::Clamp(DeltaSeconds * WeaponPoseInterpSpeed, 0.f, 1.f);
+					CurrentWeaponRelativeTransform.BlendWith(TargetRelative, Alpha);
+				}
 
 				WeaponRoot->SetRelativeTransform(CurrentWeaponRelativeTransform);
 			}
+
 		}
 	}
 	else if (CachedPrimaryWeapon.IsValid())
 	{
-		// Not aiming — smooth back to identity (RelaxedSocket)
+		// Not aiming — smooth back to identity
 		if (USceneComponent* WeaponRoot = CachedPrimaryWeapon->GetRootComponent())
 		{
-			const float DT = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
-			const float Alpha = FMath::Clamp(DT * WeaponPoseInterpSpeed, 0.f, 1.f);
+			const float Alpha = FMath::Clamp(DeltaSeconds * WeaponPoseInterpSpeed, 0.f, 1.f);
 			CurrentWeaponRelativeTransform.BlendWith(FTransform::Identity, Alpha);
-
 			WeaponRoot->SetRelativeTransform(CurrentWeaponRelativeTransform);
 
-			// Once close enough to identity, snap and clear cache
 			if (CurrentWeaponRelativeTransform.GetLocation().IsNearlyZero(0.1f))
 			{
 				WeaponRoot->SetRelativeTransform(FTransform::Identity);
@@ -321,4 +278,109 @@ void UAZ_AnimInstance::NativePostEvaluateAnimation()
 			}
 		}
 	}
+
+	// --- Aim Target (crosshair trace) ---
+	if (bWantsAimPose)
+	{
+		if (const AAZ_HeroCharacter* Hero = Cast<AAZ_HeroCharacter>(OwningCharacter))
+		{
+			const UCameraComponent* Camera = Hero->bIsFirstPersonPerspective
+				? Hero->FirstPersonCamera
+				: Hero->ThirdPersonCamera;
+			if (Camera)
+			{
+				const FVector TraceStart = Camera->GetComponentLocation();
+				const FVector TraceEnd = TraceStart + Camera->GetForwardVector() * AimTraceDistance;
+
+				FHitResult HitResult;
+				FCollisionQueryParams Params;
+				Params.AddIgnoredActor(OwningCharacter);
+
+				if (GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, Params))
+				{
+					AimTarget = HitResult.ImpactPoint;
+				}
+				else
+				{
+					AimTarget = TraceEnd;
+				}
+
+				// Compute aim pitch/yaw relative to character facing
+				const FVector CharLocation = OwningCharacter->GetActorLocation();
+				const FVector DirToTarget = (AimTarget - CharLocation).GetSafeNormal();
+				const FRotator AimRotation = DirToTarget.Rotation();
+				const FRotator CharRotation = OwningCharacter->GetActorRotation();
+				const FRotator Delta = (AimRotation - CharRotation).GetNormalized();
+				AimYaw = Delta.Yaw;
+				AimPitch = Delta.Pitch;
+			}
+		}
+	}
+
+	// --- Left Hand IK ---
+	bUseLeftHandIK = false;
+	if (bEnableLeftHandIK && CurrentWeaponTag.IsValid())
+	{
+		AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(CachedPrimaryWeapon.IsValid() ? CachedPrimaryWeapon.Get() : nullptr);
+		if (!Weapon)
+		{
+			Weapon = GetPrimaryWeapon();
+		}
+
+		if (Weapon)
+		{
+			if (USkeletalMeshComponent* WeaponMesh3P = Weapon->GetWeaponMesh3P())
+			{
+				const FName& GripSocket = bWantsAimPose ? LeftHandGripAimSocket : LeftHandGripSocket;
+				if (WeaponMesh3P->DoesSocketExist(GripSocket))
+				{
+					// Get socket transform in world space, then convert to character mesh component space
+					const FTransform SocketWorld = WeaponMesh3P->GetSocketTransform(GripSocket, RTS_World);
+					USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh();
+					if (CharMesh)
+					{
+						LeftHandIKTransform = SocketWorld.GetRelativeTransform(CharMesh->GetComponentTransform());
+						LeftHandIKTransform.AddToTranslation(LeftHandIKOffset);
+						bUseLeftHandIK = true;
+					}
+				}
+			}
+		}
+	}
+
+	// --- Normalized blendspace inputs ---
+	// RE-style: character faces camera direction (bUseControllerRotationYaw).
+	// Use velocity transformed to local space so animation follows actual movement,
+	// including deceleration slide when input is released.
+	if (MaxGroundSpeed > UE_KINDA_SMALL_NUMBER && GroundSpeed > UE_KINDA_SMALL_NUMBER)
+	{
+		const FVector GroundVelocity(Velocity.X, Velocity.Y, 0.f);
+		const FVector LocalVelocity = OwningCharacter->GetActorRotation().UnrotateVector(GroundVelocity);
+
+		NormalizedWalkForwardSpeed = FMath::Clamp(LocalVelocity.X / MaxGroundSpeed, -1.f, 1.f);
+		NormalizedWalkRightSpeed = FMath::Clamp(LocalVelocity.Y / MaxGroundSpeed, -1.f, 1.f);
+	}
+	else
+	{
+		NormalizedWalkForwardSpeed = 0.f;
+		NormalizedWalkRightSpeed = 0.f;
+	}
+}
+
+AAZ_Weapon* UAZ_AnimInstance::GetPrimaryWeapon() const
+{
+	if (!OwningCharacter) return nullptr;
+
+	const FName PrimaryTag = FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName();
+	TArray<AActor*> AttachedActors;
+	OwningCharacter->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (Attached->ActorHasTag(PrimaryTag))
+		{
+			return Cast<AAZ_Weapon>(Attached);
+		}
+	}
+
+	return nullptr;
 }

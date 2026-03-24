@@ -3,7 +3,9 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_AttributeSet.h"
 #include "AbilitySystem/AttributeSets/AZ_HeroAttributeSet.h"
+#include "AZ_GameplayTags.h"
 #include "Character/AZ_HeroCharacter.h"
+#include "Weapon/AZ_Weapon.h"
 
 UAZ_GameplayAbility::UAZ_GameplayAbility(const FObjectInitializer& ObjectInitializer)
 {
@@ -62,6 +64,30 @@ FString UAZ_GameplayAbility::GetLockedDescription(int32 Level)
 AAZ_HeroCharacter* UAZ_GameplayAbility::GetHeroCharacterFromActorInfo() const
 {
 	return (CurrentActorInfo ? Cast<AAZ_HeroCharacter>(CurrentActorInfo->AvatarActor.Get()) : nullptr);
+}
+
+AAZ_Weapon* UAZ_GameplayAbility::GetPrimaryWeapon() const
+{
+	if (AAZ_Weapon* Weapon = Cast<AAZ_Weapon>(GetCurrentSourceObject()))
+	{
+		return Weapon;
+	}
+
+	if (const AActor* AvatarActor = GetAvatarActorFromActorInfo())
+	{
+		const FName PrimaryTag = FAZ_GameplayTags::Get().Weapon_Slot_Primary.GetTagName();
+		TArray<AActor*> AttachedActors;
+		AvatarActor->GetAttachedActors(AttachedActors);
+		for (AActor* Attached : AttachedActors)
+		{
+			if (Attached->ActorHasTag(PrimaryTag))
+			{
+				return Cast<AAZ_Weapon>(Attached);
+			}
+		}
+	}
+
+	return nullptr;
 }
 
 UAnimMontage* UAZ_GameplayAbility::GetCurrentMontageForMesh(USkeletalMeshComponent* InMesh)

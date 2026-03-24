@@ -17,7 +17,6 @@ public:
 
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
-	virtual void NativePostEvaluateAnimation() override;
 
 	// ========================================
 	// BLENDSPACE INPUTS
@@ -76,6 +75,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
 	FVector LeftHandIKOffset{FVector::ZeroVector};
 
+	/** World-space aim target point (where the camera crosshair hits). Used for weapon aim correction. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	FVector AimTarget;
+
+	/** Aim yaw offset relative to character forward (degrees). For Aim Offset blend space. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	float AimYaw;
+
+	/** Aim pitch offset relative to character forward (degrees). For Aim Offset blend space. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	float AimPitch;
+
+	/** Max trace distance for the crosshair aim target. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	float AimTraceDistance = 10000.f;
+
 	/** Multiplier applied to blendspace speed inputs when a weapon is equipped.
 	 *  Increase to make weapon locomotion animations play faster (e.g. 1.3). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
@@ -89,6 +104,10 @@ public:
 	/** Socket on character mesh where weapon is always attached. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon|Positioning")
 	FName WeaponAttachSocket{TEXT("hand_r")};
+
+	/** Get the primary weapon attached to the character. Callable from ABP. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Weapon")
+	class AAZ_Weapon* GetPrimaryWeapon() const;
 
 	// ========================================
 	// JUMP / FALL STATE
@@ -109,6 +128,14 @@ public:
 	/** True while the character is aiming (ADS). Set/cleared by GA_Aim toggle. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement")
 	bool bIsAiming;
+
+	/** True briefly while firing. Moves weapon to aim socket during fire animation. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Weapon")
+	bool bIsShooting;
+
+	/** True when aiming OR shooting — use this for SM transitions to aim state. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	bool bWantsAimPose;
 
 protected:
 

@@ -186,6 +186,23 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Abilities_Type_Passive;
     FGameplayTag Abilities_Type_None;
 
+    // Ability State Tags (ActivationOwnedTags — on ASC while ability is active)
+    FGameplayTag Ability_State_Shooting;
+    FGameplayTag Ability_State_Reloading;
+    FGameplayTag Ability_State_Aiming;
+    FGameplayTag Ability_State_Sprinting;
+    FGameplayTag Ability_State_MeleeAttacking;
+    FGameplayTag Ability_State_Interacting;
+    FGameplayTag Ability_State_Throwing;
+
+    // Ability Cooldown Tags (granted by cooldown GEs, checked by ActivationBlockedTags)
+    FGameplayTag Ability_Cooldown_Shoot;
+    FGameplayTag Ability_Cooldown_Reload;
+    FGameplayTag Ability_Cooldown_Melee;
+    FGameplayTag Ability_Cooldown_Interact;
+    FGameplayTag Ability_Cooldown_Dash;
+    FGameplayTag Ability_Cooldown_Grenade;
+
     // Weapon Type Tags
     FGameplayTag Weapon_None;
     FGameplayTag Weapon_Pistol;
