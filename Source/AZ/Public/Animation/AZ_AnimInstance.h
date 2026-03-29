@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Animation/AnimInstance.h"
+#include "Weapon/AZ_WeaponTypes.h"
 #include "AZ_AnimInstance.generated.h"
 
 class UCharacterMovementComponent;
@@ -63,17 +64,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	bool bUseLeftHandIK = false;
 
-	/** Socket name on the weapon mesh for the left hand grip (relaxed pose). */
+	/** Interpolation speed for smoothing IK transform when animation state changes. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
-	FName LeftHandGripSocket{TEXT("LeftHandGrip")};
-
-	/** Socket name on the weapon mesh for the left hand grip (aim pose). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
-	FName LeftHandGripAimSocket{TEXT("LeftHandGripAim")};
-
-	/** Offset from the grip socket to the palm center. Tweak in editor per character. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
-	FVector LeftHandIKOffset{FVector::ZeroVector};
+	float LeftHandIKInterpSpeed = 15.f;
 
 	/** World-space aim target point (where the camera crosshair hits). Used for weapon aim correction. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
@@ -90,6 +83,10 @@ public:
 	/** Max trace distance for the crosshair aim target. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
 	float AimTraceDistance = 10000.f;
+
+	/** Interpolation speed for AimPitch/AimYaw smoothing. Higher = snappier, lower = smoother. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Weapon")
+	float AimInterpSpeed = 15.f;
 
 	/** Multiplier applied to blendspace speed inputs when a weapon is equipped.
 	 *  Increase to make weapon locomotion animations play faster (e.g. 1.3). */
@@ -137,6 +134,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	bool bWantsAimPose;
 
+	/** Current weapon pose state resolved from movement + action bools. Use for SM transitions and IK. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	EAZ_WeaponPoseState CurrentWeaponPoseState = EAZ_WeaponPoseState::Relaxed;
+
 protected:
 
 	UPROPERTY()
@@ -150,6 +151,12 @@ protected:
 
 	/** Current interpolated relative transform for weapon positioning. */
 	FTransform CurrentWeaponRelativeTransform;
+
+	/** Tracks the last pose state used for IK adjustment, to detect state changes. */
+	EAZ_WeaponPoseState LastIKPoseState = EAZ_WeaponPoseState::Relaxed;
+
+	/** True while blending between IK states, false once blend is complete. */
+	bool bIsIKBlending = false;
 
 	UPROPERTY()
 	TObjectPtr<UAbilitySystemComponent> CachedASC;

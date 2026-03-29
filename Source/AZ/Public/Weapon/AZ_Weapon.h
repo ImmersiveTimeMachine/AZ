@@ -8,6 +8,7 @@
 #include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
 #include "GameFramework/Actor.h"
 #include "Items/AZ_Item.h"
+#include "Weapon/AZ_WeaponTypes.h"
 #include "AZ_Weapon.generated.h"
 
 class UAZ_InventoryComponent;
@@ -94,6 +95,30 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
 	FName AimSocketName{ TEXT("RightHandRifleSocketAim") };
+
+	/** Socket on weapon mesh for left hand grip. */
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
+	FName LeftHandGripSocket{ TEXT("LeftHandGrip") };
+
+	/**
+	 * Per-pose IK adjustments. Pre-populated with all pose states.
+	 * Tweak offsets per weapon to adjust left hand grip for each animation state.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Weapon|IK")
+	TMap<EAZ_WeaponPoseState, FAZ_LeftHandIKAdjustment> LeftHandIKAdjustments;
+
+	/**
+	 * Get the left hand IK target in bone space relative to a given bone.
+	 * Reads the grip socket from the weapon mesh, converts to bone space via TransformToBoneSpace,
+	 * then applies the adjustment for the given pose state.
+	 * @param CharMesh       The character's skeletal mesh to transform into bone space.
+	 * @param BoneName       The bone to compute relative to (typically hand_r).
+	 * @param PoseState      The current weapon pose state resolved by the AnimInstance.
+	 * @param OutTransform   The resulting bone-space transform for the IK effector.
+	 * @return true if a valid socket was found and transform was computed.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Weapon")
+	bool GetLeftHandSocket(USkeletalMeshComponent* CharMesh, FName BoneName, EAZ_WeaponPoseState PoseState, FTransform& OutTransform) const;
 
 	// Implement the interface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;

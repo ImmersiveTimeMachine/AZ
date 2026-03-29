@@ -51,6 +51,20 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// --- Combined aim pose (aiming or shooting) ---
 	bWantsAimPose = bIsAiming || bIsShooting;
 
+	// --- Resolve weapon pose state from animation bools (priority order) ---
+	if (bIsShooting && bIsCrouching)
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::CrouchShooting;
+	else if (bIsShooting)
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::Shooting;
+	else if (bIsAiming && bIsCrouching)
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::CrouchAiming;
+	else if (bIsAiming)
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::Aiming;
+	else if (bIsCrouching)
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::Crouching;
+	else
+		CurrentWeaponPoseState = EAZ_WeaponPoseState::Relaxed;
+
 	// --- Cache ASC (may not be available until PlayerState replicates) ---
 	if (!CachedASC && OwningCharacter)
 	{
@@ -215,7 +229,9 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 	}
 
-	// --- Weapon aim positioning + Left Hand IK (same pass = no frame lag) ---
+	// --- Weapon aim positioning (DISABLED — weapon stays on RelaxedSocket) ---
+	// TODO: Re-enable socket transition when aim offset + IK setup is finalized
+	/*
 	if ((bIsAiming || bIsShooting) && CurrentWeaponTag.IsValid())
 	{
 		if (!CachedPrimaryWeapon.IsValid())
@@ -278,6 +294,7 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			}
 		}
 	}
+	*/
 
 	// --- Aim Target (crosshair trace) ---
 	if (bWantsAimPose)
@@ -329,21 +346,33 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 		if (Weapon)
 		{
-			if (USkeletalMeshComponent* WeaponMesh3P = Weapon->GetWeaponMesh3P())
+			FTransform TargetTransform;
+			if (Weapon->GetLeftHandSocket(OwningCharacter->GetMesh(), WeaponAttachSocket, CurrentWeaponPoseState, TargetTransform))
 			{
-				const FName& GripSocket = bWantsAimPose ? LeftHandGripAimSocket : LeftHandGripSocket;
-				if (WeaponMesh3P->DoesSocketExist(GripSocket))
+				// Only interpolate on state change
+				if (CurrentWeaponPoseState != LastIKPoseState)
 				{
-					// Get socket transform in world space, then convert to character mesh component space
-					const FTransform SocketWorld = WeaponMesh3P->GetSocketTransform(GripSocket, RTS_World);
-					USkeletalMeshComponent* CharMesh = OwningCharacter->GetMesh();
-					if (CharMesh)
+					LastIKPoseState = CurrentWeaponPoseState;
+					bIsIKBlending = true;
+				}
+
+				if (bIsIKBlending)
+				{
+					const float Alpha = FMath::Clamp(DeltaSeconds * LeftHandIKInterpSpeed, 0.f, 1.f);
+					LeftHandIKTransform.BlendWith(TargetTransform, Alpha);
+
+					if (LeftHandIKTransform.GetLocation().Equals(TargetTransform.GetLocation(), 0.1f))
 					{
-						LeftHandIKTransform = SocketWorld.GetRelativeTransform(CharMesh->GetComponentTransform());
-						LeftHandIKTransform.AddToTranslation(LeftHandIKOffset);
-						bUseLeftHandIK = true;
+						LeftHandIKTransform = TargetTransform;
+						bIsIKBlending = false;
 					}
 				}
+				else
+				{
+					LeftHandIKTransform = TargetTransform;
+				}
+
+				bUseLeftHandIK = true;
 			}
 		}
 	}

@@ -67,6 +67,21 @@ AAZ_Weapon::AAZ_Weapon()
 	const auto& GameplayTags = FAZ_GameplayTags::Get();
 	PrimaryAmmoType = GameplayTags.Abilities_Type_None;
 	SecondaryAmmoType = GameplayTags.Abilities_Type_None;
+
+	// Pre-populate IK adjustment map with all pose states (zero offset by default)
+	const FAZ_LeftHandIKAdjustment ZeroAdj;
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Relaxed,          ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Aiming,           ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Crouching,        ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::CrouchAiming,     ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Shooting,         ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::CrouchShooting,   ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Reloading,        ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::CrouchReloading,  ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Sprinting,        ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::MeleeAttacking,   ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Interacting,      ZeroAdj);
+	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Throwing,         ZeroAdj);
 }
 
 USkeletalMeshComponent* AAZ_Weapon::GetWeaponMesh1P() const
@@ -499,6 +514,41 @@ void AAZ_Weapon::OnRep_SecondaryClipAmmo(int32 OldSecondaryClipAmmo)
 void AAZ_Weapon::OnRep_MaxSecondaryClipAmmo(int32 OldMaxSecondaryClipAmmo)
 {
 	OnMaxSecondaryClipAmmoChanged.Broadcast(OldMaxSecondaryClipAmmo, MaxSecondaryClipAmmo);
+}
+
+bool AAZ_Weapon::GetLeftHandSocket(USkeletalMeshComponent* CharMesh, FName BoneName, EAZ_WeaponPoseState PoseState, FTransform& OutTransform) const
+{
+	if (!CharMesh || !WeaponMesh3P)
+	{
+		return false;
+	}
+
+	if (!WeaponMesh3P->DoesSocketExist(LeftHandGripSocket))
+	{
+		return false;
+	}
+
+	// Get socket transform in world space from the weapon mesh
+	const FTransform SocketWorld = WeaponMesh3P->GetSocketTransform(LeftHandGripSocket, RTS_World);
+
+	// Transform to bone space relative to the specified bone (same as BP "Transform to Bone Space" node)
+	FVector OutPosition;
+	FRotator OutRotation;
+	CharMesh->TransformToBoneSpace(BoneName, SocketWorld.GetLocation(), SocketWorld.GetRotation().Rotator(), OutPosition, OutRotation);
+
+	// Single map lookup for the current pose state
+	const FAZ_LeftHandIKAdjustment* Adj = LeftHandIKAdjustments.Find(PoseState);
+	if (Adj)
+	{
+		OutPosition += Adj->LocationOffset;
+		OutRotation += Adj->RotationOffset;
+	}
+
+	OutTransform.SetLocation(OutPosition);
+	OutTransform.SetRotation(OutRotation.Quaternion());
+	OutTransform.SetScale3D(FVector::OneVector);
+
+	return true;
 }
 
 class UAbilitySystemComponent* AAZ_Weapon::GetAbilitySystemComponent() const
