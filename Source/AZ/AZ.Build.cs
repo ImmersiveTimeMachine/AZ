@@ -6,7 +6,7 @@ public class AZ : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "CommonUI", "CommonInput", "PoseSearch"});
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory"});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"Slate",

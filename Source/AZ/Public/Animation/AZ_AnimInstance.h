@@ -4,6 +4,7 @@
 #include "GameplayTagContainer.h"
 #include "Animation/AnimInstance.h"
 #include "Weapon/AZ_WeaponTypes.h"
+#include "Animation/TrajectoryTypes.h"
 #include "AZ_AnimInstance.generated.h"
 
 class UCharacterMovementComponent;
@@ -137,6 +138,18 @@ public:
 	/** Current weapon pose state resolved from movement + action bools. Use for SM transitions and IK. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
 	EAZ_WeaponPoseState CurrentWeaponPoseState = EAZ_WeaponPoseState::Relaxed;
+
+	// ========================================
+	// MOTION MATCHING
+	// ========================================
+
+	/** Toggle between old blend space and new Motion Matching locomotion. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|MotionMatching")
+	bool bUseMotionMatching = false;
+
+	/** Trajectory from CharacterTrajectoryComponent, updated each frame. Feed to Pose History node. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|MotionMatching")
+	FTransformTrajectory CharacterTrajectory;
 
 protected:
 

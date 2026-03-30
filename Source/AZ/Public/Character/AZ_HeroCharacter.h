@@ -62,6 +62,13 @@ public:
 	bool bIsFirstPersonPerspective{false};
 
 	// ========================================
+	// MOTION MATCHING — TRAJECTORY
+	// ========================================
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "AZ|MotionMatching")
+	class UCharacterTrajectoryComponent* CharacterTrajectory;
+
+	// ========================================
 	// CAMERA — BOOM / POSITION
 	// ========================================
 

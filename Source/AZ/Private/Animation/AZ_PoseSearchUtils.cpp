@@ -36,3 +36,24 @@ int32 UAZ_PoseSearchUtils::AddSequencesToDatabase(UPoseSearchDatabase* Database,
 
 	return Added;
 }
+
+void UAZ_PoseSearchUtils::RemoveAnimationAtIndex(UPoseSearchDatabase* Database, int32 Index)
+{
+	if (Database && Index >= 0 && Index < Database->GetNumAnimationAssets())
+	{
+		Database->RemoveAnimationAssetAt(Index);
+	}
+}
+
+void UAZ_PoseSearchUtils::ClearDatabase(UPoseSearchDatabase* Database)
+{
+	if (!Database)
+	{
+		return;
+	}
+
+	while (Database->GetNumAnimationAssets() > 0)
+	{
+		Database->RemoveAnimationAssetAt(Database->GetNumAnimationAssets() - 1);
+	}
+}

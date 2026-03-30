@@ -18,6 +18,7 @@
 #include "Player/AZ_PlayerState.h"
 #include "Sound/SoundCue.h"
 #include "Weapon/AZ_Weapon.h"
+#include "CharacterTrajectoryComponent.h"
 
 
 AAZ_HeroCharacter::AAZ_HeroCharacter()
@@ -56,6 +57,9 @@ AAZ_HeroCharacter::AAZ_HeroCharacter()
     GetCharacterMovement()->FallingLateralFriction = AirLateralFriction;
     GetCharacterMovement()->MaxStepHeight = StepHeight;
     GetCharacterMovement()->SetWalkableFloorAngle(WalkableAngle);
+
+    // --- Character Trajectory (for Motion Matching) ---
+    CharacterTrajectory = CreateDefaultSubobject<UCharacterTrajectoryComponent>(TEXT("CharacterTrajectory"));
 
     // --- Camera Boom ---
     ThirdPersonCameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("ThirdPersonCameraBoom"));

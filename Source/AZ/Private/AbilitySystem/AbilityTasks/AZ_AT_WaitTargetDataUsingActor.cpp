@@ -207,7 +207,7 @@ void UAZ_AT_WaitTargetDataUsingActor::FinalizeTargetActor() const
 
 void UAZ_AT_WaitTargetDataUsingActor::RegisterTargetDataCallbacks()
 {
-	if (!ensure(!IsValid(this)))
+	if (!ensure(IsValid(this)))
 	{
 		return;
 	}

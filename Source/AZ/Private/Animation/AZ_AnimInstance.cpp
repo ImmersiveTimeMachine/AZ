@@ -8,6 +8,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Weapon/AZ_Weapon.h"
+#include "CharacterTrajectoryComponent.h"
 
 void UAZ_AnimInstance::NativeInitializeAnimation()
 {
@@ -50,6 +51,19 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// --- Combined aim pose (aiming or shooting) ---
 	bWantsAimPose = bIsAiming || bIsShooting;
+
+	// --- Character Trajectory (for Motion Matching) ---
+	if (const AAZ_HeroCharacter* Hero = Cast<AAZ_HeroCharacter>(OwningCharacter))
+	{
+		if (UCharacterTrajectoryComponent* TrajComp = Hero->CharacterTrajectory)
+		{
+			FProperty* Prop = TrajComp->GetClass()->FindPropertyByName(TEXT("Trajectory"));
+			if (Prop)
+			{
+				Prop->CopyCompleteValue(&CharacterTrajectory, Prop->ContainerPtrToValuePtr<void>(TrajComp));
+			}
+		}
+	}
 
 	// --- Resolve weapon pose state from animation bools (priority order) ---
 	if (bIsShooting && bIsCrouching)

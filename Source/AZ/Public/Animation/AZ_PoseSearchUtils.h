@@ -24,4 +24,12 @@ public:
 	/** Add multiple animation sequences to a PoseSearch database at once. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static int32 AddSequencesToDatabase(UPoseSearchDatabase* Database, const TArray<UAnimSequence*>& Sequences);
+
+	/** Remove animation at a specific index from a PoseSearch database. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static void RemoveAnimationAtIndex(UPoseSearchDatabase* Database, int32 Index);
+
+	/** Clear all animations from a PoseSearch database. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static void ClearDatabase(UPoseSearchDatabase* Database);
 };
