@@ -194,6 +194,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_State_MeleeAttacking;
     FGameplayTag Ability_State_Interacting;
     FGameplayTag Ability_State_Throwing;
+    FGameplayTag Ability_State_Dashing;
 
     // Ability Cooldown Tags (granted by cooldown GEs, checked by ActivationBlockedTags)
     FGameplayTag Ability_Cooldown_Shoot;

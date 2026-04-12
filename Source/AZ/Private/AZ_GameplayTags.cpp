@@ -244,6 +244,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Ability_State_MeleeAttacking, FName("Ability.State.MeleeAttacking"), TEXT("Currently performing melee attack"));
     AddTag(GameplayTags.Ability_State_Interacting,    FName("Ability.State.Interacting"),    TEXT("Currently interacting with object"));
     AddTag(GameplayTags.Ability_State_Throwing,       FName("Ability.State.Throwing"),       TEXT("Currently throwing grenade/item"));
+    AddTag(GameplayTags.Ability_State_Dashing,        FName("Ability.State.Dashing"),        TEXT("Currently performing dash/dodge"));
 
     // =========================================================
     // ABILITY COOLDOWNS

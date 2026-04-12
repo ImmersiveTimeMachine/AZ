@@ -6,7 +6,7 @@ public class AZ : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory"});
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory", "Mover", "NetworkPrediction", "Chooser", "StructUtils", "AssetRegistry"});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"Slate",
@@ -22,7 +22,7 @@ public class AZ : ModuleRules
 
 		if (Target.Type == TargetType.Editor)
 		{
-			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd" });
+			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "AnimGraph", "BlueprintGraph", "KismetCompiler", "BlendStackEditor", "PoseSearchEditor", "AnimationWarpingEditor", "AnimGraphRuntime" });
 		}
 		
 		OptimizeCode = CodeOptimization.Never;

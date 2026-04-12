@@ -8,7 +8,9 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AZ/AZ.h"
 #include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
-#include "Character/AZ_HeroCharacter.h"
+#include "AbilitySystemInterface.h"
+#include "Character/AZ_HeroPawn.h"
+#include "Equipment/AZ_EquipmentManagerComponent.h"
 #include "Input/AZ_EnhancedInputComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "InventoryOld/Components/AZ_Inv_InventoryComponent.h"
@@ -38,18 +40,18 @@ void AAZ_PlayerController::BeginPlay()
 
 TObjectPtr<UAbilitySystemComponent> AAZ_PlayerController::GetAbilitySystemComponent() const
 {
-	if (const auto HeroCharacter = Cast<AAZ_HeroCharacter>(GetPawn()))
+	if (const IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(GetPawn()))
 	{
-		return HeroCharacter->GetASC();
+		return ASI->GetAbilitySystemComponent();
 	}
 	return nullptr;
 }
 
 TObjectPtr<UAZ_AbilitySystemComponent> AAZ_PlayerController::GetAzAbilitySystemComponent() const
 {
-	if (const auto HeroCharacter = Cast<AAZ_HeroCharacter>(GetPawn()))
+	if (const IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(GetPawn()))
 	{
-		return Cast<UAZ_AbilitySystemComponent>(HeroCharacter->GetASC());
+		return Cast<UAZ_AbilitySystemComponent>(ASI->GetAbilitySystemComponent());
 	}
 	return nullptr;
 }
@@ -59,34 +61,32 @@ void AAZ_PlayerController::SetupInputComponent()
 	Super::SetupInputComponent();
 
 	const auto AZ_InputComponent = CastChecked<UAZ_EnhancedInputComponent>(InputComponent);
-	UE_LOG(Log_AZ, Warning, TEXT("HasBindings: %s"), AZ_InputComponent->HasBindings() ? TEXT("true") : TEXT("false"));
 
+	// Move/Look bound here for old ACharacter pawns — HeroPawn skips these via guard check
 	AZ_InputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AAZ_PlayerController::Move);
 	AZ_InputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AAZ_PlayerController::Look);
-	//AZ_InputComponent->BindAction(OpenInventoryAction, ETriggerEvent::Triggered, this, &AAZ_PlayerController::CreateHUDWidget);
 
-	
+	// GAS ability input — works for both pawn types
 	checkf(InputConfig, TEXT("InputConfig is null in AAZ_PlayerController::SetupInputComponent"));
 	AZ_InputComponent->BindAbilityActions(InputConfig, this, &ThisClass::AbilityInputTagPressed, &ThisClass::AbilityInputTagReleased, &ThisClass::AbilityInputTagHeld);
-	
 }
 
 void AAZ_PlayerController::Move(const FInputActionInstance& Value)
 {
+	// HeroPawn handles Move via its own Mover input pipeline
+	if (GetPawn() && GetPawn()->IsA<AAZ_HeroPawn>())
+	{
+		return;
+	}
+
 	CharacterState = ECharacterState::CS_Walking;
-	
-	// input is a Vector2D
+
 	const FVector2D MovementVector{ CharacterState == ECharacterState::CS_Running ? Value.GetValue().Get<FVector2D>() * RunSpeedMultiplayer : Value.GetValue().Get<FVector2D>()};
-	
-   
-	// find out which way is forward
+
 	const FRotator Rotation = GetControlRotation();
 	const FRotator YawRotation(0, Rotation.Yaw, 0);
 
-	// get forward vector
 	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	
-	// get right vector 
 	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
 	if (APawn* ControlledPawn = GetPawn<APawn>())
@@ -94,31 +94,23 @@ void AAZ_PlayerController::Move(const FInputActionInstance& Value)
 		ControlledPawn->AddMovementInput(RightDirection, MovementVector.X);
 		ControlledPawn->AddMovementInput(ForwardDirection, MovementVector.Y);
 	}
-	else
-	{
-		// Log a warning if Controller is null
-		UE_LOG(Log_AZ, Warning, TEXT("Controller is null in AEchoHero::Look."));
-	}
 }
 
 void AAZ_PlayerController::Look(const FInputActionValue& Value)
 {
-	// Ensure the input value type is Axis2D
+	// HeroPawn handles Look via its own Mover input pipeline
+	if (GetPawn() && GetPawn()->IsA<AAZ_HeroPawn>())
+	{
+		return;
+	}
+
 	check(Value.GetValueType() == EInputActionValueType::Axis2D);
 
-	// input is a Vector2D
 	const FVector2D LookAxisVector = Value.Get<FVector2D>();
 	if (APawn* ControlledPawn = GetPawn<APawn>())
 	{
-		// add yaw and pitch input to controller
 		ControlledPawn->AddControllerYawInput(LookAxisVector.X);
 		ControlledPawn->AddControllerPitchInput(LookAxisVector.Y);
-		
-	}
-	else
-	{
-		// Log a warning if Controller is null
-		UE_LOG(Log_AZ, Warning, TEXT("Controller is null in AEchoHero::Look."));
 	}
 }
 
@@ -152,10 +144,9 @@ void AAZ_PlayerController::OnPossess(APawn* aPawn)
 {
 	Super::OnPossess(aPawn);
 
-	auto HeroCharacter = Cast<AAZ_HeroCharacter>(aPawn);
-	if (auto EquipmentManagerComponent = HeroCharacter->GetEquipmentManagerComponent())
+	if (auto* EquipMgr = aPawn ? aPawn->FindComponentByClass<UAZ_EquipmentManagerComponent>() : nullptr)
 	{
-		EquipmentManagerComponent->OnShowPickupPrompt.AddDynamic(this, &AAZ_PlayerController::HandlePickupPromptToggled);
+		EquipMgr->OnShowPickupPrompt.AddDynamic(this, &AAZ_PlayerController::HandlePickupPromptToggled);
 	}
 }
 
