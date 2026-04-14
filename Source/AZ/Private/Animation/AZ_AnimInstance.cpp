@@ -311,8 +311,14 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 		else
 		{
-			Trj_FutureFacing = ActorFacing.Rotator();
-			FutureFacingDelta = 0.f;
+			// Idle: measure delta between current mesh facing and desired facing
+			// (controller/camera yaw). This drives turn-in-place detection —
+			// when the player rotates the camera past 50° while standing still,
+			// ShouldTurnInPlace() fires and the SM transitions to play a turn anim.
+			const FRotator DesiredFacing = CharacterProperties.AimingRotation;
+			const FRotator CurrentFacingRot = ActorFacing.Rotator();
+			FutureFacingDelta = FRotator::NormalizeAxis(DesiredFacing.Yaw - CurrentFacingRot.Yaw);
+			Trj_FutureFacing = DesiredFacing;
 		}
 
 		// Angular velocity (yaw change rate)
@@ -718,6 +724,30 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// (equivalent to GASP's S_CharacterPropertiesForAnimation.bIsTurning).
 	bIsTurning = ShouldTurnInPlace();
 
+	// TEMP DEBUG — remove after testing
+	if (GEngine && OwningHeroPawn)
+	{
+		const FString AnimName = BlendStackInputs.Anim ? BlendStackInputs.Anim->GetName() : TEXT("None");
+		const FString TagsStr = BlendStackInputs.Tags.IsNone() ? TEXT("") : BlendStackInputs.Tags.ToString();
+		static const TCHAR* SMNames[] = {
+			TEXT("IdleLp"), TEXT("TransIdle"), TEXT("LocoLp"), TEXT("TransLoco"),
+			TEXT("AirLp"), TEXT("TransAir"), TEXT("IdleBrk"), TEXT("TransSlide"), TEXT("SlideLp")
+		};
+		const int32 SMIdx = FMath::Clamp((int32)StateMachineState, 0, 8);
+
+		const FString ChooserAnimName = ChooserOutputs.Tags.IsNone() ? TEXT("") : ChooserOutputs.Tags.ToString();
+		const FString ChooserInfo = FString::Printf(TEXT("BT=%.2f BP=%s MM=%d"),
+			ChooserOutputs.BlendTime, *ChooserOutputs.BlendProfile.ToString(), ChooserOutputs.bUseMM);
+
+		GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Yellow,
+			FString::Printf(TEXT("SM=%s | Spd=%.0f | Turn=%d | Delta=%.1f | Tags=%s"),
+				SMNames[SMIdx], Speed2D, bIsTurning, FutureFacingDelta, *TagsStr));
+		GEngine->AddOnScreenDebugMessage(-2, 0.f, FColor::Cyan,
+			FString::Printf(TEXT("Anim=%s"), *AnimName));
+		GEngine->AddOnScreenDebugMessage(-3, 0.f, FColor::Green,
+			FString::Printf(TEXT("CHT: %s | OutTags=%s"), *ChooserInfo, *ChooserAnimName));
+	}
+
 	// Detect locomotion database change — pulse true for exactly one frame
 	const bool bDatabaseActuallyChanged = (CurrentLocomotionDatabase != PreviousLocomotionDatabase);
 	PreviousLocomotionDatabase = CurrentLocomotionDatabase;
@@ -851,11 +881,16 @@ bool UAZ_AnimInstance::ShouldReEnterTurnInPlace() const
 {
 	if (!ShouldTurnInPlace()) return false;
 
-	// Check spin direction from BlendStack Tags (matching GASP logic)
-	bool bSpinL = (BlendStackInputs.Tags == FName(TEXT("Spin_L"))) && FutureFacingDelta > 45.f;
-	bool bSpinR = (BlendStackInputs.Tags == FName(TEXT("Spin_R"))) && FutureFacingDelta < -45.f;
+	// Only re-enter if spin direction needs to REVERSE (prevents every-frame re-fire).
+	// "Spin_L" means currently turning left; if FutureFacingDelta > 45° we overshot and need right.
+	// "Spin_R" means currently turning right; if FutureFacingDelta < -45° we overshot and need left.
+	const bool bSpinL = (BlendStackInputs.Tags == FName(TEXT("Spin_L"))) && FutureFacingDelta > 45.f;
+	const bool bSpinR = (BlendStackInputs.Tags == FName(TEXT("Spin_R"))) && FutureFacingDelta < -45.f;
 
-	return bSpinL || bSpinR;
+	// Also allow initial entry when no spin is active yet (Tags empty)
+	const bool bNoSpinYet = BlendStackInputs.Tags == NAME_None || BlendStackInputs.Tags.IsNone();
+
+	return bSpinL || bSpinR || bNoSpinYet;
 }
 
 bool UAZ_AnimInstance::ShouldSpinTransition() const

@@ -1038,6 +1038,79 @@ bool UAZ_ChooserUtils::RebindChooserContext(const FString& ChooserPath, UClass* 
 #endif
 }
 
+int32 UAZ_ChooserUtils::RebindChooserPropertyNames(const FString& ChooserPath,
+	const TArray<FString>& FromPropertyNames,
+	const TArray<FString>& ToPropertyNames)
+{
+#if WITH_EDITOR
+	if (FromPropertyNames.Num() != ToPropertyNames.Num()) return 0;
+	UChooserTable* Root = LoadChooser(ChooserPath);
+	if (!Root) return 0;
+
+	// Build lookup
+	TMap<FName, FName> NameMap;
+	for (int32 i = 0; i < FromPropertyNames.Num(); ++i)
+	{
+		NameMap.Add(FName(*FromPropertyNames[i]), FName(*ToPropertyNames[i]));
+	}
+
+	TArray<UChooserTable*> AllTables;
+	CollectAllTables(Root, AllTables);
+
+	int32 ReplacedCount = 0;
+	for (UChooserTable* Table : AllTables)
+	{
+		Table->Modify();
+		for (FInstancedStruct& ColS : Table->ColumnsStructs)
+		{
+			// Helper lambda to rebind a PropertyBindingChain
+			auto TryRebind = [&](FChooserPropertyBinding& Binding) -> bool
+			{
+				if (Binding.PropertyBindingChain.Num() > 0)
+				{
+					if (const FName* NewName = NameMap.Find(Binding.PropertyBindingChain[0]))
+					{
+						Binding.PropertyBindingChain[0] = *NewName;
+						++ReplacedCount;
+						return true;
+					}
+				}
+				return false;
+			};
+
+			if (FEnumColumn* EC = ColS.GetMutablePtr<FEnumColumn>())
+			{
+				if (FEnumContextProperty* Prop = EC->InputValue.GetMutablePtr<FEnumContextProperty>())
+					TryRebind(Prop->Binding);
+			}
+			else if (FMultiEnumColumn* MC = ColS.GetMutablePtr<FMultiEnumColumn>())
+			{
+				if (FEnumContextProperty* Prop = MC->InputValue.GetMutablePtr<FEnumContextProperty>())
+					TryRebind(Prop->Binding);
+			}
+			else if (FFloatRangeColumn* FRC = ColS.GetMutablePtr<FFloatRangeColumn>())
+			{
+				if (FFloatContextProperty* Prop = FRC->InputValue.GetMutablePtr<FFloatContextProperty>())
+					TryRebind(Prop->Binding);
+			}
+			else if (FBoolColumn* BC = ColS.GetMutablePtr<FBoolColumn>())
+			{
+				if (FBoolContextProperty* Prop = BC->InputValue.GetMutablePtr<FBoolContextProperty>())
+					TryRebind(Prop->Binding);
+			}
+		}
+		Table->MarkPackageDirty();
+	}
+
+	Root->Compile(true);
+	UE_LOG(LogTemp, Log, TEXT("RebindChooserPropertyNames: replaced %d bindings across %d tables"),
+		ReplacedCount, AllTables.Num());
+	return ReplacedCount;
+#else
+	return 0;
+#endif
+}
+
 int32 UAZ_ChooserUtils::RemapChooserAssets(const FString& ChooserPath,
 	const TArray<FString>& FromAssetNames,
 	const TArray<FString>& ToAssetPaths)

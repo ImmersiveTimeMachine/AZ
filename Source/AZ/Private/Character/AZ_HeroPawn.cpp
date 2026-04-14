@@ -17,6 +17,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "MoverPoseSearchTrajectoryPredictor.h"
+#include "Animation/AZ_AnimInstance.h"
 #include "NetworkPredictionComponent.h"
 #include "EnhancedInputComponent.h"
 #include "InputAction.h"
@@ -34,9 +35,11 @@ AAZ_HeroPawn::AAZ_HeroPawn(const FObjectInitializer& ObjectInitializer)
 	bReplicates = true;
 	SetReplicatingMovement(false); // Mover handles movement replication
 
-	// --- Rotation (match old character: yaw from controller, no pitch/roll) ---
+	// --- Rotation: Mover handles orientation via OrientationIntent, not controller ---
+	// false = character faces movement direction (OrientToMovement), camera orbits freely
+	// This enables turn-in-place when idle (FutureFacingDelta builds up as camera rotates)
 	bUseControllerRotationPitch = false;
-	bUseControllerRotationYaw = true;
+	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
 	// --- Collision root (capsule) — match old: radius 25, half-height 90 ---
@@ -408,11 +411,33 @@ void AAZ_HeroPawn::OnProduceInput(float DeltaMs, FMoverInputCmdContext& InputCmd
 		constexpr float RotationMagMin = 1e-3f;
 		if (WorldMoveIntent.SizeSquared() >= RotationMagMin * RotationMagMin)
 		{
+			// Moving: face movement direction
 			CharInputs.OrientationIntent = WorldMoveIntent.GetSafeNormal();
 		}
 		else
 		{
-			CharInputs.OrientationIntent = FVector::ZeroVector;
+			// Idle: only rotate capsule toward camera AFTER the AnimInstance
+			// has detected turn-in-place (bIsTurning). This prevents the Mover
+			// from smoothly rotating the capsule BEFORE the SM fires, which
+			// would suppress the FutureFacingDelta that triggers the turn anim.
+			bool bAnimWantsTurn = false;
+			if (MeshComponent)
+			{
+				if (UAZ_AnimInstance* AnimInst = Cast<UAZ_AnimInstance>(MeshComponent->GetAnimInstance()))
+				{
+					bAnimWantsTurn = AnimInst->bIsTurning;
+				}
+			}
+
+			if (bAnimWantsTurn)
+			{
+				const FVector CameraFwd = FRotationMatrix(CharInputs.ControlRotation).GetUnitAxis(EAxis::X);
+				CharInputs.OrientationIntent = FVector(CameraFwd.X, CameraFwd.Y, 0.f).GetSafeNormal();
+			}
+			else
+			{
+				CharInputs.OrientationIntent = FVector::ZeroVector;
+			}
 		}
 	}
 

@@ -279,6 +279,17 @@ public:
 	static bool SetCellOutputStructFieldOnSub(const FString& RootChooserPath, const FString& SubTableName,
 		int32 RowIndex, int32 ColumnIndex, const FString& FieldName, const FString& FieldValueText);
 
+	/** Rebind property names in ALL column bindings across root + nested sub-choosers.
+	 *  Walks every EnumColumn/MultiEnumColumn/FloatRangeColumn/BoolColumn and checks
+	 *  if the PropertyBindingChain[0] matches any entry in FromPropertyNames[]; if so,
+	 *  replaces with the corresponding ToPropertyNames[] entry.
+	 *  @return number of bindings replaced
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser")
+	static int32 RebindChooserPropertyNames(const FString& ChooserPath,
+		const TArray<FString>& FromPropertyNames,
+		const TArray<FString>& ToPropertyNames);
+
 	/** Auto-remap all chooser asset references using best-match search.
 	 *  Walks all anim assets under SearchPaths and for each chooser asset ref:
 	 *    1) Tries exact short-name match
