@@ -279,6 +279,14 @@ public:
 	static bool SetCellOutputStructFieldOnSub(const FString& RootChooserPath, const FString& SubTableName,
 		int32 RowIndex, int32 ColumnIndex, const FString& FieldName, const FString& FieldValueText);
 
+	/** Replace the asset reference on an existing row's FAssetChooser result.
+	 *  Used to swap a row's anim asset without touching its column filter values
+	 *  (preserves all c0/c1/c2... cell data).
+	 *  @return true if asset was replaced; false if row index invalid or result is not FAssetChooser */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool SetCellAssetOnSub(const FString& RootChooserPath, const FString& SubTableName,
+		int32 RowIndex, UObject* NewAsset);
+
 	/** Rebind property names in ALL column bindings across root + nested sub-choosers.
 	 *  Walks every EnumColumn/MultiEnumColumn/FloatRangeColumn/BoolColumn and checks
 	 *  if the PropertyBindingChain[0] matches any entry in FromPropertyNames[]; if so,

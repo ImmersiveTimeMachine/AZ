@@ -88,6 +88,14 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void PossessedBy(AController* NewController) override;
+
+	/** Align the controller's control rotation with the actor's facing yaw.
+	 *  Called from PossessedBy (primary — guaranteed controller) and from BeginPlay
+	 *  (fallback — covers pawns already possessed before BeginPlay fires, such as
+	 *  default player pawns in PIE). Idempotent; safe to call multiple times.
+	 *  Prevents the spawn-time FutureFacingDelta spike that makes
+	 *  ShouldTurnInPlace() fire while SM=IdleLoop → chooser has no matching row → A-pose. */
+	void AlignControllerWithActor();
 	virtual void OnRep_PlayerState() override;
 	virtual void PostInitializeComponents() override;
 
@@ -148,7 +156,7 @@ public:
 	TObjectPtr<UCameraComponent> ThirdPersonCamera;
 
 	/** Mover-native trajectory predictor for PoseSearch Motion Matching. Replaces UCharacterTrajectoryComponent (ACharacter-only). */
-	UPROPERTY(BlueprintReadOnly, Category = "AZ|MotionMatching")
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "AZ|MotionMatching")
 	TObjectPtr<UMoverTrajectoryPredictor> MoverTrajectoryPredictor;
 
 	// ========================================
@@ -254,6 +262,25 @@ protected:
 	FVector CachedMoveInputIntent = FVector::ZeroVector;
 	bool bIsJumpJustPressed = false;
 	bool bIsJumpPressed = false;
+
+	/** Cached last-valid idle orientation target (camera forward on XY plane). */
+	FVector LastIdleOrientationTarget = FVector::ZeroVector;
+
+	/** Accumulated absolute mouse rotation (degrees) since last TIP commit.
+	 *  Speed-independent trigger: any 60° of cumulative camera yaw movement
+	 *  fires TIP, regardless of how fast or slow the mouse moved. */
+	float AccumulatedYawSinceCommit = 0.f;
+	float LastObservedControllerYaw = 0.f;
+	bool bAccumYawInitialized = false;
+
+	/** True between commit and alignment — single source of truth for "turn in progress".
+	 *  AnimInstance reads this to drive bIsTurning / TIP. OrientationIntent is only
+	 *  emitted when this is true (otherwise body stays put). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	bool bIdleTurnInProgress = false;
+
+public:
+	bool IsIdleTurnInProgress() const { return bIdleTurnInProgress; }
 
 private:
 	// Enhanced Input callbacks

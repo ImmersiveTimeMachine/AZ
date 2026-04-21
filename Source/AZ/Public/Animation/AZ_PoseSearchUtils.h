@@ -50,4 +50,28 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static int32 AddBlockTransitionToDatabase(UPoseSearchDatabase* Database);
+
+	/** Add a PoseSearchBranchIn instant notify (not state) at a specific time.
+	 *  Marks where MM can branch INTO this animation from elsewhere. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static bool AddBranchInNotify(UAnimSequence* Sequence, float TriggerTime);
+
+	/** Add a PoseSearchExcludeFromDatabase notify state covering [StartTime, StartTime+Duration].
+	 *  Excludes that time range from being matched by the MM search. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static bool AddExcludeFromDatabaseNotify(UAnimSequence* Sequence, float StartTime, float Duration);
+
+	/** Add a PoseSearchModifyCost notify state covering a range. Used on Land anims
+	 *  to differentiate Heavy vs Light cost. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static bool AddModifyCostNotify(UAnimSequence* Sequence, float StartTime, float Duration, float CostAddend);
+
+	/** Add a PoseSearchOverrideContinuingPoseCostBias notify state. Used on turn-in-place
+	 *  and reface-start anims to bias toward completing the current anim. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static bool AddOverrideContinuingPoseCostBiasNotify(UAnimSequence* Sequence, float StartTime, float Duration, float CostBias);
+
+	/** Remove ALL PoseSearch-related notifies from an animation. Useful for re-applying clean. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static int32 RemoveAllPoseSearchNotifies(UAnimSequence* Sequence);
 };

@@ -128,10 +128,23 @@ void AAZ_HeroPawn::BeginPlay()
 		PC->PlayerCameraManager->ViewPitchMin = -89.f;
 	}
 
+	// Fallback: align controller yaw with actor if the pawn was already possessed
+	// before BeginPlay fired (PIE default pawn, streaming cases). The primary path
+	// is PossessedBy — this just covers the race where possession preceded BeginPlay.
+	AlignControllerWithActor();
+
 	if (CharacterMoverComponent)
 	{
 		// Register this pawn as the Mover's input producer
 		CharacterMoverComponent->InputProducer = this;
+
+		// Lazy-create the predictor if the BP CDO nulled it out (UCLASS EditInlineNew
+		// makes BP serialize this property as an instanced subobject, which can
+		// override the C++ CreateDefaultSubobject default with null).
+		if (!MoverTrajectoryPredictor)
+		{
+			MoverTrajectoryPredictor = NewObject<UMoverTrajectoryPredictor>(this, TEXT("MoverTrajectoryPredictor_Runtime"));
+		}
 
 		// Wire up Mover trajectory predictor for PoseSearch
 		if (MoverTrajectoryPredictor)
@@ -180,9 +193,22 @@ void AAZ_HeroPawn::Tick(float DeltaTime)
 // Controller / PlayerState — GAS Init
 // ============================================================
 
+void AAZ_HeroPawn::AlignControllerWithActor()
+{
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetControlRotation(GetActorRotation());
+	}
+}
+
 void AAZ_HeroPawn::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
+
+	// Primary: align control rotation now that a controller is guaranteed.
+	// Prevents trajectory predictor seeing a spawn-time delta that makes
+	// ShouldTurnInPlace() fire while SM=IdleLoop → A-pose.
+	AlignControllerWithActor();
 
 	// Server-side: grab ASC from PlayerState
 	if (AAZ_PlayerState* PS = GetPlayerState<AAZ_PlayerState>())
@@ -411,31 +437,59 @@ void AAZ_HeroPawn::OnProduceInput(float DeltaMs, FMoverInputCmdContext& InputCmd
 		constexpr float RotationMagMin = 1e-3f;
 		if (WorldMoveIntent.SizeSquared() >= RotationMagMin * RotationMagMin)
 		{
-			// Moving: face movement direction
+			// Moving: face movement direction. Clear idle cache so a stop doesn't
+			// re-apply a stale pre-movement orientation target.
 			CharInputs.OrientationIntent = WorldMoveIntent.GetSafeNormal();
+			LastIdleOrientationTarget = FVector::ZeroVector;
 		}
 		else
 		{
-			// Idle: only rotate capsule toward camera AFTER the AnimInstance
-			// has detected turn-in-place (bIsTurning). This prevents the Mover
-			// from smoothly rotating the capsule BEFORE the SM fires, which
-			// would suppress the FutureFacingDelta that triggers the turn anim.
-			bool bAnimWantsTurn = false;
-			if (MeshComponent)
+			// Idle TIP — speed-independent accumulator + in-progress flag.
+			// Single source of truth: bIdleTurnInProgress. OrientationIntent is
+			// emitted ONLY while in-progress, so between turns the body stays
+			// put (no stale-cache drift / opposite-direction bug).
+			const float ControllerYaw = CharInputs.ControlRotation.Yaw;
+
+			if (!bAccumYawInitialized)
 			{
-				if (UAZ_AnimInstance* AnimInst = Cast<UAZ_AnimInstance>(MeshComponent->GetAnimInstance()))
-				{
-					bAnimWantsTurn = AnimInst->bIsTurning;
-				}
+				LastObservedControllerYaw = ControllerYaw;
+				AccumulatedYawSinceCommit = 0.f;
+				bAccumYawInitialized = true;
 			}
 
-			if (bAnimWantsTurn)
+			// Accumulate this frame's absolute mouse delta.
+			const float YawDelta = FRotator::NormalizeAxis(ControllerYaw - LastObservedControllerYaw);
+			AccumulatedYawSinceCommit += FMath::Abs(YawDelta);
+			LastObservedControllerYaw = ControllerYaw;
+
+			// Commit fresh turn when accumulator hits 60°.
+			if (!bIdleTurnInProgress && AccumulatedYawSinceCommit >= 60.f)
 			{
+				bIdleTurnInProgress = true;
+				AccumulatedYawSinceCommit = 0.f;
 				const FVector CameraFwd = FRotationMatrix(CharInputs.ControlRotation).GetUnitAxis(EAxis::X);
-				CharInputs.OrientationIntent = FVector(CameraFwd.X, CameraFwd.Y, 0.f).GetSafeNormal();
+				LastIdleOrientationTarget = FVector(CameraFwd.X, CameraFwd.Y, 0.f).GetSafeNormal();
+			}
+
+			if (bIdleTurnInProgress)
+			{
+				// Allow target to track camera while still rotating (player can
+				// adjust mid-turn). Release when body is aligned (dot ≥ 0.998 ≈ 4°).
+				const FVector CameraFwd = FRotationMatrix(CharInputs.ControlRotation).GetUnitAxis(EAxis::X);
+				LastIdleOrientationTarget = FVector(CameraFwd.X, CameraFwd.Y, 0.f).GetSafeNormal();
+
+				const FVector ActorFwd2D = FVector(GetActorForwardVector().X, GetActorForwardVector().Y, 0.f).GetSafeNormal();
+				if (FVector::DotProduct(ActorFwd2D, LastIdleOrientationTarget) >= 0.998f)
+				{
+					bIdleTurnInProgress = false;
+					AccumulatedYawSinceCommit = 0.f;
+				}
+
+				CharInputs.OrientationIntent = LastIdleOrientationTarget;
 			}
 			else
 			{
+				// Not turning — body stays put. Don't emit a stale cache.
 				CharInputs.OrientationIntent = FVector::ZeroVector;
 			}
 		}

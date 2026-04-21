@@ -1670,6 +1670,30 @@ bool UAZ_ChooserUtils::SetCellOutputStructFieldOnSub(const FString& RootChooserP
 #endif
 }
 
+bool UAZ_ChooserUtils::SetCellAssetOnSub(const FString& RootChooserPath, const FString& SubTableName,
+	int32 RowIndex, UObject* NewAsset)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table || !Table->ResultsStructs.IsValidIndex(RowIndex)) return false;
+
+	FInstancedStruct& Result = Table->ResultsStructs[RowIndex];
+	FAssetChooser* AC = Result.GetMutablePtr<FAssetChooser>();
+	if (!AC)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetCellAssetOnSub: row %d in '%s' is not FAssetChooser"),
+			RowIndex, *SubTableName);
+		return false;
+	}
+	AC->Asset = NewAsset;
+	Root->MarkPackageDirty();
+	return true;
+#else
+	return false;
+#endif
+}
+
 // ========================================
 // AUTO-REMAP (fuzzy matching)
 // ========================================

@@ -136,3 +136,127 @@ int32 UAZ_PoseSearchUtils::AddBlockTransitionToDatabase(UPoseSearchDatabase* Dat
 
 	return Modified;
 }
+
+bool UAZ_PoseSearchUtils::AddBranchInNotify(UAnimSequence* Sequence, float TriggerTime)
+{
+	if (!Sequence) return false;
+	Sequence->Modify();
+
+	// BranchIn is a state notify (UAnimNotifyState_PoseSearchBranchIn), not instant.
+	// Use a minimal duration so it acts as a "branch point" window.
+	const float MinDuration = 0.01f;
+
+	auto* NotifyState = NewObject<UAnimNotifyState_PoseSearchBranchIn>(Sequence, NAME_None, RF_Transactional);
+	if (!NotifyState) return false;
+
+	FAnimNotifyEvent& Evt = Sequence->Notifies.AddDefaulted_GetRef();
+	Evt.NotifyName = FName(TEXT("PoseSearchBranchIn"));
+	Evt.Notify = nullptr;
+	Evt.NotifyStateClass = NotifyState;
+	Evt.SetDuration(MinDuration);
+	Evt.TriggerTimeOffset = 0.f;
+	Evt.EndTriggerTimeOffset = 0.f;
+	Evt.LinkSequence(Sequence, TriggerTime);
+	Evt.SetTime(TriggerTime);
+
+	Sequence->PostEditChange();
+	Sequence->MarkPackageDirty();
+	return true;
+}
+
+bool UAZ_PoseSearchUtils::AddExcludeFromDatabaseNotify(UAnimSequence* Sequence, float StartTime, float Duration)
+{
+	if (!Sequence || Duration <= 0.f) return false;
+	Sequence->Modify();
+
+	auto* NotifyState = NewObject<UAnimNotifyState_PoseSearchExcludeFromDatabase>(Sequence, NAME_None, RF_Transactional);
+	if (!NotifyState) return false;
+
+	FAnimNotifyEvent& Evt = Sequence->Notifies.AddDefaulted_GetRef();
+	Evt.NotifyName = FName(TEXT("PoseSearchExcludeFromDatabase"));
+	Evt.Notify = nullptr;
+	Evt.NotifyStateClass = NotifyState;
+	Evt.SetDuration(Duration);
+	Evt.TriggerTimeOffset = 0.f;
+	Evt.EndTriggerTimeOffset = 0.f;
+	Evt.LinkSequence(Sequence, StartTime);
+	Evt.SetTime(StartTime);
+
+	Sequence->PostEditChange();
+	Sequence->MarkPackageDirty();
+	return true;
+}
+
+bool UAZ_PoseSearchUtils::AddModifyCostNotify(UAnimSequence* Sequence, float StartTime, float Duration, float CostAddend)
+{
+	if (!Sequence || Duration <= 0.f) return false;
+	Sequence->Modify();
+
+	auto* NotifyState = NewObject<UAnimNotifyState_PoseSearchModifyCost>(Sequence, NAME_None, RF_Transactional);
+	if (!NotifyState) return false;
+
+	NotifyState->CostAddend = CostAddend;
+
+	FAnimNotifyEvent& Evt = Sequence->Notifies.AddDefaulted_GetRef();
+	Evt.NotifyName = FName(TEXT("PoseSearchModifyCost"));
+	Evt.Notify = nullptr;
+	Evt.NotifyStateClass = NotifyState;
+	Evt.SetDuration(Duration);
+	Evt.TriggerTimeOffset = 0.f;
+	Evt.EndTriggerTimeOffset = 0.f;
+	Evt.LinkSequence(Sequence, StartTime);
+	Evt.SetTime(StartTime);
+
+	Sequence->PostEditChange();
+	Sequence->MarkPackageDirty();
+	return true;
+}
+
+bool UAZ_PoseSearchUtils::AddOverrideContinuingPoseCostBiasNotify(UAnimSequence* Sequence, float StartTime, float Duration, float CostBias)
+{
+	if (!Sequence || Duration <= 0.f) return false;
+	Sequence->Modify();
+
+	auto* NotifyState = NewObject<UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias>(Sequence, NAME_None, RF_Transactional);
+	if (!NotifyState) return false;
+
+	NotifyState->CostAddend = CostBias;
+
+	FAnimNotifyEvent& Evt = Sequence->Notifies.AddDefaulted_GetRef();
+	Evt.NotifyName = FName(TEXT("PoseSearchOverrideContinuingPoseCostBias"));
+	Evt.Notify = nullptr;
+	Evt.NotifyStateClass = NotifyState;
+	Evt.SetDuration(Duration);
+	Evt.TriggerTimeOffset = 0.f;
+	Evt.EndTriggerTimeOffset = 0.f;
+	Evt.LinkSequence(Sequence, StartTime);
+	Evt.SetTime(StartTime);
+
+	Sequence->PostEditChange();
+	Sequence->MarkPackageDirty();
+	return true;
+}
+
+int32 UAZ_PoseSearchUtils::RemoveAllPoseSearchNotifies(UAnimSequence* Sequence)
+{
+	if (!Sequence) return 0;
+	Sequence->Modify();
+
+	int32 Removed = 0;
+	for (int32 i = Sequence->Notifies.Num() - 1; i >= 0; --i)
+	{
+		const FString NotifyName = Sequence->Notifies[i].NotifyName.ToString();
+		if (NotifyName.StartsWith(TEXT("PoseSearch")))
+		{
+			Sequence->Notifies.RemoveAt(i);
+			++Removed;
+		}
+	}
+
+	if (Removed > 0)
+	{
+		Sequence->PostEditChange();
+		Sequence->MarkPackageDirty();
+	}
+	return Removed;
+}

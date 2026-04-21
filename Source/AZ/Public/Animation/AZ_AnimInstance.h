@@ -167,8 +167,10 @@ public:
 	// ========================================
 
 	// ----------------------------------------
-	// STATE TRACKING — Current + LastFrame for all 6 states
-	// Updated in NativeUpdateAnimation via Update_States()
+	// STATE TRACKING — GASP 5-variable pattern for all 6 state enums.
+	// Per state: X (current), X_LastFrame, X_Recent (delayed previous),
+	// X_Time (duration in current state), X_LastStateTime (duration of previous state).
+	// Updated in NativeUpdateAnimation via UpdateStateTracking helper.
 	// ----------------------------------------
 
 	/** Current SM state. Set by OnStateEntry functions. */
@@ -180,40 +182,72 @@ public:
 	EAZ_MovementState MovementState = EAZ_MovementState::Idle;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementState MovementState_LastFrame = EAZ_MovementState::Idle;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	EAZ_MovementState MovementState_Recent = EAZ_MovementState::Idle;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementState_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementState_LastStateTime = 0.f;
 
 	// --- MovementMode ---
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementMode MovementMode_LastFrame = EAZ_MovementMode::OnGround;
-	/** Delayed mode tracking — holds previous value briefly after change. Used by Pivot rule. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementMode MovementMode_Recent = EAZ_MovementMode::OnGround;
-	float MovementModeRecentTimer = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementMode_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementMode_LastStateTime = 0.f;
 
 	// --- Gait ---
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_Gait Gait = EAZ_Gait::Run;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_Gait Gait_LastFrame = EAZ_Gait::Run;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	EAZ_Gait Gait_Recent = EAZ_Gait::Run;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float Gait_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float Gait_LastStateTime = 0.f;
 
 	// --- Stance ---
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_Stance Stance = EAZ_Stance::Standing;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_Stance Stance_LastFrame = EAZ_Stance::Standing;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	EAZ_Stance Stance_Recent = EAZ_Stance::Standing;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float Stance_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float Stance_LastStateTime = 0.f;
 
 	// --- MovementDirection ---
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_MovementDirection MovementDirection_LastFrame = EAZ_MovementDirection::F;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	EAZ_MovementDirection MovementDirection_Recent = EAZ_MovementDirection::F;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementDirection_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float MovementDirection_LastStateTime = 0.f;
 
 	// --- RotationMode ---
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_RotationMode RotationMode = EAZ_RotationMode::OrientToMovement;
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	EAZ_RotationMode RotationMode_LastFrame = EAZ_RotationMode::OrientToMovement;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	EAZ_RotationMode RotationMode_Recent = EAZ_RotationMode::OrientToMovement;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float RotationMode_Time = 0.f;
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
+	float RotationMode_LastStateTime = 0.f;
 
 	/** Whether the character is currently turning-in-place. Cached from
 	 *  ShouldTurnInPlace() each frame so Chooser BoolColumns can bind to it. */
@@ -671,4 +705,17 @@ private:
 
 	/** Tracks whether we were falling last frame so we can detect landing. */
 	bool bWasFalling = false;
+
+	/** RecentTimer countdowns for the 5-variable state pattern.
+	  * On change: timer = RecentTimeLimit, X_Recent = X_LastFrame.
+	  * After timer expires: X_Recent = X. */
+	float MovementState_RecentTimer = 0.f;
+	float MovementMode_RecentTimer = 0.f;
+	float Gait_RecentTimer = 0.f;
+	float Stance_RecentTimer = 0.f;
+	float MovementDirection_RecentTimer = 0.f;
+	float RotationMode_RecentTimer = 0.f;
+
+	/** Persistent state for PoseSearchGenerateTrajectoryWithPredictor — yaw last update. */
+	float PreviousDesiredControllerYaw = 0.f;
 };

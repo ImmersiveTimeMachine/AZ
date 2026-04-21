@@ -12,8 +12,43 @@
 #include "Kismet/BlueprintSpringMathLibrary.h"
 #include "Weapon/AZ_Weapon.h"
 #include "PoseSearch/PoseSearchDatabase.h"
+#include "PoseSearch/PoseSearchTrajectoryLibrary.h"
+#include "PoseSearch/PoseSearchTrajectoryPredictor.h"
 #include "CharacterTrajectoryComponent.h"
 #include "MoverPoseSearchTrajectoryPredictor.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
+#include "DefaultMovementSet/Settings/CommonLegacyMovementSettings.h"
+
+namespace
+{
+	/** GASP 5-variable state tracking. On change: capture old duration as
+	 *  LastStateTime, reset Time, latch LastFrame into Recent for RecentTimeLimit
+	 *  seconds. After timer expires, Recent reverts to current. */
+	template <typename TEnum>
+	void UpdateStateTracking(TEnum& Recent, float& RecentTimer, float& Time, float& LastStateTime,
+	                         TEnum Current, TEnum LastFrame, float DeltaSeconds, float RecentTimeLimit)
+	{
+		if (Current != LastFrame)
+		{
+			LastStateTime = Time;
+			Time = 0.f;
+			Recent = LastFrame;
+			RecentTimer = RecentTimeLimit;
+		}
+		else
+		{
+			Time += DeltaSeconds;
+			if (RecentTimer > 0.f)
+			{
+				RecentTimer -= DeltaSeconds;
+				if (RecentTimer <= 0.f)
+				{
+					Recent = Current;
+				}
+			}
+		}
+	}
+}
 
 void UAZ_AnimInstance::NativeInitializeAnimation()
 {
@@ -74,28 +109,25 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		bIsCrouching = MoverState.bIsCrouching;
 		bIsAiming = MoverState.bIsAiming;
 
-		// Build trajectory using mesh position + velocity
-		if (USkeletalMeshComponent* Mesh = OwningHeroPawn->GetMainMesh())
+		// Generate trajectory via Mover predictor (15 history + 15 future samples
+		// with proper deceleration prediction). GASP path — replaces the linear
+		// MeshLocation+Velocity*Time loop, which can't predict stops.
+		if (UMoverTrajectoryPredictor* Predictor = OwningHeroPawn->MoverTrajectoryPredictor)
 		{
-			const int32 NumHistory = 3;
-			const int32 NumFuture = 3;
-			const int32 TotalSamples = NumHistory + 1 + NumFuture;
-			const float Interval = 0.2f;
+			TScriptInterface<IPoseSearchTrajectoryPredictorInterface> PredictorInterface;
+			PredictorInterface.SetObject(Predictor);
+			PredictorInterface.SetInterface(Cast<IPoseSearchTrajectoryPredictorInterface>(Predictor));
 
-			CharacterTrajectory.Samples.SetNum(TotalSamples);
-
-			// Use mesh component transform — PoseSearch indexes relative to mesh facing
-			const FVector MeshLocation = Mesh->GetComponentLocation();
-			const FQuat MeshFacing = Mesh->GetComponentQuat();
-
-			for (int32 i = 0; i < TotalSamples; ++i)
-			{
-				const float Time = (i - NumHistory) * Interval;
-				FTransformTrajectorySample& Sample = CharacterTrajectory.Samples[i];
-				Sample.TimeInSeconds = Time;
-				Sample.Position = MeshLocation + Velocity * Time;
-				Sample.Facing = MeshFacing;
-			}
+			UPoseSearchTrajectoryLibrary::PoseSearchGenerateTransformTrajectoryWithPredictor(
+				PredictorInterface,
+				DeltaSeconds,
+				CharacterTrajectory,
+				PreviousDesiredControllerYaw,
+				CharacterTrajectory,
+				/*HistorySamplingInterval*/ 0.033f,
+				/*HistoryCount*/ 15,
+				/*PredictionSamplingInterval*/ 0.1f,
+				/*PredictionCount*/ 15);
 		}
 	}
 	else if (OwningCharacter && MovementComponent)
@@ -132,65 +164,85 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		return;
 	}
 
-	// --- Essential Values (GASP pattern) ---
-	// Save last frame BEFORE updating current
+	// --- Update_EssentialValues (GASP parity) ---
+	// Save last-frame snapshots BEFORE updating
 	Velocity_LastFrame = Velocity;
 	Acceleration_LastFrame = Acceleration;
 	CharacterTransform_LastFrame = CharacterTransform;
 	FutureFacingDelta_LastFrame = FutureFacingDelta;
 	Trj_PreviousFutureVelocity = Trj_FutureVelocity;
 
-	// Update current essential values
+	AActor* OwnerActor = OwningHeroPawn ? static_cast<AActor*>(OwningHeroPawn.Get()) : static_cast<AActor*>(OwningCharacter.Get());
+
 	{
-		AActor* Owner = OwningHeroPawn ? static_cast<AActor*>(OwningHeroPawn.Get()) : static_cast<AActor*>(OwningCharacter.Get());
-		// For HeroPawn (Mover), Velocity was already set from MoverStateProxy above.
-		// For old Character, read from actor. Don't override Mover velocity with GetVelocity() (returns zero for Mover pawns).
+		// For HeroPawn (Mover), Velocity was set from MoverStateProxy above.
+		// For old Character, read from actor (GetVelocity() returns zero for Mover pawns).
 		if (!OwningHeroPawn)
 		{
-			Velocity = Owner ? Owner->GetVelocity() : FVector::ZeroVector;
+			Velocity = OwnerActor ? OwnerActor->GetVelocity() : FVector::ZeroVector;
 		}
 		Speed2D = FVector(Velocity.X, Velocity.Y, 0.f).Size();
 		bHasVelocity = Speed2D > 10.f;
 		if (bHasVelocity) LastNonZeroVelocity = FVector(Velocity.X, Velocity.Y, 0.f).GetSafeNormal();
 
-		// Acceleration = velocity change rate
 		if (DeltaSeconds > UE_KINDA_SMALL_NUMBER)
 		{
 			VelocityAcceleration = (Velocity - Velocity_LastFrame) / DeltaSeconds;
 		}
-		Acceleration = VelocityAcceleration;
+
+		// Acceleration mirrors GASP: it's the player's INPUT INTENT (rotated to world),
+		// not d(velocity)/dt. The derivative goes to ~0 during steady-state motion (V_n ≈ V_n-1
+		// at MaxSpeed) which would flip MovementState to Idle while W is still held.
+		// Using intent keeps bAccelerating=true the whole time the player is pressing input.
+		// VelocityAcceleration (the derivative) is kept separately for Update_AdditiveLean.
+		if (OwningHeroPawn)
+		{
+			const FVector LocalIntent = OwningHeroPawn->GetCachedMoveInputIntent();
+			if (LocalIntent.SizeSquared() > UE_KINDA_SMALL_NUMBER)
+			{
+				const AController* Controller = OwningHeroPawn->GetController();
+				const FRotator ControlRot = Controller ? Controller->GetControlRotation() : FRotator::ZeroRotator;
+				const FVector WorldIntent = ControlRot.RotateVector(LocalIntent);
+				// Pull the actual configured max acceleration from the Mover's shared settings
+				// so RelativeAcceleration matches the real units the Mover applies each tick.
+				// Falls back to 4000 (the engine default) if settings aren't reachable.
+				float MaxAccel = 4000.f;
+				if (const UCharacterMoverComponent* Mover = OwningHeroPawn->GetMoverComponent())
+				{
+					if (const UCommonLegacyMovementSettings* Settings = Mover->FindSharedSettings<UCommonLegacyMovementSettings>())
+					{
+						MaxAccel = Settings->Acceleration;
+					}
+				}
+				Acceleration = WorldIntent * MaxAccel;
+			}
+			else
+			{
+				Acceleration = FVector::ZeroVector;
+			}
+		}
+		else if (MovementComponent)
+		{
+			Acceleration = MovementComponent->GetCurrentAcceleration();
+		}
+		else
+		{
+			Acceleration = VelocityAcceleration;
+		}
 		AccelerationAmount = Acceleration.Size();
 		bHasAcceleration = AccelerationAmount > 10.f;
 
-		// Relative acceleration (in character local space)
-		if (Owner)
+		if (OwnerActor)
 		{
-			CharacterTransform = Owner->GetActorTransform();
+			CharacterTransform = OwnerActor->GetActorTransform();
 			RelativeAcceleration = CharacterTransform.InverseTransformVectorNoScale(Acceleration);
 		}
 	}
 
-	// --- State tracking (GASP pattern) ---
-	// Save ALL state _LastFrame values BEFORE updating
-	MovementState_LastFrame = MovementState;
-	MovementMode_LastFrame = MovementMode;
-	Gait_LastFrame = Gait;
-	Stance_LastFrame = Stance;
-	MovementDirection_LastFrame = MovementDirection;
-	RotationMode_LastFrame = RotationMode;
-
-	// Update current states
-	MovementMode = bIsFalling ? EAZ_MovementMode::InAir : EAZ_MovementMode::OnGround;
-	MovementState = bHasVelocity ? EAZ_MovementState::Moving : EAZ_MovementState::Idle;
-	Stance = bIsCrouching ? EAZ_Stance::Crouching : EAZ_Stance::Standing;
-
-	// --- Character Properties for Procedural systems (foot IK, aim offset, etc.) ---
+	// --- Character Properties for Procedural systems ---
 	{
-		AActor* Owner = OwningHeroPawn ? static_cast<AActor*>(OwningHeroPawn.Get()) : static_cast<AActor*>(OwningCharacter.Get());
-
 		CharacterProperties.MovementDirection = MovementDirection;
 
-		// Ground normal from Mover proxy or CMC floor hit
 		if (OwningHeroPawn)
 		{
 			const FAZ_MoverStateProxy& MoverState = OwningHeroPawn->GetMoverStateSafe();
@@ -212,10 +264,9 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			}
 		}
 
-		// Aiming rotation — from controller aim (camera direction)
-		if (Owner)
+		if (OwnerActor)
 		{
-			if (const APawn* Pawn = Cast<APawn>(Owner))
+			if (const APawn* Pawn = Cast<APawn>(OwnerActor))
 			{
 				if (const AController* PC = Pawn->GetController())
 				{
@@ -224,142 +275,125 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			}
 		}
 
-		// Auto-clear force reset after one frame
 		if (bForceFootPlacementReset)
 		{
 			bForceFootPlacementReset = false;
 		}
 	}
 
-	// Gait
-	if (Speed2D < 200.f)
-		Gait = EAZ_Gait::Walk;
-	else if (Speed2D < 500.f)
-		Gait = EAZ_Gait::Run;
-	else
-		Gait = EAZ_Gait::Sprint;
-
-	// --- Movement Direction (matches GASP F/B/LL/LR/RL/RR) ---
-	// 6-way classification: forward/back use F/B directly, side moves decompose
-	// to LL/LR/RL/RR based on direction bias (which foot is leading). Until foot
-	// phase is tracked, we default side moves to LL and RR and let strafe animations
-	// cycle feet via MM trajectory matching.
-	if (bHasVelocity)
-	{
-		AActor* Owner = OwningHeroPawn ? static_cast<AActor*>(OwningHeroPawn.Get()) : static_cast<AActor*>(OwningCharacter.Get());
-		if (Owner)
-		{
-			const FVector Forward = Owner->GetActorForwardVector();
-			const FVector Right = Owner->GetActorRightVector();
-			const FVector Vel2D = FVector(Velocity.X, Velocity.Y, 0.f).GetSafeNormal();
-			const float ForwardDot = FVector::DotProduct(Forward, Vel2D);
-			const float RightDot = FVector::DotProduct(Right, Vel2D);
-
-			if (FMath::Abs(ForwardDot) >= FMath::Abs(RightDot))
-			{
-				MovementDirection = ForwardDot >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
-			}
-			else
-			{
-				// Side movement: default to LL/RR (left-foot for left, right-foot for right).
-				// LR/RL variants are used by foot-phase-aware databases once foot tracking lands.
-				MovementDirection = RightDot >= 0.f ? EAZ_MovementDirection::RR : EAZ_MovementDirection::LL;
-			}
-		}
-	}
-
-	// --- Trajectory-derived values ---
+	// --- Update_Trajectory (GASP parity) — derive Trj_* values from CharacterTrajectory ---
+	// CharacterTrajectory was generated above (HeroPawn path uses Mover predictor with
+	// 15+15 samples and proper deceleration prediction; old character path uses
+	// CharacterTrajectoryComponent). All derived values pull from the trajectory via
+	// PoseSearchTrajectoryLibrary helpers — the same APIs GASP calls in BP.
 	if (CharacterTrajectory.Samples.Num() > 0)
 	{
-		AActor* Owner = OwningHeroPawn ? static_cast<AActor*>(OwningHeroPawn.Get()) : static_cast<AActor*>(OwningCharacter.Get());
-		const FQuat ActorFacing = Owner ? Owner->GetActorQuat() : FQuat::Identity;
+		// Future velocities at GASP-exact time windows.
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(CharacterTrajectory,  0.4f,  0.5f, Trj_FutureVelocity,     false);
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(CharacterTrajectory,  0.1f,  0.2f, Trj_NearFutureVelocity, false);
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(CharacterTrajectory, -0.3f, -0.2f, Trj_PastVelocity,       false);
 
-		// Find future samples (TimeInSeconds > 0)
-		FVector FutureVelocity = FVector::ZeroVector;
-		FVector NearFutureVelocity = FVector::ZeroVector;
-		FQuat FutureFacingQuat = ActorFacing;
-		float FutureTime = 0.f;
-		float NearFutureTime = 0.f;
+		// Predicted facing 1.5s ahead.
+		FTransformTrajectorySample FutureSample;
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(CharacterTrajectory, 1.5f, FutureSample, false);
+		Trj_FutureFacing = FutureSample.Facing.Rotator();
 
-		for (const FTransformTrajectorySample& Sample : CharacterTrajectory.Samples)
+		// Cumulative facing delta across multiple sample points (GASP Get_TotalFacingDelta).
+		// Sums CONSECUTIVE signed yaw deltas — telescopes to (last − first) but keeps
+		// NormalizeAxis on each step so multi-turn rotations (>180°) don't wrap.
+		// CRITICAL: initialize PrevYaw from the first trajectory sample, NOT from
+		// actor yaw. Trajectory samples are in mesh-component space, which carries
+		// the SK_SurvivalMan-baked -90° offset from actor forward. Comparing
+		// sample[0] to actor yaw would inject that offset as a permanent -90° bias
+		// into FutureFacingDelta, falsely triggering ShouldTurnInPlace forever.
 		{
-			if (Sample.TimeInSeconds > 0.f)
+			const float SampleTimes[] = { 0.f, 0.25f, 0.75f, 1.5f };
+			float TotalDelta = 0.f;
+			FTransformTrajectorySample FirstSample;
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(CharacterTrajectory, 0.f, FirstSample, false);
+			float PrevYaw = FirstSample.Facing.Rotator().Yaw;
+			for (const float T : SampleTimes)
 			{
-				// First future sample = near future
-				if (NearFutureTime == 0.f)
-				{
-					NearFutureVelocity = (Sample.Position - (Owner ? Owner->GetActorLocation() : FVector::ZeroVector)) / FMath::Max(Sample.TimeInSeconds, 0.01f);
-					NearFutureTime = Sample.TimeInSeconds;
-				}
-				// Last future sample = far future
-				FutureVelocity = (Sample.Position - (Owner ? Owner->GetActorLocation() : FVector::ZeroVector)) / FMath::Max(Sample.TimeInSeconds, 0.01f);
-				FutureFacingQuat = Sample.Facing;
-				FutureTime = Sample.TimeInSeconds;
+				FTransformTrajectorySample S;
+				UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(CharacterTrajectory, T, S, false);
+				const float SampleYaw = S.Facing.Rotator().Yaw;
+				TotalDelta += FRotator::NormalizeAxis(SampleYaw - PrevYaw);
+				PrevYaw = SampleYaw;
 			}
+			FutureFacingDelta = TotalDelta;
 		}
 
-		Trj_FutureVelocity = FutureVelocity;
-		Trj_NearFutureVelocity = NearFutureVelocity;
+		// Angular velocities (Z component is yaw rate; circling test uses |Z|).
+		FVector PastAngVel = FVector::ZeroVector;
+		FVector CurAngVel  = FVector::ZeroVector;
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectoryAngularVelocity(CharacterTrajectory, -0.3f, -0.2f, PastAngVel, false);
+		UPoseSearchTrajectoryLibrary::GetTransformTrajectoryAngularVelocity(CharacterTrajectory,  0.0f,  0.1f, CurAngVel,  false);
+		Trj_PastAngularVelocity    = PastAngVel.Z;
+		Trj_CurrentAngularVelocity = CurAngVel.Z;
+		Trj_TurnAngle = FutureFacingDelta;
 
-		// Future facing delta = angle between current facing and predicted future facing
-		// When idle (no velocity), future facing should match current facing -> delta = 0
-		if (bHasVelocity)
-		{
-			const FRotator CurrentFacingRot = ActorFacing.Rotator();
-			Trj_FutureFacing = FutureFacingQuat.Rotator();
-			FutureFacingDelta = FRotator::NormalizeAxis(Trj_FutureFacing.Yaw - CurrentFacingRot.Yaw);
-		}
-		else
-		{
-			// Idle: measure delta between current mesh facing and desired facing
-			// (controller/camera yaw). This drives turn-in-place detection —
-			// when the player rotates the camera past 50° while standing still,
-			// ShouldTurnInPlace() fires and the SM transitions to play a turn anim.
-			const FRotator DesiredFacing = CharacterProperties.AimingRotation;
-			const FRotator CurrentFacingRot = ActorFacing.Rotator();
-			FutureFacingDelta = FRotator::NormalizeAxis(DesiredFacing.Yaw - CurrentFacingRot.Yaw);
-			Trj_FutureFacing = DesiredFacing;
-		}
-
-		// Angular velocity (yaw change rate)
-		if (DeltaSeconds > UE_KINDA_SMALL_NUMBER)
-		{
-			const float YawDelta = FRotator::NormalizeAxis(ActorFacing.Rotator().Yaw - CharacterTransform_LastFrame.Rotator().Yaw);
-			Trj_CurrentAngularVelocity = YawDelta / DeltaSeconds;
-		}
-
-		// IsCircling: moving + turning significantly + not a sharp pivot
-		Trj_IsCircling = bHasVelocity
-			&& FMath::Abs(Trj_CurrentAngularVelocity) > 30.f
-			&& FMath::Abs(FutureFacingDelta) < 90.f;
-
-		// CirclingTime accumulator
-		if (Trj_IsCircling)
-		{
-			Trj_CirclingTime += DeltaSeconds;
-		}
-		else
-		{
-			Trj_CirclingTime = 0.f;
-		}
+		// IsCircling: sustained turn (past + current both above 200 deg/s) — matches GASP.
+		Trj_IsCircling = FMath::Abs(PastAngVel.Z) > 200.f && FMath::Abs(CurAngVel.Z) > 200.f;
+		Trj_CirclingTime = Trj_IsCircling ? (Trj_CirclingTime + DeltaSeconds) : 0.f;
 	}
 
-	// --- MovementMode_Recent (delayed tracking, holds previous mode briefly) ---
+	// --- Update_States (GASP parity) — snapshot LastFrame, compute new, run state tracking ---
+	MovementState_LastFrame     = MovementState;
+	MovementMode_LastFrame      = MovementMode;
+	Gait_LastFrame              = Gait;
+	Stance_LastFrame            = Stance;
+	MovementDirection_LastFrame = MovementDirection;
+	RotationMode_LastFrame      = RotationMode;
+
+	// MovementMode + Stance — direct from movement bits.
+	MovementMode = bIsFalling ? EAZ_MovementMode::InAir : EAZ_MovementMode::OnGround;
+	Stance       = bIsCrouching ? EAZ_Stance::Crouching : EAZ_Stance::Standing;
+
+	// MovementState — GASP IsMoving: future velocity != 0 (tol 10) AND acceleration != 0.
+	// Fires Idle IMMEDIATELY on input release while Speed2D may still be high — this
+	// gives Walk Stops chooser rows (speed 10..200 + SM=TransIdle) a chance to match.
 	{
-		static constexpr float ModeRecentDelay = 0.2f;
-		if (MovementMode != MovementMode_LastFrame)
+		const FVector FutureVel2D(Trj_FutureVelocity.X, Trj_FutureVelocity.Y, 0.f);
+		const FVector Accel2D(Acceleration.X, Acceleration.Y, 0.f);
+		const bool bFutureMoving = FutureVel2D.SizeSquared() > 100.f;  // tol 10 → 10^2
+		const bool bAccelerating = Accel2D.SizeSquared() > 1.f;
+		MovementState = (bFutureMoving && bAccelerating)
+			? EAZ_MovementState::Moving
+			: EAZ_MovementState::Idle;
+	}
+
+	// Gait — speed-banded.
+	if (Speed2D < 200.f)      Gait = EAZ_Gait::Walk;
+	else if (Speed2D < 500.f) Gait = EAZ_Gait::Run;
+	else                      Gait = EAZ_Gait::Sprint;
+
+	// MovementDirection — F/B/LL/LR/RL/RR. Side moves default LL/RR until foot phase tracked.
+	if (bHasVelocity && OwnerActor)
+	{
+		const FVector Forward = OwnerActor->GetActorForwardVector();
+		const FVector Right   = OwnerActor->GetActorRightVector();
+		const FVector Vel2D   = FVector(Velocity.X, Velocity.Y, 0.f).GetSafeNormal();
+		const float ForwardDot = FVector::DotProduct(Forward, Vel2D);
+		const float RightDot   = FVector::DotProduct(Right,   Vel2D);
+
+		if (FMath::Abs(ForwardDot) >= FMath::Abs(RightDot))
 		{
-			MovementModeRecentTimer = ModeRecentDelay;
-		}
-		if (MovementModeRecentTimer > 0.f)
-		{
-			MovementModeRecentTimer -= DeltaSeconds;
+			MovementDirection = ForwardDot >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
 		}
 		else
 		{
-			MovementMode_Recent = MovementMode;
+			MovementDirection = RightDot >= 0.f ? EAZ_MovementDirection::RR : EAZ_MovementDirection::LL;
 		}
 	}
+
+	// Apply 5-variable tracking pattern (X_Recent, X_RecentTimer, X_Time, X_LastStateTime).
+	// RecentTimeLimit per GASP: MovementMode 0.2s, others 0.1s.
+	UpdateStateTracking(MovementState_Recent,     MovementState_RecentTimer,     MovementState_Time,     MovementState_LastStateTime,     MovementState,     MovementState_LastFrame,     DeltaSeconds, 0.1f);
+	UpdateStateTracking(MovementMode_Recent,      MovementMode_RecentTimer,      MovementMode_Time,      MovementMode_LastStateTime,      MovementMode,      MovementMode_LastFrame,      DeltaSeconds, 0.2f);
+	UpdateStateTracking(Gait_Recent,              Gait_RecentTimer,              Gait_Time,              Gait_LastStateTime,              Gait,              Gait_LastFrame,              DeltaSeconds, 0.1f);
+	UpdateStateTracking(Stance_Recent,            Stance_RecentTimer,            Stance_Time,            Stance_LastStateTime,            Stance,            Stance_LastFrame,            DeltaSeconds, 0.1f);
+	UpdateStateTracking(MovementDirection_Recent, MovementDirection_RecentTimer, MovementDirection_Time, MovementDirection_LastStateTime, MovementDirection, MovementDirection_LastFrame, DeltaSeconds, 0.1f);
+	UpdateStateTracking(RotationMode_Recent,      RotationMode_RecentTimer,      RotationMode_Time,      RotationMode_LastStateTime,      RotationMode,      RotationMode_LastFrame,      DeltaSeconds, 0.1f);
 
 	// --- Resolve weapon pose state from animation bools (priority order) ---
 	if (bIsShooting && bIsCrouching)
@@ -739,13 +773,22 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		const FString ChooserInfo = FString::Printf(TEXT("BT=%.2f BP=%s MM=%d"),
 			ChooserOutputs.BlendTime, *ChooserOutputs.BlendProfile.ToString(), ChooserOutputs.bUseMM);
 
+		// Compute CurrentDelta for overlay (same expression ShouldTurnInPlace uses)
+		const float DbgCurrentDelta = FMath::Abs(FRotator::NormalizeAxis(
+			CharacterProperties.AimingRotation.Yaw - CharacterTransform.Rotator().Yaw));
+
 		GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Yellow,
-			FString::Printf(TEXT("SM=%s | Spd=%.0f | Turn=%d | Delta=%.1f | Tags=%s"),
-				SMNames[SMIdx], Speed2D, bIsTurning, FutureFacingDelta, *TagsStr));
+			FString::Printf(TEXT("SM=%s | Spd=%.0f | Turn=%d | CurDelta=%.1f | FutDelta=%.1f | Tags=%s"),
+				SMNames[SMIdx], Speed2D, bIsTurning, DbgCurrentDelta, FutureFacingDelta, *TagsStr));
 		GEngine->AddOnScreenDebugMessage(-2, 0.f, FColor::Cyan,
 			FString::Printf(TEXT("Anim=%s"), *AnimName));
 		GEngine->AddOnScreenDebugMessage(-3, 0.f, FColor::Green,
 			FString::Printf(TEXT("CHT: %s | OutTags=%s"), *ChooserInfo, *ChooserAnimName));
+		GEngine->AddOnScreenDebugMessage(-4, 0.f, FColor::Orange,
+			FString::Printf(TEXT("Delta=%.1f | Dir=%d | MoveState=%d | NoAnim=%d | bLoop=%d | LST=%.2f"),
+				FutureFacingDelta,
+				(int32)MovementDirection, (int32)MovementState,
+				bNoValidAnim, BlendStackInputs.bLoop, MovementState_LastStateTime));
 	}
 
 	// Detect locomotion database change — pulse true for exactly one frame
@@ -872,9 +915,13 @@ bool UAZ_AnimInstance::IsPivoting() const
 
 bool UAZ_AnimInstance::ShouldTurnInPlace() const
 {
-	// Large facing delta while standing still
-	return FMath::Abs(FutureFacingDelta) >= 50.f && Speed2D < 50.f
-		&& MovementState == EAZ_MovementState::Idle;
+	if (Speed2D >= 50.f || MovementState != EAZ_MovementState::Idle) return false;
+
+	// Single source of truth: HeroPawn's bIdleTurnInProgress is set when the
+	// accumulator commits a turn (60° of mouse motion) and clears when the body
+	// finishes rotating to target. AnimInstance just mirrors it for SM/anim.
+	if (OwningHeroPawn) return OwningHeroPawn->IsIdleTurnInProgress();
+	return false;
 }
 
 bool UAZ_AnimInstance::ShouldReEnterTurnInPlace() const
@@ -942,16 +989,17 @@ float UAZ_AnimInstance::Get_MMBlendTime() const
 
 uint8 UAZ_AnimInstance::Get_OffsetRootTranslationMode() const
 {
-	// 0=Interpolate, 1=Accumulate, 2=Release
-	if (MovementMode == EAZ_MovementMode::InAir) return 2; // Release
-	if (MovementState == EAZ_MovementState::Moving) return 0; // Interpolate
-	return 2; // Release when idle
+	// EOffsetRootBoneMode: 0=Accumulate, 1=Interpolate, 2=LockOffsetAndConsumeAnimation,
+	//                     3=LockOffsetIncreaseAndConsumeAnimation, 4=LockOffsetAndIgnoreAnimation, 5=Release
+	if (MovementMode == EAZ_MovementMode::InAir) return 5; // Release
+	if (MovementState == EAZ_MovementState::Moving) return 1; // Interpolate (GASP default while moving)
+	return 5; // Release when idle (blend offset back out so mesh re-aligns with capsule)
 }
 
 uint8 UAZ_AnimInstance::Get_OffsetRootRotationMode() const
 {
-	// 0=Interpolate, 1=Accumulate, 2=Release
-	return 1; // Accumulate (GASP default)
+	// EOffsetRootBoneMode values same as above.
+	return 0; // Accumulate (GASP default — mesh rotation counters capsule rotation for smoother visual turn)
 }
 
 float UAZ_AnimInstance::Get_OffsetRootTranslationHalfLife() const
