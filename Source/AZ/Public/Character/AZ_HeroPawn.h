@@ -4,8 +4,11 @@
 #include "GameFramework/Pawn.h"
 #include "AbilitySystemInterface.h"
 #include "MoverSimulationTypes.h"
+#include "MoverDataModelTypes.h"
 #include "AZ_GameplayTags.h"
+#include "Animation/AZ_LocomotionTypes.h"
 #include "Interaction/AZ_CombatInterface.h"
+#include "Character/IAZ_SandboxCharacterPawn.h"
 #include "AZ_HeroPawn.generated.h"
 
 class UCharacterMoverComponent;
@@ -74,7 +77,7 @@ struct AZ_API FAZ_MoverStateProxy
  *  - PrimaryActorTick.TickGroup = TG_PrePhysics (matching AnimBP tick)
  */
 UCLASS(config = Game, BlueprintType)
-class AZ_API AAZ_HeroPawn : public APawn, public IAbilitySystemInterface, public IAZ_CombatInterface, public IMoverInputProducerInterface
+class AZ_API AAZ_HeroPawn : public APawn, public IAbilitySystemInterface, public IAZ_CombatInterface, public IMoverInputProducerInterface, public IAZ_SandboxCharacterPawn
 {
 	GENERATED_BODY()
 
@@ -172,11 +175,35 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> JumpInputAction;
 
+	/** Hold to sprint (GASP IA_Sprint). Sets bWantsToSprint. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
+	TObjectPtr<UInputAction> SprintInputAction;
+
+	/** Hold to walk slower than default run (GASP IA_Walk). Sets bWantsToWalk. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
+	TObjectPtr<UInputAction> WalkInputAction;
+
+	/** Hold to strafe (body faces camera, move sideways) (GASP IA_Strafe). Sets bWantsToStrafe. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
+	TObjectPtr<UInputAction> StrafeInputAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	float LookRateYaw = 1.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	float LookRatePitch = 1.f;
+
+	// ========================================
+	// Player Input State (GASP S_PlayerInputState parity)
+	// ========================================
+
+	/** Holds raw player intent flags (Sprint/Walk/Strafe/Aim/Crouch).
+	 *  GASP pattern: Enhanced Input handlers toggle fields here, OnProduceInput
+	 *  and derived functions (Get_Gait / Get_RotationMode) read them.
+	 *  Sprint/Walk/Strafe are set by this pawn's bindings.
+	 *  Aim/Crouch are driven by GAS abilities (left untouched here). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Input")
+	FAZ_PlayerInputState PlayerInputState;
 
 	// ========================================
 	// Abilities
@@ -235,6 +262,156 @@ protected:
 	FAZ_MoverStateProxy MoverStateProxy;
 
 	// ========================================
+	// GASP Pre/Post Sim Input State (matches GASP SandboxCharacter_Mover pattern)
+	// ========================================
+	// _PreSim copies are built locally each frame, NOT replicated, fed to Mover.
+	// _PostSim copies are pulled FROM Mover after sim (via CacheInputsFromMover)
+	// and ARE the replicated state anim/camera should read for network correctness.
+
+	/** Local frame's CharacterDefaultInputs built before Mover simulates. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FCharacterDefaultInputs MoverDefaultInputs_PreSim;
+
+	/** Post-sim CharacterDefaultInputs pulled from Mover.GetLastInputCmd.
+	 *  Replicated by Mover — anim / camera should read THIS, not _PreSim. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FCharacterDefaultInputs MoverDefaultInputs_PostSim;
+
+	/** Local frame's custom (AZ-specific) inputs before Mover simulates. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FAZ_MoverCustomInputs MoverCustomInputs_PreSim;
+
+	/** Post-sim custom inputs pulled from Mover. Replicated. Read for anim/camera. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FAZ_MoverCustomInputs MoverCustomInputs_PostSim;
+
+	/** Pull last-simulated input cmd from Mover and store into _PostSim copies.
+	 *  Called each Tick AFTER Mover has simulated the frame (see EventGraph
+	 *  tick order in GASP's SandboxCharacter_Mover — Mover ticks first via
+	 *  AddTickPrerequisiteComponent on BeginPlay). */
+	void CacheInputsFromMover();
+
+	/** AZ-specific idle-TIP accumulator — speed-independent commit on 60° of
+	 *  cumulative mouse-yaw motion. Replaces GASP's raw |delta| ≥ 60° check.
+	 *  Called from OnProduceInput before Get_OrientationIntent reads bIdleTurnInProgress. */
+	void Update_IdleTIPAccumulator();
+
+	/** Tracks controller yaw rate (deg/sec). GASP Update_ControlRotationRate.
+	 *  Packed into MoverCustomInputs_PreSim.ControlRotationRate; consumed by
+	 *  rotation-mode logic / camera systems for "is the player whipping the camera?" checks. */
+	void Update_ControlRotationRate(float DeltaSeconds);
+
+	// ========================================
+	// Phase 6 — Movement mode change delegate
+	// ========================================
+
+	/** Bound to UMoverComponent::OnMovementModeChanged in BeginPlay. */
+	UFUNCTION()
+	void HandleMovementModeChanged(const FName& PreviousMode, const FName& NewMode);
+
+	/** Last mode name observed by the change handler. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FName PreviousMovementModeName;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FName CurrentMovementModeName;
+
+	// ========================================
+	// Phase 7 — Side systems (minimal)
+	// ========================================
+
+	/** Trace inputs for traversal / vault detection. Defaults sensible for human-scale pawn. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Mover")
+	FAZ_TraversalCheckInputs Get_TraversalCheckInputs() const;
+
+	/** On-screen overlay (gait, mode, direction, TIP). Toggled by `bShowAZDebug` cvar/flag. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Mover")
+	void DebugDraws() const;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Mover")
+	bool bShowPawnDebug = false;
+
+	// ========================================
+	// Phase 8 — IAZ_SandboxCharacterPawn implementation
+	// ========================================
+
+	virtual FAZ_CharacterPropertiesForAnimation GetPropertiesForAnimation_Implementation() const override;
+	virtual FAZ_CharacterPropertiesForCamera    GetPropertiesForCamera_Implementation() const override;
+	virtual FAZ_CharacterPropertiesForTraversal GetPropertiesForTraversal_Implementation() const override;
+	virtual void                                SetCharacterInputState_Implementation(const FAZ_PlayerInputState& NewState) override;
+
+	// ========================================
+	// GASP Derivation Getters (Phase 2 of port)
+	// ========================================
+	// Pure-ish functions: return derived state from PlayerInputState / Mover /
+	// CachedMoveInputIntent / TargetedActor / TwinStickMode. Mirror GASP's
+	// SandboxCharacter_Mover Get_* functions; consumed by OnPreSimulateTick
+	// (Phase 3) to pack MoverDefaultInputs_PreSim + MoverCustomInputs_PreSim.
+
+	/** World-space movement intent (normalized), rotated by camera yaw.
+	 *  GASP Get_MoveInput — player-path only (AI NavMovement branch not yet ported). */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	FVector Get_MoveInput() const;
+
+	/** Camera/aim rotation. GASP Get_AimingRotation — three-way:
+	 *  TargetedActor look-at → TwinStickAimRotation → ControlRotation.
+	 *  TargetedActor/TwinStickMode paths defer to Phase 5 (Update_* methods). */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	FRotator Get_AimingRotation() const;
+
+	/** Ground speed — horizontal magnitude of Mover velocity. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	double Get_Speed() const;
+
+	/** Current movement mode — maps Mover FName (e.g. "Walking") through MovementModeMap. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	EAZ_MovementMode Get_CurrentMovementMode() const;
+
+	/** Rotation mode — GASP Get_RotationMode. Three-tier:
+	 *  (1) TargetedActor valid: Aim if bWantsToAim else Strafe.
+	 *  (2) TwinStickMode with right stick deflected: Aim/Strafe.
+	 *  (3) Default: bWantsToAim → Aim, bWantsToStrafe → Strafe, else OrientToMovement. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	EAZ_RotationMode Get_RotationMode() const;
+
+	/** Gait — GASP Get_Gait. Uses PlayerInputState bWantsToWalk/bWantsToSprint,
+	 *  MoverDefaultInputs_PreSim (for strafe dot-test), rotation mode. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	EAZ_Gait Get_Gait() const;
+
+	/** Per-mode orientation intent matrix. GASP Get_OrientationIntent.
+	 *  AZ divergence: OnGround+Idle+Aim uses our speed-independent accumulator
+	 *  (bIdleTurnInProgress) instead of GASP's raw |delta| ≥ 60° check. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	FVector Get_OrientationIntent() const;
+
+	/** Mover movement-mode FName → AZ enum. Mirrors GASP MovementModeMap.
+	 *  Default populated in ctor: Walking→OnGround, Falling→InAir,
+	 *  Sliding→Slide, Flying→Traversing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Mover")
+	TMap<FName, EAZ_MovementMode> MovementModeMap;
+
+	// ========================================
+	// MovementDirection helpers (Phase 4)
+	// ========================================
+
+	/** Angle thresholds (degrees) defining F/B/L/R quadrants. Defaults from struct. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	FAZ_MovementDirectionThresholds Get_MovementDirectionThresholds() const;
+
+	/** Bucket a signed angle (deg, +CW from forward) into AZ's 6-value direction enum.
+	 *  Foot-phase (LL/LR/RL/RR) selected by carrying prior frame's foot-bias for hysteresis. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
+	EAZ_MovementDirection Get_MovementDirectionFromAngle(const FAZ_MovementDirectionThresholds& Thresholds,
+	                                                     double SignedAngleDegrees) const;
+
+	/** Combined: returns current movement direction + residual rotation offset.
+	 *  Offset = angle from canonical direction heading to actual move heading,
+	 *  used by anim to rotate strafe loops to match velocity yaw. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Mover")
+	void Get_MovementDirectionAndOffset(EAZ_MovementDirection& OutDirection, double& OutRotationOffset) const;
+
+	// ========================================
 	// GAS
 	// ========================================
 
@@ -279,6 +456,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
 	bool bIdleTurnInProgress = false;
 
+	/** Controller yaw rate (degrees/second) — updated each Tick by Update_ControlRotationRate. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	double ControlRotationRate = 0.0;
+
+	/** Last frame's controller yaw — used to compute ControlRotationRate. */
+	double LastControlRotationYaw = 0.0;
+	bool bControlRotationRateInitialized = false;
+
 public:
 	bool IsIdleTurnInProgress() const { return bIdleTurnInProgress; }
 
@@ -290,4 +475,12 @@ private:
 	void OnLookCompleted(const FInputActionValue& Value);
 	void OnJumpStarted(const FInputActionValue& Value);
 	void OnJumpReleased(const FInputActionValue& Value);
+
+	// GASP-style hold-to-toggle state inputs → FAZ_PlayerInputState
+	void OnSprintStarted(const FInputActionValue& Value)  { PlayerInputState.bWantsToSprint = true; }
+	void OnSprintReleased(const FInputActionValue& Value) { PlayerInputState.bWantsToSprint = false; }
+	void OnWalkStarted(const FInputActionValue& Value)    { PlayerInputState.bWantsToWalk = true; }
+	void OnWalkReleased(const FInputActionValue& Value)   { PlayerInputState.bWantsToWalk = false; }
+	void OnStrafeStarted(const FInputActionValue& Value)  { PlayerInputState.bWantsToStrafe = true; }
+	void OnStrafeReleased(const FInputActionValue& Value) { PlayerInputState.bWantsToStrafe = false; }
 };

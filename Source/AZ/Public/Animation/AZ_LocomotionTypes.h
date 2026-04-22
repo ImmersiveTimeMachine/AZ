@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Animation/BlendProfile.h"
 #include "Components/CapsuleComponent.h"
+#include "MoverTypes.h"
 #include "AZ_LocomotionTypes.generated.h"
 
 // ========================================
@@ -142,11 +143,12 @@ struct FAZ_PlayerInputState
 	bool bWantsToCrouch = false;
 };
 
-/** Custom inputs sent to/from the Mover system. */
+/** Custom inputs sent to/from the Mover system. Mirrors GASP S_MoverCustomInputs —
+ *  lives in the Mover InputCollection (FMoverDataStructBase), replicated by Mover. */
 USTRUCT(BlueprintType)
-struct FAZ_MoverCustomInputs
+struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 {
-	GENERATED_BODY()
+	GENERATED_USTRUCT_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
@@ -165,6 +167,78 @@ struct FAZ_MoverCustomInputs
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double ControlRotationRate = 0.0;
+
+	// --- FMoverDataStructBase overrides ---
+
+	virtual bool ShouldReconcile(const FMoverDataStructBase& AuthorityState) const override
+	{
+		const FAZ_MoverCustomInputs& Auth = static_cast<const FAZ_MoverCustomInputs&>(AuthorityState);
+		return (Auth.MovementDirection != MovementDirection)
+			|| (Auth.Gait != Gait)
+			|| (Auth.RotationMode != RotationMode)
+			|| !FMath::IsNearlyEqual(Auth.RotationOffset, RotationOffset)
+			|| (Auth.bWantsToCrouch != bWantsToCrouch)
+			|| !FMath::IsNearlyEqual(Auth.ControlRotationRate, ControlRotationRate);
+	}
+
+	virtual void Interpolate(const FMoverDataStructBase& From, const FMoverDataStructBase& To, float LerpFactor) override
+	{
+		const FAZ_MoverCustomInputs& TypedFrom = static_cast<const FAZ_MoverCustomInputs&>(From);
+		const FAZ_MoverCustomInputs& TypedTo   = static_cast<const FAZ_MoverCustomInputs&>(To);
+		const FAZ_MoverCustomInputs& Source = (LerpFactor < 0.5f) ? TypedFrom : TypedTo;
+		MovementDirection   = Source.MovementDirection;
+		Gait                = Source.Gait;
+		RotationMode        = Source.RotationMode;
+		bWantsToCrouch      = Source.bWantsToCrouch;
+		RotationOffset      = FMath::Lerp(TypedFrom.RotationOffset, TypedTo.RotationOffset, LerpFactor);
+		ControlRotationRate = FMath::Lerp(TypedFrom.ControlRotationRate, TypedTo.ControlRotationRate, LerpFactor);
+	}
+
+	virtual void Merge(const FMoverDataStructBase& From) override
+	{
+		const FAZ_MoverCustomInputs& TypedFrom = static_cast<const FAZ_MoverCustomInputs&>(From);
+		bWantsToCrouch |= TypedFrom.bWantsToCrouch;
+	}
+
+	virtual FMoverDataStructBase* Clone() const override
+	{
+		return new FAZ_MoverCustomInputs(*this);
+	}
+
+	virtual bool NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess) override
+	{
+		Super::NetSerialize(Ar, Map, bOutSuccess);
+		uint8 MD = static_cast<uint8>(MovementDirection);
+		uint8 G  = static_cast<uint8>(Gait);
+		uint8 RM = static_cast<uint8>(RotationMode);
+		Ar.SerializeBits(&MD, 3);
+		Ar.SerializeBits(&G,  2);
+		Ar.SerializeBits(&RM, 2);
+		Ar.SerializeBits(&bWantsToCrouch, 1);
+		Ar << RotationOffset;
+		Ar << ControlRotationRate;
+		if (Ar.IsLoading())
+		{
+			MovementDirection = static_cast<EAZ_MovementDirection>(MD);
+			Gait              = static_cast<EAZ_Gait>(G);
+			RotationMode      = static_cast<EAZ_RotationMode>(RM);
+		}
+		bOutSuccess = true;
+		return true;
+	}
+
+	virtual UScriptStruct* GetScriptStruct() const override { return StaticStruct(); }
+
+	virtual void ToString(FAnsiStringBuilderBase& Out) const override
+	{
+		Super::ToString(Out);
+		Out.Appendf("MovementDirection: %u\n", static_cast<uint32>(MovementDirection));
+		Out.Appendf("Gait: %u\n", static_cast<uint32>(Gait));
+		Out.Appendf("RotationMode: %u\n", static_cast<uint32>(RotationMode));
+		Out.Appendf("bWantsToCrouch: %i\n", bWantsToCrouch);
+	}
+
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override { Super::AddReferencedObjects(Collector); }
 };
 
 /** Data passed from character to ABP via interface. */
