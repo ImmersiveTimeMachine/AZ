@@ -6,11 +6,17 @@
 #include "Weapon/AZ_WeaponTypes.h"
 #include "Animation/TrajectoryTypes.h"
 #include "Animation/AZ_LocomotionTypes.h"
+#include "PoseSearch/PoseSearchTrajectoryLibrary.h"
+#include "Animation/AnimNodeReference.h"
 #include "AZ_AnimInstance.generated.h"
 
 class UCharacterMovementComponent;
 class UAbilitySystemComponent;
 class UPoseSearchDatabase;
+class UMoverComponent;
+class UMoverTrajectoryPredictor;
+class UChooserTable;
+class UMirrorDataTable;
 class AAZ_HeroPawn;
 
 UCLASS()
@@ -22,6 +28,47 @@ public:
 
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+
+	// ========================================
+	// GASP UPDATE PIPELINE — mirrors SandboxCharacter_Mover_ABP functions
+	// ========================================
+
+	/** One-time init: cache Mover / Predictor / owner-presence flags from the owning pawn. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update")
+	void InitializeMoverPredictor();
+
+	/** Read CVar-driven values (LocomotionSetup, MMDatabaseLOD, …). Empty stub — populated later. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_CVarDrivenVariables();
+
+	/** Copy pawn-side state (falling / crouching / aiming / CharacterProperties) onto the instance.
+	 *  GAME-THREAD ONLY — touches CMC and Controller. Wire to Event Blueprint Update Animation, NOT thread-safe variant. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update")
+	void Update_PropertiesFromCharacter();
+
+	/** Orchestrator: Trajectory → EssentialValues → States → AimOffset → AdditiveLean. Worker-thread safe. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_Logic(float DeltaSeconds);
+
+	/** Generate Mover/CharacterTrajectory samples, derive Trj_* (future/past velocities, facing delta, angular vel). */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_Trajectory(float DeltaSeconds);
+
+	/** Update velocity / acceleration / character transform / relative accel essentials. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_EssentialValues(float DeltaSeconds);
+
+	/** Update MovementMode / Stance / MovementState / Gait / MovementDirection and run GASP 5-var tracking. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_States(float DeltaSeconds);
+
+	/** Critical-spring-damp AimingRotation → SmoothedAimTarget; compute AO Vector2D and EnableAO gates. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_AimOffset(float DeltaSeconds);
+
+	/** Lateral-acceleration lean: normalize VelocityAcceleration.Y into LeanAmount Vector2D per MovementDirection. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
+	void Update_AdditiveLean(float DeltaSeconds);
 
 	// ========================================
 	// BLENDSPACE INPUTS
@@ -150,17 +197,62 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|MotionMatching")
 	bool bUseMotionMatching = false;
 
-	/** Trajectory from CharacterTrajectoryComponent, updated each frame. Feed to Pose History node. */
-	UPROPERTY(BlueprintReadOnly, Category = "AZ|MotionMatching")
-	FTransformTrajectory CharacterTrajectory;
+	/** Trajectory generated each frame via MoverTrajectoryPredictor (HeroPawn) or
+	 *  CharacterTrajectoryComponent (legacy Character). Feeds Pose History and MM node. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
+	FTransformTrajectory Trajectory;
 
-	/** Current PoseSearch database selected by Chooser. Updated in EventGraph, read by MM node in AnimGraph. */
+	/** Trajectory world collision results from PoseSearchHandleTrajectoryWorldCollisions. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
+	FPoseSearchTrajectory_WorldCollisionResults TrajectoryCollision;
+
+	/** Cached predictor (currently points at HeroPawn's MoverTrajectoryPredictor).
+	 *  Set in InitializeMoverPredictor. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
+	TObjectPtr<UMoverTrajectoryPredictor> Predictor;
+
+	/** Yaw value persisted between trajectory generation calls — required by
+	 *  PoseSearchGenerateTrajectoryUsingPredictor to compute smooth deltas. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Trajectory")
+	float PreviousDesiredControllerYaw = 0.f;
+
+	/** Current PoseSearch database selected by Chooser. Updated in Update_MotionMatching, read by MM node. */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|MotionMatching")
-	TObjectPtr<UPoseSearchDatabase> CurrentLocomotionDatabase;
+	TObjectPtr<UPoseSearchDatabase> CurrentSelectedDatabase;
+
+	/** Currently selected animation from the last MM search. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|MotionMatching")
+	TObjectPtr<UObject> CurrentSelectedAnim;
+
+	/** Array of PoseSearch databases fed to the MM node this frame. Populated from Chooser. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|MotionMatching")
+	TArray<TObjectPtr<UPoseSearchDatabase>> ValidDatabases;
+
+	/** LOD index for MM database selection (Dense/Sparse/ExtremeSparse tiers). CVar-driven. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|MotionMatching")
+	int32 MMDatabaseLOD = 0;
+
+	/** Search cost from the last MM node evaluation (not the SM path SearchCost). */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|MotionMatching", meta = (DisplayName = "MM Search Cost"))
+	float MMSearchCost = 0.f;
 
 	/** True when the locomotion database changed this frame — signals MM node to force interrupt. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|MotionMatching")
 	bool bLocomotionDatabaseChanged = false;
+
+	/** Chooser table that selects the SM-path animation per StateMachineState + state combo.
+	 *  GASP equivalent: CHT_MoverCharacterAnimations. Assigned by the ABP designer. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|MotionMatching")
+	TObjectPtr<UChooserTable> CharacterAnimationChooser;
+
+	/** Chooser table that selects PoseSearch databases for the MM node based on state.
+	 *  GASP equivalent: CHT_PoseSearchDatabases_Relaxed. Assigned by the ABP designer. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|MotionMatching")
+	TObjectPtr<UChooserTable> LocomotionDatabaseChooser;
+
+	/** Mirror data table (e.g. MDT_CHR_M16). Used for left/right mirroring of MM results. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|MotionMatching")
+	TObjectPtr<UMirrorDataTable> CharacterMirrorDataTable;
 
 	// ========================================
 	// STATE MACHINE (SM + BlendStack, GASP pattern)
@@ -363,6 +455,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Essential")
 	FVector SmoothedGroundNormal = FVector::UpVector;
 
+	/** World-space transform used during interaction/traversal montage placement. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Essential")
+	FTransform InteractionTransform;
+
 	// ----------------------------------------
 	// TRAJECTORY — Derived from MoverTrajectoryPredictor
 	// Updated in NativeUpdateAnimation via Update_Trajectory()
@@ -400,13 +496,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
 	float Trj_TurnAngle = 0.f;
 
-	/** Past angular velocity from trajectory. */
+	/** Past angular velocity from trajectory (full vector; GASP uses .Z for yaw rate). */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
-	float Trj_PastAngularVelocity = 0.f;
+	FVector Trj_PastAngularVelocity = FVector::ZeroVector;
 
-	/** Current angular velocity from trajectory. */
+	/** Current angular velocity from trajectory (full vector; GASP uses .Z for yaw rate). */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
-	float Trj_CurrentAngularVelocity = 0.f;
+	FVector Trj_CurrentAngularVelocity = FVector::ZeroVector;
 
 	/** True when character is circling (sustained turning while moving). */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Trajectory")
@@ -443,6 +539,26 @@ public:
 	/** Locomotion setup: 0=PureMM, 1=SM+BlendStack. Driven by DDCVar. */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|Transition")
 	int32 LocomotionSetup = 1;
+
+	// ----------------------------------------
+	// DEFAULT — Cached refs + feature flags
+	// ----------------------------------------
+
+	/** Cached owner mover component (from HeroPawn). Set in InitializeMoverPredictor. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Default")
+	TObjectPtr<UMoverComponent> Mover;
+
+	/** True when OwningHeroPawn or OwningCharacter is valid this frame. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Default")
+	bool bHasOwningActor = false;
+
+	/** True when a MoverComponent was cached in Mover. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Default")
+	bool bHasMover = false;
+
+	/** When true, update dispatch runs via BlueprintThreadSafeUpdateAnimation (worker thread). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|Default")
+	bool bUseThreadSafeUpdateAnimation = true;
 
 	// ----------------------------------------
 	// OFFSET ROOT BONE — Tuning Parameters
@@ -484,9 +600,13 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|Procedural")
 	bool bForceFootPlacementReset = false;
 
-	/** Debug draw for foot placement. */
+	/** 0 = ControlRig, 1 = Basic FootPlacement+LegIK. Selected per movement mode. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Procedural")
-	bool bFootPlacementDebug = false;
+	int32 FootPlacementMode = 0;
+
+	/** Distance-moved threshold above which JustTeleported triggers a foot placement reset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Procedural")
+	double TeleportThreshold = 500.0;
 
 	// ----------------------------------------
 	// BLEND STACK
@@ -586,6 +706,106 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Transition", meta = (BlueprintThreadSafe))
 	bool JustLanded_Heavy() const;
 
+	/** GASP parity: MovingTraversal curve > 1 AND DefaultSlot NOT driving pose. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Transition", meta = (BlueprintThreadSafe))
+	bool JustTraversed() const;
+
+	/** Z-component of LandVelocity (landing impact speed). GASP parity: returns a double. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Transition", meta = (BlueprintThreadSafe))
+	double Get_LandVelocity() const { return CharacterProperties.LandVelocity.Z; }
+
+	/** GASP-exact cumulative facing delta across provided sample times. Sums consecutive
+	 *  signed yaw deltas from trajectory samples; initializes PrevYaw from the first sample
+	 *  to avoid the SK_SurvivalMan mesh-component −90° offset bias. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Trajectory", meta = (BlueprintThreadSafe))
+	float Get_TotalFacingDelta(const TArray<float>& Times) const;
+
+	/** Trivial getter for the cached Trj_TurnAngle (cumulative facing delta across GASP sample set). */
+	UFUNCTION(BlueprintPure, Category = "AZ|Trajectory", meta = (BlueprintThreadSafe))
+	float Get_TrajectoryTurnAngle() const { return Trj_TurnAngle; }
+
+	// ========================================
+	// WARPING / PROCEDURAL — node-bound helpers (Phase 9b)
+	// All take FAnimNodeReference; engine marshals from the AnimGraph node.
+	// ========================================
+
+	/** Per-frame play-rate scalar driven by capsule speed vs MoveData_Speed curve, clamped by
+	 *  Min/MaxDynamicPlayRate curves, blended via Enable_Warping curve, multiplied by a
+	 *  circling bonus (|Trj_CurrentAngularVelocity.Z| × Trj_CirclingTime). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	double Get_DynamicPlayRate(FAnimNodeReference BlendStackInput) const;
+
+	/** Steering target = trajectory facing at time MapRange(SteeringTargetTime curve, [0..1] → [0.1..1.5]). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	FQuat Get_DesiredFacing(FAnimNodeReference Node) const;
+
+	/** Steering enable: (BlendStackInputs.bLoop OR anim active) AND (IsMoving OR InAir OR Sliding). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	bool EnableSteering(FAnimNodeReference Node) const;
+
+	/** Orientation Warping space: RootBoneTransform if OffsetRootBone enabled, else ComponentTransform. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	uint8 Get_OrientationWarpingWarpingSpace() const;
+
+	/** Strafe-warp direction: lerp(LastNonZeroVelocity, Trj_NearFutureVelocity, MapRange(|AngularZ|, [20..100], [0..1])). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	FVector Get_StrafeWarpDirection() const;
+
+	/** Stride-warp alpha: clamp(Enable_Warping curve + Enable_StideWarping curve, 0..1). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	double Get_StrideWarpAlpha(FAnimNodeReference Node) const;
+
+	/** Strafe-warp alpha: clamp(Enable_Warping curve + Enable_StrafeWarping curve, 0..1). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	double Get_StrafeWarpAlpha(FAnimNodeReference Node) const;
+
+	/** Procedural target time: MapRange(SteeringTargetTime curve, [0..1] → [0.1..0.3]); default 0.4 if no anim. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Warping", meta = (BlueprintThreadSafe))
+	double Get_ProceduralTargetTime(FAnimNodeReference Node) const;
+
+	/** Foot-placement OnBecomeRelevant callback: forces a foot placement reset next frame. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Procedural")
+	void Biped_FootPlacement_OnBecomeRelevant(FAnimUpdateContext Context, FAnimNodeReference Node);
+
+	// ========================================
+	// MOTION MATCHING NODE CALLBACKS (Phase 9c)
+	// Bound to the MotionMatching AnimGraph node's OnUpdate / PostSelection.
+	// Get_PoseHistoryReference stays in ABP (K2Node_AnimNodeReference resolves a
+	// node by name in the AnimGraph at compile time — not portable to C++).
+	// ========================================
+
+	/** OnUpdate: evaluate LocomotionDatabaseChooser → ValidDatabases, push to MM node with InterruptMode. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update")
+	void Update_MotionMatching(FAnimUpdateContext Context, FAnimNodeReference Node);
+
+	/** PostSelection: cache CurrentSelectedAnim/Database/MMSearchCost/CurrentDatabaseTags from the search result;
+	 *  override the next blend with HermiteCubic 0.2s, no inertial blend. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Update")
+	void Update_MotionMatching_PostSelection(FAnimUpdateContext Context, FAnimNodeReference Node);
+
+	// ========================================
+	// SM STATE CONTROLLER (Phase 9d)
+	// ABP supplies the BlendStack node ref + chooser eval (since K2Node_AnimNodeReference
+	// resolves "State Machine Blend Stack" by name at BP compile time, not portable to C++).
+	// 9 OnStateEntry_* are ABP thunks that call SetBlendStackAnimFromChooser with the right StateID.
+	// ========================================
+
+	/** Core SM-path function. ABP evaluates CHT_MoverCharacterAnimations chooser and supplies
+	 *  the result. C++ does the heavy lifting: cache previous, reset notify bools, optional
+	 *  single-frame MotionMatch, populate BlendStackInputs, force blend if requested. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|StateMachine", meta = (BlueprintThreadSafe))
+	void SetBlendStackAnimFromChooser(
+		EAZ_StateMachineState State,
+		bool bForceBlend,
+		FAnimNodeReference BlendStackNode,
+		UAnimationAsset* ChosenAnim,
+		FAZ_ChooserOutputs ChooserOut);
+
+	/** SM transition helper: returns true when the BlendStack's current asset is non-looping
+	 *  and has ≤ 0.75s remaining. ABP supplies the BlendStack node ref. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|StateMachine", meta = (BlueprintThreadSafe))
+	bool IsAnimationAlmostComplete(FAnimNodeReference BlendStackNode) const;
+
 	// ========================================
 	// ANIMGRAPH BINDINGS — Thread-Safe getters for node pins
 	// ========================================
@@ -597,6 +817,10 @@ public:
 	/** Get MM blend time based on movement mode. */
 	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
 	float Get_MMBlendTime() const;
+
+	/** GASP MM notify recency timeout — 0.16s for Sprint, 0.2s otherwise (matches GASP select). */
+	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
+	float Get_MMNotifyRecencyTimeOut() const { return Gait == EAZ_Gait::Sprint ? 0.16f : 0.2f; }
 
 	/** Get OffsetRootBone translation mode. */
 	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
@@ -642,9 +866,16 @@ public:
 	// CHOOSER — Thread-Safe Getters
 	// ========================================
 
-	/** Is the character currently moving (speed above dead zone). Used by Chooser tables. */
+	/** GASP IsMoving: future velocity != 0 (tol 10) AND acceleration != 0.
+	 *  Fires Idle immediately on input release while Speed2D may still be high —
+	 *  lets Walk Stops chooser rows (SM=TransIdle, speed 10..200) win. */
 	UFUNCTION(BlueprintPure, Category = "AZ|Chooser", meta = (BlueprintThreadSafe))
-	bool IsMoving() const { return GroundSpeed > 10.f; }
+	bool IsMoving() const
+	{
+		const FVector FutureVel2D(Trj_FutureVelocity.X, Trj_FutureVelocity.Y, 0.f);
+		const FVector Accel2D(Acceleration.X, Acceleration.Y, 0.f);
+		return FutureVel2D.SizeSquared() > 100.f && Accel2D.SizeSquared() > 1.f;
+	}
 
 	/** Was the character moving last frame. Used by Chooser to detect start/stop transitions. */
 	UFUNCTION(BlueprintPure, Category = "AZ|Chooser", meta = (BlueprintThreadSafe))
@@ -682,9 +913,9 @@ protected:
 	/** Tracks the last pose state used for IK adjustment, to detect state changes. */
 	EAZ_WeaponPoseState LastIKPoseState = EAZ_WeaponPoseState::Relaxed;
 
-	/** Previous frame's locomotion database — for detecting database changes and forcing MM interrupt. */
+	/** Previous frame's selected database — for detecting database changes and forcing MM interrupt. */
 	UPROPERTY()
-	TObjectPtr<UPoseSearchDatabase> PreviousLocomotionDatabase;
+	TObjectPtr<UPoseSearchDatabase> PreviousSelectedDatabase;
 
 	/** Was the character moving last frame (for start/stop detection). */
 	bool bWasMovingLastFrame = false;
@@ -715,7 +946,4 @@ private:
 	float Stance_RecentTimer = 0.f;
 	float MovementDirection_RecentTimer = 0.f;
 	float RotationMode_RecentTimer = 0.f;
-
-	/** Persistent state for PoseSearchGenerateTrajectoryWithPredictor — yaw last update. */
-	float PreviousDesiredControllerYaw = 0.f;
 };

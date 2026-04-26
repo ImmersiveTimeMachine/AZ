@@ -332,7 +332,7 @@ struct FAZ_BlendStackInputs
 	TObjectPtr<UBlendProfile> BlendProfile = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FName Tags = NAME_None;
+	TArray<FName> Tags;
 };
 
 /** Output from Chooser table evaluation — controls how anim is selected and blended. */
@@ -355,7 +355,7 @@ struct FAZ_ChooserOutputs
 	FName BlendProfile = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FName Tags = NAME_None;
+	TArray<FName> Tags;
 
 	/** If > 0, MM result must beat this cost threshold. Otherwise NoValidAnim. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
