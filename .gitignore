@@ -1,3 +1,9 @@
+# Secrets
+.env
+
+# Python venv
+.venv/
+
 # Visual Studio 2015
 .vs/
 
@@ -55,3 +61,8 @@ Script/
 *.opensdf
 *.sdf
 *.suo
+# Content — only Blueprints kept; rest excluded to keep LFS budget under control
+/Content/*
+!/Content/AZ/
+/Content/AZ/*
+!/Content/AZ/Blueprints/
