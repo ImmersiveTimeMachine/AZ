@@ -17,6 +17,8 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_AnimNodeReference.h"
+#include "Features/IModularFeatures.h"
+#include "IPropertyAccessEditor.h"
 #endif
 
 #if WITH_EDITOR
@@ -238,7 +240,64 @@ bool UAZ_AnimGraphNodeUtils::SetPinBinding(const FString& BlueprintPath, const F
 		: EAnimGraphNodePropertyBindingType::Property;
 	Binding.PathAsText = FText::FromString(PropertyPath);
 
+	// Populate PinType / PromotedPinType — mirrors UAnimGraphNodeBinding_Base::RecalculateBindingType.
+	// Without this, the AnimGraph compiler can't generate property-access glue and emits
+	// "Invalid field '__FloatProperty_NNN'" warnings while the binding silently no-ops at runtime.
+	if (FProperty* BindingProperty = AnimNode->GetPinProperty(Binding.PropertyName))
+	{
+		if (BindingProperty->IsA<FArrayProperty>() && Binding.ArrayIndex != INDEX_NONE)
+		{
+			BindingProperty = CastFieldChecked<FArrayProperty>(BindingProperty)->Inner;
+		}
+
+		UAnimBlueprint* BoundAnimBP = AnimNode->GetAnimBlueprint();
+		if (BoundAnimBP && BoundAnimBP->SkeletonGeneratedClass &&
+			IModularFeatures::Get().IsModularFeatureAvailable("PropertyAccessEditor"))
+		{
+			IPropertyAccessEditor& PropertyAccessEditor =
+				IModularFeatures::Get().GetModularFeature<IPropertyAccessEditor>("PropertyAccessEditor");
+			const UAnimationGraphSchema* Schema = GetDefault<UAnimationGraphSchema>();
+
+			FProperty* LeafProperty = nullptr;
+			int32 ResolvedIndex = INDEX_NONE;
+			FPropertyAccessResolveResult ResolveResult =
+				PropertyAccessEditor.ResolvePropertyAccess(BoundAnimBP->SkeletonGeneratedClass,
+					Binding.PropertyPath, LeafProperty, ResolvedIndex);
+			if (ResolveResult.Result == EPropertyAccessResolveResult::Succeeded && LeafProperty)
+			{
+				Schema->ConvertPropertyToPinType(LeafProperty, Binding.PinType);
+				if (PropertyAccessEditor.GetPropertyCompatibility(LeafProperty, BindingProperty)
+					== EPropertyAccessCompatibility::Promotable)
+				{
+					Binding.bIsPromotion = true;
+					Schema->ConvertPropertyToPinType(LeafProperty, Binding.PromotedPinType);
+				}
+				else
+				{
+					Binding.bIsPromotion = false;
+					Binding.PromotedPinType = Binding.PinType;
+				}
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("AZ_AnimGraphUtils: ResolvePropertyAccess FAILED for %s → %s — binding will be inert"),
+					*PinName, *PropertyPath);
+			}
+		}
+	}
+
 	PropertyBindings->Add(FName(*PinName), Binding);
+
+	// Flip show_pin=True on the matching ShowPinForProperties entry, otherwise the
+	// AnimBlueprint compiler skips the pin (PinHiddenByDefault meta) and the binding never emits.
+	for (FOptionalPinFromProperty& OptPin : AnimNode->ShowPinForProperties)
+	{
+		if (OptPin.PropertyName == Binding.PropertyName)
+		{
+			OptPin.bShowPin = true;
+			break;
+		}
+	}
 
 	// Break any existing wire on that pin
 	if (UEdGraphPin* Pin = AnimNode->FindPin(FName(*PinName)))
@@ -789,14 +848,63 @@ bool UAZ_AnimGraphNodeUtils::SetAnimNodeProperty(const FString& BlueprintPath, c
 	UEdGraphNode* RawNode = FindNodeInGraphOrBS(ABP, NodeGUID, BlendStackNodeGUID);
 	if (!RawNode) return false;
 
-	FProperty* Prop = RawNode->GetClass()->FindPropertyByName(FName(*PropertyName));
-	if (!Prop)
+	// Resolve property path. Supports two forms:
+	//   "PropName"           — direct property on the wrapper UAnimGraphNode_*
+	//   "Node.PropName"      — nested into the inner FAnimNode_* struct (most AnimNode props)
+	// AnimNodes wrap their FAnimNode_* in a UPROPERTY named "Node" by convention.
+	FProperty* Prop = nullptr;
+	void* ValuePtr = nullptr;
+	if (PropertyName.Contains(TEXT(".")))
 	{
-		UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: Property '%s' not found on node %s"), *PropertyName, *NodeGUID.Left(8));
-		return false;
+		FString OuterName, InnerName;
+		PropertyName.Split(TEXT("."), &OuterName, &InnerName);
+		FProperty* OuterProp = RawNode->GetClass()->FindPropertyByName(FName(*OuterName));
+		FStructProperty* OuterStruct = CastField<FStructProperty>(OuterProp);
+		if (!OuterStruct)
+		{
+			UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: Outer '%s' not a struct on node %s"), *OuterName, *NodeGUID.Left(8));
+			return false;
+		}
+		void* OuterPtr = OuterStruct->ContainerPtrToValuePtr<void>(RawNode);
+		Prop = OuterStruct->Struct->FindPropertyByName(FName(*InnerName));
+		if (!Prop)
+		{
+			UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: Inner '%s' not on struct '%s' (node %s)"),
+				*InnerName, *OuterName, *NodeGUID.Left(8));
+			return false;
+		}
+		ValuePtr = Prop->ContainerPtrToValuePtr<void>(OuterPtr);
+	}
+	else
+	{
+		Prop = RawNode->GetClass()->FindPropertyByName(FName(*PropertyName));
+		if (!Prop)
+		{
+			// Fallback: try inside the wrapper's "Node" struct (AnimGraphNode convention).
+			FProperty* NodeProp = RawNode->GetClass()->FindPropertyByName(FName(TEXT("Node")));
+			FStructProperty* NodeStruct = CastField<FStructProperty>(NodeProp);
+			if (NodeStruct)
+			{
+				Prop = NodeStruct->Struct->FindPropertyByName(FName(*PropertyName));
+				if (Prop)
+				{
+					void* NodePtr = NodeStruct->ContainerPtrToValuePtr<void>(RawNode);
+					ValuePtr = Prop->ContainerPtrToValuePtr<void>(NodePtr);
+				}
+			}
+		}
+		else
+		{
+			ValuePtr = Prop->ContainerPtrToValuePtr<void>(RawNode);
+		}
+		if (!Prop)
+		{
+			UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: Property '%s' not found on node %s (and not in Node.* fallback)"),
+				*PropertyName, *NodeGUID.Left(8));
+			return false;
+		}
 	}
 
-	void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(RawNode);
 	bool bSuccess = Prop->ImportText_Direct(*Value, ValuePtr, RawNode, PPF_None) != nullptr;
 
 	if (bSuccess)

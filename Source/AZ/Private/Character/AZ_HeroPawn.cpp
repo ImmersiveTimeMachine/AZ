@@ -1,7 +1,6 @@
 #include "Character/AZ_HeroPawn.h"
 
 #include "AbilitySystemComponent.h"
-#include "Character/AZ_MoverInputCmd.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
 #include "Character/AZ_PawnCameraMovementComponent.h"
@@ -19,10 +18,42 @@
 #include "MoverPoseSearchTrajectoryPredictor.h"
 #include "Animation/AZ_AnimInstance.h"
 #include "NetworkPredictionComponent.h"
+#include "Components/AudioComponent.h"
 #include "EnhancedInputComponent.h"
+#include "EnhancedPlayerInput.h"
 #include "InputAction.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
+
+// GASP DDCvar.ControlStyle — 0 = standard third-person, 1 = twin-stick.
+// Read by Update_TwinStickMode each tick. Set via console (`DDCvar.ControlStyle 1`).
+static TAutoConsoleVariable<int32> CVarDDControlStyle(
+	TEXT("DDCvar.ControlStyle"),
+	0,
+	TEXT("GASP Control Style. 0 = standard third-person, 1 = twin-stick."),
+	ECVF_Default);
+
+// GASP DDCvar.StrafeStyle — selects sprint-while-strafing dot-product threshold.
+// 0 → 0.5 (must move mostly toward orientation to sprint).
+// 1 or 2 → -0.1 (sprint allowed unless moving sharply backward).
+// Read by Get_Gait Strafe branch.
+static TAutoConsoleVariable<int32> CVarDDStrafeStyle(
+	TEXT("DDCvar.StrafeStyle"),
+	0,
+	TEXT("GASP Strafe Style. Selects sprint dot-threshold: 0 = 0.5, 1/2 = -0.1."),
+	ECVF_Default);
+
+// GASP DDCvar.AnalogInputStyle — controls default-gait selection (no sprint, no walk).
+// 0 → Run (keyboard default).
+// 1 → Analog: IA_Move stick magnitude > 0.8 → Run else Walk.
+// Read by Get_Gait fallthrough branch.
+static TAutoConsoleVariable<int32> CVarDDAnalogInputStyle(
+	TEXT("DDCvar.AnalogInputStyle"),
+	0,
+	TEXT("GASP Analog Input Style. 0 = keyboard (default Run), 1 = analog (deflection-controlled Run/Walk)."),
+	ECVF_Default);
 
 AAZ_HeroPawn::AAZ_HeroPawn(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -187,18 +218,24 @@ void AAZ_HeroPawn::Tick(float DeltaTime)
 		MoverStateProxy.bIsFalling = CharacterMoverComponent->IsFalling();
 		MoverStateProxy.bIsCrouching = CharacterMoverComponent->IsCrouching();
 
-		// Floor hit for GroundNormal / GroundLocation (used by foot IK slope warping)
+		// GASP Update_FloorValues parity: cache impact normal+point for systems that
+		// need floor info (foot IK / slope warping / VFX). Fallback to mesh world
+		// location + world-up when no floor hit (matches GASP).
 		FHitResult FloorHit;
 		if (CharacterMoverComponent->TryGetFloorCheckHitResult(FloorHit))
 		{
-			MoverStateProxy.GroundNormal = FloorHit.ImpactNormal;
-			MoverStateProxy.GroundLocation = FloorHit.ImpactPoint;
+			FloorNormal = FloorHit.ImpactNormal;
+			FloorLocation = FloorHit.ImpactPoint;
 		}
 		else
 		{
-			MoverStateProxy.GroundNormal = FVector::UpVector;
-			MoverStateProxy.GroundLocation = FVector::ZeroVector;
+			FloorNormal = FVector::UpVector;
+			FloorLocation = MeshComponent ? MeshComponent->GetComponentLocation() : FVector::ZeroVector;
 		}
+
+		// Mirror onto MoverStateProxy so AnimInstance worker-thread reads stay valid.
+		MoverStateProxy.GroundNormal = FloorNormal;
+		MoverStateProxy.GroundLocation = FloorLocation;
 	}
 
 	if (AZ_AbilitySystemComponent)
@@ -211,10 +248,22 @@ void AAZ_HeroPawn::Tick(float DeltaTime)
 	// Phase 5: per-tick control rotation rate (for camera-whip detection / GAS).
 	Update_ControlRotationRate(DeltaTime);
 
-	// GASP parity: after Mover has simulated this frame, copy its last input cmd
-	// into our _PostSim snapshots. Anim/camera read these (they're the replicated
-	// state). Mover's tick runs before ours via AddTickPrerequisiteComponent
-	// (set up in BeginPlay), guaranteeing GetLastInputCmd is valid here.
+	// GASP parity: drive Slide.Loop audio's `Speed` parameter from current velocity
+	// (no-op while SlidingAudioComponent is null — i.e. not sliding or no AC_FoleyEvents yet).
+	Update_SlidingAudio();
+
+	// GASP parity: targeting + twin-stick aim mode (drive Get_RotationMode /
+	// Get_AimingRotation Tier-1/Tier-2 paths). Both no-op when their inputs are
+	// inactive (empty TargetableActors, ControlStyle != 1).
+	// Order matches GASP EventGraph Tick: Update_TargetedActor → Update_TwinStickMode.
+	Update_TargetedActor();
+	Update_TwinStickMode();
+
+	// GASP parity for content, deliberate ORDER deviation: GASP calls
+	// CacheInputsFromMover at the START of Tick (using prior-frame Mover output).
+	// AZ calls it at the END so newly-packed PreSim cmds from this frame's
+	// OnProduceInput → Mover sim are reflected in PostSim before next Tick.
+	// AddTickPrerequisiteComponent on the Mover keeps the data valid here either way.
 	CacheInputsFromMover();
 
 	// Phase 7: optional on-screen debug overlay (gated by bShowPawnDebug).
@@ -260,13 +309,37 @@ FVector AAZ_HeroPawn::Get_MoveInput() const
 
 FRotator AAZ_HeroPawn::Get_AimingRotation() const
 {
-	// GASP priority: TargetedActor look-at → TwinStickAimRotation → control rotation.
-	// TargetedActor / TwinStickMode come in Phase 5 (Update_TargetedActor, Update_TwinStickMode).
+	// GASP three-tier dispatch (parity with SandboxCharacter_Mover.Get_AimingRotation):
+	// Tier 1 — TargetedActor: rotation from self → target.
+	// Tier 2 — TwinStickMode: cached TwinStickAimRotation.
+	// Tier 3 — default: control rotation (camera).
+	if (TargetedActor)
+	{
+		const FVector ToTarget = TargetedActor->GetActorLocation() - GetActorLocation();
+		return UKismetMathLibrary::MakeRotFromX(ToTarget);
+	}
+
+	if (TwinStickMode)
+	{
+		return TwinStickAimRotation;
+	}
+
 	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		return PC->GetControlRotation();
 	}
 	return FRotator::ZeroRotator;
+}
+
+FVector2D AAZ_HeroPawn::GetTwinStickAimDirection() const
+{
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC || !TwinStickAimDirectionInputAction) return FVector2D::ZeroVector;
+
+	const UEnhancedPlayerInput* EnhancedInput = Cast<UEnhancedPlayerInput>(PC->PlayerInput);
+	if (!EnhancedInput) return FVector2D::ZeroVector;
+
+	return EnhancedInput->GetActionValue(TwinStickAimDirectionInputAction).Get<FVector2D>();
 }
 
 double AAZ_HeroPawn::Get_Speed() const
@@ -289,8 +362,27 @@ EAZ_MovementMode AAZ_HeroPawn::Get_CurrentMovementMode() const
 
 EAZ_RotationMode AAZ_HeroPawn::Get_RotationMode() const
 {
-	// GASP three-tier dispatch. TargetedActor / TwinStickMode branches deferred —
-	// Phase 5 populates those state fields. For now: default branch only.
+	// GASP three-tier dispatch (parity with SandboxCharacter_Mover.Get_RotationMode):
+	// Tier 1 — TargetedActor valid: force Aim if WantsToAim else Strafe.
+	// Tier 2 — TwinStickMode AND right stick deflected: force Aim if WantsToAim else Strafe.
+	//          Right-stick centered while in TwinStickMode → OrientToMovement (free move).
+	// Tier 3 — default: PlayerInputState bools (Aim wins over Strafe).
+	if (TargetedActor)
+	{
+		return PlayerInputState.bWantsToAim ? EAZ_RotationMode::Aiming
+		                                    : EAZ_RotationMode::Strafe;
+	}
+
+	if (TwinStickMode)
+	{
+		if (!GetTwinStickAimDirection().IsNearlyZero())
+		{
+			return PlayerInputState.bWantsToAim ? EAZ_RotationMode::Aiming
+			                                    : EAZ_RotationMode::Strafe;
+		}
+		return EAZ_RotationMode::OrientToMovement;
+	}
+
 	if (PlayerInputState.bWantsToAim)    return EAZ_RotationMode::Aiming;
 	if (PlayerInputState.bWantsToStrafe) return EAZ_RotationMode::Strafe;
 	return EAZ_RotationMode::OrientToMovement;
@@ -298,18 +390,18 @@ EAZ_RotationMode AAZ_HeroPawn::Get_RotationMode() const
 
 EAZ_Gait AAZ_HeroPawn::Get_Gait() const
 {
-	// AZ semantics (inverted from GASP):
-	//   Default (no modifier) → Walk
-	//   Sprint button (Shift) → Sprint  (Run when in Aim mode)
-	//   Walk button           → Walk    (no-op since default is already Walk;
-	//                                    kept for external "force walk" overrides
-	//                                    e.g. heavy-load / low-stamina ability)
+	// GASP-parity Get_Gait (full body, including DDCvar branches).
 	//
-	// GASP defaults to Run as the baseline, with Walk explicit and Sprint via
-	// modifier. AZ inverts because slow/quiet movement is the natural baseline
-	// for our game and Shift=fast matches mainstream FPS/TPS feel.
+	// WantsToSprint:
+	//   OrientToMovement → Sprint
+	//   Strafe → DotProduct(MoveInput, OrientationIntent) > Threshold → Sprint else Run
+	//            Threshold from `DDCvar.StrafeStyle` Select: 0 → 0.5, else → -0.1.
+	//   Aiming → Run (sprint cap)
+	// !WantsToSprint, WantsToWalk → Walk
+	// !WantsToSprint, !WantsToWalk → check `DDCvar.AnalogInputStyle`:
+	//   0 → Run (keyboard default — GASP baseline)
+	//   1 → if IA_Move stick magnitude > 0.8 → Run else Walk
 
-	// Sprint takes priority — Shift always means "go fast".
 	if (PlayerInputState.bWantsToSprint)
 	{
 		const EAZ_RotationMode RotMode = Get_RotationMode();
@@ -320,16 +412,17 @@ EAZ_Gait AAZ_HeroPawn::Get_Gait() const
 
 		case EAZ_RotationMode::Strafe:
 		{
-			// GASP dot-test retained: sprint only when moving roughly along orientation.
 			const FVector MoveDir = MoverDefaultInputs_PreSim.GetMoveInput().GetSafeNormal();
 			const FVector OrientDir = MoverDefaultInputs_PreSim.OrientationIntent.GetSafeNormal();
-			const float Dot = static_cast<float>(FVector::DotProduct(MoveDir, OrientDir));
-			constexpr float StrafeSprintThreshold = 0.5f;
-			return (Dot > StrafeSprintThreshold) ? EAZ_Gait::Sprint : EAZ_Gait::Run;
+			const double Dot = FVector::DotProduct(MoveDir, OrientDir);
+			// GASP Select: StrafeStyle 0 → 0.5; StrafeStyle 1 or 2 (or anything else) → -0.1.
+			const int32 StrafeStyle = CVarDDStrafeStyle.GetValueOnGameThread();
+			const double Threshold = (StrafeStyle == 0) ? 0.5 : -0.1;
+			return (Dot > Threshold) ? EAZ_Gait::Sprint : EAZ_Gait::Run;
 		}
 
 		case EAZ_RotationMode::Aiming:
-			// In Aim mode, Sprint caps at Run.
+			// Sprint cap when aiming.
 			return EAZ_Gait::Run;
 
 		default:
@@ -337,13 +430,32 @@ EAZ_Gait AAZ_HeroPawn::Get_Gait() const
 		}
 	}
 
-	// Walk button: explicit, but identical to default in AZ (kept for overrides).
 	if (PlayerInputState.bWantsToWalk)
 	{
 		return EAZ_Gait::Walk;
 	}
 
-	// Default: Walk (AZ inversion).
+	// Fallthrough: GASP DDCvar.AnalogInputStyle decides default gait.
+	const int32 AnalogStyle = CVarDDAnalogInputStyle.GetValueOnGameThread();
+	if (AnalogStyle == 1)
+	{
+		// Analog branch: read IA_Move stick magnitude, > 0.8 → Run else Walk.
+		if (const APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (const UEnhancedPlayerInput* EPI = Cast<UEnhancedPlayerInput>(PC->PlayerInput))
+			{
+				if (MoveInputAction)
+				{
+					const FVector2D Stick = EPI->GetActionValue(MoveInputAction).Get<FVector2D>();
+					return (Stick.Size() > 0.8) ? EAZ_Gait::Run : EAZ_Gait::Walk;
+				}
+			}
+		}
+		return EAZ_Gait::Walk; // Fallback if no PC/IA wired.
+	}
+
+	// AZ keyboard default: Walk (inverted from GASP — Shift held → Sprint, otherwise Walk).
+	// Reasoning: project_input_stack_rt_mirror.md — "Get_Gait inverted (Walk=default, Shift=Sprint)".
 	return EAZ_Gait::Walk;
 }
 
@@ -376,14 +488,24 @@ FVector AAZ_HeroPawn::Get_OrientationIntent() const
 		}
 		else
 		{
-			// Idle on ground.
-			// AZ divergence (broader than GASP): the accumulator-based TIP fires
-			// for ALL rotation modes, not just Aim. Reason: until Phase 9 wires
-			// GAS, bWantsToAim/bWantsToStrafe stay false, so Get_RotationMode
-			// always returns OrientToMovement — strict GASP would give "no idle
-			// TIP" everywhere and regress the working baseline (commit b5c076e1).
-			// When GAS Aim lands, narrow this back to the Aim-only case.
-			return bIdleTurnInProgress ? LastIdleOrientationTarget : LastOrient;
+			// Idle on ground — GASP threshold-cache pattern (Get_OrientationIntent comment
+			// nodes: "WITHOUT movement input + OrientToMovement/Strafe → keep last frame";
+			// "WITHOUT movement input + Aim → switch to AimingRotation when 60° offset".
+			switch (RotMode)
+			{
+			case EAZ_RotationMode::OrientToMovement:
+				return LastOrient;
+			case EAZ_RotationMode::Strafe:
+				return LastOrient;
+			case EAZ_RotationMode::Aiming:
+			{
+				const FRotator ActorRot = GetActorRotation();
+				const FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(Aiming, ActorRot);
+				return (FMath::Abs(Delta.Yaw) > 60.0) ? AimingFwd : LastOrient;
+			}
+			default:
+				return LastOrient;
+			}
 		}
 
 	case EAZ_MovementMode::InAir:
@@ -566,6 +688,11 @@ void AAZ_HeroPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 		Input->BindAction(MoveInputAction, ETriggerEvent::Completed, this, &AAZ_HeroPawn::OnMoveCompleted);
 		Input->BindAction(LookInputAction, ETriggerEvent::Triggered, this, &AAZ_HeroPawn::OnLookTriggered);
 		Input->BindAction(LookInputAction, ETriggerEvent::Completed, this, &AAZ_HeroPawn::OnLookCompleted);
+		// GASP IA_Look_Gamepad — rate-based look (multiplied by world delta-seconds).
+		if (LookGamepadInputAction)
+		{
+			Input->BindAction(LookGamepadInputAction, ETriggerEvent::Triggered, this, &AAZ_HeroPawn::OnLookGamepadTriggered);
+		}
 		Input->BindAction(JumpInputAction, ETriggerEvent::Started, this, &AAZ_HeroPawn::OnJumpStarted);
 		Input->BindAction(JumpInputAction, ETriggerEvent::Completed, this, &AAZ_HeroPawn::OnJumpReleased);
 
@@ -616,6 +743,29 @@ void AAZ_HeroPawn::OnLookTriggered(const FInputActionValue& Value)
 void AAZ_HeroPawn::OnLookCompleted(const FInputActionValue& Value)
 {
 	// No-op — look is applied immediately in OnLookTriggered
+}
+
+void AAZ_HeroPawn::OnLookGamepadTriggered(const FInputActionValue& Value)
+{
+	// GASP IA_Look_Gamepad parity:
+	//   if (!TwinStickMode) → AddControllerYawInput(Stick.X * DeltaSeconds);
+	//                         AddControllerPitchInput(Stick.Y * DeltaSeconds);
+	// Pitch is NOT negated — GASP relies on the IA's `Negate Y` input modifier
+	// to flip the axis upstream. Mirror the same modifier on AZ's IA asset.
+	if (TwinStickMode)
+	{
+		return;
+	}
+
+	const FVector2D Stick = Value.Get<FVector2D>();
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const float DeltaSeconds = World->GetDeltaSeconds();
+	AddControllerYawInput(Stick.X * DeltaSeconds);
+	AddControllerPitchInput(Stick.Y * DeltaSeconds);
 }
 
 void AAZ_HeroPawn::OnJumpStarted(const FInputActionValue& Value)
@@ -706,20 +856,11 @@ void AAZ_HeroPawn::OnProduceInput(float DeltaMs, FMoverInputCmdContext& InputCmd
 	FAZ_MoverCustomInputs& OutCustom = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
 	OutCustom = MoverCustomInputs_PreSim;
 
-	// (6) Legacy GAS-tag handshake — populates FAZ_MoverInputCmd that walking-mode
-	//     etc. read for sprint/aim/crouch/dash speed adjustments. Phase 9 will
-	//     migrate these into PlayerInputState and remove this block.
-	if (AZ_AbilitySystemComponent)
-	{
-		FAZ_MoverInputCmd& AZInputs = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverInputCmd>();
-		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
-		AZInputs.bIsSprinting = AZ_AbilitySystemComponent->HasMatchingGameplayTag(AZTags.Ability_State_Sprinting);
-		AZInputs.bIsAiming    = AZ_AbilitySystemComponent->HasMatchingGameplayTag(AZTags.Ability_State_Aiming);
-		AZInputs.bIsCrouching = AZ_AbilitySystemComponent->HasMatchingGameplayTag(AZTags.Movement_Crouching);
-		AZInputs.bIsDashing   = AZ_AbilitySystemComponent->HasMatchingGameplayTag(AZTags.Ability_State_Dashing);
-	}
-
-	// (7) Consume one-shot temporal flags.
+	// (6) Consume one-shot temporal flags.
+	// (Legacy GAS-tag → FAZ_MoverInputCmd handshake removed in Phase 9 — no
+	//  consumers; PlayerInputState + MoverCustomInputs_PreSim now carry all the
+	//  intent flags Mover modes need. The FAZ_MoverInputCmd struct file is
+	//  orphaned; safe to delete after a BP-asset audit.)
 	bIsJumpJustPressed = false;
 }
 
@@ -808,9 +949,98 @@ void AAZ_HeroPawn::Get_MovementDirectionAndOffset(EAZ_MovementDirection& OutDire
 
 void AAZ_HeroPawn::HandleMovementModeChanged(const FName& PreviousMode, const FName& NewMode)
 {
+	// GASP parity (full body of SandboxCharacter_Mover.OnMovementModeChanged).
+	// Resolve incoming FNames → enum values via MovementModeMap (GASP holds these
+	// as function-local vars; AZ uses stack locals for the same effect).
+	EAZ_MovementMode PrevEnum = EAZ_MovementMode::OnGround;
+	EAZ_MovementMode NewEnum  = EAZ_MovementMode::OnGround;
+	if (const EAZ_MovementMode* P = MovementModeMap.Find(PreviousMode)) PrevEnum = *P;
+	if (const EAZ_MovementMode* N = MovementModeMap.Find(NewMode))      NewEnum  = *N;
+
+	// Track raw FName values for any AZ-side consumers (DebugDraws, future wiring).
 	PreviousMovementModeName = PreviousMode;
 	CurrentMovementModeName  = NewMode;
-	// Hooks for slide audio / one-shot effects can attach here later (Phase 7+).
+
+	// ===== Sequence then_0: NEW mode entry handling =====
+	switch (NewEnum)
+	{
+	case EAZ_MovementMode::OnGround:  // Walking
+		// Land foley fires only when PREV was Falling. Volume comes from impact Z velocity:
+		// fall speed -500 → vol 0.5, -900 → vol 1.5 (clamped, mapped linearly).
+		if (PrevEnum == EAZ_MovementMode::InAir && CharacterMoverComponent)
+		{
+			const double ZVel = CharacterMoverComponent->GetVelocity().Z;
+			const float Volume = static_cast<float>(FMath::GetMappedRangeValueClamped(
+				FVector2D(-500.0, -900.0), FVector2D(0.5, 1.5), ZVel));
+			PlayFoleyEvent_Stub(TEXT("Foley.Event.Land"), Volume);
+		}
+		break;
+
+	case EAZ_MovementMode::InAir:  // Falling
+	{
+		// Jump foley fires only when PREV was Walking AND bIsJumpJustPressed.
+		// Volume from XY speed: 0 → vol 0.5, 375 → vol 1.0.
+		if (PrevEnum == EAZ_MovementMode::OnGround
+			&& MoverDefaultInputs_PreSim.bIsJumpJustPressed
+			&& CharacterMoverComponent)
+		{
+			const double XYSpeed = CharacterMoverComponent->GetVelocity().Size2D();
+			const float Volume = static_cast<float>(FMath::GetMappedRangeValueClamped(
+				FVector2D(0.0, 375.0), FVector2D(0.5, 1.0), XYSpeed));
+			PlayFoleyEvent_Stub(TEXT("Foley.Event.Jump"), Volume);
+		}
+
+		// Auto-uncrouch when transitioning to Falling — no crouching in air.
+		// GASP also calls CharacterMover->UnCrouch() directly. AZ uses the
+		// input-intent path (flag clear) which Mover honors via the next
+		// OnProduceInput-built FAZ_MoverCustomInputs, avoiding direct stance API.
+		// Note: crouch in AZ lives on the CUSTOM-inputs struct, not FCharacterDefaultInputs.
+		if (CharacterMoverComponent && CharacterMoverComponent->IsCrouching())
+		{
+			PlayerInputState.bWantsToCrouch = false;
+			MoverCustomInputs_PreSim.bWantsToCrouch = false;
+		}
+		break;
+	}
+
+	case EAZ_MovementMode::Slide:  // Sliding
+		// Slide.Loop foley — stash returned audio component so Update_SlidingAudio
+		// can drive its `Speed` parameter and the cleanup pass below can fade it out.
+		SlidingAudioComponent = PlayFoleyEvent_Stub(TEXT("Foley.Event.Slide.Loop"), 1.0f);
+		break;
+
+	default:
+		break;
+	}
+
+	// ===== Sequence then_1: PREV mode exit handling (cleanup) =====
+	// Leaving Sliding → fade out the loop audio over 0.5s.
+	if (PrevEnum == EAZ_MovementMode::Slide && SlidingAudioComponent)
+	{
+		SlidingAudioComponent->FadeOut(0.5f, 0.f, EAudioFaderCurve::Linear);
+		SlidingAudioComponent = nullptr;
+	}
+
+	// GASP slide-exit-while-sprinting → clear queued crouch intent.
+	// Without this, a sprint-slide-release sequence leaves the pawn stuck crouched.
+	// (GASP exec source for this branch traced via Reviewer A: it's chained AFTER
+	// the Sliding-cleanup FadeOut, gated by bWantsToSprint.)
+	if (PrevEnum == EAZ_MovementMode::Slide && PlayerInputState.bWantsToSprint)
+	{
+		PlayerInputState.bWantsToCrouch = false;
+		MoverCustomInputs_PreSim.bWantsToCrouch = false;
+	}
+}
+
+UAudioComponent* AAZ_HeroPawn::PlayFoleyEvent_Stub(FName EventName, float Volume)
+{
+	// TODO(foley): wire to AZ's AC_FoleyEvents-equivalent actor component when it
+	// lands. GASP signature: `AC_FoleyEvents.PlayFoleyEvent(GameplayTag Event,
+	// S_FoleyEventParams { Volume }) → UAudioComponent*`. Until then this is a
+	// no-op so OnMovementModeChanged keeps full GASP-parity structure with no audio.
+	(void)EventName;
+	(void)Volume;
+	return nullptr;
 }
 
 // ============================================================
@@ -894,41 +1124,127 @@ void AAZ_HeroPawn::Update_ControlRotationRate(float DeltaSeconds)
 		return;
 	}
 
-	const double Yaw = PC->GetControlRotation().Yaw;
+	const FRotator CurrentControlRot = PC->GetControlRotation();
 	if (!bControlRotationRateInitialized)
 	{
-		LastControlRotationYaw = Yaw;
+		LastControlRotation = CurrentControlRot;
 		bControlRotationRateInitialized = true;
 		ControlRotationRate = 0.0;
 		return;
 	}
 
-	const double Delta = FRotator::NormalizeAxis(Yaw - LastControlRotationYaw);
+	const double Delta = FRotator::NormalizeAxis(CurrentControlRot.Yaw - LastControlRotation.Yaw);
 	ControlRotationRate = FMath::Abs(Delta) / DeltaSeconds;
-	LastControlRotationYaw = Yaw;
+	LastControlRotation = CurrentControlRot;
+}
+
+void AAZ_HeroPawn::Update_TwinStickMode()
+{
+	// GASP gate: only active when DDCvar.ControlStyle == 1. False branch is empty
+	// in GASP — TwinStickMode is a one-way latch (once true, stays true even if
+	// the cvar is later cleared). Matched here for behavioral parity.
+	if (CVarDDControlStyle.GetValueOnGameThread() != 1)
+	{
+		return;
+	}
+
+	TwinStickMode = true;
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	// GASP zeros control rotation each tick — camera follows, no manual look in twin-stick.
+	PC->SetControlRotation(FRotator::ZeroRotator);
+
+	// Write TwinStickAimRotation from right-stick deflection (Atan2 of Y-flipped, X)
+	// or fall back to actor rotation when stick is centered.
+	const FVector2D Stick = GetTwinStickAimDirection();
+	constexpr float Tolerance = 0.1f;
+	if (!Stick.IsNearlyZero(Tolerance))
+	{
+		const double YawDegrees = FMath::RadiansToDegrees(FMath::Atan2(-Stick.Y, Stick.X));
+		TwinStickAimRotation = FRotator(0.0, YawDegrees, 0.0);
+	}
+	else
+	{
+		TwinStickAimRotation = GetActorRotation();
+	}
+}
+
+void AAZ_HeroPawn::Update_SlidingAudio()
+{
+	// GASP parity: only set the Speed param when the audio component is valid.
+	// Component is created in OnMovementModeChanged when entering Slide and
+	// faded-out + nulled when leaving. So this is naturally gated to Slide mode.
+	if (!SlidingAudioComponent || !CharacterMoverComponent)
+	{
+		return;
+	}
+
+	const float Speed = static_cast<float>(CharacterMoverComponent->GetVelocity().Size());
+	SlidingAudioComponent->SetFloatParameter(FName(TEXT("Speed")), Speed);
+}
+
+void AAZ_HeroPawn::Update_TargetedActor()
+{
+	if (TargetableActors.Num() > 0)
+	{
+		// GASP FindNearestActor — picks closest by 3D distance from actor location.
+		// TArray<TObjectPtr<AActor>> needs flattening to TArray<AActor*> for the API.
+		TArray<AActor*> Candidates;
+		Candidates.Reserve(TargetableActors.Num());
+		for (const TObjectPtr<AActor>& A : TargetableActors)
+		{
+			if (A)
+			{
+				Candidates.Add(A.Get());
+			}
+		}
+		float Distance = 0.f;
+		TargetedActor = UGameplayStatics::FindNearestActor(GetActorLocation(), Candidates, Distance);
+	}
+	else
+	{
+		TargetedActor = nullptr;
+	}
+	// GASP debug cone skipped — Phase 0 ledger marks all debug overlays as out of scope.
 }
 
 void AAZ_HeroPawn::Update_IdleTIPAccumulator()
 {
+	// GASP parity: idle TIP signal fires only in Aiming. In OrientToMovement and
+	// Strafe, GASP returns LastOrient when idle (Get_OrientationIntent comment),
+	// so no body rotation → no TIP. Aiming uses the 60° threshold cache.
+	// AnimInstance reads `bIdleTurnInProgress` via IsIdleTurnInProgress() to
+	// drive its TIP state in the SM; this signal is the AZ-side anim helper.
+	const EAZ_RotationMode Mode = Get_RotationMode();
+	if (Mode != EAZ_RotationMode::Aiming)
+	{
+		bIdleTurnInProgress = false;
+		AccumulatedYawSinceCommit = 0.f;
+		bAccumYawInitialized = false;
+		return;
+	}
+
 	// Speed-independent: tracks absolute mouse-yaw motion since last commit.
 	// 60° fires bIdleTurnInProgress; release on body-aligned (dot ≥ 0.998 ≈ 4°).
-	// Replaces GASP's raw |delta| ≥ 60° check (which couples to mouse speed).
+	// Get_OrientationIntent now drives actual rotation via raw GASP threshold-cache;
+	// this accumulator only signals "TIP in progress" for anim consumption.
 	const APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC) return;
 
 	const float ControllerYaw = PC->GetControlRotation().Yaw;
 
-	// Reset state when moving — body faces movement direction, no TIP needed.
-	// Re-init LastObservedControllerYaw so the first idle frame doesn't see
-	// a huge stale delta from before the move started.
-	const FVector MoveVec = Get_MoveInput();
-	if (!MoveVec.IsNearlyZero())
+	// Reset state when moving.
+	if (!Get_MoveInput().IsNearlyZero())
 	{
 		bIdleTurnInProgress = false;
 		AccumulatedYawSinceCommit = 0.f;
 		LastObservedControllerYaw = ControllerYaw;
 		bAccumYawInitialized = true;
-		LastIdleOrientationTarget = FVector::ZeroVector;
 		return;
 	}
 
@@ -943,22 +1259,17 @@ void AAZ_HeroPawn::Update_IdleTIPAccumulator()
 	AccumulatedYawSinceCommit += FMath::Abs(YawDelta);
 	LastObservedControllerYaw = ControllerYaw;
 
-	// Commit fresh turn when accumulator hits 60°.
 	if (!bIdleTurnInProgress && AccumulatedYawSinceCommit >= 60.f)
 	{
 		bIdleTurnInProgress = true;
 		AccumulatedYawSinceCommit = 0.f;
-		LastIdleOrientationTarget = FRotator(0.f, ControllerYaw, 0.f).Vector();
 	}
-
-	// While in-progress, track camera (player can adjust mid-turn) and check
-	// alignment release condition.
-	if (bIdleTurnInProgress)
+	else if (bIdleTurnInProgress)
 	{
-		LastIdleOrientationTarget = FRotator(0.f, ControllerYaw, 0.f).Vector();
-
+		// Release when actor has rotated to face camera (Mover sim has caught up).
 		const FVector ActorFwd2D = FVector(GetActorForwardVector().X, GetActorForwardVector().Y, 0.f).GetSafeNormal();
-		if (FVector::DotProduct(ActorFwd2D, LastIdleOrientationTarget) >= 0.998f)
+		const FVector CamFwd2D   = FRotator(0.f, ControllerYaw, 0.f).Vector();
+		if (FVector::DotProduct(ActorFwd2D, CamFwd2D) >= 0.998f)
 		{
 			bIdleTurnInProgress = false;
 			AccumulatedYawSinceCommit = 0.f;

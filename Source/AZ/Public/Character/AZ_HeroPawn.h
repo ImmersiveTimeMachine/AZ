@@ -23,6 +23,7 @@ class UAZ_PawnCameraMovementComponent;
 class AAZ_Weapon;
 class AAZ_PlayerState;
 class UInputAction;
+class UAudioComponent;
 struct FInputActionValue;
 
 /**
@@ -73,7 +74,8 @@ struct AZ_API FAZ_MoverStateProxy
  *  - No capsule component — collision is on the UpdatedComponent (set via Mover)
  *  - Movement is driven by UCharacterMoverComponent (replaces UCharacterMovementComponent)
  *  - Input is produced via IMoverInputProducerInterface::ProduceInput
- *  - GAS tags are read each frame and mapped to FAZ_MoverInputCmd flags
+ *  - GAS tags / GAS abilities mutate FAZ_PlayerInputState directly (no
+ *    Mover-input bridging struct — Phase 9 cleanup removed FAZ_MoverInputCmd)
  *  - PrimaryActorTick.TickGroup = TG_PrePhysics (matching AnimBP tick)
  */
 UCLASS(config = Game, BlueprintType)
@@ -187,6 +189,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> StrafeInputAction;
 
+	/** Right-stick deflection direction (twin-stick shooter aim).
+	 *  GASP IA_TwinStick_AimDirection. Polled — NOT bound to a callback.
+	 *  Read by Get_RotationMode / Get_AimingRotation Tier-2, Update_TwinStickMode. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
+	TObjectPtr<UInputAction> TwinStickAimDirectionInputAction;
+
+	/** Gamepad right-stick look (rate-based). GASP IA_Look_Gamepad.
+	 *  Bound; handler scales stick by world delta-seconds and applies via
+	 *  AddControllerYaw/PitchInput. Disabled when TwinStickMode is active. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
+	TObjectPtr<UInputAction> LookGamepadInputAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Input")
 	float LookRateYaw = 1.f;
 
@@ -204,6 +218,22 @@ public:
 	 *  Aim/Crouch are driven by GAS abilities (left untouched here). */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Input")
 	FAZ_PlayerInputState PlayerInputState;
+
+	/** GASP TwinStickMode — when true, the pawn rotates toward the right-stick
+	 *  deflection direction (twin-stick shooter style). Toggled by `Update_TwinStickMode`
+	 *  based on `DDCvar.ControlStyle`. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Input")
+	bool TwinStickMode = false;
+
+	/** GASP TwinStickAimRotation — aim rotation derived from right-stick deflection.
+	 *  Used by `Get_AimingRotation` Tier-2 when `TwinStickMode` is true. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Input")
+	FRotator TwinStickAimRotation = FRotator::ZeroRotator;
+
+	/** GASP LastControlRotation — full control rotation snapshot from previous frame.
+	 *  Used by `Update_ControlRotationRate` to compute yaw-rate delta/sec. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Input")
+	FRotator LastControlRotation = FRotator::ZeroRotator;
 
 	// ========================================
 	// Abilities
@@ -285,21 +315,71 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
 	FAZ_MoverCustomInputs MoverCustomInputs_PostSim;
 
+	/** GASP FloorNormal — cached impact normal under the pawn (or world-up fallback).
+	 *  Updated each Tick by `Update_FloorValues` (currently inlined into `Tick`).
+	 *  Read by foot IK / slope warping / VFX systems. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FVector FloorNormal = FVector::UpVector;
+
+	/** GASP FloorLocation — cached impact point under the pawn (or mesh world location fallback). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
+	FVector FloorLocation = FVector::ZeroVector;
+
 	/** Pull last-simulated input cmd from Mover and store into _PostSim copies.
 	 *  Called each Tick AFTER Mover has simulated the frame (see EventGraph
 	 *  tick order in GASP's SandboxCharacter_Mover — Mover ticks first via
 	 *  AddTickPrerequisiteComponent on BeginPlay). */
 	void CacheInputsFromMover();
 
-	/** AZ-specific idle-TIP accumulator — speed-independent commit on 60° of
-	 *  cumulative mouse-yaw motion. Replaces GASP's raw |delta| ≥ 60° check.
-	 *  Called from OnProduceInput before Get_OrientationIntent reads bIdleTurnInProgress. */
+	// ========================================
+	// GASP "Default" category — targeting + audio
+	// ========================================
+
+	/** GASP TargetableActors — populated by external pickup/proximity actors
+	 *  (e.g. GASP demo Target Dummy). When non-empty, `Update_TargetedActor`
+	 *  picks the nearest and writes it to `TargetedActor`. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|Targeting")
+	TArray<TObjectPtr<AActor>> TargetableActors;
+
+	/** GASP TargetedActor — currently targeted actor (closest from `TargetableActors`).
+	 *  Used by `Get_RotationMode` Tier-1 (force Aim/Strafe) and
+	 *  `Get_AimingRotation` Tier-1 (look-at-target rotation). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Targeting")
+	TObjectPtr<AActor> TargetedActor;
+
+	/** GASP SlidingAudioComponent — created by `OnMovementModeChanged` when entering
+	 *  Slide via Foley.Event.Slide.Loop, faded out on leaving Slide.
+	 *  `Update_SlidingAudio` updates its `Speed` audio param each Tick. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Audio")
+	TObjectPtr<UAudioComponent> SlidingAudioComponent;
+
+	/** AZ-specific anim-helper: speed-independent accumulator that flips
+	 *  `bIdleTurnInProgress` when 60° of cumulative camera-yaw motion accrues
+	 *  while idle in Aiming mode. AnimInstance reads the bool to drive TIP state.
+	 *  Get_OrientationIntent uses GASP's raw threshold-cache for actual rotation;
+	 *  this accumulator is purely a debounced "anim turn-in-progress" signal. */
 	void Update_IdleTIPAccumulator();
 
 	/** Tracks controller yaw rate (deg/sec). GASP Update_ControlRotationRate.
 	 *  Packed into MoverCustomInputs_PreSim.ControlRotationRate; consumed by
 	 *  rotation-mode logic / camera systems for "is the player whipping the camera?" checks. */
 	void Update_ControlRotationRate(float DeltaSeconds);
+
+	/** GASP Update_TwinStickMode — gated by `DDCvar.ControlStyle` console var.
+	 *  When ControlStyle == 1: sets TwinStickMode=true (one-way latch matching GASP),
+	 *  zeros control rotation each tick, and writes TwinStickAimRotation from
+	 *  right-stick deflection (Atan2(-Y, X)) or current actor rotation when centered. */
+	void Update_TwinStickMode();
+
+	/** GASP Update_TargetedActor — picks nearest actor from TargetableActors and
+	 *  writes TargetedActor; clears TargetedActor when array is empty.
+	 *  Debug cone draw from GASP intentionally skipped. */
+	void Update_TargetedActor();
+
+	/** GASP Update_SlidingAudio — drives the Slide.Loop audio's `Speed` param from
+	 *  current velocity magnitude. No-op when SlidingAudioComponent is null
+	 *  (i.e. not currently in Slide mode, or AC_FoleyEvents not yet wired). */
+	void Update_SlidingAudio();
 
 	// ========================================
 	// Phase 6 — Movement mode change delegate
@@ -308,6 +388,13 @@ protected:
 	/** Bound to UMoverComponent::OnMovementModeChanged in BeginPlay. */
 	UFUNCTION()
 	void HandleMovementModeChanged(const FName& PreviousMode, const FName& NewMode);
+
+	/** Foley audio dispatch stub. GASP routes through `AC_FoleyEvents` (a project-side
+	 *  actor component). AZ doesn't have an equivalent yet — this stub preserves the
+	 *  GASP-shaped call structure (event tag + volume) and is no-op + nullptr-return
+	 *  until an audio component is wired in.
+	 *  Returns the spawned UAudioComponent (nullptr in stub form). */
+	UAudioComponent* PlayFoleyEvent_Stub(FName EventName, float Volume);
 
 	/** Last mode name observed by the change handler. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
@@ -379,9 +466,10 @@ protected:
 	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
 	EAZ_Gait Get_Gait() const;
 
-	/** Per-mode orientation intent matrix. GASP Get_OrientationIntent.
-	 *  AZ divergence: OnGround+Idle+Aim uses our speed-independent accumulator
-	 *  (bIdleTurnInProgress) instead of GASP's raw |delta| ≥ 60° check. */
+	/** Per-mode orientation intent matrix. GASP Get_OrientationIntent — full parity.
+	 *  OnGround+idle+Aim uses GASP's raw `|Delta(AimingRot, ActorRot).Yaw| > 60°`
+	 *  threshold-cache: > 60° → AimingFwd, else last-frame OrientationIntent.
+	 *  (`bIdleTurnInProgress` is no longer consumed here — it's an anim-only signal.) */
 	UFUNCTION(BlueprintPure, Category = "AZ|Mover")
 	FVector Get_OrientationIntent() const;
 
@@ -440,9 +528,6 @@ protected:
 	bool bIsJumpJustPressed = false;
 	bool bIsJumpPressed = false;
 
-	/** Cached last-valid idle orientation target (camera forward on XY plane). */
-	FVector LastIdleOrientationTarget = FVector::ZeroVector;
-
 	/** Accumulated absolute mouse rotation (degrees) since last TIP commit.
 	 *  Speed-independent trigger: any 60° of cumulative camera yaw movement
 	 *  fires TIP, regardless of how fast or slow the mouse moved. */
@@ -450,9 +535,10 @@ protected:
 	float LastObservedControllerYaw = 0.f;
 	bool bAccumYawInitialized = false;
 
-	/** True between commit and alignment — single source of truth for "turn in progress".
-	 *  AnimInstance reads this to drive bIsTurning / TIP. OrientationIntent is only
-	 *  emitted when this is true (otherwise body stays put). */
+	/** True between commit and alignment — single source of truth for "TIP in progress".
+	 *  AnimInstance reads this via IsIdleTurnInProgress() to gate its TIP state in the SM.
+	 *  Only emitted in Aiming mode (matches GASP's idle-TIP gating in Get_OrientationIntent).
+	 *  Get_OrientationIntent itself uses GASP's raw threshold-cache pattern, NOT this flag. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
 	bool bIdleTurnInProgress = false;
 
@@ -460,12 +546,16 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Mover")
 	double ControlRotationRate = 0.0;
 
-	/** Last frame's controller yaw — used to compute ControlRotationRate. */
-	double LastControlRotationYaw = 0.0;
+	/** Init guard for ControlRotationRate computation (skip first frame's bogus delta). */
 	bool bControlRotationRateInitialized = false;
 
 public:
 	bool IsIdleTurnInProgress() const { return bIdleTurnInProgress; }
+
+	/** Read current value of `TwinStickAimDirectionInputAction` from EnhancedPlayerInput.
+	 *  Returns Vec2D::Zero if the IA is unbound or the controller has no enhanced input. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Input")
+	FVector2D GetTwinStickAimDirection() const;
 
 private:
 	// Enhanced Input callbacks
@@ -473,6 +563,7 @@ private:
 	void OnMoveCompleted(const FInputActionValue& Value);
 	void OnLookTriggered(const FInputActionValue& Value);
 	void OnLookCompleted(const FInputActionValue& Value);
+	void OnLookGamepadTriggered(const FInputActionValue& Value);
 	void OnJumpStarted(const FInputActionValue& Value);
 	void OnJumpReleased(const FInputActionValue& Value);
 

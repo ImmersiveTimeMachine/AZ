@@ -23,6 +23,9 @@
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
 #include "AnimationWarpingLibrary.h"
 #include "BoneControllers/AnimNode_OrientationWarping.h"
+#include "BoneControllers/AnimNode_OffsetRootBone.h"
+#include "BoneControllers/AnimNode_Steering.h"
+#include "Animation/AnimClassInterface.h"
 #include "PoseSearch/MotionMatchingAnimNodeLibrary.h"
 #include "PoseSearch/PoseSearchLibrary.h"
 #include "PoseSearch/PoseSearchResult.h"
@@ -65,6 +68,12 @@ namespace
 void UAZ_AnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+
+	// Mover consumes whatever the AnimInstance extracts. RootMotionFromEverything makes the
+	// engine pull the per-frame root delta from ALL playing anims (idle/loops have zero authored
+	// RM, so they contribute nothing) and apply it to the capsule. This is what plants stop
+	// clips correctly without OffsetRootBone catch-up snap at the end of the anim.
+	RootMotionMode = ERootMotionMode::RootMotionFromEverything;
 
 	APawn* PawnOwner = TryGetPawnOwner();
 
@@ -304,6 +313,150 @@ void UAZ_AnimInstance::Update_EssentialValues(float DeltaSeconds)
 		CharacterTransform   = OwnerActor->GetActorTransform();
 		RelativeAcceleration = CharacterTransform.InverseTransformVectorNoScale(Acceleration);
 	}
+
+	// GASP-parity: cache the post-OffsetRootBone root transform.
+	// SandboxCharacter_Mover_ABP.Update_EssentialValues:
+	//   if (OffsetRootBoneEnabled) {
+	//       RootTransform = AnimationWarpingLibrary::GetOffsetRootTransform(OffsetRootRef)
+	//       RootTransform.Yaw += 90  // skeleton's -90° editor offset compensation
+	//   } else {
+	//       RootTransform = CharacterTransform
+	//   }
+	// Used downstream by Update_AimOffset (AO yaw/pitch) and Get_SlideSlopeOffset.
+	if (bOffsetRootBoneEnabled)
+	{
+		if (FAnimNode_OffsetRootBone* OffsetRootNode = FindOffsetRootBoneNode())
+		{
+			FTransform OffsetRootTransform;
+			OffsetRootNode->GetOffsetRootTransform(OffsetRootTransform);
+			FRotator OffsetRot = OffsetRootTransform.Rotator();
+			OffsetRot.Yaw += 90.f;
+			OffsetRootTransform.SetRotation(OffsetRot.Quaternion());
+			RootTransform = OffsetRootTransform;
+		}
+		else
+		{
+			RootTransform = CharacterTransform;
+		}
+	}
+	else
+	{
+		RootTransform = CharacterTransform;
+	}
+
+	// [ANIMSPIN] DEBUG PROBE — temporary, remove after spin diagnosis. Throttled 0.25s.
+	{
+		AnimSpinProbeAccum += DeltaSeconds;
+		if (AnimSpinProbeAccum >= 0.25f)
+		{
+			AnimSpinProbeAccum = 0.f;
+
+			const USkeletalMeshComponent* Mesh = GetSkelMeshComponent();
+			const float MeshWorldYaw = Mesh ? Mesh->GetComponentRotation().Yaw : 0.f;
+
+			// Filter to player mesh only (mesh component rel rot = -90, so World yaw = Cap - 90).
+			// Skip the second AnimInstance (proxy/secondary mesh with different offset) so we
+			// don't flood the log with two streams.
+			const float CapsuleYaw = CharacterTransform.Rotator().Yaw;
+			const float ExpectedPlayerMeshW = FRotator::NormalizeAxis(CapsuleYaw - 90.f);
+			if (FMath::Abs(FRotator::NormalizeAxis(MeshWorldYaw - ExpectedPlayerMeshW)) > 5.f)
+			{
+				return; // not the player mesh; skip
+			}
+
+			const float RootYaw    = RootTransform.Rotator().Yaw;
+			const float Delta      = FRotator::NormalizeAxis(RootYaw - CapsuleYaw);
+			const float VelYaw     = FVector(Velocity.X, Velocity.Y, 0.f).Rotation().Yaw;
+
+			// Trajectory facing samples — Steering target candidates.
+			FTransformTrajectorySample S0, S05, S15;
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 0.0f,  S0,  false);
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 0.5f,  S05, false);
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 1.5f,  S15, false);
+			const float Trj0   = S0.Facing.Rotator().Yaw;
+			const float Trj05  = S05.Facing.Rotator().Yaw;
+			const float Trj15  = S15.Facing.Rotator().Yaw;
+
+			// Raw OffsetRootBone offset BEFORE our +90 compensation.
+			float RawOffYaw = 0.f;
+			float SimDeltaYaw = 0.f;
+			int32 RotMode = -1, TransMode = -1;
+			float RotHL = -1.f, TransHL = -1.f, MaxRotErr = -2.f, MaxTransErr = -2.f;
+			int32 ClampTrans = -1, ClampRot = -1, OnGround = -1, EvalMode = -1, ResetEF = -1;
+			if (FAnimNode_OffsetRootBone* N = FindOffsetRootBoneNode())
+			{
+				FTransform RawT;
+				N->GetOffsetRootTransform(RawT);
+				RawOffYaw = RawT.Rotator().Yaw;
+				SimDeltaYaw = FRotator::NormalizeAxis(RawOffYaw - LastSimYaw);
+				LastSimYaw = RawOffYaw;
+				RotMode    = (int32)N->GetRotationMode();
+				TransMode  = (int32)N->GetTranslationMode();
+				RotHL      = N->GetRotationHalfLife();
+				TransHL    = N->GetTranslationHalflife();
+				MaxRotErr  = N->GetMaxRotationError();
+				MaxTransErr= N->GetMaxTranslationError();
+				ClampTrans = N->GetClampToTranslationVelocity() ? 1 : 0;
+				ClampRot   = N->GetClampToRotationVelocity()    ? 1 : 0;
+				OnGround   = N->GetOnGround()                   ? 1 : 0;
+				EvalMode   = (int32)N->GetEvaluationMode();
+				ResetEF    = N->GetResetEveryFrame()            ? 1 : 0;
+			}
+
+			FString AnimName = TEXT("None");
+			if (BlendStackInputs.Anim) { AnimName = BlendStackInputs.Anim->GetName(); }
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[ANIMSPIN] Cap=%.1f Root=%.1f Δ=%.1f RawOff=%.1f dSim=%+.2f Trj0=%.1f Trj05=%.1f Trj15=%.1f VelYaw=%.1f Spd=%.0f State=%d Anim=%s"),
+				CapsuleYaw, RootYaw, Delta, RawOffYaw, SimDeltaYaw, Trj0, Trj05, Trj15, VelYaw,
+				Speed2D, (int32)MovementState, *AnimName);
+
+			// One-shot per-second dump of OffsetRootBone params (binding-resolved at runtime).
+			AnimSpinParamDumpAccum += 0.25f; // we already gated by 0.25s above
+			if (AnimSpinParamDumpAccum >= 1.0f)
+			{
+				AnimSpinParamDumpAccum = 0.f;
+				UE_LOG(LogTemp, Warning,
+					TEXT("[ANIMSPIN-PARAMS] RotMode=%d TransMode=%d RotHL=%.3f TransHL=%.3f MaxRotErr=%.1f MaxTransErr=%.1f ClampT=%d ClampR=%d OnGround=%d EvalMode=%d ResetEveryFrame=%d"),
+					RotMode, TransMode, RotHL, TransHL, MaxRotErr, MaxTransErr,
+					ClampTrans, ClampRot, OnGround, EvalMode, ResetEF);
+			}
+		}
+	}
+}
+
+FAnimNode_OffsetRootBone* UAZ_AnimInstance::FindOffsetRootBoneNode()
+{
+	const IAnimClassInterface* AnimClass = IAnimClassInterface::GetFromClass(GetClass());
+	if (!AnimClass) return nullptr;
+
+	for (const FStructProperty* NodeProp : AnimClass->GetAnimNodeProperties())
+	{
+		if (NodeProp && NodeProp->Struct == FAnimNode_OffsetRootBone::StaticStruct())
+		{
+			return NodeProp->ContainerPtrToValuePtr<FAnimNode_OffsetRootBone>(this);
+		}
+	}
+	return nullptr;
+}
+
+// Debug helper — collect every FAnimNode_Steering reachable from the generated class.
+TArray<FAnimNode_Steering*> UAZ_AnimInstance::FindAllSteeringNodes()
+{
+	TArray<FAnimNode_Steering*> Out;
+	const IAnimClassInterface* AnimClass = IAnimClassInterface::GetFromClass(GetClass());
+	if (!AnimClass) return Out;
+	for (const FStructProperty* NodeProp : AnimClass->GetAnimNodeProperties())
+	{
+		if (NodeProp && NodeProp->Struct == FAnimNode_Steering::StaticStruct())
+		{
+			if (FAnimNode_Steering* N = NodeProp->ContainerPtrToValuePtr<FAnimNode_Steering>(this))
+			{
+				Out.Add(N);
+			}
+		}
+	}
+	return Out;
 }
 
 void UAZ_AnimInstance::Update_States(float DeltaSeconds)
@@ -376,7 +529,9 @@ void UAZ_AnimInstance::Update_AimOffset(float DeltaSeconds)
 	const FRotator DeltaRaw = UKismetMathLibrary::NormalizedDeltaRotator(AO_AimTarget, RootRot);
 	const float MaxYaw = (MovementState == EAZ_MovementState::Idle) ? 180.f : 110.f;
 	const bool bYawOK   = FMath::Abs(DeltaRaw.Yaw) <= MaxYaw;
-	const bool bModeOK  = (RotationMode == EAZ_RotationMode::Strafe) || (RotationMode == EAZ_RotationMode::Aiming);
+	const bool bModeOK  = (RotationMode == EAZ_RotationMode::Strafe)
+	                   || (RotationMode == EAZ_RotationMode::Aiming)
+	                   || (MovementState == EAZ_MovementState::Idle);
 	const bool bSlotOK  = GetSlotMontageLocalWeight(FName("DefaultSlot")) < 0.5f;
 	const bool bDeltaOK = FMath::Abs(AO.X - Previous_AO.X) < 135.f;
 
@@ -386,6 +541,12 @@ void UAZ_AnimInstance::Update_AimOffset(float DeltaSeconds)
 	{
 		SmoothedAimTarget = AO_AimTarget;
 	}
+
+	// FootContact — read contact_l/contact_r curves from the playing locomotion loop.
+	// Curves are baked 0.0/1.0 step values; threshold at 0.5 for the bool. Default to false
+	// when no curve exists (e.g., non-locomotion clips like idle, jump, stop).
+	bLeftFootDown  = GetCurveValue(FName(TEXT("contact_l"))) > 0.5f;
+	bRightFootDown = GetCurveValue(FName(TEXT("contact_r"))) > 0.5f;
 }
 
 void UAZ_AnimInstance::Update_AdditiveLean(float /*DeltaSeconds*/)
@@ -854,6 +1015,120 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				FutureFacingDelta,
 				(int32)MovementDirection, (int32)MovementState,
 				bNoValidAnim, BlendStackInputs.bLoop, MovementState_LastStateTime));
+
+		// On-screen dump of OffsetRootBone bound values (resolved at runtime from pin bindings).
+		if (FAnimNode_OffsetRootBone* OFR = FindOffsetRootBoneNode())
+		{
+			GEngine->AddOnScreenDebugMessage(-5, 0.f, FColor::Magenta,
+				FString::Printf(TEXT("OFR: RotMode=%d TransMode=%d RotHL=%.3f TransHL=%.3f MaxRotErr=%.1f MaxTransErr=%.1f ClampT=%d ClampR=%d OnGround=%d EvalMode=%d ResetEF=%d"),
+					(int32)OFR->GetRotationMode(),
+					(int32)OFR->GetTranslationMode(),
+					OFR->GetRotationHalfLife(),
+					OFR->GetTranslationHalflife(),
+					OFR->GetMaxRotationError(),
+					OFR->GetMaxTranslationError(),
+					OFR->GetClampToTranslationVelocity() ? 1 : 0,
+					OFR->GetClampToRotationVelocity()    ? 1 : 0,
+					OFR->GetOnGround()                   ? 1 : 0,
+					(int32)OFR->GetEvaluationMode(),
+					OFR->GetResetEveryFrame()            ? 1 : 0));
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(-5, 0.f, FColor::Red,
+				TEXT("OFR: <FAnimNode_OffsetRootBone not found in AnimGraph>"));
+		}
+
+		// === Steering pipeline diagnostic ===
+		// Verifies whether the BlendStack inner Steering nodes are firing and what target
+		// they see vs current OFR-simulated rotation. If 90° lag persists with these printing
+		// non-zero LinearCorrection deltas, the issue is downstream (OFR not consuming).
+		// If TargetYaw == OFRYaw the steering has nothing to correct (target = current).
+		// If Alpha == 0 the steering is gated off (EnableSteering returning false).
+		const TArray<FAnimNode_Steering*> SteeringNodes = FindAllSteeringNodes();
+		FAnimNode_OffsetRootBone* OFRForDbg = FindOffsetRootBoneNode();
+		FTransform OFRSimXf;
+		if (OFRForDbg) OFRForDbg->GetOffsetRootTransform(OFRSimXf);
+		const float OFRSimYaw = OFRSimXf.Rotator().Yaw;
+		const float ActorYawDbg = OwningHeroPawn
+			? OwningHeroPawn->GetActorRotation().Yaw
+			: (OwningCharacter ? OwningCharacter->GetActorRotation().Yaw : 0.f);
+		const float MeshYawDbg = (OwningHeroPawn && OwningHeroPawn->FindComponentByClass<USkeletalMeshComponent>())
+			? OwningHeroPawn->FindComponentByClass<USkeletalMeshComponent>()->GetComponentRotation().Yaw
+			: 0.f;
+
+		GEngine->AddOnScreenDebugMessage(-6, 0.f, FColor::White,
+			FString::Printf(TEXT("Yaw: Actor=%.1f Mesh=%.1f OFR.Sim=%.1f | Δ(Mesh-OFR)=%.1f"),
+				ActorYawDbg, MeshYawDbg, OFRSimYaw,
+				FRotator::NormalizeAxis(MeshYawDbg - OFRSimYaw)));
+
+		// AO diagnostic — BlendSpace X/Y bound to AO.X/AO.Y. If AO ≈ 0 always, BlendSpace
+		// stays centered → no visible aim offset.
+		GEngine->AddOnScreenDebugMessage(-15, 0.f,
+			FMath::Abs(AO.X) > 5.f || FMath::Abs(AO.Y) > 5.f ? FColor::Yellow : FColor::White,
+			FString::Printf(TEXT("AO: X(yaw)=%.1f Y(pitch)=%.1f | EnableAO=%d | RotMode=%d | AimTgt=(P%.1f,Y%.1f) Root=(P%.1f,Y%.1f)"),
+				AO.X, AO.Y, EnableAO ? 1 : 0, (int32)RotationMode,
+				AO_AimTarget.Pitch, AO_AimTarget.Yaw,
+				RootTransform.Rotator().Pitch, RootTransform.Rotator().Yaw));
+
+		// Stop diagnostic — when player releases input we expect IsMoving→0, MovementState→Idle,
+		// SM→TransitionToIdle so the chooser can pick a Stop clip while velocity is still decaying.
+		// If IsMoving stays 1 during the skid, the gate condition (FutureVel>10 && Accel>1) is being
+		// kept true by Mover's deceleration vector — stop never fires until velocity is fully gone.
+		const float FutureVelMag = FVector(Trj_FutureVelocity.X, Trj_FutureVelocity.Y, 0.f).Size();
+		const float AccelMag     = FVector(Acceleration.X,        Acceleration.Y,        0.f).Size();
+		const bool  bIsMovingDbg = IsMoving();
+		GEngine->AddOnScreenDebugMessage(-16, 0.f,
+			bIsMovingDbg ? FColor::Green : FColor::Red,
+			FString::Printf(TEXT("STOP: IsMoving=%d Speed2D=%.0f FutureVel=%.0f Accel=%.0f | MoveState=%d SM=%d"),
+				bIsMovingDbg ? 1 : 0, Speed2D, FutureVelMag, AccelMag,
+				(int32)MovementState, (int32)StateMachineState));
+
+		// Foot contact — read contact_l/contact_r curves baked on locomotion loops.
+		// Chooser binds to bLeftFootDown / bRightFootDown for _LU vs _RU stop/start variants.
+		GEngine->AddOnScreenDebugMessage(-17, 0.f,
+			(bLeftFootDown || bRightFootDown) ? FColor::Cyan : FColor::White,
+			FString::Printf(TEXT("FOOT: L=%d R=%d  (curve_l=%.2f curve_r=%.2f)"),
+				bLeftFootDown ? 1 : 0, bRightFootDown ? 1 : 0,
+				GetCurveValue(FName(TEXT("contact_l"))),
+				GetCurveValue(FName(TEXT("contact_r")))));
+
+		// Trajectory sample at T=0.1 (what Get_DesiredFacing returns when SteeringTargetTime curve = 0)
+		float TrajT01Yaw = 0.f, TrajT05Yaw = 0.f, TrajT10Yaw = 0.f;
+		int32 NSamples = Trajectory.Samples.Num();
+		if (NSamples > 0)
+		{
+			FTransformTrajectorySample S01, S05, S10;
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 0.1f, S01, false);
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 0.5f, S05, false);
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectorySampleAtTime(Trajectory, 1.0f, S10, false);
+			TrajT01Yaw = S01.Facing.Rotator().Yaw;
+			TrajT05Yaw = S05.Facing.Rotator().Yaw;
+			TrajT10Yaw = S10.Facing.Rotator().Yaw;
+		}
+		GEngine->AddOnScreenDebugMessage(-7, 0.f, FColor::White,
+			FString::Printf(TEXT("Trj[%d]: T=0.1 yaw=%.1f | T=0.5 yaw=%.1f | T=1.0 yaw=%.1f"),
+				NSamples, TrajT01Yaw, TrajT05Yaw, TrajT10Yaw));
+
+		if (SteeringNodes.Num() == 0)
+		{
+			GEngine->AddOnScreenDebugMessage(-8, 0.f, FColor::Red,
+				TEXT("Steering: 0 FAnimNode_Steering instances found in AnimBP"));
+		}
+		else
+		{
+			for (int32 i = 0; i < SteeringNodes.Num() && i < 2; ++i)
+			{
+				FAnimNode_Steering* S = SteeringNodes[i];
+				const float TargetYaw = FRotator(S->TargetOrientation).Yaw;
+				const FString SteerAnimName = S->CurrentAnimAsset ? S->CurrentAnimAsset->GetName() : TEXT("<null>");
+				const float DeltaYaw = FRotator::NormalizeAxis(TargetYaw - OFRSimYaw);
+				GEngine->AddOnScreenDebugMessage(-(8 + i), 0.f,
+					FMath::IsNearlyZero(DeltaYaw, 1.0f) ? FColor::Yellow : FColor::White,
+					FString::Printf(TEXT("Steer[%d]: Alpha=%.2f TargetYaw=%.1f Δ(Tgt-OFR)=%.1f ProcT=%.2f AnimT=%.2f Anim=%s"),
+						i, S->Alpha, TargetYaw, DeltaYaw, S->ProceduralTargetTime, S->AnimatedTargetTime, *SteerAnimName));
+			}
+		}
 	}
 
 	// Detect locomotion database change — pulse true for exactly one frame
@@ -990,13 +1265,17 @@ namespace
 		return UBlendStackAnimNodeLibrary::ConvertToBlendStackNode(Node, Result);
 	}
 
-	/** Read (Anim, Time) from a BlendStack node ref. Anim is null if not currently playing a UAnimSequence. */
+	/** Read (Anim, Time) from a BlendStack node ref. Anim is null if not currently playing a UAnimSequence.
+	 *  Important: the engine library's internal cast targets FAnimNode_BlendStackInput (the per-anim inner
+	 *  template's input proxy), NOT FAnimNode_BlendStack (the outer node). The BP wires
+	 *  "State Machine Blend Stack Input" (FAnimNode_BlendStackInput) here. Going through ToBlendStackNode
+	 *  reinterprets as FBlendStackAnimNodeReference (outer-typed) and the inner cast then silently fails,
+	 *  returning null. Pass the original Node directly so the cast hits the right type. */
 	void GetBlendStackAnimAndTime(const FAnimNodeReference& Node, UAnimSequence*& OutAnim, float& OutTime)
 	{
-		const FBlendStackAnimNodeReference BSNode = ToBlendStackNode(Node);
-		UAnimationAsset* Asset = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAsset(BSNode);
+		UAnimationAsset* Asset = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAsset(Node);
 		OutAnim = Cast<UAnimSequence>(Asset);
-		OutTime = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAssetTime(BSNode);
+		OutTime = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAssetTime(Node);
 	}
 }
 
@@ -1052,8 +1331,10 @@ FQuat UAZ_AnimInstance::Get_DesiredFacing(FAnimNodeReference Node) const
 
 bool UAZ_AnimInstance::EnableSteering(FAnimNodeReference Node) const
 {
-	const FBlendStackAnimNodeReference BSNode = ToBlendStackNode(Node);
-	const bool bAnimActive = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimIsActive(BSNode);
+	// Same fix as GetBlendStackAnimAndTime — pass Node directly; engine library casts to
+	// FAnimNode_BlendStackInput internally, so going through ToBlendStackNode here would
+	// silently zero out the lookup and force us to rely on the bLoop fallback.
+	const bool bAnimActive = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimIsActive(Node);
 	const bool bRelevant   = BlendStackInputs.bLoop || bAnimActive;
 
 	const bool bMovingOrAirborne =
@@ -1307,7 +1588,7 @@ bool UAZ_AnimInstance::IsAnimationAlmostComplete(FAnimNodeReference BlendStackNo
 
 	const bool  bLooping      = UBlendStackAnimNodeLibrary::IsCurrentAssetLooping(BSNode);
 	const float TimeRemaining = UBlendStackAnimNodeLibrary::GetCurrentAssetTimeRemaining(BSNode);
-	return !bLooping && TimeRemaining <= 0.75f;
+	return !bLooping && TimeRemaining <= AnimationAlmostCompleteThreshold;
 }
 
 bool UAZ_AnimInstance::JustTraversed() const
@@ -1348,17 +1629,29 @@ float UAZ_AnimInstance::Get_MMBlendTime() const
 
 uint8 UAZ_AnimInstance::Get_OffsetRootTranslationMode() const
 {
-	// EOffsetRootBoneMode: 0=Accumulate, 1=Interpolate, 2=LockOffsetAndConsumeAnimation,
-	//                     3=LockOffsetIncreaseAndConsumeAnimation, 4=LockOffsetAndIgnoreAnimation, 5=Release
-	if (MovementMode == EAZ_MovementMode::InAir) return 5; // Release
-	if (MovementState == EAZ_MovementState::Moving) return 1; // Interpolate (GASP default while moving)
-	return 5; // Release when idle (blend offset back out so mesh re-aligns with capsule)
+	// GASP-parity port of SandboxCharacter_Mover_ABP.Get_OffsetRootTranslationMode:
+	//   IsSlotActive("DefaultSlot")          → Release
+	//   else, MovementMode = OnGround:
+	//     IsMoving                           → Interpolate
+	//     idle                               → Release
+	//   else (InAir / Slide / Traversing)    → Release
+	// EOffsetRootBoneMode: 0=Accumulate, 1=Interpolate, 5=Release
+	if (IsSlotActive(FName(TEXT("DefaultSlot")))) return 5; // Release while montage plays
+	if (MovementMode != EAZ_MovementMode::OnGround) return 5; // Release in air/slide/etc.
+	if (MovementState == EAZ_MovementState::Moving) return 1; // Interpolate while walking
+	return 5; // Release when idle on ground
 }
 
 uint8 UAZ_AnimInstance::Get_OffsetRootRotationMode() const
 {
-	// EOffsetRootBoneMode values same as above.
-	return 0; // Accumulate (GASP default — mesh rotation counters capsule rotation for smoother visual turn)
+	// GASP-parity port of SandboxCharacter_Mover_ABP.Get_OffsetRootRotationMode:
+	//   IsSlotActive("DefaultSlot") → Release
+	//   else                        → Accumulate
+	// Per GASP comment: "Accumulate means the root will counter-rotate any changes to the
+	// capsule rotation, making it appear to rotate independently from the capsule, which
+	// allows root motion and steering to fully control its rotation."
+	//
+	return IsSlotActive(FName(TEXT("DefaultSlot"))) ? 5 : 0; // Release : Accumulate
 }
 
 float UAZ_AnimInstance::Get_OffsetRootTranslationHalfLife() const

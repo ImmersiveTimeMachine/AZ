@@ -54,9 +54,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
 	void Update_Trajectory(float DeltaSeconds);
 
-	/** Update velocity / acceleration / character transform / relative accel essentials. */
+	/** Update velocity / acceleration / character transform / relative accel essentials.
+	 *  Also caches RootTransform from the AnimGraph's OffsetRootBone node (GASP parity). */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
 	void Update_EssentialValues(float DeltaSeconds);
+
+private:
+	/** Reflect into the AnimGraph property table to find the FAnimNode_OffsetRootBone instance.
+	 *  Used by Update_EssentialValues to read the post-offset root transform without needing
+	 *  a BP-wired FAnimNodeReference (which our pure-C++ AnimInstance can't easily provide). */
+	struct FAnimNode_OffsetRootBone* FindOffsetRootBoneNode();
+
+	/** Debug-only: enumerate every FAnimNode_Steering instance in this AnimBP. */
+	TArray<struct FAnimNode_Steering*> FindAllSteeringNodes();
+
+public:
 
 	/** Update MovementMode / Stance / MovementState / Gait / MovementDirection and run GASP 5-var tracking. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Update", meta = (BlueprintThreadSafe))
@@ -435,6 +447,15 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|AimOffset")
 	bool EnableAO = false;
 
+	// --- FootContact (driven by contact_l/contact_r curves baked on locomotion loops) ---
+	// Read each tick from the currently-playing BlendStack anim. Chooser binds to these
+	// so _LU vs _RU stop/start variants can be selected based on which foot is currently down.
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|FootContact")
+	bool bLeftFootDown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|FootContact")
+	bool bRightFootDown = false;
+
 	/** Spring damp smoothing time for aim target (seconds). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|AimOffset")
 	float AimTargetSmoothingTime = 0.2f;
@@ -568,6 +589,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|OffsetRootBone")
 	bool bOffsetRootBoneEnabled = true;
 
+	// [ANIMSPIN] DEBUG PROBE — temp throttle accumulator for per-frame log; remove after diagnosis.
+	float AnimSpinProbeAccum = 0.f;
+	float AnimSpinParamDumpAccum = 0.f;
+	float LastSimYaw = 0.f;
+
 	/** Max distance root can offset from capsule before clamping. Higher = wider turns, lower = tighter. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|OffsetRootBone", meta = (ClampMin = "0", ClampMax = "100"))
 	float OffsetRootTranslationRadius = 30.f;
@@ -583,6 +609,17 @@ public:
 	/** Translation smoothing when sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|OffsetRootBone", meta = (ClampMin = "0.01", ClampMax = "2.0"))
 	float OffsetRootHalfLife_Sprint = 0.5f;
+
+	/** Rotation smoothing halflife. Lower = mesh re-aligns to actor faster.
+	 *  Engine default is 0.2s which produces a visible steady-state offset
+	 *  (~17° at 60°/s actor turn). 0.05s shrinks that to ~4°. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|OffsetRootBone", meta = (ClampMin = "0.01", ClampMax = "2.0"))
+	float OffsetRootRotationHalfLife = 0.05f;
+
+	/** Hard cap on visible rotation offset (degrees). -1 disables.
+	 *  Use to bound worst-case mesh-vs-capsule drift during fast turns. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|OffsetRootBone", meta = (ClampMin = "-1.0", ClampMax = "180.0"))
+	float OffsetRootMaxRotationError = 10.f;
 
 	// ----------------------------------------
 	// CHARACTER PROPERTIES — Fed from character to anim for procedural systems
@@ -801,8 +838,12 @@ public:
 		UAnimationAsset* ChosenAnim,
 		FAZ_ChooserOutputs ChooserOut);
 
+	/** Seconds-remaining threshold for IsAnimationAlmostComplete. Default 0.25s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|StateMachine", meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "2.0"))
+	float AnimationAlmostCompleteThreshold = 0.25f;
+
 	/** SM transition helper: returns true when the BlendStack's current asset is non-looping
-	 *  and has ≤ 0.75s remaining. ABP supplies the BlendStack node ref. */
+	 *  and has ≤ AnimationAlmostCompleteThreshold seconds remaining. ABP supplies the BlendStack node ref. */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|StateMachine", meta = (BlueprintThreadSafe))
 	bool IsAnimationAlmostComplete(FAnimNodeReference BlendStackNode) const;
 
@@ -837,6 +878,14 @@ public:
 	/** Get OffsetRootBone translation radius. */
 	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
 	float Get_OffsetRootTranslationRadius() const;
+
+	/** Get OffsetRootBone rotation half-life. Bind to the Rotation Halflife pin. */
+	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootRotationHalfLife() const { return OffsetRootRotationHalfLife; }
+
+	/** Get OffsetRootBone max rotation error (degrees). Bind to the Max Rotation Error pin. */
+	UFUNCTION(BlueprintPure, Category = "AZ|AnimGraph", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootMaxRotationError() const { return OffsetRootMaxRotationError; }
 
 	// ========================================
 	// FOOT PLACEMENT — Thread-Safe Getters
