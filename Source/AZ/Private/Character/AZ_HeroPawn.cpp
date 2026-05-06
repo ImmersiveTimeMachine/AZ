@@ -202,6 +202,15 @@ void AAZ_HeroPawn::BeginPlay()
 		CharacterMoverComponent->OnMovementModeChanged.AddDynamic(this, &AAZ_HeroPawn::HandleMovementModeChanged);
 		CurrentMovementModeName  = CharacterMoverComponent->GetMovementModeName();
 		PreviousMovementModeName = CurrentMovementModeName;
+
+		// Bridge animation-extracted root motion to the Mover capsule. The Mover
+		// plugin does NOT consume UAnimInstance::RootMotionMode directly; it reads a
+		// per-frame "RootMotionDelta" custom attribute on the mesh (populated by
+		// IAnimRootMotionProvider when the AnimationWarping plugin is active).
+		// FLayeredMove_RootMotionAttribute is the consumer side — it samples that
+		// attribute every tick and turns it into a ProposedMove for the active mode.
+		// DurationMs = -1 (infinite) in its ctor, so queueing once is permanent.
+		CharacterMoverComponent->QueueLayeredMove(MakeShared<FLayeredMove_RootMotionAttribute>());
 	}
 }
 
