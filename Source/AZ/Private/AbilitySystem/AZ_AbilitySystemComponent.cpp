@@ -7,12 +7,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Net/UnrealNetwork.h"
-
-static TAutoConsoleVariable<float> CVarReplayMontageErrorThreshold(
-	TEXT("GS.replay.MontageErrorThreshold"),
-	0.5f,
-	TEXT("Tolerance level for when montage playback position correction occurs in replays")
-);
+#include "AZ_ConsoleVariables.h"
 
 void UAZ_AbilitySystemComponent::GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities)
 {
@@ -731,7 +726,7 @@ void UAZ_AbilitySystemComponent::OnRep_ReplicatedAnimMontageForMesh()
 
 		const bool bIsPlayingReplay = World && World->IsPlayingReplay();
 
-		const float MONTAGE_REP_POS_ERR_THRESH = bIsPlayingReplay ? CVarReplayMontageErrorThreshold.GetValueOnGameThread() : 0.1f;
+		const float MONTAGE_REP_POS_ERR_THRESH = bIsPlayingReplay ? AZCVars::GetReplayMontageErrorThreshold() : 0.1f;
 
 		UAnimInstance* AnimInstance = IsValid(NewRepMontageInfoForMesh.Mesh) && NewRepMontageInfoForMesh.Mesh->GetOwner()
 			== AbilityActorInfo->AvatarActor ? NewRepMontageInfoForMesh.Mesh->GetAnimInstance() : nullptr;

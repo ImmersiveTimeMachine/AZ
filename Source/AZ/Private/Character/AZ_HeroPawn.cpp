@@ -26,34 +26,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
-
-// GASP DDCvar.ControlStyle — 0 = standard third-person, 1 = twin-stick.
-// Read by Update_TwinStickMode each tick. Set via console (`DDCvar.ControlStyle 1`).
-static TAutoConsoleVariable<int32> CVarDDControlStyle(
-	TEXT("DDCvar.ControlStyle"),
-	0,
-	TEXT("GASP Control Style. 0 = standard third-person, 1 = twin-stick."),
-	ECVF_Default);
-
-// GASP DDCvar.StrafeStyle — selects sprint-while-strafing dot-product threshold.
-// 0 → 0.5 (must move mostly toward orientation to sprint).
-// 1 or 2 → -0.1 (sprint allowed unless moving sharply backward).
-// Read by Get_Gait Strafe branch.
-static TAutoConsoleVariable<int32> CVarDDStrafeStyle(
-	TEXT("DDCvar.StrafeStyle"),
-	0,
-	TEXT("GASP Strafe Style. Selects sprint dot-threshold: 0 = 0.5, 1/2 = -0.1."),
-	ECVF_Default);
-
-// GASP DDCvar.AnalogInputStyle — controls default-gait selection (no sprint, no walk).
-// 0 → Run (keyboard default).
-// 1 → Analog: IA_Move stick magnitude > 0.8 → Run else Walk.
-// Read by Get_Gait fallthrough branch.
-static TAutoConsoleVariable<int32> CVarDDAnalogInputStyle(
-	TEXT("DDCvar.AnalogInputStyle"),
-	0,
-	TEXT("GASP Analog Input Style. 0 = keyboard (default Run), 1 = analog (deflection-controlled Run/Walk)."),
-	ECVF_Default);
+#include "AZ_ConsoleVariables.h"
 
 AAZ_HeroPawn::AAZ_HeroPawn(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -425,7 +398,7 @@ EAZ_Gait AAZ_HeroPawn::Get_Gait() const
 			const FVector OrientDir = MoverDefaultInputs_PreSim.OrientationIntent.GetSafeNormal();
 			const double Dot = FVector::DotProduct(MoveDir, OrientDir);
 			// GASP Select: StrafeStyle 0 → 0.5; StrafeStyle 1 or 2 (or anything else) → -0.1.
-			const int32 StrafeStyle = CVarDDStrafeStyle.GetValueOnGameThread();
+			const int32 StrafeStyle = AZCVars::GetStrafeStyle();
 			const double Threshold = (StrafeStyle == 0) ? 0.5 : -0.1;
 			return (Dot > Threshold) ? EAZ_Gait::Sprint : EAZ_Gait::Run;
 		}
@@ -445,7 +418,7 @@ EAZ_Gait AAZ_HeroPawn::Get_Gait() const
 	}
 
 	// Fallthrough: GASP DDCvar.AnalogInputStyle decides default gait.
-	const int32 AnalogStyle = CVarDDAnalogInputStyle.GetValueOnGameThread();
+	const int32 AnalogStyle = AZCVars::GetAnalogInputStyle();
 	if (AnalogStyle == 1)
 	{
 		// Analog branch: read IA_Move stick magnitude, > 0.8 → Run else Walk.
@@ -1152,7 +1125,7 @@ void AAZ_HeroPawn::Update_TwinStickMode()
 	// GASP gate: only active when DDCvar.ControlStyle == 1. False branch is empty
 	// in GASP — TwinStickMode is a one-way latch (once true, stays true even if
 	// the cvar is later cleared). Matched here for behavioral parity.
-	if (CVarDDControlStyle.GetValueOnGameThread() != 1)
+	if (AZCVars::GetControlStyle() != 1)
 	{
 		return;
 	}
