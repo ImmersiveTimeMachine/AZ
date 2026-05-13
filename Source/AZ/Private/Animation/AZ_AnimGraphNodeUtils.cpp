@@ -38,13 +38,13 @@ static UAnimationGraph* FindAnimGraph(UAnimBlueprint* ABP)
 	return nullptr;
 }
 
-static UEdGraphNode* FindNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
+static UEdGraphNode* FindAnimGraphNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
 {
-	FGuid GUID;
-	FGuid::Parse(GUIDString, GUID);
+	FGuid ParsedGuid;
+	FGuid::Parse(GUIDString, ParsedGuid);
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
-		if (Node && Node->NodeGuid == GUID) return Node;
+		if (Node && Node->NodeGuid == ParsedGuid) return Node;
 	}
 	return nullptr;
 }
@@ -178,7 +178,7 @@ bool UAZ_AnimGraphNodeUtils::SetAnimNodeTag(const FString& BlueprintPath, const 
 	UAnimationGraph* AnimGraph = FindAnimGraph(ABP);
 	if (!AnimGraph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(AnimGraph, NodeGUID);
+	UEdGraphNode* Node = FindAnimGraphNodeByGUID(AnimGraph, NodeGUID);
 	UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
 	if (!AnimNode) return false;
 
@@ -199,7 +199,7 @@ bool UAZ_AnimGraphNodeUtils::SetPinBinding(const FString& BlueprintPath, const F
 	UAnimationGraph* AnimGraph = FindAnimGraph(ABP);
 	if (!AnimGraph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(AnimGraph, NodeGUID);
+	UEdGraphNode* Node = FindAnimGraphNodeByGUID(AnimGraph, NodeGUID);
 	UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
 	if (!AnimNode) return false;
 
@@ -329,8 +329,8 @@ bool UAZ_AnimGraphNodeUtils::ConnectPoseLink(const FString& BlueprintPath,
 	UAnimationGraph* AnimGraph = FindAnimGraph(ABP);
 	if (!AnimGraph) return false;
 
-	UEdGraphNode* SourceNode = FindNodeByGUID(AnimGraph, SourceNodeGUID);
-	UEdGraphNode* TargetNode = FindNodeByGUID(AnimGraph, TargetNodeGUID);
+	UEdGraphNode* SourceNode = FindAnimGraphNodeByGUID(AnimGraph, SourceNodeGUID);
+	UEdGraphNode* TargetNode = FindAnimGraphNodeByGUID(AnimGraph, TargetNodeGUID);
 	if (!SourceNode || !TargetNode) return false;
 
 	UEdGraphPin* OutputPin = SourceNode->FindPin(TEXT("Pose"), EGPD_Output);
@@ -385,7 +385,7 @@ static UEdGraph* FindBlendStackBoundGraph(UAnimBlueprint* ABP, const FString& Bl
 	UAnimationGraph* AnimGraph = FindAnimGraph(ABP);
 	if (!AnimGraph) return nullptr;
 
-	UEdGraphNode* Node = FindNodeByGUID(AnimGraph, BlendStackNodeGUID);
+	UEdGraphNode* Node = FindAnimGraphNodeByGUID(AnimGraph, BlendStackNodeGUID);
 	UAnimGraphNode_BlendStack* BSNode = Cast<UAnimGraphNode_BlendStack>(Node);
 	if (!BSNode)
 	{
@@ -516,8 +516,8 @@ bool UAZ_AnimGraphNodeUtils::ConnectBlendStackGraphNodes(const FString& Blueprin
 	UEdGraph* BSGraph = FindBlendStackBoundGraph(ABP, BlendStackNodeGUID);
 	if (!BSGraph) return false;
 
-	UEdGraphNode* SourceNode = FindNodeByGUID(BSGraph, SourceNodeGUID);
-	UEdGraphNode* TargetNode = FindNodeByGUID(BSGraph, TargetNodeGUID);
+	UEdGraphNode* SourceNode = FindAnimGraphNodeByGUID(BSGraph, SourceNodeGUID);
+	UEdGraphNode* TargetNode = FindAnimGraphNodeByGUID(BSGraph, TargetNodeGUID);
 	if (!SourceNode || !TargetNode) return false;
 
 	// Try common output pin names: Pose, ComponentPose
@@ -553,7 +553,7 @@ bool UAZ_AnimGraphNodeUtils::SetBlendStackGraphPinBinding(const FString& Bluepri
 	UEdGraph* BSGraph = FindBlendStackBoundGraph(ABP, BlendStackNodeGUID);
 	if (!BSGraph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(BSGraph, InternalNodeGUID);
+	UEdGraphNode* Node = FindAnimGraphNodeByGUID(BSGraph, InternalNodeGUID);
 	UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
 	if (!AnimNode) return false;
 
@@ -700,8 +700,8 @@ bool UAZ_AnimGraphNodeUtils::ConnectBlendStackGraphPins(const FString& Blueprint
 	UEdGraph* BSGraph = FindBlendStackBoundGraph(ABP, BlendStackNodeGUID);
 	if (!BSGraph) return false;
 
-	UEdGraphNode* SourceNode = FindNodeByGUID(BSGraph, SourceNodeGUID);
-	UEdGraphNode* TargetNode = FindNodeByGUID(BSGraph, TargetNodeGUID);
+	UEdGraphNode* SourceNode = FindAnimGraphNodeByGUID(BSGraph, SourceNodeGUID);
+	UEdGraphNode* TargetNode = FindAnimGraphNodeByGUID(BSGraph, TargetNodeGUID);
 	if (!SourceNode || !TargetNode) return false;
 
 	UEdGraphPin* OutputPin = SourceNode->FindPin(FName(*SourcePinName), EGPD_Output);
@@ -743,7 +743,7 @@ static UEdGraphNode* FindNodeInGraphOrBS(UAnimBlueprint* ABP, const FString& Nod
 		Graph = FindBlendStackBoundGraph(ABP, BlendStackNodeGUID);
 	}
 	if (!Graph) return nullptr;
-	return FindNodeByGUID(Graph, NodeGUID);
+	return FindAnimGraphNodeByGUID(Graph, NodeGUID);
 }
 #endif
 

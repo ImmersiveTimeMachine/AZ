@@ -3,9 +3,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_Jump.h"
 
-#include "Animation/AZ_AnimInstance.h"
-#include "Character/AZ_HeroCharacter.h"
-#include "GameFramework/CharacterMovementComponent.h"
+#include "Character/AZ_JumpRequester.h"
 
 
 UAZ_GA_Jump::UAZ_GA_Jump()
@@ -17,21 +15,23 @@ UAZ_GA_Jump::UAZ_GA_Jump()
 void UAZ_GA_Jump::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
-	if (HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo))
+	if (!HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo))
 	{
-		if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
-		{
-			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
-		}
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
 
-		auto* HeroCharacter = CastChecked<AAZ_HeroCharacter>(ActorInfo->AvatarActor.Get());
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
 
-		if (auto* AzAnimInstance = Cast<UAZ_AnimInstance>(HeroCharacter->GetMesh()->GetAnimInstance()))
-		{
-			AzAnimInstance->bIsJumping = true;
-		}
-
-		HeroCharacter->Jump();
+	// Pawn-agnostic dispatch — works on any pawn class that implements
+	// IAZ_JumpRequester (legacy ACharacter-based, v2 Mover-based, future vehicles).
+	if (IAZ_JumpRequester* Requester = Cast<IAZ_JumpRequester>(ActorInfo->AvatarActor.Get()))
+	{
+		Requester->SetJumpPressed(true);
 	}
 
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
@@ -45,26 +45,25 @@ bool UAZ_GA_Jump::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, co
 		return false;
 	}
 
-	const auto* Character = CastChecked<AAZ_CharacterBase>(ActorInfo->AvatarActor.Get(), ECastCheckedType::NullAllowed);
-	return Character && Character->CanJump();
+	const AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
+	const IAZ_JumpRequester* Requester = Cast<IAZ_JumpRequester>(Avatar);
+	return Requester && Requester->CanRequestJump();
 }
 
 void UAZ_GA_Jump::InputReleased(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo)
 {
-	if (ActorInfo != nullptr && ActorInfo->AvatarActor != nullptr)
+	if (ActorInfo && ActorInfo->AvatarActor.IsValid())
 	{
 		CancelAbility(Handle, ActorInfo, ActivationInfo, true);
 	}
 }
 
-// Epic's comment
-/**
- *	Canceling an non instanced ability is tricky. Right now this works for Jump since there is nothing that can go wrong by calling
- *	StopJumping() if you aren't already jumping. If we had a montage playing non instanced ability, it would need to make sure the
- *	Montage that *it* played was still playing, and if so, to cancel it. If this is something we need to support, we may need some
- *	light weight data structure to represent 'non intanced abilities in action' with a way to cancel/end them.
- */
+// Epic's comment (preserved from original):
+//	Canceling a non-instanced ability is tricky. Right now this works for Jump since
+//	there's nothing that can go wrong by calling StopJumping() if you aren't already
+//	jumping. If we had a montage playing non-instanced ability, it would need to make
+//	sure the Montage that *it* played was still playing, and if so, to cancel it.
 
 void UAZ_GA_Jump::CancelAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateCancelAbility)
@@ -77,7 +76,12 @@ void UAZ_GA_Jump::CancelAbility(const FGameplayAbilitySpecHandle Handle, const F
 
 	Super::CancelAbility(Handle, ActorInfo, ActivationInfo, bReplicateCancelAbility);
 
-	ACharacter* Character = CastChecked<ACharacter>(ActorInfo->AvatarActor.Get());
-	Character->StopJumping();
+	if (ActorInfo && ActorInfo->AvatarActor.IsValid())
+	{
+		if (IAZ_JumpRequester* Requester = Cast<IAZ_JumpRequester>(ActorInfo->AvatarActor.Get()))
+		{
+			Requester->SetJumpPressed(false);
+		}
+	}
 }
 

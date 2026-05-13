@@ -489,13 +489,13 @@ static UEdGraph* GetTransitionRuleGraph(const FString& AnimBlueprintPath, const 
 	return Trans->BoundGraph;
 }
 
-static UEdGraphNode* FindNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
+static UEdGraphNode* FindAnimBPNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
 {
-	FGuid GUID;
-	FGuid::Parse(GUIDString, GUID);
+	FGuid ParsedGuid;
+	FGuid::Parse(GUIDString, ParsedGuid);
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
-		if (Node && Node->NodeGuid == GUID) return Node;
+		if (Node && Node->NodeGuid == ParsedGuid) return Node;
 	}
 	return nullptr;
 }
@@ -538,7 +538,7 @@ bool UAZ_AnimBlueprintUtils::DeleteTransitionRuleNode(const FString& AnimBluepri
 	UEdGraph* RuleGraph = GetTransitionRuleGraph(AnimBlueprintPath, IdentifyingStateName, FromStateName, ToStateName, TransitionIndex, ABP);
 	if (!RuleGraph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(RuleGraph, NodeGUID);
+	UEdGraphNode* Node = FindAnimBPNodeByGUID(RuleGraph, NodeGUID);
 	if (!Node) return false;
 
 	RuleGraph->Modify();
@@ -636,8 +636,8 @@ bool UAZ_AnimBlueprintUtils::ConnectTransitionRulePins(const FString& AnimBluepr
 	UEdGraph* RuleGraph = GetTransitionRuleGraph(AnimBlueprintPath, IdentifyingStateName, FromStateName, ToStateName, TransitionIndex, ABP);
 	if (!RuleGraph) return false;
 
-	UEdGraphNode* SrcNode = FindNodeByGUID(RuleGraph, SourceNodeGUID);
-	UEdGraphNode* TgtNode = FindNodeByGUID(RuleGraph, TargetNodeGUID);
+	UEdGraphNode* SrcNode = FindAnimBPNodeByGUID(RuleGraph, SourceNodeGUID);
+	UEdGraphNode* TgtNode = FindAnimBPNodeByGUID(RuleGraph, TargetNodeGUID);
 	if (!SrcNode || !TgtNode) return false;
 
 	UEdGraphPin* OutPin = SrcNode->FindPin(FName(*SourcePinName), EGPD_Output);
@@ -670,7 +670,7 @@ bool UAZ_AnimBlueprintUtils::SetTransitionRulePinDefault(const FString& AnimBlue
 	UEdGraph* RuleGraph = GetTransitionRuleGraph(AnimBlueprintPath, IdentifyingStateName, FromStateName, ToStateName, TransitionIndex, ABP);
 	if (!RuleGraph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(RuleGraph, NodeGUID);
+	UEdGraphNode* Node = FindAnimBPNodeByGUID(RuleGraph, NodeGUID);
 	if (!Node) return false;
 
 	UEdGraphPin* Pin = Node->FindPin(FName(*PinName));

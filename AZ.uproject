@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "{91826852-4824-732C-D218-F48725E2841A}",
+	"EngineAssociation": "{305F6CC8-4282-9C1C-9DF5-1D82C259BCF6}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -133,7 +133,7 @@
 		},
 		{
 			"Name": "AnimationToolsBundle",
-			"Enabled": true
+			"Enabled": false
 		}
 	]
 }

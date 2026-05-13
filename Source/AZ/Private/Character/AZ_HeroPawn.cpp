@@ -27,6 +27,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "AZ_ConsoleVariables.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/SkinnedMeshComponent.h"
+#include "Engine/Engine.h"
 
 AAZ_HeroPawn::AAZ_HeroPawn(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

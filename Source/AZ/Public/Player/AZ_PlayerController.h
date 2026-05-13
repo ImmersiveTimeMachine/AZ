@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Character/AZ_CharacterBase.h"
 #include "GameFramework/PlayerController.h"
 #include "Items/AZ_Inv_InventoryItem.h"
 #include "AZ_PlayerController.generated.h"
@@ -10,12 +9,9 @@ class UAZ_Inv_CommonUI_InventoryComponent;
 class UAZ_Inv_InventoryComponent;
 class UAZ_InventoryHudWidget;
 class UInputAction;
-class UAbilitySystemComponent;
 class UInputMappingContext;
-struct FInputActionValue;
-struct FInputActionInstance;
+class UAbilitySystemComponent;
 struct FGameplayTag;
-class UAZ_AbilitySystemComponent;
 class UAZ_InputConfig;
 
 
@@ -27,28 +23,20 @@ class AZ_API AAZ_PlayerController : public APlayerController
 public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
-	UInputAction* MoveAction;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
-	class UInputAction* LookAction;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
 	class UInputAction* OpenInventoryAction;
-	
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
 	TObjectPtr<UAZ_InputConfig> InputConfig;
-		
-	TObjectPtr<UAbilitySystemComponent> GetAbilitySystemComponent() const;
-	TObjectPtr<UAZ_AbilitySystemComponent> GetAzAbilitySystemComponent() const;
 
+	/** Returns the possessed pawn's ASC (base type). Callers that need AZ-typed
+	 *  behavior do an inline Cast<UAZ_AbilitySystemComponent>(...) at the call site. */
+	UAbilitySystemComponent* GetAbilitySystemComponent() const;
+
+	/** Cross-pawn, persistent IMC pushed at BeginPlay. Holds the input surface that's
+	 *  active regardless of the possessed pawn (pause, inventory toggle, menu nav,
+	 *  photo mode, scoreboard). Per-pawn IAs live on the pawn's DefaultMappingContext. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Character|Input")
-	TObjectPtr<UInputMappingContext> InputMappingContext;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Character|Input")
-	TObjectPtr<UInputMappingContext> AlwaysInputMappingContext;
-
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "AZ|Character|Movement")
-	float RunSpeedMultiplayer { 2.0f };
+	TObjectPtr<UInputMappingContext> SharedInputMappingContext;
 
 	virtual void SetupInputComponent() override;
 
@@ -68,19 +56,24 @@ public:
 	FORCEINLINE void SetActivePickUpActor(AActor* NewActor) { Swap(LastActivePickupActor,ActivePickupActor); ActivePickupActor = NewActor; }
 
 protected:
-	
+
 	virtual void OnPossess(APawn* aPawn) override;
-	
+	virtual void OnUnPossess() override;
+	/** Client-side counterpart of OnPossess — fires when the PC acknowledges a
+	 *  server-replicated pawn possession. Required because OnPossess is server-only;
+	 *  without this override the client never pushes the pawn's IMC and per-pawn
+	 *  IAs (Move/Look on the v2 pawn) don't trigger on remote clients. */
+	virtual void AcknowledgePossession(APawn* P) override;
+
 	virtual void BeginPlay() override;
 
-	/** Called for movement input */
-	void Move(const FInputActionInstance& Value);
-	void Run(const FInputActionValue& Value);
-	void Look(const FInputActionValue& Value);
-	void CreateHUDWidget();
+	/** Pushes the pawn's DefaultMappingContext at priority 2. Called from both
+	 *  OnPossess (server) and AcknowledgePossession (client). */
+	void PushPawnInputMappingContext(APawn* InPawn);
+	/** Pops the pawn's DefaultMappingContext. Called from OnUnPossess. */
+	void RemovePawnInputMappingContext(APawn* InPawn);
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Character|Movement|State")
-	TEnumAsByte<ECharacterState> CharacterState;
+	void CreateHUDWidget();
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|HUD")
 	TSubclassOf<UAZ_InventoryHudWidget> InventoryHudWidgetClass;

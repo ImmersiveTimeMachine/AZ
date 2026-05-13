@@ -6,11 +6,11 @@
 #include "MoveLibrary/MovementUtils.h"
 #include "MoverDataModelTypes.h"
 
-void UAZ_FallingMode::GenerateMove_Implementation(const FMoverTickStartData& StartState,
+void UAZ_FallingMode::GenerateMove_Implementation(const FMoverSimContext& SimContext, const FMoverTickStartData& StartState,
 	const FMoverTimeStep& TimeStep, FProposedMove& OutProposedMove) const
 {
 	// Phase 1 — let the parent handle gravity, air control, terminal-speed clamping, etc.
-	Super::GenerateMove_Implementation(StartState, TimeStep, OutProposedMove);
+	Super::GenerateMove_Implementation(SimContext, StartState, TimeStep, OutProposedMove);
 
 	// Phase 2 — read inputs.
 	const FCharacterDefaultInputs* DefaultInputs =

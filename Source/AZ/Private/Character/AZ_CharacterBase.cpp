@@ -1,10 +1,12 @@
 ﻿#include <AZ/Public/Character/AZ_CharacterBase.h>
 
+#include "Animation/AZ_AnimInstance.h"
 #include "AZ_GameplayTags.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_AttributeSet.h"
 #include "AZ/AZ.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Player/AZ_PlayerState.h"
 
 
@@ -129,6 +131,36 @@ UAbilitySystemComponent* AAZ_CharacterBase::GetAbilitySystemComponent() const
 const TMap<FGameplayTag, FName>& AAZ_CharacterBase::GetEquipmentSocketMap() const
 {
 	return EquipmentSocketMap;
+}
+
+// ============================================================
+// IAZ_JumpRequester — wraps ACharacter physics + legacy AnimBP bool.
+// GAs (UAZ_GA_Jump, UAZ_GA_PawnJump) call SetJumpPressed without knowing the
+// concrete pawn class. The pawn-side impl owns the side effects.
+// ============================================================
+
+void AAZ_CharacterBase::SetJumpPressed(bool bPressed)
+{
+	if (bPressed)
+	{
+		// Set the AnimBP-driven flag BEFORE Jump() so the anim transition fires
+		// in the same frame as the velocity impulse. bIsJumping is cleared by the
+		// legacy AnimBP / OnLanded path — not the GA's responsibility.
+		if (UAZ_AnimInstance* AzAnimInstance = Cast<UAZ_AnimInstance>(GetMesh()->GetAnimInstance()))
+		{
+			AzAnimInstance->bIsJumping = true;
+		}
+		Jump();
+	}
+	else
+	{
+		StopJumping();
+	}
+}
+
+bool AAZ_CharacterBase::CanRequestJump() const
+{
+	return CanJump();
 }
 
 // Called when the game starts or when spawned

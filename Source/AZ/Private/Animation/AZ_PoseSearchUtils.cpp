@@ -87,7 +87,7 @@ bool UAZ_PoseSearchUtils::AddBlockTransitionNotify(UAnimSequence* Sequence, floa
 	NotifyEvent.EndTriggerTimeOffset = 0.f;
 
 	// Set time via link
-	NotifyEvent.LinkSequence(Sequence, StartTime);
+	NotifyEvent.Link(Sequence, StartTime);
 	NotifyEvent.SetTime(StartTime);
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
@@ -156,7 +156,7 @@ bool UAZ_PoseSearchUtils::AddBranchInNotify(UAnimSequence* Sequence, float Trigg
 	Evt.SetDuration(MinDuration);
 	Evt.TriggerTimeOffset = 0.f;
 	Evt.EndTriggerTimeOffset = 0.f;
-	Evt.LinkSequence(Sequence, TriggerTime);
+	Evt.Link(Sequence, TriggerTime);
 	Evt.SetTime(TriggerTime);
 
 	Sequence->PostEditChange();
@@ -179,7 +179,7 @@ bool UAZ_PoseSearchUtils::AddExcludeFromDatabaseNotify(UAnimSequence* Sequence, 
 	Evt.SetDuration(Duration);
 	Evt.TriggerTimeOffset = 0.f;
 	Evt.EndTriggerTimeOffset = 0.f;
-	Evt.LinkSequence(Sequence, StartTime);
+	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
 
 	Sequence->PostEditChange();
@@ -204,7 +204,7 @@ bool UAZ_PoseSearchUtils::AddModifyCostNotify(UAnimSequence* Sequence, float Sta
 	Evt.SetDuration(Duration);
 	Evt.TriggerTimeOffset = 0.f;
 	Evt.EndTriggerTimeOffset = 0.f;
-	Evt.LinkSequence(Sequence, StartTime);
+	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
 
 	Sequence->PostEditChange();
@@ -229,7 +229,7 @@ bool UAZ_PoseSearchUtils::AddOverrideContinuingPoseCostBiasNotify(UAnimSequence*
 	Evt.SetDuration(Duration);
 	Evt.TriggerTimeOffset = 0.f;
 	Evt.EndTriggerTimeOffset = 0.f;
-	Evt.LinkSequence(Sequence, StartTime);
+	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
 
 	Sequence->PostEditChange();

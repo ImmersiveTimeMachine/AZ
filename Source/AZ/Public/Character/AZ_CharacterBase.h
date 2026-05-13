@@ -6,6 +6,7 @@
 #include "AbilitySystemInterface.h"
 #include "AZ_GameplayTags.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
+#include "Character/AZ_JumpRequester.h"
 #include "Interaction/AZ_CombatInterface.h"
 #include "AZ_CharacterBase.generated.h"
 
@@ -46,7 +47,7 @@ enum ECharacterState : uint8
 };
 
 UCLASS(Abstract)
-class AZ_API AAZ_CharacterBase : public ACharacter, public IAZ_CombatInterface, public IAbilitySystemInterface
+class AZ_API AAZ_CharacterBase : public ACharacter, public IAZ_CombatInterface, public IAbilitySystemInterface, public IAZ_JumpRequester
 {
 	GENERATED_BODY()
 
@@ -56,6 +57,15 @@ public:
 
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
+
+	// ========================================
+	// IAZ_JumpRequester — character-agnostic jump dispatch.
+	// SetJumpPressed wraps ACharacter::Jump/StopJumping and the AnimInstance
+	// bIsJumping bool that drives the legacy AnimBP jump state.
+	// CanRequestJump forwards to ACharacter::CanJump (max-count / hold-time gating).
+	// ========================================
+	virtual void SetJumpPressed(bool bPressed) override;
+	virtual bool CanRequestJump() const override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Combat")
 	TObjectPtr<USkeletalMeshComponent> Weapon;

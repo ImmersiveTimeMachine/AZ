@@ -16,9 +16,9 @@ UAZ_SmoothWalkingMode::UAZ_SmoothWalkingMode()
 	FacingSmoothingTime = 0.5f;
 }
 
-void UAZ_SmoothWalkingMode::OnRegistered(const FName ModeName)
+void UAZ_SmoothWalkingMode::OnRegistered(const FName ModeName, const FMoverSimContext& SimContext)
 {
-	Super::OnRegistered(ModeName);
+	Super::OnRegistered(ModeName, SimContext);
 	MyModeName = ModeName;
 
 	if (UMoverComponent* Mover = GetMoverComponent<UMoverComponent>())
@@ -27,7 +27,7 @@ void UAZ_SmoothWalkingMode::OnRegistered(const FName ModeName)
 	}
 }
 
-void UAZ_SmoothWalkingMode::OnUnregistered()
+void UAZ_SmoothWalkingMode::OnUnregistered(const FMoverSimContext& SimContext)
 {
 	if (UMoverComponent* Mover = GetMoverComponent<UMoverComponent>())
 	{
@@ -38,7 +38,7 @@ void UAZ_SmoothWalkingMode::OnUnregistered()
 		World->GetTimerManager().ClearTimer(JustLandedTimerHandle);
 	}
 	bJustLanded = false;
-	Super::OnUnregistered();
+	Super::OnUnregistered(SimContext);
 }
 
 void UAZ_SmoothWalkingMode::HandleMovementModeChanged(const FName& Previous, const FName& Next)
@@ -61,12 +61,12 @@ void UAZ_SmoothWalkingMode::OnJustLandedTimerExpired()
 }
 
 void UAZ_SmoothWalkingMode::GenerateWalkMove_Implementation(FMoverTickStartData& StartState, float DeltaSeconds,
-	const FVector& DesiredVelocity, const FQuat& DesiredFacing, const FQuat& CurrentFacing,
-	FVector& InOutAngularVelocityDegrees, FVector& InOutVelocity)
+	const FMoverSimContext& SimContext, const FVector& DesiredVelocity, const FQuat& DesiredFacing,
+	const FQuat& CurrentFacing, FVector& InOutAngularVelocityDegrees, FVector& InOutVelocity)
 {
 	if (DeltaSeconds <= UE_KINDA_SMALL_NUMBER)
 	{
-		Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, DesiredVelocity, DesiredFacing,
+		Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity, DesiredFacing,
 			CurrentFacing, InOutAngularVelocityDegrees, InOutVelocity);
 		return;
 	}
@@ -173,6 +173,6 @@ void UAZ_SmoothWalkingMode::GenerateWalkMove_Implementation(FMoverTickStartData&
 	// The Mover/Anim pipeline consumes root motion from the AnimInstance (RootMotionMode is set
 	// to RootMotionFromEverything in UAZ_AnimInstance::NativeInitializeAnimation), so authored
 	// stop-clip RM drives the capsule directly — no manual extraction needed here.
-	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, DesiredVelocity,
+	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity,
 		OverridenDesiredFacing, CurrentFacing, InOutAngularVelocityDegrees, InOutVelocity);
 }

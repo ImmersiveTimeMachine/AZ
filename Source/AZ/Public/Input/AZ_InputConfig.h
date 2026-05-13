@@ -9,7 +9,7 @@
 
 
 USTRUCT(BlueprintType)
-struct FEchoInputAction
+struct FAZ_InputAction
 {
 	GENERATED_BODY()
 
@@ -30,5 +30,5 @@ public:
 	const UInputAction* FindAbilityInputActionForTag(const FGameplayTag& InInputTag, bool bLogNotFound = false) const;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
-	TArray<FEchoInputAction> AbilityInputActions;
+	TArray<FAZ_InputAction> AbilityInputActions;
 };

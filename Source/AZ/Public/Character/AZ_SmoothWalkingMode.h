@@ -32,11 +32,11 @@ public:
 	UAZ_SmoothWalkingMode();
 
 	virtual void GenerateWalkMove_Implementation(FMoverTickStartData& StartState, float DeltaSeconds,
-		const FVector& DesiredVelocity, const FQuat& DesiredFacing, const FQuat& CurrentFacing,
-		FVector& InOutAngularVelocityDegrees, FVector& InOutVelocity) override;
+		const FMoverSimContext& SimContext, const FVector& DesiredVelocity, const FQuat& DesiredFacing,
+		const FQuat& CurrentFacing, FVector& InOutAngularVelocityDegrees, FVector& InOutVelocity) override;
 
-	virtual void OnRegistered(const FName ModeName) override;
-	virtual void OnUnregistered() override;
+	virtual void OnRegistered(const FName ModeName, const FMoverSimContext& SimContext) override;
+	virtual void OnUnregistered(const FMoverSimContext& SimContext) override;
 
 	// ---- Speeds (cm/s) — GASP CDO defaults from gasp_movement_modes.md ----
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Speeds", meta = (ClampMin = "0", ForceUnits = "cm/s"))

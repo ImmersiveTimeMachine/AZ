@@ -1478,8 +1478,7 @@ void UAZ_AnimInstance::Update_MotionMatching_PostSelection(FAnimUpdateContext Co
 	BlendSettings.BlendOption       = EAlphaBlendOption::HermiteCubic;
 	BlendSettings.bUseInertialBlend = false;
 
-	bool bOverrideValid = false;
-	UMotionMatchingAnimNodeLibrary::OverrideMotionMatchingBlendSettings(MMNode, BlendSettings, bOverrideValid);
+	UMotionMatchingAnimNodeLibrary::OverrideMotionMatchingBlendSettings(MMNode, BlendSettings);
 }
 
 // ========================================

@@ -19,7 +19,7 @@ class AZ_API UAZ_FallingMode : public UFallingMode
 	GENERATED_BODY()
 
 public:
-	virtual void GenerateMove_Implementation(const FMoverTickStartData& StartState, const FMoverTimeStep& TimeStep,
+	virtual void GenerateMove_Implementation(const FMoverSimContext& SimContext, const FMoverTickStartData& StartState, const FMoverTimeStep& TimeStep,
 		FProposedMove& OutProposedMove) const override;
 
 	/** Per-axis turning-rate cap (deg/s) applied to the air angular-velocity override.

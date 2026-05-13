@@ -50,13 +50,13 @@ static UEdGraph* FindFunctionGraph(UBlueprint* BP, const FString& FuncName)
 	return nullptr;
 }
 
-static UEdGraphNode* FindNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
+static UEdGraphNode* FindBPNodeByGUID(UEdGraph* Graph, const FString& GUIDString)
 {
-	FGuid GUID;
-	FGuid::Parse(GUIDString, GUID);
+	FGuid ParsedGuid;
+	FGuid::Parse(GUIDString, ParsedGuid);
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
-		if (Node && Node->NodeGuid == GUID) return Node;
+		if (Node && Node->NodeGuid == ParsedGuid) return Node;
 	}
 	return nullptr;
 }
@@ -573,8 +573,8 @@ bool UAZ_BlueprintNodeUtils::ConnectNodes(const FString& BlueprintPath, const FS
 	UEdGraph* Graph = FindFunctionGraph(BP, FunctionName);
 	if (!Graph) return false;
 
-	UEdGraphNode* SourceNode = FindNodeByGUID(Graph, SourceNodeGUID);
-	UEdGraphNode* TargetNode = FindNodeByGUID(Graph, TargetNodeGUID);
+	UEdGraphNode* SourceNode = FindBPNodeByGUID(Graph, SourceNodeGUID);
+	UEdGraphNode* TargetNode = FindBPNodeByGUID(Graph, TargetNodeGUID);
 	if (!SourceNode || !TargetNode)
 	{
 		UE_LOG(LogTemp, Error, TEXT("AZ_BPNodeUtils: Node not found (source=%s target=%s)"), *SourceNodeGUID, *TargetNodeGUID);
@@ -622,7 +622,7 @@ bool UAZ_BlueprintNodeUtils::SetPinDefaultValue(const FString& BlueprintPath, co
 	UEdGraph* Graph = FindFunctionGraph(BP, FunctionName);
 	if (!Graph) return false;
 
-	UEdGraphNode* Node = FindNodeByGUID(Graph, NodeGUID);
+	UEdGraphNode* Node = FindBPNodeByGUID(Graph, NodeGUID);
 	if (!Node) return false;
 
 	UEdGraphPin* Pin = FindPin(Node, PinName);
