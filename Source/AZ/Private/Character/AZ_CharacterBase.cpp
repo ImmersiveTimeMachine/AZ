@@ -89,8 +89,6 @@ void AAZ_CharacterBase::InitDefaultAbilities() const
 			AzASC->TryActivateAbility(AbilitySpecHandle);
 		}
 	}
-	
-	//AzASC->AddCharacterPassiveAbilities(StartupPassiveAbilities);
 }
 
 void AAZ_CharacterBase::InitInputAbilities(const TArray<TSubclassOf<UAZ_GameplayAbility>>& InInputAbilities) const

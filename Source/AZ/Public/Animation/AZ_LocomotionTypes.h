@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Animation/BlendProfile.h"
 #include "Components/CapsuleComponent.h"
+#include "GameplayTagContainer.h"
 #include "MoverTypes.h"
 #include "AZ_LocomotionTypes.generated.h"
 
@@ -525,4 +526,69 @@ struct FAZ_TraversalChooserOutputs
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double MontageStartTime = 0.0;
+};
+
+// ========================================
+// V2 chooser context
+// ========================================
+
+/**
+ * Snapshot of every input the v2 chooser tables read to pick an anim.
+ * Populated once per tick by UAZ_PawnMoverAnimInstance from Mover sync state + GAS tags.
+ * The chooser exposes ONE input property of this type and pulls subfields via property
+ * accessors — keeps the CHT signature stable as new fields are added.
+ *
+ * Tag-driven state (weapon, aiming, reloading, etc.) lives in OwnedTags rather than as
+ * typed enum fields so adding a new gameplay tag never requires a struct/chooser change.
+ */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_v2_ChooserContext
+{
+	GENERATED_BODY()
+
+	// ---- Mover state (per-tick from FMoverDefaultSyncState) ----
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_Gait Gait = EAZ_Gait::Walk;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_Stance Stance = EAZ_Stance::Standing;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
+
+	/** Which foot is planted this frame (from the playing clip's contact_l curve > 0.5).
+	 *  Used as a BoolColumn filter on stop/start/pivot rows to pick the correct-foot variant —
+	 *  MM refines the entry frame within the chosen-foot bucket but does not pick the foot.
+	 *  False for clips without a contact curve (idle, break, jump). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bLeftFootDown = false;
+
+	/** Coarse phase the AnimInstance considers the pawn to be in. Reuses GASP's enum:
+	 *  IdleLoop / TransitionToIdle / LocomotionLoop / TransitionToLocomotion / InAirLoop /
+	 *  TransitionToInAir / IdleBreak / TransitionToSlide / SlideLoop. Drives top-level chooser branch. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_StateMachineState SMState = EAZ_StateMachineState::IdleLoop;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser", meta = (ForceUnits = "cm/s"))
+	float Speed2D = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bIsMoving = false;
+
+	// ---- GAS-driven state (full tag snapshot from the player ASC) ----
+	/** Chooser predicates query with HasTag / HasMatchingTag — e.g. Weapon.Slot.Rifle,
+	 *  State.Aiming, State.Reloading, Ability.Cooldown.*. Adding a new tag is a pure
+	 *  asset edit (tag definition + chooser predicate), no C++ change. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	FGameplayTagContainer OwnedTags;
+
+	// ---- Camera / facing (for rotation-aware choosers — TIP, AO chains, traversal) ----
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	FRotator AimingRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser", meta = (ForceUnits = "deg"))
+	double RotationOffset = 0.0;
 };

@@ -273,7 +273,7 @@ void AAZ_Weapon::AddAbilities()
 	{
 		const auto Ability = Cast<UAZ_GameplayAbility>(GPAbility.GetDefaultObject());
 		auto AbilitySpec = FGameplayAbilitySpec(Ability, GetAbilityLevel(Ability->EchoAbilityID), static_cast<int32>(Ability->EchoAbilityInputID), this);
-		AbilitySpec.DynamicAbilityTags.AddTag(Ability->InputTag);
+		AbilitySpec.GetDynamicSpecSourceTags().AddTag(Ability->InputTag);
 		AbilitySpecHandles.Add(ASC->GiveAbility(AbilitySpec));
 	}
 	

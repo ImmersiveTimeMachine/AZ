@@ -23,7 +23,9 @@ public class AZ : ModuleRules
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "AnimGraph", "BlueprintGraph", "KismetCompiler", "BlendStackEditor", "PoseSearchEditor", "AnimationWarpingEditor", "AnimGraphRuntime" });
 		}
-		
+
+		SetupIrisSupport(Target);
+
 		OptimizeCode = CodeOptimization.Never;
 	}
 }

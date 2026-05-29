@@ -219,10 +219,21 @@ public:
 	static int32 AddFloatRangeColumnToSub(const FString& RootChooserPath, const FString& SubTableName,
 		const FString& PropertyName);
 
-	/** Add a BoolColumn to a sub-chooser. */
+	/** Add a BoolColumn to a sub-chooser. PropertyName may be a dotted path
+	 *  (e.g. "ChooserContext.bLeftFootDown") to bind through a context struct member. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
 	static int32 AddBoolColumnToSub(const FString& RootChooserPath, const FString& SubTableName,
 		const FString& PropertyName);
+
+	/** Set the full property-binding chain AND the context index on an existing column's input
+	 *  (Enum/MultiEnum/FloatRange/Bool). Use to bind through a context member — e.g.
+	 *  ({"ChooserContext","bLeftFootDown"}, ContextIndex 0) for an AnimInstance-context chooser, matching
+	 *  the working enum columns. Setting ContextIndex is REQUIRED: a stray same-typed struct context can
+	 *  otherwise capture a short chain (the bLeftFootDown always-_LU bug). ContextIndex defaults to 0
+	 *  (the AnimInstance). Recompiles the chooser so the new binding resolves. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool SetColumnBindingChain(const FString& ChooserPath, int32 ColumnIndex,
+		const TArray<FString>& PropertyChain, int32 ContextIndex = 0);
 
 	/** Add a RandomizeColumn to a sub-chooser. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")

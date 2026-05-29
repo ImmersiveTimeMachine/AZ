@@ -94,6 +94,33 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// NOTE: RM bridge (capsule side) deliberately NOT queued here yet. FLayeredMove_RootMotionAttribute
+	// uses MixMode=OverrideAll and contributes whenever the "RootMotionDelta" mesh attribute is present
+	// — which RootMotionFromEverything makes true EVERY frame, including in-place idle/walk loops (≈zero
+	// delta). OverrideAll then forces capsule velocity to ~zero, so velocity-driven locomotion can't even
+	// start moving (W deadlocks in idle). It must only be active for transition clips that actually carry
+	// RM. Re-add in the stops/starts iteration, gated by the Mover.SkipAnimRootMotion tag during loops
+	// (the layered move early-outs on that tag — see RootMotionAttributeLayeredMove.cpp:137-141).
+	// See project_root_motion_mode.
+
+	// Wire the PoseSearch trajectory predictor to the Mover component. The v2 AnimInstance generates an
+	// FTransformTrajectory each tick from it (PoseSearchGenerateTransformTrajectoryWithPredictor) — the
+	// single source for both motion matching (PoseHistory node) and intent-based IsMoving.
+	//
+	// Lazy-create if the BP CDO nulled it out: UMoverTrajectoryPredictor is UCLASS(EditInlineNew), so a
+	// Blueprint subclass CDO serializes this instanced-subobject property and clobbers the C++
+	// CreateDefaultSubobject default with null (confirmed — AZ_BP_PawnMoverHeroCharacter's CDO has
+	// TrajectoryPredictor=None). Without this guard GetTrajectoryPredictor() returns null at runtime and
+	// the AnimInstance never builds the trajectory (samples=0). Mirrors v1 AAZ_HeroPawn::BeginPlay.
+	if (!TrajectoryPredictor)
+	{
+		TrajectoryPredictor = NewObject<UMoverTrajectoryPredictor>(this, TEXT("TrajectoryPredictor_Runtime"));
+	}
+	if (TrajectoryPredictor)
+	{
+		TrajectoryPredictor->Setup(GetMoverComponent());
+	}
+
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->PlayerCameraManager->ViewPitchMax = 89.f;
@@ -288,7 +315,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// Gait / MovementDirection / RotationOffset are derived later in the pipeline
 	// (AnimInstance / chooser / Mover mode's ResolveRotationTarget), not pre-computed
 	// here — keeps the Mover InputCmd small and the producer free of derived state.
-	FCharacterDefaultInputs& Defaults =
+	FCharacterDefaultInputs& CharacterDefaultInputs =
 		InputCmdResult.InputCollection.FindOrAddMutableDataByType<FCharacterDefaultInputs>();
 
 	const APlayerController* PC = Cast<APlayerController>(GetController());
@@ -296,7 +323,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	{
 		// AI / unpossessed: leave defaults zero-initialized. AI parity (BT writing
 		// to the cached fields directly) lands in a later step.
-		Defaults = FCharacterDefaultInputs();
+		CharacterDefaultInputs = FCharacterDefaultInputs();
 		return;
 	}
 
@@ -310,39 +337,39 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// Where the camera is pointing this sim tick. Mover stores it on the
 	// SyncState so modes / animation can read "look direction" deterministically
 	// (don't query PlayerCameraManager from inside a mode — it isn't replayed).
-	Defaults.ControlRotation = ControlRot;
+	CharacterDefaultInputs.ControlRotation = ControlRot;
 
 	// The move command itself. DirectionalIntent = "a unit-ish vector pointing
 	// where I want to go" (vs. Velocity = "an exact velocity vector"). World-space
 	// because bUsingMovementBase is false; if true, this would be base-relative.
-	Defaults.SetMoveInput(EMoveInputType::DirectionalIntent, WorldMove);
+	CharacterDefaultInputs.SetMoveInput(EMoveInputType::DirectionalIntent, WorldMove);
 
 	// Where the body should face. Mover modes use this as the rotation target unless
 	// a mode overrides via ResolveRotationTarget(). Step 2 baseline: face movement
 	// direction (Orient-to-Movement). Step 3's UAZ_PawnMoverSmoothWalkingMode replaces
 	// this with always-back-to-camera + idle-TIP via the virtual seam.
-	Defaults.OrientationIntent = WorldMove;
+	CharacterDefaultInputs.OrientationIntent = WorldMove;
 
 	// "Held" jump flag — true the whole time the player is holding Space, false
 	// on release. Mover's falling-mode air-control / coyote-time reads this each tick.
-	Defaults.bIsJumpPressed = bIsJumpPressed;
+	CharacterDefaultInputs.bIsJumpPressed = bIsJumpPressed;
 
 	// One-shot edge — true ONLY on the sim tick where press transitioned 0→1. Used
 	// by the walking mode to fire the initial jump impulse exactly once. Consumed
 	// at the bottom of this function (we set bIsJumpJustPressed = false there).
-	Defaults.bIsJumpJustPressed = bIsJumpJustPressed;
+	CharacterDefaultInputs.bIsJumpJustPressed = bIsJumpJustPressed;
 
 	// Optional movement-mode override. NAME_None = "let Mover pick the mode from
 	// state" (walking, falling, swimming via the transitions registered on the
 	// MoverComponent). Set this to a specific mode name to force a transition —
 	// e.g. teleport into Flying mode, scripted slide, etc.
-	Defaults.SuggestedMovementMode = NAME_None;
+	CharacterDefaultInputs.SuggestedMovementMode = NAME_None;
 
 	// false = inputs are world-space (the simple case). Set true + fill MovementBase
 	// + MovementBaseBoneName when standing on a moving primitive (elevator, ship
 	// deck) so input is inherited along with the platform's motion. Mover detects
 	// the base via floor query; the conversion uses UBasedMovementUtils.
-	Defaults.bUsingMovementBase = false;
+	CharacterDefaultInputs.bUsingMovementBase = false;
 
 	// Consume one-shot.
 	bIsJumpJustPressed = false;

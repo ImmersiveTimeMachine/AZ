@@ -79,8 +79,7 @@ public:
 	FAbilitiesGiven AbilitiesGivenDelegate;
 
 	void GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities);
-	void AddCharacterPassiveAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupPassiveAbilities);
-	
+
 	bool bStartupAbilitiesGiven = false;
 	bool bCharacterAbilitiesGiven = false;
 	bool bStartupEffectsApplied = false;
@@ -212,8 +211,6 @@ protected:
 public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
-	void AddCharacterAbilities(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities);
 
 	// Copy LocalAnimMontageInfo into RepAnimMontageInfo
 	void AnimMontage_UpdateReplicatedDataForMesh(USkeletalMeshComponent* InMesh);

@@ -8,45 +8,33 @@
 #include "Engine/Engine.h"
 #include "Net/UnrealNetwork.h"
 #include "AZ_ConsoleVariables.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 
 void UAZ_AbilitySystemComponent::GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities)
 {
-	// This check is good practice
-	if (bStartupAbilitiesGiven)
+	if (bStartupAbilitiesGiven || GetOwnerRole() != ROLE_Authority)
 	{
 		return;
 	}
 
-	// --- Grant abilities only on the server ---
-	if (GetOwnerRole() == ENetRole::ROLE_Authority)
+	for (const TSubclassOf<UAZ_GameplayAbility>& Ability : Abilities)
 	{
-		for (auto& Ability : Abilities)
+		FGameplayAbilitySpec AbilitySpec(Ability);
+		if (const UAZ_GameplayAbility* AZ_Ability = Cast<UAZ_GameplayAbility>(AbilitySpec.Ability))
 		{
-			auto AbilitySpec = FGameplayAbilitySpec(Ability);
-			if (const auto AZ_Ability = Cast<UAZ_GameplayAbility>(AbilitySpec.Ability))
+			AbilitySpec.GetDynamicSpecSourceTags().AddTag(AZ_Ability->InputTag);
+			const FGameplayAbilitySpecHandle Handle = GiveAbility(AbilitySpec);
+
+			if (AZ_Ability->bActivateAbilityOnGranted)
 			{
-				AbilitySpec.GetDynamicSpecSourceTags().AddTag(AZ_Ability->InputTag);
-				auto Handle = GiveAbility(AbilitySpec);
-				if (AZ_Ability->bActivateAbilityOnGranted)
-				{
-					//TryActivateAbility(Handle);
-				}
-				else
-				{
-				}
+				TryActivateAbility(Handle);
 			}
 		}
 	}
 
-	// Mark that we've done this so we don't do it again.
 	bStartupAbilitiesGiven = true;
-    
-	// Broadcast the delegate to notify other systems.
 	AbilitiesGivenDelegate.Broadcast();
-}
-
-void UAZ_AbilitySystemComponent::AddCharacterPassiveAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupPassiveAbilities)
-{
 }
 
 void UAZ_AbilitySystemComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -58,11 +46,11 @@ void UAZ_AbilitySystemComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
-	
+
 	FScopedAbilityListLock ActiveScopeLoc(*this);
 	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
 	{
-		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
+		if (AbilitySpec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
 		{
 			AbilitySpecInputPressed(AbilitySpec);
 			if (AbilitySpec.IsActive())
@@ -71,7 +59,6 @@ void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& Inpu
 				const FGameplayAbilityActivationInfo& ActivationInfo = Instances.Last()->GetCurrentActivationInfoRef();
 				FPredictionKey OriginalPredictionKey = ActivationInfo.GetActivationPredictionKey();
 				InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, AbilitySpec.Handle, OriginalPredictionKey);
-				//InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, AbilitySpec.Handle, AbilitySpec.ActivationInfo.GetActivationPredictionKey());
 			}
 		}
 	}
@@ -83,9 +70,8 @@ void UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTa
 	FScopedAbilityListLock ActiveScopeLoc(*this);
 	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
 	{
-		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
+		if (AbilitySpec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
 		{
-			//AbilitySpecInputPressed(AbilitySpec);
 			if (!AbilitySpec.IsActive())
 			{
 				TryActivateAbility(AbilitySpec.Handle);
@@ -97,11 +83,11 @@ void UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTa
 void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
-	
+
 	FScopedAbilityListLock ActiveScopeLoc(*this);
 	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
 	{
-		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
+		if (AbilitySpec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
 		{
 			AbilitySpecInputReleased(AbilitySpec);
 			if (AbilitySpec.IsActive())
@@ -110,7 +96,6 @@ void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inp
 				const FGameplayAbilityActivationInfo& ActivationInfo = Instances.Last()->GetCurrentActivationInfoRef();
 				FPredictionKey OriginalPredictionKey = ActivationInfo.GetActivationPredictionKey();
 				InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, AbilitySpec.Handle, OriginalPredictionKey);
-				//InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, AbilitySpec.Handle, AbilitySpec.ActivationInfo.GetActivationPredictionKey());
 			}
 		}
 	}
@@ -289,19 +274,6 @@ void UAZ_AbilitySystemComponent::TickComponent(float DeltaTime, ELevelTick TickT
 void UAZ_AbilitySystemComponent::AbilityActorInfoSet()
 {
 	OnGameplayEffectAppliedDelegateToSelf.AddUObject(this, &UAZ_AbilitySystemComponent::EffectApplied);
-}
-
-void UAZ_AbilitySystemComponent::AddCharacterAbilities(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities)
-{
-	for (auto& Ability : Abilities)
-	{
-		auto AbilitySpec = FGameplayAbilitySpec(Ability);
-		if (const auto EchoAbility = Cast<UAZ_GameplayAbility>(AbilitySpec.Ability))
-		{
-			AbilitySpec.DynamicAbilityTags.AddTag(EchoAbility->InputTag);
-			GiveAbility(AbilitySpec);
-		}
-	}
 }
 
 void UAZ_AbilitySystemComponent::CurrentMontageStopForMesh(USkeletalMeshComponent* InMesh, float OverrideBlendOutTime)

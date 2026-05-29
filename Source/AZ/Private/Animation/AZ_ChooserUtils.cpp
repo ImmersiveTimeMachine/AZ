@@ -1321,7 +1321,17 @@ int32 UAZ_ChooserUtils::AddBoolColumnToSub(const FString& RootChooserPath, const
 	FBoolColumn& Col = ColStruct.GetMutable<FBoolColumn>();
 	Col.InputValue.InitializeAs<FBoolContextProperty>();
 	FBoolContextProperty& Prop = Col.InputValue.GetMutable<FBoolContextProperty>();
-	Prop.Binding.PropertyBindingChain = { FName(*PropertyName) };
+	// Split a dotted path ("ChooserContext.bLeftFootDown") into a multi-element chain so the column can
+	// bind through a context struct member; a bare name stays single-element (backward compatible). A
+	// single-element chain does NOT resolve when the field lives under a context member — see
+	// SetColumnBindingChain and the bLeftFootDown binding fix.
+	{
+		TArray<FString> Parts;
+		PropertyName.ParseIntoArray(Parts, TEXT("."));
+		Prop.Binding.PropertyBindingChain.Reset();
+		for (const FString& Part : Parts) { Prop.Binding.PropertyBindingChain.Add(FName(*Part)); }
+		if (Prop.Binding.PropertyBindingChain.Num() == 0) { Prop.Binding.PropertyBindingChain.Add(FName(*PropertyName)); }
+	}
 	Prop.Binding.ContextIndex = 0;
 	// Fill existing row count with MatchAny default
 	Col.RowValuesWithAny.Init(EBoolColumnCellValue::MatchAny, Table->ResultsStructs.Num());
@@ -1330,6 +1340,61 @@ int32 UAZ_ChooserUtils::AddBoolColumnToSub(const FString& RootChooserPath, const
 	return NewIndex;
 #else
 	return -1;
+#endif
+}
+
+bool UAZ_ChooserUtils::SetColumnBindingChain(const FString& ChooserPath, int32 ColumnIndex,
+	const TArray<FString>& PropertyChain, int32 ContextIndex)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(ChooserPath);
+	if (!Root || !Root->ColumnsStructs.IsValidIndex(ColumnIndex))
+	{
+		UE_LOG(LogTemp, Error, TEXT("SetColumnBindingChain: bad chooser or column index %d"), ColumnIndex);
+		return false;
+	}
+
+	TArray<FName> Chain;
+	for (const FString& S : PropertyChain) { Chain.Add(FName(*S)); }
+
+	// Set BOTH the chain and the context index. Setting ContextIndex is essential: leaving it stale lets a
+	// same-typed struct context capture the binding (the bLeftFootDown always-_LU bug) — the chain must be
+	// resolved against the intended context (0 = the AnimInstance, matching the enum columns).
+	auto Apply = [&](FChooserPropertyBinding& B) { B.PropertyBindingChain = Chain; B.ContextIndex = ContextIndex; };
+
+	FInstancedStruct& ColS = Root->ColumnsStructs[ColumnIndex];
+	bool bSet = false;
+	if (FEnumColumn* EC = ColS.GetMutablePtr<FEnumColumn>())
+	{
+		if (FEnumContextProperty* P = EC->InputValue.GetMutablePtr<FEnumContextProperty>()) { Apply(P->Binding); bSet = true; }
+	}
+	else if (FMultiEnumColumn* MC = ColS.GetMutablePtr<FMultiEnumColumn>())
+	{
+		if (FEnumContextProperty* P = MC->InputValue.GetMutablePtr<FEnumContextProperty>()) { Apply(P->Binding); bSet = true; }
+	}
+	else if (FFloatRangeColumn* FC = ColS.GetMutablePtr<FFloatRangeColumn>())
+	{
+		if (FFloatContextProperty* P = FC->InputValue.GetMutablePtr<FFloatContextProperty>()) { Apply(P->Binding); bSet = true; }
+	}
+	else if (FBoolColumn* BC = ColS.GetMutablePtr<FBoolColumn>())
+	{
+		if (FBoolContextProperty* P = BC->InputValue.GetMutablePtr<FBoolContextProperty>()) { Apply(P->Binding); bSet = true; }
+	}
+
+	if (!bSet)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SetColumnBindingChain: column %d has no rebindable context-property input"), ColumnIndex);
+		return false;
+	}
+
+	Root->Modify();
+	Root->MarkPackageDirty();
+	Root->Compile(true);   // resolve the new binding so it takes effect this session (mirrors RebindChooserContext)
+	UE_LOG(LogTemp, Log, TEXT("SetColumnBindingChain: column %d -> ctx %d chain [%s]"),
+		ColumnIndex, ContextIndex, *FString::JoinBy(Chain, TEXT("."), [](const FName& N){ return N.ToString(); }));
+	return true;
+#else
+	return false;
 #endif
 }
 
