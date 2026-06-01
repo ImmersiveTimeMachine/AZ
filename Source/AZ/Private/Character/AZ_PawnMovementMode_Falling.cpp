@@ -29,8 +29,19 @@ void UAZ_PawnMovementMode_Falling::GenerateMove_Implementation(const FMoverSimCo
 		return;
 	}
 
-	const FRotator CurrentRotator = SyncState->GetOrientation_WorldSpace();
 	const FVector OrientationIntent = DefaultInputs->OrientationIntent;
+
+	// No air-control intent (jump in place, or movement input released mid-air): HOLD the liftoff facing.
+	// OrientationIntent is a ZERO vector then, and FVector::ZeroVector.Rotation().Yaw == 0 would steer the
+	// capsule toward world-yaw-0 (the "initial rotation") — the visible "jump snaps to the start rotation"
+	// bug. The parent (linear physics only) left AngularVelocityDegrees at 0, so an early return keeps the
+	// yaw the capsule had at liftoff. Only steer while the player is actually air-controlling a direction.
+	if (OrientationIntent.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FRotator CurrentRotator = SyncState->GetOrientation_WorldSpace();
 	const float YawFromIntent = static_cast<float>(OrientationIntent.Rotation().Yaw);
 	const float RotationOffsetDeg = CustomInputs ? static_cast<float>(CustomInputs->RotationOffset) : 0.f;
 	const FRotator TargetRotator(0.f, YawFromIntent + RotationOffsetDeg, 0.f);

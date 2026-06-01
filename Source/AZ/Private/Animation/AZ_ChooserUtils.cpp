@@ -1380,6 +1380,16 @@ bool UAZ_ChooserUtils::SetColumnBindingChain(const FString& ChooserPath, int32 C
 	{
 		if (FBoolContextProperty* P = BC->InputValue.GetMutablePtr<FBoolContextProperty>()) { Apply(P->Binding); bSet = true; }
 	}
+	else if (FOutputStructColumn* OSC = ColS.GetMutablePtr<FOutputStructColumn>())
+	{
+		// OUTPUT column: rebinds which context the matched row's struct is WRITTEN to. The output-side
+		// analogue of the bLeftFootDown wrong-context bug — created with ContextIndex=1 (stale 2-context
+		// assumption) but AZ_ChooserOutputs is context[2] in the 3-context CHT_v2 (0 AnimInstance,
+		// 1 AZ_v2_ChooserContext, 2 AZ_ChooserOutputs), so the matched row's struct was written to the wrong
+		// context and never reached the EvaluateChooser output → ChooserOut.bUseMM stuck false. Pass empty
+		// chain + ContextIndex=2; IsBoundToRoot (set at creation) keeps it writing the whole struct.
+		if (FStructContextProperty* P = OSC->InputValue.GetMutablePtr<FStructContextProperty>()) { Apply(P->Binding); bSet = true; }
+	}
 
 	if (!bSet)
 	{
@@ -1437,6 +1447,11 @@ int32 UAZ_ChooserUtils::AddOutputStructColumnToSub(const FString& RootChooserPat
 	Col.InputValue.InitializeAs<FStructContextProperty>();
 	FStructContextProperty& Prop = Col.InputValue.GetMutable<FStructContextProperty>();
 	Prop.Binding.PropertyBindingChain = {};
+	// ⚠ ContextIndex must point at the AZ_ChooserOutputs context. This default "1" assumes a 2-context layout
+	// ([0] AnimInstance, [1] Outputs). The v2 choosers are 3-context ([0] AnimInstance, [1] AZ_v2_ChooserContext,
+	// [2] AZ_ChooserOutputs) → must be 2, else the output struct (bUseMM/BlendTime/...) never reaches the
+	// EvaluateChooser node's output (ChooserOut stuck at defaults). Fix per-chooser via
+	// SetColumnBindingChain(path, outputColIdx, {}, 2). (Cost the cross-clip MM a long debug, 2026-05-31.)
 	Prop.Binding.ContextIndex = 1;
 	Prop.Binding.IsBoundToRoot = true;
 #if WITH_EDITORONLY_DATA

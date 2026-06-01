@@ -138,6 +138,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Input_Action_Jump;            // Replaces InputTag_SpaceBar
     FGameplayTag Input_Action_Crouch;
     FGameplayTag Input_Action_ToggleCrouch;   // If you have both hold and toggle
+	FGameplayTag Input_Action_Run;          // Hold or toggle
     FGameplayTag Input_Action_Sprint;          // Hold or toggle
     FGameplayTag Input_Action_Dodge;           // If applicable
     FGameplayTag Input_Action_Move;           // If applicable

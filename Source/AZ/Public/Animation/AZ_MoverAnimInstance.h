@@ -11,6 +11,7 @@
 class AAZ_PawnMoverHeroCharacter;
 class UAZ_PawnMoverComponent;
 class UCharacterMoverComponent;
+class UPoseSearchDatabase;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -47,6 +48,14 @@ public:
 	/** Cached output from the last chooser evaluation. */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|V2|Anim")
 	FAZ_ChooserOutputs ChooserOutputs;
+
+	/** Shared PoseSearch database of locomotion LOOPS (walk + run). When set, the LocomotionLoop state
+	 *  motion-matches across this whole DB instead of the single chooser-picked clip, so MM selects the
+	 *  walk-vs-run pose by the ACTUAL trajectory/speed — a seamless, speed-continuous walk<->run gear change.
+	 *  Assign in the AZ_ABP_MoverAnimInstance CDO; that creates the asset reference so the DB cooks into a
+	 *  packaged build (a raw LoadObject would leave it orphaned). Null = fall back to the chooser's direct clip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> LocomotionLoopDatabase = nullptr;
 
 	// ---- Trajectory (option A: PoseSearch FTransformTrajectory via the Mover predictor) ----
 	/** Per-tick PoseSearch trajectory (history + prediction). SINGLE source: the AnimGraph PoseHistory
@@ -144,6 +153,32 @@ protected:
 	// thread) flags a pending move; NativeUpdateAnimation (game thread) queues it. Plain members (no GC ref).
 	bool bPendingTransitionRMMove = false;
 	float PendingTransitionRMMoveDurationMs = 0.f;
+
+	// ---- Turn-start (90/135/180) selection — see project_v2_locomotion_progress / project_v2_architecture.
+	/** Signed yaw (deg, +right) from current facing to desired move direction, recomputed every tick in
+	 *  NativeUpdateAnimation while moving. Consumed by DeriveSMState at the start-transition edge to latch
+	 *  LatchedStartDirection. Game-thread only handoff (plain member, no GC ref). */
+	float PendingStartAngleDeg = 0.f;
+
+	/** Turn bucket latched when SMState enters TransitionToLocomotion and held for the whole start
+	 *  transition — the RM turn clip rotates the capsule as it plays, collapsing the live angle, so we
+	 *  must NOT re-bucket mid-turn or it would flip side/magnitude and restart the clip. Fed to
+	 *  ChooserContext.StartDirection while in the start transition; Fwd otherwise. */
+	UPROPERTY(Transient)
+	EAZ_StartDirection LatchedStartDirection = EAZ_StartDirection::Fwd;
+
+	/** Latched alongside LatchedStartDirection at the TransitionToLocomotion entry edge: true if entered
+	 *  from LocomotionLoop (a moving pivot / reversal), false if from idle (from-rest start). Fed to
+	 *  ChooserContext.bMovingTransition while in the start transition so the chooser can pick the dedicated
+	 *  moving-pivot clip vs the from-rest turn-start. */
+	UPROPERTY(Transient)
+	bool bLatchedMovingTransition = false;
+
+	/** Latched true at the air->ground edge (a landing) and held through the touchdown land transition,
+	 *  cleared when it settles to idle. Fed to ChooserContext.bJustLanded so the shared TransitionToIdle
+	 *  phase can pick a jump-land clip instead of a locomotion stop. */
+	UPROPERTY(Transient)
+	bool bLatchedJustLanded = false;
 
 	// ---- Per-push state cache — gates BlendStack pushes so RandomizeColumn rows
 	// don't churn the stack every tick within the same logical chooser context.

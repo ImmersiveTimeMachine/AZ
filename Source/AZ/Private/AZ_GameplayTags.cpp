@@ -203,6 +203,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Input_Action_Jump,             FName("Input.Action.Jump"),             TEXT("Input: Jump."));
     AddTag(GameplayTags.Input_Action_Crouch,           FName("Input.Action.Crouch"),           TEXT("Input: Crouch (hold)."));
     AddTag(GameplayTags.Input_Action_ToggleCrouch,     FName("Input.Action.ToggleCrouch"),     TEXT("Input: Toggle crouch."));
+	AddTag(GameplayTags.Input_Action_Run,			  FName("Input.Action.Run"),		      TEXT("Input: Run."));
     AddTag(GameplayTags.Input_Action_Sprint,           FName("Input.Action.Sprint"),           TEXT("Input: Sprint."));
     AddTag(GameplayTags.Input_Action_Dodge,            FName("Input.Action.Dodge"),            TEXT("Input: Dodge."));
     AddTag(GameplayTags.Input_Action_Move,             FName("Input.Action.Move"),             TEXT("Input: Move."));

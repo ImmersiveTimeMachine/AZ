@@ -9,6 +9,8 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
+#include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
+#include "AZ_GameplayTags.h"                 // FAZ_GameplayTags::Get()
 #include "Engine/CollisionProfile.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -79,7 +81,8 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	// --- Mover ---
 	MoverComponent = CreateDefaultSubobject<UAZ_PawnMoverComponent>(TEXT("MoverComponent"));
 	MoverComponent->SetUpdatedComponent(Capsule);
-	MoverComponent->SetHandleJump(true);
+	MoverComponent->SetHandleJump(false);   // RM jump: the jump clip's root motion drives the takeoff/arc,
+	                                        // not a physics impulse. Re-enforced in BeginPlay (archetype-proof).
 	MoverComponent->SetHandleStanceChanges(true);
 	MoverComponent->PrimaryComponentTick.TickGroup = TG_PrePhysics;
 
@@ -93,6 +96,15 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 void AAZ_PawnMoverHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// RM-driven jump: suppress the Mover's built-in physics jump so RTG_RM_Jump_place_ALL's root motion does
+	// the takeoff from the ground (and lifts the capsule via its vertical Z), instead of an instant physics
+	// impulse. Set here as well as the ctor so a BP archetype that serialized bHandleJump=true can't override
+	// it. The jump is now triggered off the jump-press input edge in UAZ_MoverAnimInstance::DeriveSMState.
+	if (MoverComponent)
+	{
+		MoverComponent->SetHandleJump(false);
+	}
 
 	// NOTE: RM bridge (capsule side) deliberately NOT queued here yet. FLayeredMove_RootMotionAttribute
 	// uses MixMode=OverrideAll and contributes whenever the "RootMotionDelta" mesh attribute is present
@@ -349,6 +361,32 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// direction (Orient-to-Movement). Step 3's UAZ_PawnMoverSmoothWalkingMode replaces
 	// this with always-back-to-camera + idle-TIP via the virtual seam.
 	CharacterDefaultInputs.OrientationIntent = WorldMove;
+
+	// ---- Gait → Mover (v2: movement-domain GAS tags bridge to the Mover sim) ----
+	// The walking mode's ResolveGait reads FAZ_MoverCustomInputs.Gait and maps it to
+	// WalkSpeed/RunSpeed/SprintSpeed (+ accel, turn, facing). We translate the player's
+	// MOVEMENT-domain tags into the gait HERE — on the game thread, where the ASC is
+	// reachable — and ship the resolved enum in the deterministic InputCmd, because a Mover
+	// mode runs in the prediction replay and cannot query the ASC. Tags are granted by
+	// movement abilities (BP_GA_Run → Movement.Running via ActivationOwnedTags). We read
+	// Movement.* (domain state), NOT Ability.State.* (which is ability-to-ability coordination).
+	FAZ_MoverCustomInputs& CustomInputs =
+		InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
+	{
+		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+		if (HasMatchingGameplayTag(AZTags.Movement_Sprinting))
+		{
+			CustomInputs.Gait = EAZ_Gait::Sprint;
+		}
+		else if (HasMatchingGameplayTag(AZTags.Movement_Running))
+		{
+			CustomInputs.Gait = EAZ_Gait::Run;
+		}
+		else
+		{
+			CustomInputs.Gait = EAZ_Gait::Walk;
+		}
+	}
 
 	// "Held" jump flag — true the whole time the player is holding Space, false
 	// on release. Mover's falling-mode air-control / coyote-time reads this each tick.

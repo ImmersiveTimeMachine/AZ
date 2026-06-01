@@ -98,6 +98,24 @@ enum class EAZ_StateMachineState : uint8
 	SlideLoop					= 8
 };
 
+/** Turn magnitude + side for a from-idle start (TransitionToLocomotion).
+ *  Selects the RM turn-start clip (RTG_RM_*Start{90,135,180}_{L,R}) whose baked root rotation
+ *  pivots the body toward the desired heading while accelerating from rest. Bucketed from the
+ *  signed yaw between current facing and desired move direction, LATCHED at transition entry
+ *  (the clip's own root rotation collapses the live angle as it plays, so it must NOT be
+ *  re-bucketed mid-turn). Fwd = |angle| <= 45 deg (no turn — the plain forward start). */
+UENUM(BlueprintType)
+enum class EAZ_StartDirection : uint8
+{
+	Fwd		= 0,	// |angle| <= 45        -> RTG_RM_{Walk,Run}FwdStart
+	L90		= 1,	// turn ~90 left
+	R90		= 2,	// turn ~90 right
+	L135	= 3,	// turn ~135 left
+	R135	= 4,	// turn ~135 right
+	L180	= 5,	// about-face, lead left
+	R180	= 6		// about-face, lead right
+};
+
 /** Traversal action type (mirrors GASP E_TraversalActionType). */
 UENUM(BlueprintType)
 enum class EAZ_TraversalActionType : uint8
@@ -571,6 +589,25 @@ struct AZ_API FAZ_v2_ChooserContext
 	 *  TransitionToInAir / IdleBreak / TransitionToSlide / SlideLoop. Drives top-level chooser branch. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	EAZ_StateMachineState SMState = EAZ_StateMachineState::IdleLoop;
+
+	/** Turn bucket for a from-idle start — selects the RM turn-start clip (90/135/180 L/R) on the
+	 *  TransitionToLocomotion rows. Latched at transition entry and held for the whole start
+	 *  transition; Fwd in every other phase (idle/loop/stop don't turn-start). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_StartDirection StartDirection = EAZ_StartDirection::Fwd;
+
+	/** True while the active TransitionToLocomotion was entered from LocomotionLoop (a moving pivot /
+	 *  reversal) rather than from rest (idle). Lets the chooser route a hard moving turn to the dedicated
+	 *  momentum-preserving pivot clip (e.g. RTG_RM_RunFwdTurn180_*) instead of the from-rest turn-start,
+	 *  while idle starts keep the from-rest clip. Latched at transition entry; False in every other phase. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bMovingTransition = false;
+
+	/** True only while playing a touchdown LAND clip — a TransitionToIdle that was entered from the air
+	 *  (vs a normal stop). Lets the chooser pick a jump-land (e.g. RTG_RM_JumpIdleLand) instead of a stop
+	 *  clip under the shared TransitionToIdle phase. Latched at the air->ground edge; False otherwise. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bJustLanded = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser", meta = (ForceUnits = "cm/s"))
 	float Speed2D = 0.f;

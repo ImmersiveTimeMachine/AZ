@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "MoverComponent.h"
 #include "MoverPoseSearchTrajectoryPredictor.h"
+#include "PoseSearch/PoseSearchDatabase.h"
 #include "PoseSearch/PoseSearchLibrary.h"
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"
 #include "PoseSearch/PoseSearchTrajectoryPredictor.h"
@@ -59,6 +60,12 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (bPendingTransitionRMMove)
 	{
 		bPendingTransitionRMMove = false;
+		// A reversal chains two transition clips (stop → turn-start) back-to-back with no intervening
+		// non-transition frame, so the teardown at the bottom of this function never fires between them.
+		// Cancel any still-active prior transition RM move before queuing the new one, else the stop's and
+		// the start's FLayeredMove_RootMotionAttribute could both be live and double-drive the capsule.
+		// No-op in the normal idle→start / loop→stop case (no prior anim-RM move was queued).
+		CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 		TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
 		RMMove->DurationMs = PendingTransitionRMMoveDurationMs;
 		CachedMover->QueueLayeredMove(RMMove);
@@ -125,12 +132,25 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		? EAZ_Stance::Crouching
 		: EAZ_Stance::Standing;
 
-	// Gait — derived from speed for now. When a sprint input + gait threshold layer lands
-	// (Step 5 follow-up), replace this with a read from the pawn's cached input intent.
+	// Gait — read the authoritative INTENT from the Mover input cmd (the same FAZ_MoverCustomInputs.Gait
+	// the walking mode uses to pick WalkSpeed/RunSpeed/SprintSpeed), NOT re-derived from measured speed.
+	// Intent-based so a from-idle run start selects the Run chooser rows on frame 1 (speed is still ~0 then,
+	// which would mis-read as Walk), and so a mid-locomotion walk->run flips rows immediately instead of
+	// lagging until speed crosses a threshold. Mirrors how bIsMoving above reads the input cmd. The gait is
+	// produced in ProduceInput from the player's Movement.* GAS tags. Falls back to Walk when absent (e.g.
+	// sim proxies without bSyncInputsForSimProxy — same pending MP fix as bIsMoving).
 	const FVector CurrentForward = CachedPawn->GetActorForwardVector();
-	if (ChooserContext.Speed2D > 500.f)        ChooserContext.Gait = EAZ_Gait::Sprint;
-	else if (ChooserContext.Speed2D > 200.f)   ChooserContext.Gait = EAZ_Gait::Run;
-	else                                       ChooserContext.Gait = EAZ_Gait::Walk;
+	{
+		const FMoverInputCmdContext& GaitInput = CachedMover->GetLastInputCmd();
+		if (const FAZ_MoverCustomInputs* Custom = GaitInput.InputCollection.FindDataByType<FAZ_MoverCustomInputs>())
+		{
+			ChooserContext.Gait = Custom->Gait;
+		}
+		else
+		{
+			ChooserContext.Gait = EAZ_Gait::Walk;
+		}
+	}
 
 	// MovementDirection — relative to actor forward. Cheap dot/sign decision for F/B/L/R.
 	if (ChooserContext.bIsMoving)
@@ -152,6 +172,19 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 	}
 	// When idle, leave MovementDirection as last computed — chooser rows for IdleLoop use Any.
+
+	// Turn-start angle — signed yaw from current facing to the desired (world-space input) heading.
+	// This is the selector for the 90/135/180 L/R turn-start clips: at the idle->moving edge the body
+	// can face far from where the stick points, and the RM turn-start clip pivots it there. Recomputed
+	// every moving frame here; DeriveSMState LATCHES it on the TransitionToLocomotion entry edge (the clip
+	// rotates the capsule as it plays, collapsing the live angle — re-bucketing mid-turn would restart it).
+	// +ve = turn right (UE yaw: +90 yaw rotates ForwardVector toward RightVector). VERIFY sign in PIE.
+	if (ChooserContext.bIsMoving)
+	{
+		const float FacingYaw  = static_cast<float>(CurrentForward.Rotation().Yaw);
+		const float DesiredYaw = static_cast<float>(MoveIntentWS.Rotation().Yaw);
+		PendingStartAngleDeg   = FMath::FindDeltaAngleDegrees(FacingYaw, DesiredYaw);
+	}
 
 	// Planted-foot — read the contact_l curve from the playing clip (baked 0/1 step, threshold 0.5).
 	// Same convention as v1 UAZ_AnimInstance. Drives the BoolColumn that selects L/R stop/start
@@ -191,6 +224,18 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// ---- Phase derivation (the "C++ SM") — see project_v2_architecture.md ----
 	ChooserContext.SMState = DeriveSMState(ChooserContext, PreviousSMState);
+
+	// Turn-start bucket: hold the latched bucket for the whole start transition, Fwd everywhere else.
+	// DeriveSMState set LatchedStartDirection at the TransitionToLocomotion entry edge (and only there).
+	const bool bInStartTransition = (ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion);
+	ChooserContext.StartDirection = bInStartTransition ? LatchedStartDirection : EAZ_StartDirection::Fwd;
+	// Moving-pivot vs from-rest start: same latch lifetime. Lets the chooser pick RTG_RM_RunFwdTurn180_*
+	// (momentum-preserving) for a moving reversal vs the from-rest RunFwdStart* for an idle start.
+	ChooserContext.bMovingTransition = bInStartTransition ? bLatchedMovingTransition : false;
+	// Land flag: true only while playing the touchdown land clip — a TransitionToIdle entered from the air.
+	// Distinguishes a jump-land from a locomotion stop under the shared TransitionToIdle phase.
+	ChooserContext.bJustLanded = (ChooserContext.SMState == EAZ_StateMachineState::TransitionToIdle)
+		? bLatchedJustLanded : false;
 
 	// A′ RM-move teardown: whenever we leave a transition phase — whether it completed normally or was
 	// abandoned early (e.g. input re-pressed mid-stop) — cancel the per-transition RM move so it can't keep
@@ -236,7 +281,8 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	// — only subsequent frames where we're still in the same transition.
 	const bool bInTransition =
 		ChooserContext.SMState == EAZ_StateMachineState::TransitionToIdle ||
-		ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion;
+		ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion ||
+		ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir;
 	if (bInTransition && ChooserContext.SMState == LastPushedSMState && !bForceBlend)
 	{
 		return;
@@ -281,6 +327,15 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			AssetsToSearch.Add(ChosenAnim);
 		}
 
+		// v2 loop MM is GAIT-GATED (decision 2026-06-01): MM searches only the chooser-picked clip for the
+		// CURRENT gait (WalkFwdLoop on the walk row, RunFwdLoop on the run row) and picks the best entry FRAME
+		// within that one loop — it never crosses walk<->run. Rationale: gait is tag-driven (Movement.Running),
+		// so a hard turn that momentarily cuts forward speed must NOT let trajectory-based cross-clip MM
+		// downgrade a held Run to the walk cycle. Walk<->run changes now ride the gait tag flipping the chooser
+		// row + the BlendStack cross-fade. (The old cross-clip walk+run search over LocomotionLoopDatabase is
+		// intentionally disabled — re-enable here, GATED PER-GAIT, only if we want the speed-blended gear-change
+		// back; the DB UPROPERTY + ABP CDO assignment are kept so the asset still cooks.)
+
 		FPoseSearchBlueprintResult MMResult;
 		UPoseSearchLibrary::MotionMatch(
 			this, AssetsToSearch, FName("PoseHistory"),
@@ -288,13 +343,22 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			MMResult);
 
 		UAnimationAsset* MMAnim = Cast<UAnimationAsset>(MMResult.SelectedAnim);
+		double MMStartTime = MMResult.SelectedTime;
 		if (!MMAnim)
 		{
-			return;
+			// MM returned nothing (e.g. LocomotionLoopDatabase not assigned yet, or an empty search result) —
+			// fall back to the chooser's direct clip from frame 0 so the loop never FREEZES. Without this, a
+			// bUseMM=True row with no resolvable search target would push no anim and lock the current pose.
+			MMAnim = ChosenAnim ? ChosenAnim : (Candidates.Num() > 0 ? Cast<UAnimationAsset>(Candidates[0]) : nullptr);
+			MMStartTime = 0.0;
+			if (!MMAnim)
+			{
+				return;
+			}
 		}
-
-		// MMCostLimit: when > 0, MM result must beat that cost or we keep current anim.
-		if (ChooserOut.MMCostLimit > 0.0 && MMResult.SearchCost > ChooserOut.MMCostLimit)
+		// MMCostLimit: when > 0, a real MM result must beat that cost or we keep the current anim (skipped on
+		// the fallback path above, where there's no meaningful search cost).
+		else if (ChooserOut.MMCostLimit > 0.0 && MMResult.SearchCost > ChooserOut.MMCostLimit)
 		{
 			return;
 		}
@@ -303,7 +367,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 
 		BlendStackInputs.Anim         = MMAnim;
 		BlendStackInputs.bLoop        = bAssetLooping;
-		BlendStackInputs.StartTime    = MMResult.SelectedTime;
+		BlendStackInputs.StartTime    = MMStartTime;
 		BlendStackInputs.BlendTime    = ChooserOut.BlendTime;
 		BlendStackInputs.BlendProfile = const_cast<UBlendProfile*>(GetBlendProfileByName(ChooserOut.BlendProfile));
 		BlendStackInputs.Tags         = ChooserOut.Tags;
@@ -350,9 +414,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	if (bInTransition)
 	{
 #if !UE_BUILD_SHIPPING
-		// DIAGNOSTIC: what foot did the chooser see, and what clip did it pick? (always-_LU debug)
-		UE_LOG(LogTemp, Warning, TEXT("[v2 STOP] entry: ctx.bLeftFootDown=%d Dir=%d Gait=%d -> chosen=%s"),
-			ChooserContext.bLeftFootDown ? 1 : 0, static_cast<int32>(ChooserContext.MovementDirection),
+		// DIAGNOSTIC: which transition phase did we enter, what did the chooser see, and what clip did it pick?
+		UE_LOG(LogTemp, Warning, TEXT("[v2 TRANS] entry: SM=%d ctx.bLeftFootDown=%d Dir=%d Gait=%d -> chosen=%s"),
+			static_cast<int32>(ChooserContext.SMState), ChooserContext.bLeftFootDown ? 1 : 0,
+			static_cast<int32>(ChooserContext.MovementDirection),
 			static_cast<int32>(ChooserContext.Gait), *GetNameSafe(BlendStackInputs.Anim));
 #endif
 		if (const UAnimSequenceBase* Seq = Cast<UAnimSequenceBase>(BlendStackInputs.Anim))
@@ -362,6 +427,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			const float Remaining = FMath::Max(0.05f,
 				Seq->GetPlayLength() - static_cast<float>(BlendStackInputs.StartTime));
 			TransitionEndTime = Now + Remaining - TransitionAlmostCompleteThreshold;
+			// RM bridge for ALL transitions — including the jump. TransitionToInAir now plays the RM jump clip
+			// RTG_RM_Jump_place_ALL, whose root motion (incl. the vertical lift) drives the whole arc via the
+			// same per-transition FLayeredMove_RootMotionAttribute (OverrideAll) that drives starts/stops. The
+			// earlier "jumps are physics-only, skip RM" gate is removed now that the jump is RM-driven.
 			PendingTransitionRMMoveDurationMs = Remaining * 1000.f;
 			bPendingTransitionRMMove = true;
 		}
@@ -381,6 +450,20 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	}
 }
 
+// Bucket a signed facing->desired yaw (deg, +right) into a turn-start clip selector.
+// Midpoints between the named magnitudes: 45 (0|90), 112.5 (90|135), 157.5 (135|180).
+// Side from the sign; at exactly +-180 the sign is a deterministic tiebreak (refine in Phase 4 if
+// it ever looks wrong-footed). VERIFY the +right convention in PIE — swap bRight if turns mirror.
+static EAZ_StartDirection BucketStartDirection(float SignedAngleDeg)
+{
+	const float A = FMath::Abs(SignedAngleDeg);
+	const bool  bRight = SignedAngleDeg >= 0.f;
+	if (A <= 45.0f)   { return EAZ_StartDirection::Fwd; }
+	if (A <= 112.5f)  { return bRight ? EAZ_StartDirection::R90  : EAZ_StartDirection::L90;  }
+	if (A <= 157.5f)  { return bRight ? EAZ_StartDirection::R135 : EAZ_StartDirection::L135; }
+	return              bRight ? EAZ_StartDirection::R180 : EAZ_StartDirection::L180;
+}
+
 EAZ_StateMachineState UAZ_MoverAnimInstance::DeriveSMState(
 	const FAZ_v2_ChooserContext& Current, EAZ_StateMachineState Previous)
 {
@@ -390,32 +473,138 @@ EAZ_StateMachineState UAZ_MoverAnimInstance::DeriveSMState(
 	// Transition states (TransitionToIdle, TransitionToLocomotion) deferred until we have
 	// the per-anim chooser rows + motion-matching DBs that drive them.
 
-	// Non-idle phases — clear any pending idle-break / transition scheduling.
-	if (Current.MovementMode == EAZ_MovementMode::InAir)
+	const UWorld* World = GetWorld();
+	const float Now = World ? World->GetTimeSeconds() : 0.f;
+
+	// --- RM jump: the whole jump is ONE root-motion clip (RTG_RM_Jump_place_ALL) whose root motion both
+	// lifts the capsule AND sets it back down. So once a jump has started, HOLD TransitionToInAir for the
+	// clip's full length, DECOUPLED from MovementMode: the clip's own RM flips MovementMode InAir->OnGround
+	// partway through (when it plants), and letting that exit early would cut the clip short / fire the
+	// locomotion land edge. The per-transition RM bridge (un-gated in SetBlendStackAnimFromChooser) then
+	// OverrideAll-drives the arc — incl. the vertical lift — from the clip's root-motion attribute.
+	// (This block must precede the MovementMode==InAir check so the held jump survives the mid-clip plant.) ---
+	if (Previous == EAZ_StateMachineState::TransitionToInAir)
 	{
 		NextIdleBreakTime = -1.f;
 		IdleBreakEndTime  = -1.f;
-		TransitionEndTime = -1.f;
-		return EAZ_StateMachineState::InAirLoop;
+		bLatchedJustLanded = false;
+		// Hold the jump clip for its full length, then settle. Re-triggering the jump before landing is
+		// blocked at the GA level (BP_GA_Jump can't re-activate until grounded), so we don't gate on the
+		// ground here — keeps this purely "play the clip once, then return to loco/idle".
+		if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
+		{
+			TransitionEndTime = -1.f;
+			return Current.bIsMoving ? EAZ_StateMachineState::LocomotionLoop : EAZ_StateMachineState::IdleLoop;
+		}
+		return EAZ_StateMachineState::TransitionToInAir;
 	}
+
+	// Jump START: the physics jump is suppressed (SetHandleJump(false)), so the Mover no longer puts us
+	// airborne on press — we trigger the RM jump off the jump-press input EDGE instead. RTG_RM_Jump_place_ALL's
+	// own root motion does the takeoff FROM THE GROUND (anticipation + push-off) and lifts the capsule via its
+	// vertical Z. The GA still ships bIsJumpJustPressed via SetJumpPressed (the Mover just no longer consumes
+	// it). Read it from the last input cmd — same source as the gait/move reads.
+	// (Fall-off-ledge has no handler here yet — a later rung; for now only a jump-press starts the air clip.)
+	bool bJumpJustPressed = false;
+	if (CachedMover)
+	{
+		const FMoverInputCmdContext& JumpIn = CachedMover->GetLastInputCmd();
+		if (const FCharacterDefaultInputs* CharIn = JumpIn.InputCollection.FindDataByType<FCharacterDefaultInputs>())
+		{
+			bJumpJustPressed = CharIn->bIsJumpJustPressed;
+		}
+	}
+	if (bJumpJustPressed)
+	{
+		NextIdleBreakTime = -1.f;
+		IdleBreakEndTime  = -1.f;
+		bLatchedJustLanded = false;
+		TransitionEndTime = Now + 1.0f;   // overridden by the RTG_RM_Jump_place_ALL clip length
+		return EAZ_StateMachineState::TransitionToInAir;
+	}
+
 	if (Current.bIsMoving)
 	{
-		// Moving (intent). Re-pressing input mid-stop lands here → resume the loop immediately,
-		// abandoning the stop transition. (Start transition deferred to a later iteration.)
 		NextIdleBreakTime = -1.f;
 		IdleBreakEndTime  = -1.f;
+		bLatchedJustLanded = false;
+
+		// Hard-reversal / sharp-turn detection (while MOVING): if the desired heading is far enough from
+		// current facing, we PLANT-STOP then re-accelerate through a turn-start, instead of smearing the
+		// loop around to a backward/side clip (the unnatural "run fwd, flick S" reversal). Gentle steering
+		// (below threshold) stays in the loop — facing-smoothing handles it. A normal stop only exists while
+		// !bIsMoving; a stop that runs WHILE moving (input held) is by definition a committed reversal, so we
+		// distinguish the two purely by this angle (no extra state flag). Threshold tunable by feel; CHALK
+		// wants a weighty plant on reversals. (Same PendingStartAngleDeg recomputed each moving frame.)
+		constexpr float ReversalAngleThreshold = 135.f;
+		const bool bHardTurn = FMath::Abs(PendingStartAngleDeg) >= ReversalAngleThreshold;
+
+		// --- Start transition: idle → moving routes through TransitionToLocomotion (plays an RM start
+		// clip that accelerates from rest) before settling to LocomotionLoop. Symmetric with the stop
+		// path below; TransitionEndTime is populated by SetBlendStackAnimFromChooser from the chosen
+		// clip's length (same mechanism as the stop / IdleBreak). ---
+		if (Previous == EAZ_StateMachineState::IdleLoop || Previous == EAZ_StateMachineState::IdleBreak)
+		{
+			// Latch the turn-start bucket ONCE, here at the entry edge, from this frame's desired-vs-facing
+			// angle. Held for the whole transition (the RM turn clip collapses the live angle as it plays;
+			// re-bucketing would flip the selected clip mid-turn). NativeUpdateAnimation feeds it to
+			// ChooserContext.StartDirection while SMState == TransitionToLocomotion.
+			LatchedStartDirection = BucketStartDirection(PendingStartAngleDeg);
+			bLatchedMovingTransition = false;   // from rest → from-rest turn-start clips
+
+			// Arm a default fall-through, overridden by the real clip length in SetBlendStackAnimFromChooser.
+			// Safety net: if no TransitionToLocomotion chooser row matches (so no clip is pushed), this still
+			// lets us settle into the loop instead of freezing at rest.
+			TransitionEndTime = Now + 1.0f;
+			return EAZ_StateMachineState::TransitionToLocomotion;
+		}
+		if (Previous == EAZ_StateMachineState::TransitionToLocomotion)
+		{
+			if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
+			{
+				TransitionEndTime = -1.f;
+				return EAZ_StateMachineState::LocomotionLoop;
+			}
+			return EAZ_StateMachineState::TransitionToLocomotion;
+		}
+		// --- Reversal / sharp turn while moving: go STRAIGHT to the turn-start (pivot), skipping the plant-
+		// stop, so there's no halt-then-go delay. The turn-start's root motion overrides the current velocity
+		// (A′ layered move = OverrideAll for the transition), so the body re-aims and re-accelerates the new
+		// way directly out of the loop — you still get the clip's own decel-through-the-pivot, but not a
+		// separate full stop first. Gentle turns (below threshold) stay in the loop (facing-smoothing steers).
+		// NOTE: the turn-start clips are authored from rest; entering them at speed can look slightly light on
+		// the plant — if so, the dedicated moving pivots (RTG_RM_RunFwdTurn180_*) are the quality upgrade. ---
+		if (Previous == EAZ_StateMachineState::LocomotionLoop)
+		{
+			if (bHardTurn)
+			{
+				LatchedStartDirection = BucketStartDirection(PendingStartAngleDeg);
+				bLatchedMovingTransition = true;   // moving pivot → dedicated momentum-preserving pivot clip
+				TransitionEndTime = Now + 1.0f;   // overridden by the real turn-start clip length
+				return EAZ_StateMachineState::TransitionToLocomotion;
+			}
+			TransitionEndTime = -1.f;
+			return EAZ_StateMachineState::LocomotionLoop;
+		}
+		// TransitionToIdle while still moving = a normal stop whose input was re-pressed → resume the loop
+		// (residual momentum, no from-rest start needed). If it's actually a hard turn, the loop re-evaluates
+		// bHardTurn next frame and pivots then.
+		if (Previous == EAZ_StateMachineState::TransitionToIdle)
+		{
+			TransitionEndTime = -1.f;
+			return EAZ_StateMachineState::LocomotionLoop;
+		}
+		// Landing or any other prior phase → straight to the loop (MM finds the entry frame).
 		TransitionEndTime = -1.f;
 		return EAZ_StateMachineState::LocomotionLoop;
 	}
-
-	const UWorld* World = GetWorld();
-	const float Now = World ? World->GetTimeSeconds() : 0.f;
 
 	// --- Stop transition: moving → idle routes through TransitionToIdle (plays a foot-aware RM stop
 	// clip) before settling to IdleLoop. TransitionEndTime is populated by SetBlendStackAnimFromChooser
 	// from the chosen clip's length (same mechanism as IdleBreakEndTime). ---
 	if (Previous == EAZ_StateMachineState::LocomotionLoop)
 	{
+		bLatchedJustLanded = false;   // this TransitionToIdle is a STOP, not a land
 		// Arm a default fall-through, overridden by the real clip length in SetBlendStackAnimFromChooser.
 		// Safety net: if no TransitionToIdle chooser row matches (so no clip is pushed), this still lets
 		// us settle to idle instead of freezing in the stop phase.
@@ -427,6 +616,7 @@ EAZ_StateMachineState UAZ_MoverAnimInstance::DeriveSMState(
 		if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
 		{
 			TransitionEndTime = -1.f;
+			bLatchedJustLanded = false;   // land (or stop) finished → clear
 			NextIdleBreakTime = Now + FMath::FRandRange(IdleBreakMinTime, IdleBreakMaxTime);
 			return EAZ_StateMachineState::IdleLoop;
 		}
