@@ -59,16 +59,25 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// See project_root_motion_mode (approach A′).
 	if (bPendingTransitionRMMove)
 	{
-		bPendingTransitionRMMove = false;
-		// A reversal chains two transition clips (stop → turn-start) back-to-back with no intervening
-		// non-transition frame, so the teardown at the bottom of this function never fires between them.
-		// Cancel any still-active prior transition RM move before queuing the new one, else the stop's and
-		// the start's FLayeredMove_RootMotionAttribute could both be live and double-drive the capsule.
-		// No-op in the normal idle→start / loop→stop case (no prior anim-RM move was queued).
-		CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
-		TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
-		RMMove->DurationMs = PendingTransitionRMMoveDurationMs;
-		CachedMover->QueueLayeredMove(RMMove);
+		bPendingTransitionRMMove = false;   // consume the flag on every machine (it was set on the proxy too)
+		// ONLY the simulating machine (authority / autonomous proxy) drives the capsule from root motion. A
+		// SIMULATED proxy's capsule follows the REPLICATED, interpolated transform — queuing the OverrideAll
+		// root-motion move there makes the proxy try to RM-drive a capsule that's also being interpolated, and
+		// the two fight every frame → visibly JERKY proxy motion (worst on the fast vertical jump arc). The
+		// proxy still plays the clip locally with RootMotionFromEverything, which extracts the root IN PLACE,
+		// so the mesh animates correctly while the replicated transform carries the world motion. Smooth.
+		if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
+		{
+			// A reversal chains two transition clips (stop → turn-start) back-to-back with no intervening
+			// non-transition frame, so the teardown at the bottom of this function never fires between them.
+			// Cancel any still-active prior transition RM move before queuing the new one, else the stop's and
+			// the start's FLayeredMove_RootMotionAttribute could both be live and double-drive the capsule.
+			// No-op in the normal idle→start / loop→stop case (no prior anim-RM move was queued).
+			CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+			TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+			RMMove->DurationMs = PendingTransitionRMMoveDurationMs;
+			CachedMover->QueueLayeredMove(RMMove);
+		}
 	}
 
 	const EAZ_StateMachineState PreviousSMState = ChooserContext.SMState;
@@ -123,6 +132,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 	else if (ModeName == TEXT("Falling"))
 	{
+		ChooserContext.MovementMode = EAZ_MovementMode::InAir;
+	}
+	else if (ModeName == TEXT("RMAction"))
+	{
+		// The RM-action mode (jump/vault/etc.) is airborne — report InAir so trajectory/other systems agree.
+		// The jump SM phase is DECOUPLED from this (DeriveSMState holds TransitionToInAir by clip length, not
+		// by MovementMode), so this is purely informational for non-jump consumers.
 		ChooserContext.MovementMode = EAZ_MovementMode::InAir;
 	}
 	// Slide / Swim left as default until those modes exist.
@@ -246,9 +262,37 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		return S == EAZ_StateMachineState::TransitionToIdle || S == EAZ_StateMachineState::TransitionToLocomotion;
 	};
-	if (IsTransitionPhase(PreviousSMState) && !IsTransitionPhase(ChooserContext.SMState))
+	// Sim proxies never queued an RM move (gated above), so there's nothing to cancel — and they must not
+	// touch their Mover (the capsule is replication-driven). Gate the teardown to the simulating machine too.
+	if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy &&
+		IsTransitionPhase(PreviousSMState) && !IsTransitionPhase(ChooserContext.SMState))
 	{
 		CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+	}
+
+	// ---- RM-action mode handoff (jump) ----
+	// The RM jump clip (RTG_RM_Jump_place_ALL) carries vertical root motion. In Walking mode the per-tick
+	// floor-snap (UWalkingMode::TryMoveToAdjustHeightAboveFloor) eats that lift, so for the air phase we hand
+	// the Mover to UAZ_PawnMovementMode_RMAction — gravity-free, floor-snap-free — which follows the clip's
+	// full XYZ root motion (incl. Z). Switch in on the TransitionToInAir ENTER edge; hand back to Walking on
+	// the EXIT edge — by then the clip's own root motion has set the capsule back on the ground, and Walking
+	// re-finds the floor on Activate. QueueNextMode is the same game-thread Mover API the RM-move queue above
+	// uses. The phase length is bounded by the clip (DeriveSMState), so there is no way to get stuck airborne.
+	// Only the machine that SIMULATES this pawn drives the mode (authority + locally-predicted autonomous
+	// proxy). A simulated proxy doesn't run the sim — it RECEIVES the mode via replication and mirrors it in
+	// DeriveSMState — so it must NOT queue mode changes (meaningless locally, and could perturb interpolation).
+	if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
+	{
+		const bool bWasInAir = (PreviousSMState      == EAZ_StateMachineState::TransitionToInAir);
+		const bool bNowInAir = (ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir);
+		if (bNowInAir && !bWasInAir)
+		{
+			CachedMover->QueueNextMode(TEXT("RMAction"));
+		}
+		else if (bWasInAir && !bNowInAir)
+		{
+			CachedMover->QueueNextMode(TEXT("Walking"));
+		}
 	}
 }
 
@@ -476,6 +520,37 @@ EAZ_StateMachineState UAZ_MoverAnimInstance::DeriveSMState(
 	const UWorld* World = GetWorld();
 	const float Now = World ? World->GetTimeSeconds() : 0.f;
 
+	// ---- Simulated-proxy air mirror ----
+	// A simulated proxy (another player on THIS machine) doesn't run the Mover sim, and routinely MISSES the
+	// one-shot jump-press edge: bIsJumpJustPressed is true for a SINGLE sim frame and falls between the
+	// interpolated snapshots a sim proxy reconstructs motion from (the "sometimes it jumps" symptom). The
+	// MovementMode is persistent replicated STATE (part of FMoverSyncState), not a transient event, so we
+	// mirror it: the proxy is in the air phase for EXACTLY as long as the replicated mode is "RMAction".
+	// One source of truth (no edge, no clip timer) ⇒ can't desync from the physics and can't re-enter —
+	// enter/stay while mode==RMAction, exit the frame it drops. Authority + autonomous proxy (the machines
+	// that SIMULATE the pawn) fall through to the edge-driven path below — responsive + predicted, and the
+	// server replays the client's input so it still sees the edge for remote pawns.
+	if (CachedPawn && CachedPawn->GetLocalRole() == ROLE_SimulatedProxy)
+	{
+		const bool bProxyInRMAction = CachedMover && CachedMover->GetMovementModeName() == TEXT("RMAction");
+		if (bProxyInRMAction)
+		{
+			NextIdleBreakTime = -1.f;
+			IdleBreakEndTime  = -1.f;
+			bLatchedJustLanded = false;
+			return EAZ_StateMachineState::TransitionToInAir;   // enter or stay
+		}
+		if (Previous == EAZ_StateMachineState::TransitionToInAir)
+		{
+			// Mode just dropped out of RMAction → the jump's air phase ended on the authority. Settle by the
+			// synced movement intent (bIsMoving rides the synced input, so it is valid on a proxy).
+			TransitionEndTime = -1.f;
+			return Current.bIsMoving ? EAZ_StateMachineState::LocomotionLoop : EAZ_StateMachineState::IdleLoop;
+		}
+		// Not in the RM jump → fall through to the normal grounded derivation below (walk/run/idle/stop
+		// already replicate correctly on proxies — they key off sustained synced input, not a one-shot edge).
+	}
+
 	// --- RM jump: the whole jump is ONE root-motion clip (RTG_RM_Jump_place_ALL) whose root motion both
 	// lifts the capsule AND sets it back down. So once a jump has started, HOLD TransitionToInAir for the
 	// clip's full length, DECOUPLED from MovementMode: the clip's own RM flips MovementMode InAir->OnGround
@@ -505,8 +580,12 @@ EAZ_StateMachineState UAZ_MoverAnimInstance::DeriveSMState(
 	// vertical Z. The GA still ships bIsJumpJustPressed via SetJumpPressed (the Mover just no longer consumes
 	// it). Read it from the last input cmd — same source as the gait/move reads.
 	// (Fall-off-ledge has no handler here yet — a later rung; for now only a jump-press starts the air clip.)
+	// Edge-driven on the SIMULATING machine only (authority / autonomous). Sim proxies are handled by the
+	// mode-mirror above and must NOT also read the edge here — a stray synced edge arriving a frame before
+	// the replicated mode would enter air, then the mode-mirror (mode not yet RMAction) would immediately
+	// exit, cutting the jump short. (CachedMover && non-sim-proxy guarantees the proxy never sees the edge.)
 	bool bJumpJustPressed = false;
-	if (CachedMover)
+	if (CachedMover && CachedPawn && CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
 	{
 		const FMoverInputCmdContext& JumpIn = CachedMover->GetLastInputCmd();
 		if (const FCharacterDefaultInputs* CharIn = JumpIn.InputCollection.FindDataByType<FCharacterDefaultInputs>())
