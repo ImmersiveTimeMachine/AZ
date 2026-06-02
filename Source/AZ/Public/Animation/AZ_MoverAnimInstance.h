@@ -12,6 +12,7 @@ class AAZ_PawnMoverHeroCharacter;
 class UAZ_PawnMoverComponent;
 class UCharacterMoverComponent;
 class UPoseSearchDatabase;
+class UAZ_LocomotionStateMachine;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -105,10 +106,11 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UCharacterMoverComponent> CachedCMC;
 
-	// ---- Phase derivation thresholds (tunable in BP CDO) ----
-	/** Below this 2D speed the pawn is considered "not moving" — drives Idle vs Locomotion phase. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|V2|Anim|Phase", meta = (ClampMin = "0", ForceUnits = "cm/s"))
-	float IdleSpeedThreshold = 10.f;
+	/** The locomotion phase machine (extracted from the old DeriveSMState). Pure C++ decision function — this
+	 *  AnimInstance feeds it inputs each tick and applies its outputs; it owns the phase + the transition /
+	 *  idle-break timers + the turn/land/pivot latches. Created in NativeInitializeAnimation. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAZ_LocomotionStateMachine> StateMachine;
 
 	// ---- Idle break scheduling ----
 	/** Min seconds in IdleLoop before transitioning to a random IdleBreak. */
@@ -124,26 +126,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|V2|Anim|IdleBreak", meta = (ClampMin = "0", ForceUnits = "s"))
 	float IdleBreakAlmostCompleteThreshold = 0.25f;
 
-	/** Absolute world time when SMState should switch IdleLoop → IdleBreak. -1 = not scheduled.
-	 *  Re-rolled every time we (re-)enter IdleLoop via RandRange(IdleBreakMinTime, IdleBreakMaxTime). */
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|IdleBreak")
-	float NextIdleBreakTime = -1.f;
-
-	/** Absolute world time when the current break should end. Set by SetBlendStackAnimFromChooser
-	 *  when the chosen break anim is pushed; -1 = no break in progress. */
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|IdleBreak")
-	float IdleBreakEndTime = -1.f;
-
-	// ---- Transition (start/stop) scheduling — generalizes the idle-break hold to TransitionToIdle /
-	// TransitionToLocomotion. During a transition the chosen RM clip plays uninterrupted (clip locked in
-	// SetBlendStackAnimFromChooser) and a per-transition FLayeredMove_RootMotionAttribute drives the capsule
-	// (approach A′ — see project_root_motion_mode / project_v2_locomotion_progress).
-	/** Absolute world time when the active transition should fall through to its target loop. Set by
-	 *  SetBlendStackAnimFromChooser when the transition clip is pushed (Now + remaining - threshold);
-	 *  -1 = no transition in progress. */
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Transition")
-	float TransitionEndTime = -1.f;
-
+	// ---- Transition (start/stop) scheduling. The transition / idle-break end-time timers + the turn/land/
+	// pivot latches now live in UAZ_LocomotionStateMachine; these thresholds (below + IdleBreakMinTime/MaxTime
+	// above) are passed into it each tick / on the Notify* calls.
 	/** When the transition clip has this many seconds left, fall through to the target loop so the
 	 *  BlendStack cross-fade starts before the clip's last frame. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "AZ|V2|Anim|Transition", meta = (ClampMin = "0", ForceUnits = "s"))
@@ -156,29 +141,9 @@ protected:
 
 	// ---- Turn-start (90/135/180) selection — see project_v2_locomotion_progress / project_v2_architecture.
 	/** Signed yaw (deg, +right) from current facing to desired move direction, recomputed every tick in
-	 *  NativeUpdateAnimation while moving. Consumed by DeriveSMState at the start-transition edge to latch
-	 *  LatchedStartDirection. Game-thread only handoff (plain member, no GC ref). */
+	 *  NativeUpdateAnimation while moving. Passed into UAZ_LocomotionStateMachine, which buckets + latches it
+	 *  at the start-transition edge. Game-thread only handoff (plain member, no GC ref). */
 	float PendingStartAngleDeg = 0.f;
-
-	/** Turn bucket latched when SMState enters TransitionToLocomotion and held for the whole start
-	 *  transition — the RM turn clip rotates the capsule as it plays, collapsing the live angle, so we
-	 *  must NOT re-bucket mid-turn or it would flip side/magnitude and restart the clip. Fed to
-	 *  ChooserContext.StartDirection while in the start transition; Fwd otherwise. */
-	UPROPERTY(Transient)
-	EAZ_StartDirection LatchedStartDirection = EAZ_StartDirection::Fwd;
-
-	/** Latched alongside LatchedStartDirection at the TransitionToLocomotion entry edge: true if entered
-	 *  from LocomotionLoop (a moving pivot / reversal), false if from idle (from-rest start). Fed to
-	 *  ChooserContext.bMovingTransition while in the start transition so the chooser can pick the dedicated
-	 *  moving-pivot clip vs the from-rest turn-start. */
-	UPROPERTY(Transient)
-	bool bLatchedMovingTransition = false;
-
-	/** Latched true at the air->ground edge (a landing) and held through the touchdown land transition,
-	 *  cleared when it settles to idle. Fed to ChooserContext.bJustLanded so the shared TransitionToIdle
-	 *  phase can pick a jump-land clip instead of a locomotion stop. */
-	UPROPERTY(Transient)
-	bool bLatchedJustLanded = false;
 
 	// ---- Per-push state cache — gates BlendStack pushes so RandomizeColumn rows
 	// don't churn the stack every tick within the same logical chooser context.
@@ -187,8 +152,4 @@ protected:
 	UPROPERTY(Transient) EAZ_Gait                LastPushedGait   = EAZ_Gait::Walk;
 	UPROPERTY(Transient) EAZ_MovementDirection   LastPushedDir    = EAZ_MovementDirection::F;
 	UPROPERTY(Transient) bool                    LastPushedLeftFootDown = false;
-
-	/** Derive ChooserContext.SMState from current Mover state + previous SMState.
-	 *  Non-const: mutates NextIdleBreakTime / IdleBreakEndTime for break scheduling. */
-	EAZ_StateMachineState DeriveSMState(const FAZ_v2_ChooserContext& Current, EAZ_StateMachineState Previous);
 };
