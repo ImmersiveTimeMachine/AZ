@@ -81,8 +81,9 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	// --- Mover ---
 	MoverComponent = CreateDefaultSubobject<UAZ_PawnMoverComponent>(TEXT("MoverComponent"));
 	MoverComponent->SetUpdatedComponent(Capsule);
-	MoverComponent->SetHandleJump(false);   // RM jump: the jump clip's root motion drives the takeoff/arc,
-	                                        // not a physics impulse. Re-enforced in BeginPlay (archetype-proof).
+	MoverComponent->SetHandleJump(true);    // Physics jump: the engine Walking mode applies the launch impulse
+	                                        // and transitions Walking -> Falling (gravity + floor-contact land),
+	                                        // so the arc adapts to terrain height. Re-enforced in BeginPlay.
 	MoverComponent->SetHandleStanceChanges(true);
 	MoverComponent->PrimaryComponentTick.TickGroup = TG_PrePhysics;
 
@@ -97,13 +98,15 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// RM-driven jump: suppress the Mover's built-in physics jump so RTG_RM_Jump_place_ALL's root motion does
-	// the takeoff from the ground (and lifts the capsule via its vertical Z), instead of an instant physics
-	// impulse. Set here as well as the ctor so a BP archetype that serialized bHandleJump=true can't override
-	// it. The jump is now triggered off the jump-press input edge in UAZ_MoverAnimInstance::DeriveSMState.
+	// Physics-driven jump: the engine Walking mode (bHandleJump) consumes bIsJumpJustPressed (packed by the GA
+	// jump via IAZ_JumpRequester), applies the launch impulse, and transitions Walking -> Falling; the engine
+	// Falling mode does gravity / air-control and plants back into Walking on real floor contact — so the jump
+	// adapts to terrain height instead of a baked flat-ground RM arc. Set here as well as the ctor so a BP
+	// archetype that serialized bHandleJump=false can't override it. The SM air phase follows MovementMode
+	// (InAir) in UAZ_LocomotionStateMachine; the anim is cosmetic. RMAction is kept for future vault/mantle.
 	if (MoverComponent)
 	{
-		MoverComponent->SetHandleJump(false);
+		MoverComponent->SetHandleJump(true);
 	}
 
 	// NOTE: RM bridge (capsule side) deliberately NOT queued here yet. FLayeredMove_RootMotionAttribute

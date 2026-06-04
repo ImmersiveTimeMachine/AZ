@@ -58,6 +58,27 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
 	TObjectPtr<UPoseSearchDatabase> LocomotionLoopDatabase = nullptr;
 
+	/** PoseSearch database of JUMP clips (start + air + land). When set, the air states (TransitionToInAir /
+	 *  InAirLoop) motion-match across this whole DB instead of the chooser's single clip, so MM walks the jump
+	 *  start->air->land by the physics trajectory (incl. vertical). Unlike the loco loops, jump clips are
+	 *  one-shots, so we feed MM the continuing pose (below) — the DB's continuing_pose_cost_bias then keeps the
+	 *  search advancing through the clip instead of snapping back to frame 0 (the mid-air "restart" bug).
+	 *  Assign PSD_v2_Jump in the AZ_ABP_MoverAnimInstance CDO. Null = fall back to the chooser's direct clip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> JumpDatabase = nullptr;
+
+	/** Continuing-pose tracking for the jump MM search (the currently-playing jump clip + its accumulated time).
+	 *  Fed to MotionMatch as FPoseSearchContinuingProperties so the DB's continuing-pose bias can apply; updated
+	 *  from each jump MM result and advanced by the frame delta. Reset to null whenever not in an air state. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimationAsset> JumpMMContinuingAnim = nullptr;
+
+	float JumpMMContinuingTime = 0.f;
+
+	/** Last NativeUpdateAnimation DeltaSeconds, cached so the thread-safe SetBlendStackAnimFromChooser can
+	 *  advance the jump continuing-pose time by one frame. */
+	float LastUpdateDeltaSeconds = 0.f;
+
 	// ---- Trajectory (option A: PoseSearch FTransformTrajectory via the Mover predictor) ----
 	/** Per-tick PoseSearch trajectory (history + prediction). SINGLE source: the AnimGraph PoseHistory
 	 *  node binds its TransformTrajectory pin to this member (named "Trajectory" by convention, matching v1),

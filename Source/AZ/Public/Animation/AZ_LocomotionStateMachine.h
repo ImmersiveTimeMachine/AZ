@@ -9,29 +9,25 @@
 /**
  * Inputs the SM reads each tick. Snapshotted by the AnimInstance and passed by const ref so the SM body
  * has ZERO engine/Mover API surface — it is a pure decision function (deterministic, unit-testable,
- * AI-reusable). All role/mode/edge awareness is resolved at the AnimInstance boundary and handed in here:
- *   - bIsSimProxy / bInRMActionMode drive the simulated-proxy air mirror (replicate STATE, not the edge),
- *   - bJumpJustPressed is already gated to false on sim proxies by the caller.
+ * AI-reusable). The air phase is now driven entirely by bInAirMode (the replicated MovementMode), so the
+ * SM derivation is IDENTICAL on the authority and on simulated proxies — no one-shot jump edge to miss, no
+ * proxy-only mirror branch. (Physics jump: the engine Falling mode is persistent replicated STATE; proxies
+ * read it via the synced sim state exactly like the authority.)
  */
 USTRUCT()
 struct FAZ_LocoSMInputs
 {
 	GENERATED_BODY()
 
-	/** World time this tick (GetTimeSeconds), used for the transition / idle-break timers. */
+	/** World time this tick (GetTimeSeconds), used for the transition / idle-break / takeoff timers. */
 	float WorldNow = 0.f;
 
 	/** Intent-based moving flag (ChooserContext.bIsMoving). */
 	bool bIsMoving = false;
 
-	/** Pawn is a simulated proxy on this machine (mirror the replicated MovementMode instead of the edge). */
-	bool bIsSimProxy = false;
-
-	/** Replicated Mover MovementMode is "RMAction" (the RM jump/action mode). Drives the proxy air mirror. */
-	bool bInRMActionMode = false;
-
-	/** One-shot jump-press edge — the simulating machine only (caller passes false for sim proxies). */
-	bool bJumpJustPressed = false;
+	/** Pawn is airborne — MovementMode == InAir (engine Falling for physics jumps; RMAction for future
+	 *  vault/mantle). Persistent replicated state, so it drives the air phase identically on proxy + authority. */
+	bool bInAirMode = false;
 
 	/** Signed facing→desired-heading yaw (deg, +right), recomputed each moving frame; buckets the turn-start. */
 	float PendingStartAngleDeg = 0.f;
@@ -108,6 +104,10 @@ private:
 	float NextIdleBreakTime = -1.f;
 	float IdleBreakEndTime  = -1.f;
 	float TransitionEndTime = -1.f;
+
+	/** Brief takeoff window: while airborne, hold TransitionToInAir until Now >= this, then fall (InAirLoop).
+	 *  Physics jumps are variable-length, so the air phase is mode-driven; only the TAKEOFF is timed. */
+	float TakeoffEndTime    = -1.f;
 
 	EAZ_StartDirection LatchedStartDirection = EAZ_StartDirection::Fwd;
 	bool  bLatchedMovingTransition = false;

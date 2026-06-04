@@ -15,6 +15,12 @@ namespace
 	constexpr float TurnBucket90_135Deg  = 112.5f;   // 90  | 135
 	constexpr float TurnBucket135_180Deg = 157.5f;   // 135 | 180
 	constexpr float ReversalAngleDeg     = 135.0f;   // hard-turn pivot threshold
+
+	// Physics-jump takeoff window (seconds): how long TransitionToInAir (the launch pose) holds before the
+	// SM advances to InAirLoop (the fall loop). The total air phase is variable (gravity + floor contact),
+	// so only the takeoff is timed; the rest is governed by MovementMode == InAir. Feel-tunable — promote to
+	// an EditDefaultsOnly UPROPERTY on the AnimInstance if designers need to tune it live.
+	constexpr float TakeoffDurationSeconds = 0.20f;
 }
 
 // Bucket a signed facing->desired yaw (deg, +right) into a turn-start clip selector. Thresholds above; side
@@ -52,7 +58,11 @@ FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 	const bool bInStartTransition = (NewState == EAZ_StateMachineState::TransitionToLocomotion);
 	Out.StartDirection    = bInStartTransition ? LatchedStartDirection : EAZ_StartDirection::Fwd;
 	Out.bMovingTransition = bInStartTransition ? bLatchedMovingTransition : false;
-	Out.bJustLanded       = (NewState == EAZ_StateMachineState::TransitionToIdle) ? bLatchedJustLanded : false;
+	// bJustLanded is surfaced for BOTH land transitions: TransitionToIdle (standing land → JumpIdleLand) AND
+	// TransitionToLocomotion (moving land → Land2Walk/Land2Run). A normal moving START is also
+	// TransitionToLocomotion but clears bLatchedJustLanded on entry, so the flag disambiguates land vs start.
+	Out.bJustLanded       = (NewState == EAZ_StateMachineState::TransitionToIdle
+	                         || NewState == EAZ_StateMachineState::TransitionToLocomotion) ? bLatchedJustLanded : false;
 
 	PreviousState = NewState;
 	return Out;
@@ -66,51 +76,54 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	const EAZ_StateMachineState Previous = PreviousState;
 	const float Now = In.WorldNow;
 
-	// ---- Simulated-proxy air mirror ----
-	// A simulated proxy doesn't run the Mover sim and routinely MISSES the one-shot jump edge (true for a
-	// single frame, falls between interpolated snapshots). The MovementMode is persistent replicated STATE, so
-	// mirror it: in the air phase for EXACTLY as long as mode == RMAction. Stateless ⇒ no re-entry.
-	if (In.bIsSimProxy)
+	// ---- Airborne (physics jump / RM action): MODE-driven, identical on proxy + authority ----
+	// MovementMode == InAir (engine Falling for jumps; RMAction for future vault/mantle) is persistent
+	// replicated STATE — proxies derive the air phase from it exactly like the authority, so there is no
+	// one-shot jump edge to miss and no proxy-only mirror branch. Takeoff (brief, timed) → fall-loop, which
+	// holds until the engine plants us back in Walking on REAL floor contact. The air phase is variable-length
+	// and is NOT clip-length-bounded (that was the old RM jump; physics owns the arc now).
+	if (In.bInAirMode)
 	{
-		if (In.bInRMActionMode)
+		NextIdleBreakTime  = -1.f;
+		IdleBreakEndTime   = -1.f;
+		bLatchedJustLanded = false;
+		if (Previous == EAZ_StateMachineState::InAirLoop)
 		{
-			NextIdleBreakTime = -1.f;
-			IdleBreakEndTime  = -1.f;
-			bLatchedJustLanded = false;
-			return EAZ_StateMachineState::TransitionToInAir;   // enter or stay
+			return EAZ_StateMachineState::InAirLoop;   // keep falling
 		}
 		if (Previous == EAZ_StateMachineState::TransitionToInAir)
 		{
-			// Mode just dropped out of RMAction → air phase ended on the authority. Settle by synced intent.
-			TransitionEndTime = -1.f;
-			return In.bIsMoving ? EAZ_StateMachineState::LocomotionLoop : EAZ_StateMachineState::IdleLoop;
+			if (TakeoffEndTime > 0.f && Now >= TakeoffEndTime)
+			{
+				TakeoffEndTime = -1.f;
+				return EAZ_StateMachineState::InAirLoop;
+			}
+			return EAZ_StateMachineState::TransitionToInAir;   // still inside the launch window
 		}
-		// Not in the RM jump → fall through to the normal grounded derivation below.
+		// Ground → air this frame: start the brief takeoff pose.
+		TakeoffEndTime = Now + TakeoffDurationSeconds;
+		return EAZ_StateMachineState::TransitionToInAir;
 	}
 
-	// --- RM jump hold: once a jump has started, HOLD TransitionToInAir for the clip's full length, decoupled
-	// from MovementMode (the clip's own RM flips the mode mid-clip when it plants). ---
-	if (Previous == EAZ_StateMachineState::TransitionToInAir)
+	// ---- Touchdown: airborne last frame, grounded now (engine Falling → Walking on REAL floor contact). ----
+	// This is the height-divergence fix: the capsule lands on the ACTUAL floor (gravity + floor query did the
+	// descent), and the land anim is selected HERE on contact — not when a baked clip happens to end.
+	if (Previous == EAZ_StateMachineState::TransitionToInAir || Previous == EAZ_StateMachineState::InAirLoop)
 	{
-		NextIdleBreakTime = -1.f;
-		IdleBreakEndTime  = -1.f;
-		bLatchedJustLanded = false;
-		if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
+		TakeoffEndTime     = -1.f;
+		NextIdleBreakTime  = -1.f;
+		IdleBreakEndTime   = -1.f;
+		bLatchedJustLanded = true;          // surfaced as bJustLanded for the land transition (chooser land rows)
+		TransitionEndTime  = Now + 1.0f;    // overridden by the land clip's real length (NotifyTransitionClipPushed)
+		if (In.bIsMoving)
 		{
-			TransitionEndTime = -1.f;
-			return In.bIsMoving ? EAZ_StateMachineState::LocomotionLoop : EAZ_StateMachineState::IdleLoop;
+			// Moving land → land-into-locomotion; chooser picks Land2Walk / Land2Run by Gait + bJustLanded.
+			LatchedStartDirection    = EAZ_StartDirection::Fwd;
+			bLatchedMovingTransition = true;   // momentum-preserving (horizontal velocity carried through the arc)
+			return EAZ_StateMachineState::TransitionToLocomotion;
 		}
-		return EAZ_StateMachineState::TransitionToInAir;
-	}
-
-	// --- Jump START off the input edge (simulating machine only; In.bJumpJustPressed is false on proxies). ---
-	if (In.bJumpJustPressed)
-	{
-		NextIdleBreakTime = -1.f;
-		IdleBreakEndTime  = -1.f;
-		bLatchedJustLanded = false;
-		TransitionEndTime = Now + 1.0f;   // overridden by the RTG_RM_Jump_place_ALL clip length
-		return EAZ_StateMachineState::TransitionToInAir;
+		// Standing land → land-into-idle; chooser picks JumpIdleLand by bJustLanded.
+		return EAZ_StateMachineState::TransitionToIdle;
 	}
 
 	// ---- Grounded dispatch. The movement-intent split must precede the switch: the SAME previous phase routes
@@ -121,7 +134,15 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	{
 		NextIdleBreakTime = -1.f;
 		IdleBreakEndTime  = -1.f;
-		bLatchedJustLanded = false;
+		// Clear the land flag on every NORMAL moving frame (start / pivot / loop), but PRESERVE it while a
+		// land-into-locomotion transition is still playing (Previous == TransitionToLocomotion) so the moving
+		// land clip (Land2Walk / Land2Run) stays selected for the whole transition. A fresh moving start also
+		// passes through TransitionToLocomotion but enters from IdleLoop (flag already false), so this never
+		// leaks a stale land flag onto a normal start.
+		if (Previous != EAZ_StateMachineState::TransitionToLocomotion)
+		{
+			bLatchedJustLanded = false;
+		}
 
 		// Hard-reversal / sharp-turn detection while MOVING: a stop that runs WHILE input is held is a
 		// committed reversal — pivot through a turn-start instead of smearing the loop to a backward clip.
