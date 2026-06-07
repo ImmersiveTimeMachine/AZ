@@ -93,6 +93,13 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		}
 		if (Previous == EAZ_StateMachineState::TransitionToInAir)
 		{
+			// HYBRID JUMP: while the RM rise owns the capsule (RMAction), hold the launch phase regardless
+			// of the takeoff timer — the rising Start clip must keep driving until the apex handoff. The
+			// frame RMAction switches to Falling this flag drops and the (long-expired) timer advances us.
+			if (In.bHoldTakeoffPhase)
+			{
+				return EAZ_StateMachineState::TransitionToInAir;
+			}
 			if (TakeoffEndTime > 0.f && Now >= TakeoffEndTime)
 			{
 				TakeoffEndTime = -1.f;

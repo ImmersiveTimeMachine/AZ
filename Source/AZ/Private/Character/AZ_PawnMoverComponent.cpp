@@ -2,7 +2,9 @@
 
 #include "Character/AZ_PawnMoverComponent.h"
 
+#include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Character/AZ_PawnMovementMode_RMAction.h"
+#include "DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.h"   // FJumpImpulseEffect
 
 UAZ_PawnMoverComponent::UAZ_PawnMoverComponent()
 {
@@ -34,4 +36,47 @@ void UAZ_PawnMoverComponent::OnRegister()
 
 	RefreshSharedSettings();
 	Super::OnRegister();
+}
+
+bool UAZ_PawnMoverComponent::Jump()
+{
+	// ---- HYBRID branch: RM rise → physics fall ----
+	// Enter the RMAction mode instead of applying an impulse. The AnimInstance reacts to the mode change
+	// (RMAction maps to InAir → SM TransitionToInAir): it pushes the gait/foot Start clip from t=0 and
+	// queues the OverrideAll root-motion layered move that actually lifts the capsule along the clip's
+	// baked arc — anticipation included. RMAction detects the clip apex (vertical RM delta turns negative)
+	// and hands itself to Falling; the AnimInstance cancels the RM move on that observed edge. Until the
+	// RM move arrives (~1 frame), RMAction holds the capsule in place — which IS the anticipation pose.
+	// CanActorJump() was already checked by the caller (OnMoverPreSimulationTick).
+	if (bUseHybridJump)
+	{
+		QueueNextMode(TEXT("RMAction"));
+		return true;
+	}
+
+	// ---- PHYSICS branch: gait-scaled impulse ----
+	// Gait-scaled jump (v2). The gait is read from the deterministic InputCmd — the same
+	// FAZ_MoverCustomInputs.Gait the walking mode's ResolveGait consumes — so every machine
+	// (owning client prediction, server, replay) computes the identical impulse. Do NOT read
+	// the ASC/tags here: this runs on the simulation path and must stay InputCmd-pure.
+	EAZ_Gait Gait = EAZ_Gait::Run;
+	if (const FAZ_MoverCustomInputs* CustomInputs =
+			GetLastInputCmd().InputCollection.FindDataByType<FAZ_MoverCustomInputs>())
+	{
+		Gait = CustomInputs->Gait;
+	}
+
+	float UpwardsSpeed = JumpUpwardsSpeedRun;
+	switch (Gait)
+	{
+	case EAZ_Gait::Walk:   UpwardsSpeed = JumpUpwardsSpeedWalk;   break;
+	case EAZ_Gait::Run:    UpwardsSpeed = JumpUpwardsSpeedRun;    break;
+	case EAZ_Gait::Sprint: UpwardsSpeed = JumpUpwardsSpeedSprint; break;
+	default:               break;
+	}
+
+	TSharedPtr<FJumpImpulseEffect> JumpMove = MakeShared<FJumpImpulseEffect>();
+	JumpMove->UpwardsSpeed = UpwardsSpeed;
+	QueueInstantMovementEffect(JumpMove);
+	return true;
 }

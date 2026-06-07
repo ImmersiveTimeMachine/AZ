@@ -66,18 +66,25 @@ public:
 	 *  Assign PSD_v2_Jump in the AZ_ABP_MoverAnimInstance CDO. Null = fall back to the chooser's direct clip. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
 	TObjectPtr<UPoseSearchDatabase> JumpDatabase = nullptr;
+	// ^ FINAL JUMP DESIGN (2026-06-07, hybrid 2-clip): no direct C++ use anymore. The air-MM machinery
+	// (single-clip air search + continuing-pose tracking) was RETIRED — the jump is Start clip (RM rise,
+	// tail carries the physics fall) → Land clip (single-clip MM entry frame via the clips' BranchIn
+	// notifies, which link to PSD_v2_Jump). Kept as the CDO-assigned cook/reference anchor for the DB.
 
-	/** Continuing-pose tracking for the jump MM search (the currently-playing jump clip + its accumulated time).
-	 *  Fed to MotionMatch as FPoseSearchContinuingProperties so the DB's continuing-pose bias can apply; updated
-	 *  from each jump MM result and advanced by the frame delta. Reset to null whenever not in an air state. */
-	UPROPERTY(Transient)
-	TObjectPtr<UAnimationAsset> JumpMMContinuingAnim = nullptr;
+	/** Foot + move-intent latched at takeoff and held through the air. bLeftFootDown is curve-driven (contact_l)
+	 *  and goes false/unstable while airborne (jump clips carry no foot-contact curve). Captured from the last
+	 *  GROUNDED frame and applied to ChooserContext during TransitionToInAir / InAirLoop so the LAND rows pick
+	 *  the LU/RU land clip matching the takeoff foot chain at touchdown (the air itself pushes nothing — final
+	 *  2-clip jump design). bIsMoving latched too, to separate the standing land (JumpIdleLand) from Land2X. */
+	bool LastGroundedLeftFootDown = false;
+	bool LastGroundedIsMoving     = false;
 
-	float JumpMMContinuingTime = 0.f;
-
-	/** Last NativeUpdateAnimation DeltaSeconds, cached so the thread-safe SetBlendStackAnimFromChooser can
-	 *  advance the jump continuing-pose time by one frame. */
-	float LastUpdateDeltaSeconds = 0.f;
+	/** Hybrid jump (RM rise → physics fall). bHybridJumpActive mirrors UAZ_PawnMoverComponent::bUseHybridJump,
+	 *  cached each NativeUpdateAnimation (read by the thread-safe RM-bridge gate in SetBlendStackAnimFromChooser).
+	 *  LastRawMoverModeName tracks the raw mode name so the RMAction→Falling apex edge can cancel the rise's
+	 *  OverrideAll root-motion move on the game thread. */
+	bool  bHybridJumpActive = false;
+	FName LastRawMoverModeName;
 
 	// ---- Trajectory (option A: PoseSearch FTransformTrajectory via the Mover predictor) ----
 	/** Per-tick PoseSearch trajectory (history + prediction). SINGLE source: the AnimGraph PoseHistory

@@ -29,6 +29,14 @@ struct FAZ_LocoSMInputs
 	 *  vault/mantle). Persistent replicated state, so it drives the air phase identically on proxy + authority. */
 	bool bInAirMode = false;
 
+	/** HYBRID JUMP: true while the RM rise owns the capsule (raw Mover mode == RMAction). Holds
+	 *  TransitionToInAir PAST the takeoff timer so the rising Start clip keeps driving the capsule
+	 *  until the apex handoff — without this, the timer (0.2s) expires mid-rise (apex 0.33-0.47s),
+	 *  the InAirLoop row replaces the rising clip with a FALL-frame InAir clip, and its negative
+	 *  root-motion Z yanks the capsule down early (the "very quick and low jump" bug). Goes false
+	 *  the moment RMAction hands off to Falling → the SM advances to InAirLoop immediately. */
+	bool bHoldTakeoffPhase = false;
+
 	/** Signed facing→desired-heading yaw (deg, +right), recomputed each moving frame; buckets the turn-start. */
 	float PendingStartAngleDeg = 0.f;
 

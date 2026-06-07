@@ -1,11 +1,11 @@
 ---
 name: anim-debug-pitfalls
-description: Diagnostic checklist for AnimGraph/AnimBP issues — mesh visible spin, A-pose, SM stuck in source state, foot slide, OffsetRootBone misbehavior. Covers the Post-event vs ThreadSafe driver-placement rule, the FAnimNodeReference must-be-wired rule (unwired = silent fail-closed = SM stuck), OffsetRootBone enum value mapping (Accumulate=0, Interpolate=1, Release=5 — NOT 0/1/2 with comment-mismatched names), the Get_OrientationIntent threshold-cache pattern (cache only on |delta| ≥ 60°), and the IsMoving = Trj_FutureVelocity+Accel (NOT velocity) rule.
+description: Diagnostic checklist for AnimGraph/AnimBP issues — mesh visible spin, A-pose, SM stuck in source state, foot slide, OffsetRootBone misbehavior, anim always playing from frame 0. Covers the Post-event vs ThreadSafe driver-placement rule, the FAnimNodeReference must-be-wired rule (unwired = silent fail-closed = SM stuck), OffsetRootBone enum value mapping (Accumulate=0, Interpolate=1, Release=5 — NOT 0/1/2 with comment-mismatched names), the Get_OrientationIntent threshold-cache pattern (cache only on |delta| ≥ 60°), the IsMoving = Trj_FutureVelocity+Accel (NOT velocity) rule, and the nested-BlendStack-in-sample-graph rule (StartTime/MM SelectedTime silently ignored, everything plays from 0).
 ---
 
 # AnimGraph / AnimBP Diagnostic Pitfalls
 
-Five recurring failure modes in the AZ AnimBP port. Each section: **observed symptom → check this → fix recipe → memory file with full context**.
+Six recurring failure modes in the AZ AnimBP port. Each section: **observed symptom → check this → fix recipe → memory file with full context**.
 
 > Always show the user full absolute paths in any output (e.g. `C:\UnrealEngine\Games\AZ\Source\AZ\Private\Animation\AZ_AnimInstance.cpp`).
 
@@ -170,6 +170,26 @@ GASP tracks this for: `MovementMode`, `RotationMode`, `MovementState`, `Gait`, `
 **Fix:** add the missing `_Recent`, `_Time`, `_LastStateTime` fields for all 6 enums. Use a templated update macro.
 
 **Full context:** `C:\Users\Artur\.claude\projects\C--UE57-Games-AZ\memory\gasp_update_logic_flow.md` (full idle-walk-idle cycle, exact `IsMoving` body, missing-fields list, mesh-space facing offset trap).
+
+---
+
+## 6. Anim always plays from frame 0 / StartTime & MM SelectedTime silently ignored
+
+**Symptom shapes:**
+- The BlendStack node's input pins show correct values (Anim, StartTime) in the debugger, but the clip visibly starts at frame 0 on every push.
+- MM returns a sensible `SelectedTime` that never appears on screen.
+- A clip "restarts" or "holds its last frame" in a phase where nothing new should have been pushed.
+- Changing the chooser/C++ StartTime to ANY value makes no visible difference.
+
+**Root cause — a FULL `Blend Stack` node nested inside the outer Blend Stack's per-sample inner graph, where a `Blend Stack Input` node belongs.** The rendered pose comes from the inner graph: each sample spawns a fresh inner stack that plays the bound Anim from its own literal AnimationTime (typically 0). The outer node — the one your C++/chooser drives — renders to nobody; its player appears frozen at its push time.
+
+**Check (10 seconds):** double-click the Blend Stack node in `AZ_ABP_MoverAnimInstance` → the inner sample graph must be `Blend Stack Input` → (warping chain) → output. Ctrl+F the ABP for "Blend Stack" — more than one FULL node is the bug.
+
+**Detection recipe (definitive):** temporary `UE_LOG` in engine `FAnimNode_BlendStack::ConditionalBlendTo` (`C:\UnrealEngine\Engine\Plugins\Animation\BlendStack\Source\Runtime\Private\AnimNode_BlendStack.cpp`) printing requested asset/time, playing asset/time, exec flag, player count. Multiple interleaved streams per frame = multiple node-state instances; a stream born `playing=none players=0` at every transition edge that dies one blend-duration later = a per-sample inner-graph instance.
+
+**Engine rules confirmed while debugging this (valid knowledge, keep):** the BlendStack consumes AnimationTime/StartTime ONLY when a push fires (asset change / `ForceBlendNextUpdate()` / mirror change / `MaxAnimationDeltaTime >= 0` drift) — a same-asset request never re-seeks; `players=N` is stack depth during cross-fades, not instance count; raw-sequence MM needs a `BranchIn` notify with a non-null Database.
+
+**Full context:** `C:\Users\Artur\.claude\projects\C--UnrealEngine-Games-AZ\memory\feedback_blendstack_input_node_ref.md` (§ Second incident) + `project_jump_system_status.md` (§ TRUE ROOT CAUSE 2026-06-06).
 
 ---
 

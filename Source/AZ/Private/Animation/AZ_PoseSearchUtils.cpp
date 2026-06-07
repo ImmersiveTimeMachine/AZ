@@ -137,27 +137,35 @@ int32 UAZ_PoseSearchUtils::AddBlockTransitionToDatabase(UPoseSearchDatabase* Dat
 	return Modified;
 }
 
-bool UAZ_PoseSearchUtils::AddBranchInNotify(UAnimSequence* Sequence, float TriggerTime)
+bool UAZ_PoseSearchUtils::AddBranchInNotify(UAnimSequence* Sequence, UPoseSearchDatabase* Database, float StartTime, float Duration)
 {
-	if (!Sequence) return false;
+	// Database is MANDATORY — a BranchIn with a null Database is rejected by the engine search code, so the
+	// notify would exist but MM would never link the clip to a database (-> SelectedAnim null). This is the
+	// whole point of the fix.
+	if (!Sequence || !Database) return false;
 	Sequence->Modify();
 
-	// BranchIn is a state notify (UAnimNotifyState_PoseSearchBranchIn), not instant.
-	// Use a minimal duration so it acts as a "branch point" window.
-	const float MinDuration = 0.01f;
+	// BranchIn is a state notify (UAnimNotifyState_PoseSearchBranchIn). Cover [StartTime, end] by default so the
+	// whole searchable portion is a valid branch-in window (the ExcludeFromDatabase notify, if any, still removes
+	// the rise poses from the DB index, so MM only matches the fall).
+	if (Duration <= 0.f)
+	{
+		Duration = FMath::Max(0.01f, Sequence->GetPlayLength() - StartTime);
+	}
 
 	auto* NotifyState = NewObject<UAnimNotifyState_PoseSearchBranchIn>(Sequence, NAME_None, RF_Transactional);
 	if (!NotifyState) return false;
+	NotifyState->Database = Database;   // the missing line: links this raw clip to the DB that indexes it
 
 	FAnimNotifyEvent& Evt = Sequence->Notifies.AddDefaulted_GetRef();
 	Evt.NotifyName = FName(TEXT("PoseSearchBranchIn"));
 	Evt.Notify = nullptr;
 	Evt.NotifyStateClass = NotifyState;
-	Evt.SetDuration(MinDuration);
+	Evt.SetDuration(Duration);
 	Evt.TriggerTimeOffset = 0.f;
 	Evt.EndTriggerTimeOffset = 0.f;
-	Evt.Link(Sequence, TriggerTime);
-	Evt.SetTime(TriggerTime);
+	Evt.Link(Sequence, StartTime);
+	Evt.SetTime(StartTime);
 
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();

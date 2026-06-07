@@ -55,6 +55,19 @@ class AZ_API UAZ_PawnMovementMode_RMAction : public UBaseMovementMode
 public:
 	UAZ_PawnMovementMode_RMAction();
 
+	/** HYBRID JUMP (RM rise → physics fall): when true, this mode watches the proposed root-motion
+	 *  vertical delta and switches itself to "Falling" at the clip apex (Z-delta non-positive for 2
+	 *  consecutive ticks after a net rise > 10cm). The descent then belongs to physics — terrain-adaptive,
+	 *  air-controllable, landing on real floor contact. Set FALSE for self-contained actions that must
+	 *  play to completion (vault / mantle / jump-in-place). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|RMAction")
+	bool bHandOffToFallingAtApex = true;
+
+	/** Safety: if no apex is detected within this time after entering the mode, hand off to Falling
+	 *  anyway (covers a missing/non-rising clip — there is no way to get stuck floating). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|RMAction", meta = (ClampMin = "0", ForceUnits = "s"))
+	float MaxRiseSeconds = 1.0f;
+
 	/** Produce no motion of our own (zero velocity, no gravity). The root-motion-attribute layered move
 	 *  (OverrideAll) supplies the real motion when it is active; on ticks where it is not, zero velocity
 	 *  holds the capsule rather than letting it fall. */
@@ -64,4 +77,14 @@ public:
 	/** Swept move by the proposed (root-motion) delta with NO floor-snap and NO gravity. Collision with
 	 *  blocking geometry still resolves; the vertical lift survives. */
 	virtual void SimulationTick_Implementation(const FSimulationTickParams& Params, FMoverTickEndData& OutputState) override;
+
+private:
+	// ---- Apex-detection sim state (hybrid jump) ----
+	// Lives on the mode instance, NOT in the sync state — NOT rollback-safe under NetworkPrediction
+	// resimulation (prototype scope; migrate into a sync-state data block if MP resim jitter shows).
+	// Fresh-activation is detected by a gap in sim time instead of lifecycle hooks.
+	float NetRiseCm = 0.f;
+	int32 NonPositiveZDeltaTicks = 0;
+	float RiseElapsedMs = 0.f;
+	float ExpectedNextTickStartMs = -1.f;
 };

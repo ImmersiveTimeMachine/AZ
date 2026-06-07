@@ -51,10 +51,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static int32 AddBlockTransitionToDatabase(UPoseSearchDatabase* Database);
 
-	/** Add a PoseSearchBranchIn instant notify (not state) at a specific time.
-	 *  Marks where MM can branch INTO this animation from elsewhere. */
+	/** Add a PoseSearchBranchIn notify STATE that LINKS this raw sequence to a PoseSearchDatabase.
+	 *  REQUIRED for single-clip MM over a raw UAnimSequence: UPoseSearchLibrary::MotionMatch can only search a
+	 *  raw sequence THROUGH its BranchIn notify's Database (which must already index the sequence). A null
+	 *  Database is rejected by the engine ("improperly setup ... null Database"), which is why the old
+	 *  signature (no Database) produced a notify MM ignored -> SelectedAnim == null -> fallback to frame 0.
+	 *  @param Database the DB that indexes this sequence (e.g. PSD_v2_Jump). MUST contain the sequence.
+	 *  @param StartTime branch-in window start (s). @param Duration window length (s); <=0 = to end of clip. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
-	static bool AddBranchInNotify(UAnimSequence* Sequence, float TriggerTime);
+	static bool AddBranchInNotify(UAnimSequence* Sequence, UPoseSearchDatabase* Database, float StartTime = 0.f, float Duration = 0.f);
 
 	/** Add a PoseSearchExcludeFromDatabase notify state covering [StartTime, StartTime+Duration].
 	 *  Excludes that time range from being matched by the MM search. */

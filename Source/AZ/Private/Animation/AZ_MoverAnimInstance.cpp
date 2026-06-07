@@ -51,8 +51,6 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
-	LastUpdateDeltaSeconds = DeltaSeconds;   // cached for the jump MM continuing-pose advance (thread-safe reader)
-
 	if (!CachedPawn || !CachedMover)
 	{
 		return;
@@ -143,12 +141,30 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 	else if (ModeName == TEXT("RMAction"))
 	{
-		// RMAction (FUTURE vault/mantle — contextual RM warped to measured geometry) is airborne; report InAir
-		// so the SM air phase + trajectory/other systems treat it like Falling. Jumps no longer use this mode
-		// (they are physics/Falling now), so today this branch is dormant until traversal lands.
+		// RMAction is airborne; report InAir so the SM air phase + trajectory treat it like Falling.
+		// Used by (a) the HYBRID JUMP rise (bUseHybridJump on the mover comp: jump enters RMAction, the Start
+		// clip's RM lifts the capsule, the mode hands itself to Falling at the apex) and (b) the FUTURE
+		// vault/mantle traversal (bHandOffToFallingAtApex=false there — plays to completion).
 		ChooserContext.MovementMode = EAZ_MovementMode::InAir;
 	}
 	// Slide / Swim left as default until those modes exist.
+
+	// ---- Hybrid jump: flag cache + apex-handoff RM teardown ----
+	{
+		const UAZ_PawnMoverComponent* AZMover = Cast<UAZ_PawnMoverComponent>(CachedMover);
+		bHybridJumpActive = AZMover && AZMover->bUseHybridJump;
+
+		// At the apex, RMAction switches itself to Falling. The rise's OverrideAll root-motion move must die
+		// WITH it: under Falling the engine merely downgrades it (SkipVerticalAnimRootMotion strips the Z) while
+		// the HORIZONTAL would stay clip-driven and fight air control/gravity pathing. Cancel on the observed
+		// RMAction→Falling edge. Simulating machines only — proxies never queued the move.
+		if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy &&
+			LastRawMoverModeName == TEXT("RMAction") && ModeName == TEXT("Falling"))
+		{
+			CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+		}
+		LastRawMoverModeName = ModeName;
+	}
 
 	// Stance — CharacterMoverComponent owns crouch state.
 	ChooserContext.Stance = (CachedCMC && CachedCMC->IsCrouching())
@@ -258,15 +274,48 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// proxies and the authority — there is no jump-press edge to read and no proxy-only mirror branch (that
 		// was the old one-shot-edge RM jump, which proxies routinely missed).
 		SMIn.bInAirMode           = (ChooserContext.MovementMode == EAZ_MovementMode::InAir);
+		// HYBRID JUMP: hold TransitionToInAir while the RM rise (RMAction) owns the capsule, so the
+		// rising Start clip keeps driving until the apex handoff to Falling (then InAirLoop + air MM).
+		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && (ModeName == TEXT("RMAction"));
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 
+		// Defensive: StateMachine is created in NativeInitializeAnimation, but Live Coding re-instancing (and any
+		// path that ticks an AnimInstance whose Init didn't run) can leave this Transient pointer null — calling
+		// ->Tick() on null then faults inside ComputeNextState reading this->PreviousState. Lazily re-create it.
+		if (!StateMachine)
+		{
+			StateMachine = NewObject<UAZ_LocomotionStateMachine>(this);
+		}
 		const FAZ_LocoSMOutputs SMOut = StateMachine->Tick(SMIn);
 		ChooserContext.SMState           = SMOut.State;
 		ChooserContext.StartDirection    = SMOut.StartDirection;
 		ChooserContext.bMovingTransition = SMOut.bMovingTransition;
 		ChooserContext.bJustLanded       = SMOut.bJustLanded;
+	}
+
+	// ---- Foot/intent latch: hold the takeoff foot + move-intent stable through the air ----
+	// bLeftFootDown is curve-driven (contact_l) and jump clips carry NO foot-contact curve, so it goes
+	// false/oscillates airborne. While GROUNDED, remember the planted foot + move-intent; while AIRBORNE, hold
+	// those values so the LAND rows pick the LU/RU land clip matching the takeoff foot chain at touchdown, and
+	// bIsMoving distinguishes the standing land (JumpIdleLand) from Land2Walk/Land2Run. (Final 2-clip jump
+	// design: the air pushes nothing — the Start clip's tail carries the fall — so the latch's only consumer
+	// is land-row selection.)
+	{
+		const bool bAirState =
+			ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir ||
+			ChooserContext.SMState == EAZ_StateMachineState::InAirLoop;
+		if (!bAirState)
+		{
+			LastGroundedLeftFootDown = ChooserContext.bLeftFootDown;
+			LastGroundedIsMoving     = ChooserContext.bIsMoving;
+		}
+		else
+		{
+			ChooserContext.bLeftFootDown = LastGroundedLeftFootDown;
+			ChooserContext.bIsMoving     = LastGroundedIsMoving;
+		}
 	}
 
 	// A′ RM-move teardown: whenever we leave a transition phase — whether it completed normally or was
@@ -286,14 +335,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 	}
 
-	// ---- Jump mode handoff: NONE (physics jump) ----
-	// Jumps are PHYSICS-driven now: the GA jump packs bIsJumpJustPressed → the engine Walking mode (bHandleJump,
-	// SetHandleJump(true) on the pawn) applies the impulse and transitions Walking → Falling; the engine Falling
-	// mode does gravity / air-control and plants back into Walking on REAL floor contact. The AnimInstance no
-	// longer drives the Mover mode for jumps (the old QueueNextMode("RMAction")/("Walking") handoff is removed),
-	// so the descent adapts to actual terrain height — the float-then-drop divergence fix.
-	// UAZ_PawnMovementMode_RMAction is retained for the FUTURE vault/mantle path (contextual RM warped to
-	// measured geometry), where flat-ground baking is not an issue — see project_traversal_system.
+	// ---- Jump mode flow (HYBRID: RM rise → physics fall; toggleable) ----
+	// bUseHybridJump=true (UAZ_PawnMoverComponent): jump press → Jump() queues RMAction → the takeoff Start
+	// clip's root motion lifts the capsule through anticipation+rise (the RM bridge below queues the
+	// OverrideAll move for TransitionToInAir) → RMAction switches to Falling at the clip apex → physics
+	// descent (terrain-adaptive) → land on real floor contact. The teardown above kills the RM move on the
+	// apex edge. bUseHybridJump=false: pure physics — gait-scaled impulse, Walking→Falling, no RM move
+	// (the old float-then-drop fix path, kept for A/B).
 }
 
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
@@ -317,6 +365,15 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	{
 		return;
 	}
+
+	// NOTE (2026-06-06, jump air RESOLVED): the whole in-air "replay/held" saga was NEVER a push/timing problem.
+	// The ABP's Blend Stack node had a second FULL Blend Stack node inside its per-sample inner graph (instead of
+	// a Blend Stack Input node): every sample spawned a fresh inner stack that played the bound Anim from its
+	// literal AnimationTime=0, so the VISIBLE pose ignored every StartTime / MM SelectedTime written here, while
+	// the outer node (the one this function drives) rendered to nobody. Fixed by swapping the inner node for
+	// Blend Stack Input — StartTime and MM results now reach the screen. The earlier "mid-air pushes never
+	// advance" theory is DISPROVEN; the InAirLoop chooser rows are viable again (direct-play from apex StartTime
+	// or single-clip MM). See project_jump_system_status § TRUE ROOT CAUSE 2026-06-06.
 
 	// Transition clip lock: once a start/stop clip is pushed, let it play to completion (DeriveSMState's
 	// TransitionEndTime governs the fall-through to the target loop). Without this, the stop clip's own
@@ -371,26 +428,14 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			AssetsToSearch.Add(ChosenAnim);
 		}
 
-		// Jump MM: in the air states, search the WHOLE JumpDatabase (start->air->land clips) instead of the
-		// chooser's single clip, so MM walks the jump arc by the physics trajectory (incl. vertical). Jump clips
-		// are one-shots (NOT self-stabilizing loops), so we also feed the continuing pose — the currently-playing
-		// jump clip + its accumulated time — so the DB's continuing_pose_cost_bias keeps the search ADVANCING
-		// through the clip instead of snapping back to frame 0 (the mid-air "restart"). Loco loops keep the empty
-		// continuing props: a loop self-stabilizes (every frame matches the cyclic pose and advances naturally).
-		const bool bJumpAirMM =
-			JumpDatabase != nullptr &&
-			(ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir ||
-			 ChooserContext.SMState == EAZ_StateMachineState::InAirLoop);
-
-		FPoseSearchContinuingProperties Continuing;
-		if (bJumpAirMM)
-		{
-			AssetsToSearch.Reset();
-			AssetsToSearch.Add(JumpDatabase);
-			Continuing.PlayingAsset = JumpMMContinuingAnim;
-			Continuing.PlayingAssetAccumulatedTime = JumpMMContinuingTime + LastUpdateDeltaSeconds;
-			Continuing.PlayingAssetDatabase = JumpDatabase;   // helps MM locate the continuing pose in the DB
-		}
+		// FINAL JUMP DESIGN (2026-06-07): the air NEVER pushes — there are no InAirLoop chooser rows. The
+		// jump is two clips following the walk start/stop pattern: the Start clip (RM rise drives the capsule
+		// to the apex; its tail plays cosmetically under the physics fall) and the Land clip (bUseMM row —
+		// the single-clip search below picks the impact ENTRY FRAME via the clip's BranchIn->PSD_v2_Jump
+		// link). So this MM path serves exactly two callers: the gait-gated loco loops and the jump lands —
+		// both single-clip entry-frame refinement, no continuing pose needed (loops self-stabilize, lands
+		// push once on the touchdown edge). The old air-MM machinery (whole-DB search, single-clip air
+		// search, continuing-pose tracking) is RETIRED — see project_jump_system_status.
 
 		// v2 loop MM is GAIT-GATED (decision 2026-06-01): MM searches only the chooser-picked clip for the
 		// CURRENT gait (WalkFwdLoop on the walk row, RunFwdLoop on the run row) and picks the best entry FRAME
@@ -404,21 +449,8 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		FPoseSearchBlueprintResult MMResult;
 		UPoseSearchLibrary::MotionMatch(
 			this, AssetsToSearch, FName("PoseHistory"),
-			Continuing, FPoseSearchFutureProperties(),
+			FPoseSearchContinuingProperties(), FPoseSearchFutureProperties(),	
 			MMResult);
-
-		// Track the continuing pose for the NEXT jump MM tick (advanced by LastUpdateDeltaSeconds above); reset
-		// outside the air so a fresh jump starts clean.
-		if (bJumpAirMM)
-		{
-			JumpMMContinuingAnim = Cast<UAnimationAsset>(MMResult.SelectedAnim);
-			JumpMMContinuingTime = static_cast<float>(MMResult.SelectedTime);
-		}
-		else
-		{
-			JumpMMContinuingAnim = nullptr;
-			JumpMMContinuingTime = 0.f;
-		}
 
 		UAnimationAsset* MMAnim = Cast<UAnimationAsset>(MMResult.SelectedAnim);
 		double MMStartTime = MMResult.SelectedTime;
@@ -511,13 +543,20 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			{
 				StateMachine->NotifyTransitionClipPushed(Now, Remaining, TransitionAlmostCompleteThreshold);
 			}
-			// RM bridge for GROUND start/stop/turn transitions ONLY. The jump takeoff (TransitionToInAir) and the
-			// landings (bJustLanded) are PHYSICS-driven — the engine Falling mode + floor contact own the capsule
-			// — so queuing an OverrideAll root-motion move there would fight gravity/velocity and re-introduce the
-			// float-then-drop height divergence. The jump/land clips still play COSMETICALLY (RootMotionFromEvery-
-			// thing extracts the root in place); we simply don't drive the capsule from them.
+			// RM bridge for ground start/stop/turn transitions — AND, under the HYBRID jump, for the takeoff
+			// RISE. Hybrid (bHybridJumpActive): TransitionToInAir queues the OverrideAll RM move so the Start
+			// clip's baked arc lifts the capsule through anticipation+rise; duration = the full remaining clip,
+			// because the actual end is the APEX — RMAction switches itself to Falling there and the teardown in
+			// NativeUpdateAnimation cancels this move on that observed edge. Landings stay physics-driven always.
+			// Pure-physics mode (bHybridJumpActive=false): jumps queue nothing (impulse owns the capsule; an RM
+			// move would fight gravity and re-introduce the float-then-drop divergence).
+			const bool bHybridJumpRise =
+				bHybridJumpActive &&
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir &&
+				!ChooserContext.bJustLanded;
 			const bool bPhysicsDrivenTransition =
-				ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir || ChooserContext.bJustLanded;
+				(ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir || ChooserContext.bJustLanded) &&
+				!bHybridJumpRise;
 			if (!bPhysicsDrivenTransition)
 			{
 				PendingTransitionRMMoveDurationMs = Remaining * 1000.f;

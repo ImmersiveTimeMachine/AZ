@@ -89,6 +89,37 @@ void UAZ_PawnMovementMode_RMAction::SimulationTick_Implementation(const FSimulat
 		SimBlackboard->Invalidate(CommonBlackboard::LastFoundDynamicMovementBase);
 	}
 
+	// ---- HYBRID JUMP apex handoff (RM rise → physics fall) ----
+	// Watch the clip's PROPOSED vertical delta (intent, not the swept result — robust when blocked
+	// horizontally). After a clear net rise, two consecutive non-positive Z ticks = the apex: switch to
+	// Falling. Horizontal velocity continues via the sync state written below (vertical ≈ 0 at apex, so
+	// gravity takes over seamlessly). The AnimInstance cancels the rise's OverrideAll RM move when it
+	// observes the RMAction→Falling edge — under Falling the engine would only strip its Z (Skip-
+	// VerticalAnimRootMotion) while the horizontal kept overriding air control.
+	if (bHandOffToFallingAtApex)
+	{
+		// Fresh-activation detection without lifecycle hooks: a gap in sim time means we weren't ticking.
+		if (Params.TimeStep.BaseSimTimeMs != ExpectedNextTickStartMs)
+		{
+			NetRiseCm = 0.f;
+			NonPositiveZDeltaTicks = 0;
+			RiseElapsedMs = 0.f;
+		}
+		ExpectedNextTickStartMs = Params.TimeStep.BaseSimTimeMs + Params.TimeStep.StepMs;
+		RiseElapsedMs += Params.TimeStep.StepMs;
+
+		const float ZDelta = static_cast<float>(MoveDelta.Z);
+		NetRiseCm += ZDelta;
+		NonPositiveZDeltaTicks = (ZDelta <= 0.f) ? NonPositiveZDeltaTicks + 1 : 0;
+
+		const bool bApexReached   = NetRiseCm > 10.f && NonPositiveZDeltaTicks >= 2;
+		const bool bSafetyExpired = RiseElapsedMs > MaxRiseSeconds * 1000.f;
+		if (bApexReached || bSafetyExpired)
+		{
+			OutputState.MovementEndState.NextModeName = TEXT("Falling");
+		}
+	}
+
 	const FVector FinalLocation = UpdatedComponent->GetComponentLocation();
 	const FVector EffectiveVelocity = MoveRecord.GetRelevantVelocity();
 
