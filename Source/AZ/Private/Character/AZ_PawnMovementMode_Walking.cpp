@@ -108,8 +108,8 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 	}
 
 	// Set the Max Speed depending on the Gait Input or Crouching state.
-	const UCharacterMoverComponent* CMC = Cast<UCharacterMoverComponent>(GetMoverComponent<UMoverComponent>());
-	const bool bIsCrouching = CMC && CMC->IsCrouching();
+	const UCharacterMoverComponent* CharacterMover = Cast<UCharacterMoverComponent>(GetMoverComponent<UMoverComponent>());
+	const bool bIsCrouching = CharacterMover && CharacterMover->IsCrouching();
 	const EAZ_Gait Gait = ResolveGait(StartState);
 
 	if (bIsCrouching)
