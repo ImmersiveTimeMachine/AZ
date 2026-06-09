@@ -113,10 +113,13 @@ public:
 	/** Called from the ABP each tick (after EvaluateChooser2). Populates BlendStackInputs from
 	 *  the chooser result + optionally runs a single-frame MotionMatch over ValidAnims when
 	 *  ChooserOut.bUseMM is true. Pushes a fresh blend via ForceBlendNextUpdate if bForceBlend
-	 *  is set AND the new anim is non-looping (matches v1 behaviour). */
+	 *  is set AND the new anim is non-looping (matches v1 behaviour).
+	 *  The SM phase is deliberately NOT a parameter: ChooserContext.SMState (written by the
+	 *  StateMachine in NativeUpdateAnimation, read by the chooser through context [0]) is the
+	 *  single source of truth — taking it as a param invited a stale EventGraph wire to clobber
+	 *  the derived phase (the removed `State` param was advisory-only for exactly that reason). */
 	UFUNCTION(BlueprintCallable, Category = "AZ|V2|Anim|StateMachine", meta = (BlueprintThreadSafe, AutoCreateRefTerm = "Candidates"))
 	void SetBlendStackAnimFromChooser(
-		EAZ_StateMachineState State,
 		bool bForceBlend,
 		FAnimNodeReference BlendStackNode,
 		FAZ_ChooserOutputs ChooserOut,

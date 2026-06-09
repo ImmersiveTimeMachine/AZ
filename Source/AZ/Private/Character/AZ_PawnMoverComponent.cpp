@@ -36,6 +36,7 @@ void UAZ_PawnMoverComponent::OnRegister()
 
 	RefreshSharedSettings();
 	Super::OnRegister();
+
 }
 
 bool UAZ_PawnMoverComponent::Jump()
@@ -79,4 +80,27 @@ bool UAZ_PawnMoverComponent::Jump()
 	JumpMove->UpwardsSpeed = UpwardsSpeed;
 	QueueInstantMovementEffect(JumpMove);
 	return true;
+}
+
+void UAZ_PawnMoverComponent::OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd)
+{
+	// Bridge crouch INTENT into the engine's stance flag: FAZ_MoverCustomInputs.bWantsToCrouch is produced in
+	// ProduceInput from the Movement.Crouching GAS tag (replicated deterministically in the input cmd). We
+	// translate it to the engine's bWantsToCrouch via Crouch()/UnCrouch(); the base OnMoverPreSimulationTick
+	// (bHandleStanceChanges=true) then queues/cancels the engine FStanceModifier, which resizes the capsule via
+	// UStanceSettings. The smoothed-proxy crouch pop is fixed engine-side by the bSkipInterpolation teleport-snap
+	// patch (project_local_plugin_patches #5), so no custom stance modifier is needed.
+	if (const FAZ_MoverCustomInputs* CustomInputs = InputCmd.InputCollection.FindDataByType<FAZ_MoverCustomInputs>())
+	{
+		if (CustomInputs->bWantsToCrouch)
+		{
+			Crouch();
+		}
+		else
+		{
+			UnCrouch();
+		}
+	}
+
+	Super::OnMoverPreSimulationTick(TimeStep, InputCmd);
 }

@@ -82,20 +82,38 @@ enum class EAZ_RotationMode : uint8
 	Aiming				= 2
 };
 
-/** State machine state for the SM+BlendStack locomotion system.
- *  Values MUST match GASP E_ExperimentalStateMachineState for chooser parity. */
+/**
+ * EAZ_StateMachineState - the phases of the v2 locomotion phase machine
+ * (UAZ_LocomotionStateMachine::ComputeNextState - PURE C++ each tick, NOT an AnimGraph State Machine node).
+ *
+ * Exactly ONE phase is active per frame, and it is the single source of truth the rest of the pipeline keys off:
+ *   - the phase machine OUTPUTS it each tick from intent (bIsMoving), the Mover MovementMode (air), the
+ *     transition / idle-break timers, and the latched turn/land data;
+ *   - the CHT_v2_CharacterAnimations chooser's SMState column SELECTS the clip row from it;
+ *   - SetBlendStackAnimFromChooser then plays the chosen clip on the single Blend Stack.
+ *
+ * Two kinds of phase:
+ *   - LOOPS  (IdleLoop / LocomotionLoop / InAirLoop / SlideLoop): steady state, held until something changes.
+ *   - TRANS  (TransitionTo*): one-shot bridges; each plays a root-motion clip that owns the capsule for its
+ *     length (the RM bridge, approach A'), then falls through to its target loop on a timer.
+ *
+ * WARNING - the integer values are an ABI with the chooser ASSET: CHT_v2's SMState column stores these numbers,
+ * so reordering or renumbering silently remaps every authored row. Append new states at the END; never renumber.
+ * (Values originated from GASP E_ExperimentalStateMachineState - that is HISTORICAL only; v2 dropped GASP parity,
+ * the binding constraint now is the chooser asset, not GASP.)
+ */
 UENUM(BlueprintType)
 enum class EAZ_StateMachineState : uint8
 {
-	IdleLoop					= 0,
-	TransitionToIdle			= 1,
-	LocomotionLoop				= 2,
-	TransitionToLocomotion		= 3,
-	InAirLoop					= 4,
-	TransitionToInAir			= 5,
-	IdleBreak					= 6,
-	TransitionToSlide			= 7,
-	SlideLoop					= 8
+	IdleLoop					= 0,	// LOOP  - resting pose (standing OR crouching); schedules the next idle break on a random timer
+	TransitionToIdle			= 1,	// TRANS - STOP (moving->idle, foot-aware RM stop clip) OR standing land (JumpIdleLand); held by TransitionEndTime
+	LocomotionLoop				= 2,	// LOOP  - moving steady state (walk/run loop); velocity-driven, the clip's baked root motion is discarded
+	TransitionToLocomotion		= 3,	// TRANS - START / moving pivot-reversal / moving land; RM turn-start clip; latches StartDirection + bMovingTransition
+	InAirLoop					= 4,	// LOOP  - fall loop; held by MovementMode==InAir (engine Falling) until real floor contact
+	TransitionToInAir			= 5,	// TRANS - takeoff; hybrid jump's RM rise (RMAction) owns the capsule, held past the takeoff timer to the apex handoff
+	IdleBreak					= 6,	// LOOP* - cosmetic idle fidget; from IdleLoop on a timer, held to clip end, cancelled by move / air / stance change
+	TransitionToSlide			= 7,	// TRANS - RESERVED: slide entry (no ComputeNextState path emits this yet)
+	SlideLoop					= 8		// LOOP  - RESERVED: slide steady state (not wired yet)
 };
 
 /** Turn magnitude + side for a from-idle start (TransitionToLocomotion).

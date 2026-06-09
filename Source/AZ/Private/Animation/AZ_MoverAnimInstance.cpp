@@ -56,29 +56,51 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		return;
 	}
 
-	// ---- A′ per-transition RM bridge (game thread) ----
-	// SetBlendStackAnimFromChooser (possibly on the anim worker thread) flags this when it pushes a
-	// start/stop clip. Queue the OverrideAll root-motion-attribute move here, on the game thread, with
-	// DurationMs = the transition clip's remaining length so it auto-expires when the transition ends.
-	// Loops queue nothing → the RootMotionDelta attribute is written but unconsumed → velocity-driven.
+	// ============================== ROOT-MOTION BRIDGE ==============================
+	// How a chooser-picked clip gets to move the CAPSULE (not just the mesh).
+	//
+	// The model: LOOP clips (idle/walk/run) are velocity-driven — their root motion is
+	// extracted but never consumed, the capsule follows Mover's own velocity/input.
+	// TRANSITION clips (start / stop / turn, and the hybrid-jump RISE) are authored
+	// root-motion — for those, and only those, the capsule must follow the clip exactly.
+	//
+	// Mover's mechanism for that is a layered move: while an FLayeredMove_RootMotionAttribute
+	// is live, the simulation reads the mesh's root-motion attribute (written every frame
+	// because this AnimInstance has RootMotionFromEverything) and OVERRIDES the capsule
+	// motion with it. No move queued = attribute ignored = velocity-driven. That single
+	// bit — "is the move live" — is the whole loop-vs-transition switch.
+	//
+	// The bridge has two halves, because Mover may only be written from the game thread:
+	//   1. SetBlendStackAnimFromChooser (anim WORKER thread) pushes a transition clip and
+	//      sets bPendingTransitionRMMove + the clip's remaining play length.
+	//   2. THIS block (GAME thread, the next NativeUpdateAnimation) consumes the flag and
+	//      queues the move with DurationMs = that remaining length, so it expires exactly
+	//      when the clip ends. Early exits (transition abandoned, jump apex) are handled
+	//      by the cancel/teardown blocks further down in this function.
 	// See project_root_motion_mode (approach A′).
 	if (bPendingTransitionRMMove)
 	{
-		bPendingTransitionRMMove = false;   // consume the flag on every machine (it was set on the proxy too)
-		// ONLY the simulating machine (authority / autonomous proxy) drives the capsule from root motion. A
-		// SIMULATED proxy's capsule follows the REPLICATED, interpolated transform — queuing the OverrideAll
-		// root-motion move there makes the proxy try to RM-drive a capsule that's also being interpolated, and
-		// the two fight every frame → visibly JERKY proxy motion (worst on the fast vertical jump arc). The
-		// proxy still plays the clip locally with RootMotionFromEverything, which extracts the root IN PLACE,
-		// so the mesh animates correctly while the replicated transform carries the world motion. Smooth.
-		if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
+		// Consume the flag on EVERY machine — it gets set wherever the chooser runs (including
+		// machines that must not queue, gated below); a stale flag would queue on a later frame.
+		bPendingTransitionRMMove = false;
+
+		// Queue only where this machine actually SIMULATES the capsule:
+		//  - IsGameWorld(): BP-editor preview worlds (SCS / AnimBP viewport) tick this AnimInstance
+		//    too, but their MoverComponent has no simulation behind it — queuing there trips the
+		//    "null backend liaison" ensure in UMoverComponent::QueueLayeredMove.
+		//  - Not ROLE_SimulatedProxy: a sim proxy's capsule is driven by the replicated transform;
+		//    RM-driving it as well makes the two sources fight (jerky proxy motion). The proxy still
+		//    plays the clip and extracts root motion in place, so the mesh animates correctly while
+		//    replication carries the world movement.
+		const UWorld* World = GetWorld();
+		if (World && World->IsGameWorld() && CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
 		{
-			// A reversal chains two transition clips (stop → turn-start) back-to-back with no intervening
-			// non-transition frame, so the teardown at the bottom of this function never fires between them.
-			// Cancel any still-active prior transition RM move before queuing the new one, else the stop's and
-			// the start's FLayeredMove_RootMotionAttribute could both be live and double-drive the capsule.
-			// No-op in the normal idle→start / loop→stop case (no prior anim-RM move was queued).
+			// REPLACE, don't stack: a direction reversal chains stop → turn-start with no
+			// non-transition frame between them, so the teardown below never runs in the gap —
+			// without this cancel, both clips' moves would be live and double-drive the capsule.
+			// No-op in the normal case (no prior transition move active).
 			CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+
 			TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
 			RMMove->DurationMs = PendingTransitionRMMoveDurationMs;
 			CachedMover->QueueLayeredMove(RMMove);
@@ -280,6 +302,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
+		SMIn.Stance				  = ChooserContext.Stance;
 
 		// Defensive: StateMachine is created in NativeInitializeAnimation, but Live Coding re-instancing (and any
 		// path that ticks an AnimInstance whose Init didn't run) can leave this Transient pointer null — calling
@@ -345,17 +368,16 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 }
 
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
-	EAZ_StateMachineState State,
 	bool bForceBlend,
 	FAnimNodeReference BlendStackNode,
 	FAZ_ChooserOutputs ChooserOut,
 	UAnimationAsset* ChosenAnim,
 	const TArray<UObject*>& Candidates)
 {
-	// NOTE: do NOT assign ChooserContext.SMState from `State`. DeriveSMState (called from
-	// NativeUpdateAnimation) is the single source of truth for the SM phase. The `State`
+	//is the single source of truth for the SM phase. The `State`
 	// parameter is kept for BP-signature stability but is advisory only — assigning it back
-	// here would let an EventGraph wiring (e.g. literal IdleLoop on the pin) clobber the
+	// here would let an EventGraph wiring (e.g. literal IdleLoop on the pin) cl// NOTE: do NOT assign ChooserContext.SMState from `State`. DeriveSMState (called from
+                                                                                	//	// NativeUpdateAnimation) obber the
 	// derived phase, causing IdleBreak to flash for one tick then revert to IdleLoop.
 	ChooserOutputs = ChooserOut;
 

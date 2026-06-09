@@ -1,0 +1,489 @@
+================================================================================
+ AZ "CHALK" — v2 CHARACTER SYSTEM
+ Design & Architecture Reference
+--------------------------------------------------------------------------------
+ Engine:   UE 5.8        Branch: feature/rootmotion
+ Pawn:     AAZ_PawnMoverHeroCharacter (Mover-based, NOT CharacterMovementComponent)
+ Updated:  2026-06-07 (post hybrid-jump completion, commit bfc6f3f)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+ 0. TL;DR — THE SYSTEM IN FIVE SENTENCES
+--------------------------------------------------------------------------------
+1. GAS owns GAMEPLAY state (abilities, tags), Mover owns the CAPSULE (physics,
+   replication, rollback), and a Chooser+BlendStack pipeline owns the SKELETON.
+2. There is NO AnimGraph state machine and no montages for locomotion: a pure
+   C++ phase machine decides "what phase am I in", a Chooser table decides
+   "which clip fits this phase + context", and ONE BlendStack node plays it.
+3. Loop clips are velocity-driven (capsule moves, feet follow); transition
+   clips (start/stop/turn/jump-rise) are root-motion-driven (clip moves the
+   capsule) via a per-transition layered move — the "RM bridge".
+4. The jump is a HYBRID: root motion drives the rise (terrain can't surprise
+   you on the way up), physics drives the fall (it can on the way down), and
+   Motion Matching picks the landing entry frame.
+5. Everything derives from replicated persistent STATE (movement mode, input
+   cmd, tags) — never from one-shot edges — so simulated proxies compute the
+   same animation as the authority for free.
+
+
+--------------------------------------------------------------------------------
+ 1. THE THREE PILLARS
+--------------------------------------------------------------------------------
+
+        GAMEPLAY                  PHYSICS                   ANIMATION
+   +----------------+      +-------------------+      +--------------------+
+   |      GAS       |      |       MOVER       |      |  Chooser+PoseSearch|
+   |  (abilities,   |      |  (capsule sim,    |      |  +BlendStack       |
+   |   attributes,  |      |   modes, rollback,|      |  (clip selection   |
+   |   tags)        |      |   net prediction) |      |   + playback)      |
+   +-------+--------+      +---------+---------+      +---------+----------+
+           |                         |                          |
+           |  Movement.* tags        |  sync state, input cmd,  |
+           |  (gait intent)          |  mode name, velocity     |
+           v                         v                          |
+       ProduceInput  ----->  FAZ_MoverCustomInputs  ----------->+
+       (on the pawn)         (replicated w/ InputCmd)           |
+                                                                v
+                                                       FAZ_v2_ChooserContext
+                                                       (the single contract)
+
+   - TAGS bridge GAS -> chooser (OwnedTags snapshot; adding gameplay needs no
+     struct/C++ change, just a tag + a chooser predicate).
+   - TRAJECTORY bypasses GAS entirely (deterministic, from Mover prediction).
+   - GAS-as-bookkeeping: the anim system fires immediately off derived state;
+     abilities account for it (cooldowns, costs) rather than gate the visuals.
+
+ WHY THESE PILLARS (short form — full rationale in memory
+ project_architecture_rationale):
+   - Mover over CMC ........ first-class network prediction/rollback (Iris-
+                             ready), composable movement modes as objects,
+                             layered moves as a clean RM injection point.
+   - Chooser over SM/BS .... selection logic lives in a DATA TABLE (rows are
+                             auditable/scriptable), one BlendStack replaces
+                             N states x M blendspaces, MM integrates per-row
+                             via a bool instead of a parallel graph.
+   - Pure C++ phase machine  deterministic on all machines (an AnimGraph SM
+     over AnimGraph SM ..... runs per-instance on the anim worker thread —
+                             that non-determinism caused the proxy-jump bug).
+
+
+--------------------------------------------------------------------------------
+ 2. THE PER-FRAME PIPELINE (one tick, end to end)
+--------------------------------------------------------------------------------
+
+  GAME THREAD                                       ANIM WORKER THREAD
+  =============================================     ==============================
+  UAZ_MoverAnimInstance::NativeUpdateAnimation      AnimGraph evaluation
+  ---------------------------------------------     ------------------------------
+  (1) RM BRIDGE: consume bPendingTransition-
+      RMMove -> queue/cancel layered move
+      (details in section 5)
+  (2) Trajectory: UMoverTrajectoryPredictor ->
+      PoseSearchGenerateTransformTrajectory...
+      -> Trajectory (history 10x0.04s,
+         prediction 10x0.1s)
+      -> PredictedFutureVelocity (lookahead)
+  (3) Read Mover:
+        velocity        -> Speed2D
+        last InputCmd   -> bIsMoving (intent!),
+                           Gait (FAZ_MoverCustom-
+                           Inputs, tag-driven)
+        mode name       -> MovementMode
+                           (Walking->OnGround,
+                            Falling|RMAction->InAir)
+  (4) Hybrid-jump bookkeeping:
+        cache bUseHybridJump; on the observed
+        RMAction->Falling edge cancel the rise
+        RM move (apex teardown)
+  (5) Derive: MovementDirection (future-vel dot
+      facing), PendingStartAngleDeg (turn-start
+      selector), bLeftFootDown (contact_l curve),
+      Stance, OwnedTags snapshot, camera fields
+  (6) StateMachine->Tick(SMIn) -> SMState +
+      latches (StartDirection, bMovingTransition,
+      bJustLanded)
+  (7) Air foot/intent latch (hold grounded
+      values while airborne -> land selection)
+  (8) RM teardown on leaving a transition phase
+                                                    (A) Chooser table evaluates
+        ChooserContext ============================>    FAZ_v2_ChooserContext ->
+        (written 1-8, read by the chooser)               first matching row
+                                                    (B) SetBlendStackAnimFromChooser
+                                                        (BlueprintThreadSafe):
+                                                        - transition clip lock
+                                                        - selection-changed gate
+                                                        - bUseMM ? MotionMatch(...)
+                                                          : direct clip
+                                                        - write BlendStackInputs
+                                                        - flag bPendingTransition-
+                                                          RMMove for transitions
+                                                    (C) BlendStack node plays/blends
+                                                        (pins bound to
+                                                         BlendStackInputs.*)
+                                                    (D) PoseHistory node records
+                                                        the pose for next-frame MM
+
+  KEY CONTRACT: FAZ_v2_ChooserContext (AZ_LocomotionTypes.h) is the ONLY thing
+  the chooser sees. Fields: Gait, Stance, MovementMode, MovementDirection,
+  bLeftFootDown, SMState, StartDirection, bMovingTransition, bJustLanded,
+  Speed2D, bIsMoving, OwnedTags, AimingRotation, RotationOffset.
+
+  INTENT vs MEASUREMENT (a recurring theme):
+   - bIsMoving = movement INPUT (last InputCmd), not velocity. During an RM
+     stop the capsule still moves; a velocity test would never let the SM
+     leave LocomotionLoop ("stuck WalkFwdLoop" bug).
+   - Gait     = the INTENT enum from FAZ_MoverCustomInputs (produced from
+     Movement.* GAS tags in ProduceInput), not re-derived from speed. A
+     from-idle run start must pick Run rows on frame 1 when speed is ~0.
+   - MovementDirection uses PREDICTED future velocity (leading indicator).
+
+
+--------------------------------------------------------------------------------
+ 3. THE LOCOMOTION PHASE MACHINE (UAZ_LocomotionStateMachine)
+--------------------------------------------------------------------------------
+ Pure C++ decision function (UObject, ticked from the AnimInstance). All
+ engine/Mover awareness is resolved AT THE BOUNDARY and passed in as plain
+ data (FAZ_LocoSMInputs) -> deterministic, unit-testable, reusable for AI.
+ The SM NEVER touches the Mover; all side-effects stay in the AnimInstance.
+
+ States (EAZ_StateMachineState — values match GASP for chooser parity):
+
+                 +-----------+   bIsMoving    +------------------------+
+        +------->| IdleLoop  |--------------->| TransitionToLocomotion |
+        |        +-----+-----+                | (start / turn-start /  |
+        |              | idle timer           |  moving pivot)         |
+        |              v                      +-----------+------------+
+        |        +-----------+                            | clip end
+        |        | IdleBreak |                            v
+        |        +-----------+               +----------------+
+        |                                    | LocomotionLoop |<------+
+        |  clip end                          +-------+--------+       |
+        |                                            | !bIsMoving     | re-press
+        |        +------------------+                v                |
+        +--------| TransitionToIdle |<---------------+----------------+
+                 | (stop / land)    |
+                 +------------------+
+                          ^
+                          | touchdown (bJustLanded latch)
+        ==================+=====================  AIR  ================
+                 +-------------------+  hold while RMAction   +-----------+
+   jump/fall --> | TransitionToInAir |----------------------->| InAirLoop |
+   (bInAirMode)  | (takeoff: timed   |  (bHoldTakeoffPhase),  +-----+-----+
+                 |  0.2s window)     |  else timer expiry           |
+                 +-------------------+                              |
+                          ^                                   ground contact
+                          +-- (TransitionToSlide / SlideLoop reserved) --+
+
+ Inputs:  WorldNow, bIsMoving, bInAirMode (= MovementMode==InAir — persistent
+          REPLICATED state, identical on proxies), bHoldTakeoffPhase (hybrid
+          jump: hold takeoff while raw mode == RMAction), PendingStartAngleDeg,
+          idle-break tunables.
+ Outputs: State + LIFETIME-GATED latches:
+          - StartDirection  (Fwd/L90/R90/L135/R135/L180/R180) — bucketed from
+            the facing->desired yaw, LATCHED at transition entry (the turn
+            clip's own root rotation collapses the live angle as it plays;
+            re-bucketing mid-turn would restart it). Only meaningful in
+            TransitionToLocomotion.
+          - bMovingTransition — this start was entered from LocomotionLoop
+            (a momentum pivot, e.g. RunFwdTurn180) vs from rest.
+          - bJustLanded — this TransitionToIdle came from the AIR (pick a
+            land clip, not a stop clip).
+ Clip-length feedback: when a transition/idle-break clip is pushed, the worker
+ thread calls NotifyTransitionClipPushed/NotifyIdleBreakClipPushed with the
+ clip's REAL remaining length, so the SM's "clip end" timers match playback
+ (single-float store — benign cross-thread write).
+
+
+--------------------------------------------------------------------------------
+ 4. CLIP SELECTION — CHOOSER TABLE + BLENDSTACK + MOTION MATCHING
+--------------------------------------------------------------------------------
+ Asset: /Game/AZ/Blueprints/Animation/MotionMatching/CHT_v2_CharacterAnimations
+
+ Contexts bound to the table:
+   [0] UAZ_MoverAnimInstance (ReadWrite) — ALL input columns read
+       ChooserContext.* through this. (the live object)
+   [1] FAZ_v2_ChooserContext struct (Write) — FOSSIL, scheduled for removal;
+       no column binds it. Do NOT bind new columns here (a dead context-1
+       binding caused the foot-selection bug).
+   [2] FAZ_ChooserOutputs (Write) — the output column writes here.
+
+ Row anatomy (input columns -> output struct):
+   SMState | MovementMode | Gait | MovementDirection | bLeftFootDown |
+   bIsMoving | StartDirection | bMovingTransition | bJustLanded | ...
+       -> FAZ_ChooserOutputs { bUseMM, StartTime, BlendTime, BlendProfile,
+                               Tags, MMCostLimit }
+   First matching row wins. ~39 rows: idle / idle-breaks / loops per gait /
+   starts (per gait, foot, turn bucket) / stops (per gait, foot) /
+   turn-pivots / jump takeoffs (per gait, foot) / jump lands (per gait+idle).
+
+ Playback: ONE BlendStack node in the AnimGraph.
+   - SetBlendStackAnimFromChooser writes FAZ_BlendStackInputs {Anim, bLoop,
+     StartTime, BlendTime, BlendProfile, Tags}; the node's pins are BOUND to
+     those fields. A push happens only when the bound Anim CHANGES (or
+     ForceBlendNextUpdate) — StartTime is consumed ONLY at push time.
+   - Guards in SetBlendStackAnimFromChooser:
+       * transition clip LOCK — once a start/stop/takeoff clip is pushed, it
+         plays to completion (else its own contact curve would flip
+         bLeftFootDown and restart the clip on the other foot every frame);
+       * selection-changed gate — identical chooser inputs skip the re-push
+         (else RandomizeColumn idle-break rows churn the stack every tick);
+       * both bypassed by bForceBlend / bUseMM as appropriate.
+   - !!! The per-sample inner graph of the BlendStack node must contain a
+     "Blend Stack Input" node — NEVER a second full "Blend Stack" node. A
+     nested full node spawns a fresh inner stack per sample that plays its
+     bound anim from literal time 0: every StartTime / MM SelectedTime is
+     silently ignored while the outer node renders to nobody. This single
+     wiring mistake cost three days. (anim-debug-pitfalls #6)
+
+ Motion Matching — WHERE and WHY (deliberately narrow):
+   MM answers one question per push: "which ENTRY FRAME of this clip best
+   matches the current pose + trajectory?" (PoseHistory node feeds it).
+   - Loco loops: bUseMM=True, GAIT-GATED — searches ONLY the chooser-picked
+     loop for the current gait and refines the frame. It never crosses
+     walk<->run (gait is tag-intent; a hard turn that dips speed must not
+     downgrade a held Run). Gait changes ride the chooser row flip + blend.
+   - Jump lands: bUseMM=True — the land rows let MM pick the touchdown
+     IMPACT frame inside the chosen land clip, via the clip's BranchIn
+     notify -> PSD_v2_Jump database (one synced DB entry per BranchIn
+     window; membership is owned by the notify — never add entries by hand
+     on top, that double-registers).
+   - Everything else (starts, stops, turns, takeoffs): bUseMM=False, plays
+     from a row StartTime. One-shot motions don't need a search.
+   - MM fallback: a null search result falls back to the direct clip at
+     frame 0 (never freeze the loop); MMCostLimit>0 keeps the current anim
+     when the best match is too expensive.
+
+
+--------------------------------------------------------------------------------
+ 5. THE ROOT-MOTION BRIDGE (approach A')
+--------------------------------------------------------------------------------
+ THE DOCTRINE — who drives the capsule:
+
+   +------------------+-------------------------+----------------------------+
+   | Clip type        | Capsule driven by       | Mechanism                  |
+   +------------------+-------------------------+----------------------------+
+   | LOOPS            | Mover velocity (input)  | no layered move queued ->  |
+   | idle/walk/run    |                         | RM attribute IGNORED       |
+   +------------------+-------------------------+----------------------------+
+   | TRANSITIONS      | the clip's authored     | FLayeredMove_RootMotion-   |
+   | start/stop/turn/ | root motion             | Attribute live -> Mover    |
+   | jump-RISE        |                         | OVERRIDES capsule with RM  |
+   +------------------+-------------------------+----------------------------+
+
+ One bit — "is the layered move live" — is the entire switch. The AnimInstance
+ has RootMotionFromEverything, so the mesh's root-motion attribute is written
+ EVERY frame; queuing the move merely makes Mover consume it.
+
+ Two halves (Mover may only be written from the GAME thread):
+   worker:  SetBlendStackAnimFromChooser pushes a transition clip ->
+            bPendingTransitionRMMove = true + remaining length
+            (= PlayLength - StartTime, since MM may pick a late entry frame)
+   game:    next NativeUpdateAnimation consumes the flag ->
+            CancelFeaturesWithTag(Mover_AnimRootMotion)   // replace, don't stack
+            QueueLayeredMove(RootMotionAttribute, DurationMs = remaining)
+
+ Lifecycle — three deaths and one replacement:
+   1. natural expiry   DurationMs lapses exactly at clip end -> loop resumes
+                       velocity-driven.
+   2. abandoned        re-press W mid-stop: SM leaves the transition phase
+                       early -> teardown cancels the move (else the stop clip
+                       would keep steering the resumed walk).
+   3. jump apex        RMAction hands off to Falling; the AnimInstance cancels
+                       the rise move on that observed mode edge.
+   R. reversal         stop -> turn-start chain back-to-back with no
+                       non-transition frame between -> cancel-before-queue
+                       replaces the old move instead of stacking two.
+
+ Queue guards (who is allowed to queue):
+   - World->IsGameWorld()            BP-editor preview worlds (SCS/AnimBP
+                                     viewports) tick the AnimInstance with a
+                                     Mover that has NO simulation behind it —
+                                     queuing there trips the "null backend
+                                     liaison" ensure in QueueLayeredMove.
+   - role != ROLE_SimulatedProxy     a sim proxy's capsule follows the
+                                     REPLICATED transform; RM-driving it too
+                                     makes two sources fight (jerky proxy).
+                                     The proxy still PLAYS the clip — root
+                                     motion extracts in place, the mesh
+                                     animates, replication moves the body.
+   - the flag is consumed on EVERY machine, including those that don't queue.
+
+
+--------------------------------------------------------------------------------
+ 6. THE JUMP SYSTEM (hybrid: RM rise -> physics fall)
+--------------------------------------------------------------------------------
+ DOCTRINE: root motion owns the phases terrain CANNOT surprise; physics owns
+ the phases it CAN — within one action. A jump's rise is deterministic (you
+ know exactly where you'll be at the apex) -> RM, perfect anim/capsule sync,
+ per-gait arcs baked by the animator. The fall is not (ledges, drops, slopes)
+ -> physics, terrain-adaptive, air control works.
+
+ TWO CLIPS ONLY — the jump follows the same pattern as walk start/stop:
+   START clip (per gait+foot: Idle / Walk_LU / Walk_RU / Run_LU / Run_RU)
+        = anticipation crouch + rise + (cosmetic) fall tail
+   LAND  clip (per gait+foot, BranchIn -> PSD_v2_Jump)
+        = impact + recovery (MM picks the impact frame)
+   The air pushes NOTHING. There are no in-air chooser rows; the Start clip's
+   tail simply keeps playing under the physics fall until touchdown.
+
+ TIMELINE:
+
+  press jump        apex (~0.33-0.47s)        touchdown
+      |                  |                        |
+  ----+------------------+------------------------+----------------->
+      |### RM RISE ######|===== PHYSICS FALL =====|## LAND (MM) ##
+      |                  |                        |
+ mode | RMAction         | Falling                | Walking
+      | (no gravity, no  | (gravity, air control, |
+      |  floor snap; RM  |  RM move CANCELLED on  |
+      |  OverrideAll     |  the mode edge)        |
+      |  lifts capsule)  |                        |
+ anim | Start clip from  | Start clip TAIL plays  | Land clip; bUseMM row ->
+      | t=0 (anticipation| cosmetically (pushes   | MM picks impact frame in
+      | IS the sync)     | nothing)               | PSD_v2_Jump via BranchIn
+ SM   | TransitionToInAir| InAirLoop              | TransitionToIdle
+      | HELD by bHold-   | (hold released the     | (bJustLanded latch picks
+      | TakeoffPhase     |  moment mode==Falling) |  land rows vs stop rows)
+
+ THE MOVING PARTS:
+  - UAZ_PawnMoverComponent::Jump() override:
+      bUseHybridJump=true  -> QueueNextMode("RMAction")           (the hybrid)
+      bUseHybridJump=false -> gait-scaled FJumpImpulseEffect      (pure physics
+        A/B branch; impulses Walk/Run/Sprint = 350/500/550 — the engine's flat
+        500 gives a walk hop the same ~1s air time as a run leap)
+  - UAZ_PawnMovementMode_RMAction — gravity-free, floor-snap-free mode whose
+    only job is to let RM (OverrideAll, vertical INCLUDED) drive the capsule:
+      * GenerateMove proposes ZERO velocity (no gravity — a tick without the
+        RM attribute HOLDS instead of falling);
+      * SimulationTick does a swept move by the RM delta (collision resolves,
+        no floor query — the vertical lift survives);
+      * carries neither Skip(Vertical)AnimRootMotion tag. (Walking floor-snaps
+        the lift away; Falling strips the Z via SkipVerticalAnimRootMotion —
+        both engine paths EAT a vertical RM jump, hence this mode.)
+      * APEX HANDOFF (bHandOffToFallingAtApex=true): watches the proposed RM
+        Z-delta; after a net rise > 10cm, 2 consecutive non-positive-Z ticks
+        = apex -> NextModeName = "Falling". MaxRiseSeconds (1.0) is the
+        safety net (a missing/non-rising clip can never float forever).
+        Set bHandOffToFallingAtApex=false for future vault/mantle — those
+        play their RM to completion (the END of a vault is measured, not
+        surprising).
+  - UAZ_MoverAnimInstance:
+      * SMIn.bHoldTakeoffPhase = hybrid && rawMode=="RMAction" — holds the SM
+        in TransitionToInAir past the 0.2s takeoff timer (without it the
+        timer expires mid-rise, an air row would replace the rising clip,
+        and its fall-frame negative RM yanked the capsule down — the "very
+        quick and low jump" bug);
+      * cancels the rise RM move on the observed RMAction->Falling edge;
+      * air foot/intent LATCH: jump clips carry no contact curve, so while
+        airborne the last GROUNDED bLeftFootDown + bIsMoving are held — the
+        land rows select the correct-foot land chain and distinguish a
+        standing land from land-to-walk/run.
+      * the RM bridge skips queuing for physics-driven transitions
+        (TransitionToInAir when NOT the hybrid rise, and bJustLanded rows —
+        lands are always physics-located, the clip plays in place).
+  - A/B note: flipping bUseHybridJump=false requires restoring the chooser
+    takeoff rows' launch-frame StartTimes (0.175/0.15/0.15/0.117/0.217 —
+    skip the anticipation, physics already launched). The hybrid expects
+    StartTime=0 (the anticipation IS the sync).
+
+ WHY HYBRID WON (history, short):
+   pure RM jumps  -> height divergence + floor-snap/Z-strip fights + every
+                     ledge/drop needs authored fall variants;
+   pure physics   -> launch-frame desync (anim has anticipation, impulse is
+                     instant), gait arcs feel synthetic;
+   hybrid         -> anticipation plays in full sync (capsule follows the
+                     baked arc), fall adapts to any terrain, fewer clips
+                     (2 per gait-foot chain), and the same RMAction machinery
+                     is the execution surface for traversal later.
+
+
+--------------------------------------------------------------------------------
+ 7. FOOT CONVENTION (canonical — machine-audited over ~80 clips)
+--------------------------------------------------------------------------------
+   bLeftFootDown = contact_l curve > 0.5 on the PLAYING clip
+                   (false for clips with no contact curve: idle, breaks, jump;
+                    the air latch covers the jump case).
+
+   Clip suffix _XU means: at frame 0, foot X is UP (in the air).
+     _LU = left UP  -> RIGHT foot planted -> selected when bLeftFootDown=False
+     _RU = right UP -> LEFT  foot planted -> selected when bLeftFootDown=True
+
+   Mnemonic: the planted foot is the OPPOSITE of the suffix letter.
+   Land clips named _XU_Land follow the jump chain of the same suffix (an
+   X-up takeoff lands X-first).
+
+   Chooser rule, everywhere a foot column exists:
+     bLeftFootDown == True  -> _RU clip
+     bLeftFootDown == False -> _LU clip
+
+
+--------------------------------------------------------------------------------
+ 8. MULTIPLAYER POSTURE (SP-first, co-op-ready)
+--------------------------------------------------------------------------------
+ Bar: "2-player listen-server PIE should just work without refactor."
+   - All anim derivation reads persistent REPLICATED state (mode name, sync
+     state, input cmd via bSyncInputsForSimProxy, tags) — never one-shot
+     edges. The SM computes identically on every machine.
+   - ONLY the simulating machine (authority / autonomous proxy) queues or
+     cancels Mover moves. Simulated proxies never touch their Mover: capsule
+     = replicated transform, mesh = locally-extracted in-place root motion.
+   - Gait/intent ride FAZ_MoverCustomInputs INSIDE the replicated InputCmd
+     (3+2+2+1 packed bits + offsets) — deterministic for prediction/rollback.
+   - Known prototype gap: RMAction's apex-detection state lives on the mode
+     instance, NOT in a sync-state block -> not rollback-safe under
+     NetworkPrediction resimulation. Migrate if MP resim jitter shows.
+
+
+--------------------------------------------------------------------------------
+ 9. FILE MAP (where each piece lives)
+--------------------------------------------------------------------------------
+ Source/AZ/Public+Private/Animation/
+   AZ_MoverAnimInstance.h/.cpp        per-frame pipeline, RM bridge, jump
+                                      bookkeeping, SetBlendStackAnimFromChooser
+   AZ_LocomotionStateMachine.h/.cpp   the pure C++ phase machine
+   AZ_LocomotionTypes.h               every enum/struct incl. ChooserContext
+   AZ_*Utils.h/.cpp                   scripting bridges (chooser/posesearch/
+                                      animgraph editing from Python)
+ Source/AZ/Public+Private/Character/
+   AZ_PawnMoverHeroCharacter.*        the hero pawn (input, ProduceInput, GAS)
+   AZ_PawnMoverComponent.h/.cpp       Jump() override, gait impulses,
+                                      bUseHybridJump, SharedSettings fix
+   AZ_PawnMovementMode_RMAction.*     the RM-action mode + apex handoff
+ Content (key assets):
+   /Game/AZ/Blueprints/Animation/MotionMatching/CHT_v2_CharacterAnimations
+                                      THE chooser table (~39 rows)
+   .../PSD_v2_Jump                    land-clip MM database (BranchIn-synced)
+   AZ_ABP_MoverAnimInstance           AnimGraph: PoseHistory + BlendStack
+                                      (+ Blend Stack INPUT in sample graph)
+   /Game/Assets/RM_Movement/...       jump/locomotion RM clips (gitignored)
+
+
+--------------------------------------------------------------------------------
+ 10. PITFALL INDEX (the expensive lessons, one line each)
+--------------------------------------------------------------------------------
+ - NESTED BLENDSTACK: a full Blend Stack node inside the sample graph hijacks
+   ALL playback to frame 0; use Blend Stack Input. (3 days.)
+ - StartTime is consumed ONLY when a push fires (asset change/force); setting
+   it without a push does nothing — that is correct engine behavior.
+ - Chooser contexts: bind columns ONLY through context [0] (the AnimInstance);
+   a column bound to the dead struct context reads defaults forever.
+ - Chooser scripting: bool cell sets RE-SORT rows immediately (re-locate by
+   asset before every set); output-struct edits can fail to persist (verify
+   on disk via reload_packages after save).
+ - BranchIn owns DB membership: explicit adds duplicate; deleted BranchIns
+   leave orphaned entries (remove manually).
+ - Editing clips during PIE PreCancels the PoseSearch index build -> searches
+   return null -> frame-0 fallbacks contaminate what you're judging.
+ - BP-editor preview worlds tick AnimInstances with a simulation-less Mover:
+   guard every Mover WRITE with World->IsGameWorld().
+ - Walking floor-snaps vertical RM away; Falling strips it via
+   SkipVerticalAnimRootMotion — vertical RM needs RMAction (or equivalent).
+ - Foot bugs come in threes: check the BINDING, the CONTENT, and the
+   CONVENTION before trusting any one fix.
+
+================================================================================
+ Related memory files (deeper dives): project_v2_architecture,
+ project_jump_system_status, project_root_motion_mode, project_traversal_system,
+ project_architecture_rationale, project_v2_locomotion_progress.
+================================================================================

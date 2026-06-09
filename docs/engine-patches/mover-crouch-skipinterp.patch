@@ -1,0 +1,80 @@
+diff --git a/Engine/Plugins/Experimental/Mover/Source/Mover/Private/DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.cpp b/Engine/Plugins/Experimental/Mover/Source/Mover/Private/DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.cpp
+index df0a38d4f206..b49eb889ee35 100644
+--- a/Engine/Plugins/Experimental/Mover/Source/Mover/Private/DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.cpp
++++ b/Engine/Plugins/Experimental/Mover/Source/Mover/Private/DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.cpp
+@@ -64,7 +64,13 @@ bool FTeleportEffect::ApplyMovementEffect(FApplyMovementEffectParams& ApplyEffec
+ 													OutputSyncState.GetVelocity_WorldSpace(),
+ 													OutputSyncState.GetAngularVelocityDegrees_WorldSpace(),
+ 													nullptr ); // no movement base
+-		
++
++		// AZ PATCH (crouch proxy-pop fix): a teleport is a discontinuity ? flag this state so network
++		// interpolation/smoothing SNAPS to it instead of lerping (which would desync the instant mesh offset
++		// from the lerped capsule and pop the character by the half-height delta). Set AFTER SetTransforms_WorldSpace,
++		// which clears it, so the flag is strictly one-shot. Fixes the crouch re-center pop on smoothed proxy views.
++		OutputSyncState.bSkipInterpolation = 1;
++
+ 		// TODO: instead of invalidating it, consider checking for a floor. Possibly a dynamic base?
+ 		if (UMoverBlackboard* SimBlackboard = ApplyEffectParams.MoverComp->GetSimBlackboard_Mutable())
+ 		{
+diff --git a/Engine/Plugins/Experimental/Mover/Source/Mover/Private/MoverDataModelTypes.cpp b/Engine/Plugins/Experimental/Mover/Source/Mover/Private/MoverDataModelTypes.cpp
+index dc5a6b9db144..c62ce3ba8ee9 100644
+--- a/Engine/Plugins/Experimental/Mover/Source/Mover/Private/MoverDataModelTypes.cpp
++++ b/Engine/Plugins/Experimental/Mover/Source/Mover/Private/MoverDataModelTypes.cpp
+@@ -210,6 +210,8 @@ bool FMoverDefaultSyncState::NetSerialize(FArchive& Ar, UPackageMap* Map, bool&
+ 	SerializePackedVector<10, 16>(AngularVelocityDegrees, Ar);
+ 	Orientation.SerializeCompressedShort(Ar);
+ 
++	Ar.SerializeBits(&bSkipInterpolation, 1);   // AZ PATCH (crouch proxy-pop fix): replicate the one-shot skip-interp flag
++
+ 	// Optional movement base
+ 	bool bIsUsingMovementBase = (Ar.IsSaving() ? MovementBase.IsValid() : false);
+ 	Ar.SerializeBits(&bIsUsingMovementBase, 1);
+@@ -285,9 +287,14 @@ void FMoverDefaultSyncState::Interpolate(const FMoverDataStructBase& From, const
+ 	const FMoverDefaultSyncState* FromState = static_cast<const FMoverDefaultSyncState*>(&From);
+ 	const FMoverDefaultSyncState* ToState = static_cast<const FMoverDefaultSyncState*>(&To);
+ 
++	// AZ PATCH (crouch proxy-pop fix) ? implements the engine TODO directly below: honor an explicit per-state
++	// "don't interpolate into me" flag. A teleport (e.g. the crouch capsule re-center) sets it, so we SNAP to the
++	// To state instead of lerping ? otherwise the instant mesh offset desyncs from the lerped capsule and the
++	// character pops by the half-height delta on smoothed/interpolated proxy views.
+ 	// TODO: investigate replacing this threshold with a flag indicating that the state (or parts thereof) isn't intended to be interpolated
+ 	static constexpr float TeleportThreshold = 500.f * 500.f;
+-	if (FVector::DistSquared(FromState->GetLocation_WorldSpace(), ToState->GetLocation_WorldSpace()) > TeleportThreshold)
++	if (ToState->bSkipInterpolation ||
++		FVector::DistSquared(FromState->GetLocation_WorldSpace(), ToState->GetLocation_WorldSpace()) > TeleportThreshold)
+ 	{
+ 		*this = *ToState;
+ 	}
+@@ -353,6 +360,11 @@ void FMoverDefaultSyncState::SetTransforms_WorldSpace(FVector WorldLocation, FRo
+ 
+ void FMoverDefaultSyncState::SetTransforms_WorldSpace(FVector WorldLocation, FRotator WorldOrient, FVector WorldVelocity, FVector WorldAngularVelocityDegrees, UPrimitiveComponent* Base, FName BaseBone)
+ {
++	// AZ PATCH (crouch proxy-pop fix): do NOT clear bSkipInterpolation here. The crouch teleport sets the flag,
++	// but the movement mode's floor-snap calls SetTransforms_WorldSpace AGAIN right after ? clearing it here
++	// would wipe the flag before it replicates (the bug that made the patch a no-op). The flag is naturally
++	// one-shot: the sim builds a fresh sync state each tick, so only the teleport frame carries it.
++
+ 	if (SetMovementBase(Base, BaseBone))
+ 	{
+ 		UBasedMovementUtils::TransformLocationToLocal(  MovementBasePos,  MovementBaseQuat, WorldLocation, OUT Location);
+diff --git a/Engine/Plugins/Experimental/Mover/Source/Mover/Public/MoverDataModelTypes.h b/Engine/Plugins/Experimental/Mover/Source/Mover/Public/MoverDataModelTypes.h
+index 0f442648c603..f4acacf00dd2 100644
+--- a/Engine/Plugins/Experimental/Mover/Source/Mover/Public/MoverDataModelTypes.h
++++ b/Engine/Plugins/Experimental/Mover/Source/Mover/Public/MoverDataModelTypes.h
+@@ -170,6 +170,15 @@ public:
+ 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = Mover)
+ 	FVector MoveDirectionIntent;
+ 
++	// AZ PATCH (crouch proxy-pop fix): one-shot flag. When true on a state, network interpolation/smoothing
++	// SNAPS to this state instead of lerping into it ? the change was a teleport (e.g. the crouch capsule
++	// re-center by the half-height delta), not continuous motion. Set by FTeleportEffect, honored in
++	// Interpolate(). Naturally one-shot: the sim builds a fresh sync state each tick, so only the teleport frame
++	// carries it. (Do NOT clear it in SetTransforms_WorldSpace ? the post-teleport floor-snap calls that and
++	// would wipe the flag before it replicates.) Mirrors CMC's "Don't smooth this change in mesh position" guard
++	// and implements the engine TODO in Interpolate(). Re-apply after engine sync ? see project_local_plugin_patches.
++	uint8 bSkipInterpolation = 0;
++
+ protected:
+ 	// Optional: when moving on a base, input may be relative to this object
+ 	UPROPERTY(BlueprintReadOnly, Category = Mover)

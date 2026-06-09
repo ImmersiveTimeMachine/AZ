@@ -8,6 +8,7 @@
 #include "MoverComponent.h"
 #include "MoverDataModelTypes.h"
 #include "TimerManager.h"
+#include "DefaultMovementSet/Settings/StanceSettings.h"
 
 UAZ_PawnMovementMode_Walking::UAZ_PawnMovementMode_Walking()
 {
@@ -17,6 +18,7 @@ UAZ_PawnMovementMode_Walking::UAZ_PawnMovementMode_Walking()
 	// is used on the first tick before the override runs.
 	bSmoothFacingWithDoubleSpring = false;
 	FacingSmoothingTime = 0.5f;
+	SharedSettingsClasses.Add(UStanceSettings::StaticClass());
 }
 
 FQuat UAZ_PawnMovementMode_Walking::ResolveRotationTarget(const FMoverTickStartData& StartState,

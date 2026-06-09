@@ -58,10 +58,12 @@ public:
 	 *  this override applies the per-gait speed above. Reached via the bHandleJump pre-sim path
 	 *  (OnMoverPreSimulationTick → CanActorJump → Jump). */
 	virtual bool Jump() override;
-
+	
 protected:
 	// Override OnRegister so we can populate SharedSettings BEFORE the parent calls
 	// FindAndRegisterDefaults, which triggers each mode's OnRegistered → lookup of
 	// CommonLegacyMovementSettings. NewObject is forbidden inside ctors, allowed here.
 	virtual void OnRegister() override;
+	
+	virtual void OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd) override;
 };

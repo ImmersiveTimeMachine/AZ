@@ -65,6 +65,7 @@ FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 	                         || NewState == EAZ_StateMachineState::TransitionToLocomotion) ? bLatchedJustLanded : false;
 
 	PreviousState = NewState;
+	PreviousStance = In.Stance;
 	return Out;
 }
 
@@ -218,7 +219,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 
 	// Already mid-break — stay until the break anim's almost-complete window.
 	case EAZ_StateMachineState::IdleBreak:
-		if (IdleBreakEndTime > 0.f && Now >= IdleBreakEndTime)
+		if (In.Stance != PreviousStance || (IdleBreakEndTime > 0.f && Now >= IdleBreakEndTime))
 		{
 			IdleBreakEndTime = -1.f;
 			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);

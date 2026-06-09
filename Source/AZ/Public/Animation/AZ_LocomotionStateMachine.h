@@ -29,6 +29,11 @@ struct FAZ_LocoSMInputs
 	 *  vault/mantle). Persistent replicated state, so it drives the air phase identically on proxy + authority. */
 	bool bInAirMode = false;
 
+	/** Current stance (from IsCrouching()). A change cancels an in-progress idle
+	break — same tier as bIsMoving. */
+	EAZ_Stance Stance = EAZ_Stance::Standing;
+	EAZ_Stance PreviousStance = EAZ_Stance::Standing;
+
 	/** HYBRID JUMP: true while the RM rise owns the capsule (raw Mover mode == RMAction). Holds
 	 *  TransitionToInAir PAST the takeoff timer so the rising Start clip keeps driving the capsule
 	 *  until the apex handoff — without this, the timer (0.2s) expires mid-rise (apex 0.33-0.47s),
@@ -108,6 +113,7 @@ private:
 
 	// ---- runtime state (owned here; was on the AnimInstance) ----
 	EAZ_StateMachineState PreviousState = EAZ_StateMachineState::IdleLoop;
+	EAZ_Stance PreviousStance = EAZ_Stance::Standing;
 
 	float NextIdleBreakTime = -1.f;
 	float IdleBreakEndTime  = -1.f;

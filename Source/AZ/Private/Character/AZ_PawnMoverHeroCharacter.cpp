@@ -84,7 +84,10 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	MoverComponent->SetHandleJump(true);    // Physics jump: the engine Walking mode applies the launch impulse
 	                                        // and transitions Walking -> Falling (gravity + floor-contact land),
 	                                        // so the arc adapts to terrain height. Re-enforced in BeginPlay.
-	MoverComponent->SetHandleStanceChanges(true);
+	MoverComponent->SetHandleStanceChanges(true);   // Engine handles crouch stance: the base OnMoverPreSimulationTick
+	                                                // queues/cancels the engine FStanceModifier from bWantsToCrouch.
+	                                                // The component's input bridge feeds bWantsToCrouch from the
+	                                                // Movement.Crouching GAS tag. Re-enforced in BeginPlay.
 	MoverComponent->PrimaryComponentTick.TickGroup = TG_PrePhysics;
 
 	// Required for Mover replication.
@@ -107,6 +110,7 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 	if (MoverComponent)
 	{
 		MoverComponent->SetHandleJump(true);
+		MoverComponent->SetHandleStanceChanges(true);   // archetype-proof: a BP that serialized false can't override
 	}
 
 	// NOTE: RM bridge (capsule side) deliberately NOT queued here yet. FLayeredMove_RootMotionAttribute
@@ -373,8 +377,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// mode runs in the prediction replay and cannot query the ASC. Tags are granted by
 	// movement abilities (BP_GA_Run → Movement.Running via ActivationOwnedTags). We read
 	// Movement.* (domain state), NOT Ability.State.* (which is ability-to-ability coordination).
-	FAZ_MoverCustomInputs& CustomInputs =
-		InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
+	FAZ_MoverCustomInputs& CustomInputs = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
 	{
 		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
 		if (HasMatchingGameplayTag(AZTags.Movement_Sprinting))
@@ -385,10 +388,12 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		{
 			CustomInputs.Gait = EAZ_Gait::Run;
 		}
-		else
+		else 
 		{
 			CustomInputs.Gait = EAZ_Gait::Walk;
 		}
+		
+		CustomInputs.bWantsToCrouch = HasMatchingGameplayTag(AZTags.Movement_Crouching);
 	}
 
 	// "Held" jump flag — true the whole time the player is holding Space, false
