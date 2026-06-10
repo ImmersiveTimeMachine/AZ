@@ -65,7 +65,6 @@ FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 	                         || NewState == EAZ_StateMachineState::TransitionToLocomotion) ? bLatchedJustLanded : false;
 
 	PreviousState = NewState;
-	PreviousStance = In.Stance;
 	return Out;
 }
 
@@ -85,6 +84,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	// and is NOT clip-length-bounded (that was the old RM jump; physics owns the arc now).
 	if (In.bInAirMode)
 	{
+		PreviousStance = In.Stance;
 		NextIdleBreakTime  = -1.f;
 		IdleBreakEndTime   = -1.f;
 		bLatchedJustLanded = false;
@@ -140,6 +140,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	// (the default is the "any other prior phase" catch-all the if-chain used). ----
 	if (In.bIsMoving)
 	{
+		PreviousStance = In.Stance;
 		NextIdleBreakTime = -1.f;
 		IdleBreakEndTime  = -1.f;
 		// Clear the land flag on every NORMAL moving frame (start / pivot / loop), but PRESERVE it while a
@@ -208,6 +209,13 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		return EAZ_StateMachineState::TransitionToIdle;
 
 	case EAZ_StateMachineState::TransitionToIdle:
+		if (In.Stance != PreviousStance)
+		{
+			TransitionEndTime  = Now + 1.0f;   // overridden by the Idle2Crouch clip length
+			bLatchedJustLanded = false;
+			return EAZ_StateMachineState::TransitionStance;
+		}
+
 		if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
 		{
 			TransitionEndTime = -1.f;
@@ -219,16 +227,42 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 
 	// Already mid-break — stay until the break anim's almost-complete window.
 	case EAZ_StateMachineState::IdleBreak:
-		if (In.Stance != PreviousStance || (IdleBreakEndTime > 0.f && Now >= IdleBreakEndTime))
+		if (In.Stance != PreviousStance)
 		{
-			IdleBreakEndTime = -1.f;
+			IdleBreakEndTime  = -1.f;
+			NextIdleBreakTime = -1.f;
+			TransitionEndTime = Now + 1.0f;
+			return EAZ_StateMachineState::TransitionStance;
+		}
+		if (IdleBreakEndTime > 0.f && Now >= IdleBreakEndTime)
+		{
+			IdleBreakEndTime  = -1.f;
 			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
 			return EAZ_StateMachineState::IdleLoop;
 		}
 		return EAZ_StateMachineState::IdleBreak;
+		
+	// Stance transition: in-place lower/rise clip; hold for its length, then settle into IdleLoop.
+	case EAZ_StateMachineState::TransitionStance:
+		if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
+		{
+			TransitionEndTime = -1.f;
+			PreviousStance = In.Stance;
+			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+			return EAZ_StateMachineState::IdleLoop;
+		}
+		return EAZ_StateMachineState::TransitionStance;
 
 	// IdleLoop or fresh entry into idle. Schedule the next break if none pending, else fire when due.
 	default:
+		// Stance changed while idle -> play the in-place lower/rise clip. The chooser keys on
+		// TransitionStance + the (target) Stance column to pick Idle2Crouch vs Crouch2Idle.
+		if (In.Stance != PreviousStance)
+		{
+			NextIdleBreakTime = -1.f;
+			TransitionEndTime = Now + 1.0f;   // overridden by the clip's real length
+			return EAZ_StateMachineState::TransitionStance;
+		}
 		if (NextIdleBreakTime < 0.f)
 		{
 			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);

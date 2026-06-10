@@ -129,13 +129,13 @@ public:
 protected:
 	/** Cached on NativeInitializeAnimation — saves a TryGetPawnOwner cast per tick. */
 	UPROPERTY(Transient)
-	TObjectPtr<AAZ_PawnMoverHeroCharacter> CachedPawn;
+	TObjectPtr<AAZ_PawnMoverHeroCharacter> Cached_Pawn;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UAZ_PawnMoverComponent> CachedMover;
+	TObjectPtr<UAZ_PawnMoverComponent> Cached_MoverComponent;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UCharacterMoverComponent> CachedCMC;
+	TObjectPtr<UCharacterMoverComponent> Cahed_CharacterMoverComponent;
 
 	/** The locomotion phase machine (extracted from the old DeriveSMState). Pure C++ decision function — this
 	 *  AnimInstance feeds it inputs each tick and applies its outputs; it owns the phase + the transition /
@@ -169,6 +169,11 @@ protected:
 	// thread) flags a pending move; NativeUpdateAnimation (game thread) queues it. Plain members (no GC ref).
 	bool bPendingTransitionRMMove = false;
 	float PendingTransitionRMMoveDurationMs = 0.f;
+
+	// Outgoing-wins blend-out: one-shot stash of the currently-playing clip's authored FAZ_ChooserOutputs::BlendOut.
+	// On the NEXT push (which replaces that clip) it overrides the incoming BlendTime for the crossfade, then is
+	// refreshed to the new clip's BlendOut. <= 0 = no override. Plain member (worker-thread store, single word).
+	float PendingBlendOut = 0.f;
 
 	// ---- Turn-start (90/135/180) selection — see project_v2_locomotion_progress / project_v2_architecture.
 	/** Signed yaw (deg, +right) from current facing to desired move direction, recomputed every tick in

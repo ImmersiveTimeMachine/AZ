@@ -113,7 +113,8 @@ enum class EAZ_StateMachineState : uint8
 	TransitionToInAir			= 5,	// TRANS - takeoff; hybrid jump's RM rise (RMAction) owns the capsule, held past the takeoff timer to the apex handoff
 	IdleBreak					= 6,	// LOOP* - cosmetic idle fidget; from IdleLoop on a timer, held to clip end, cancelled by move / air / stance change
 	TransitionToSlide			= 7,	// TRANS - RESERVED: slide entry (no ComputeNextState path emits this yet)
-	SlideLoop					= 8		// LOOP  - RESERVED: slide steady state (not wired yet)
+	SlideLoop					= 8,	// LOOP  - RESERVED: slide steady state (not wired yet)
+	TransitionStance			= 9		// TRANS - in-place stance change (Idle2Crouch)
 };
 
 /** Turn magnitude + side for a from-idle start (TransitionToLocomotion).
@@ -387,6 +388,12 @@ struct FAZ_ChooserOutputs
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double BlendTime = 0.2;
+
+	/** Crossfade duration used when this clip is REPLACED (its blend-OUT). When > 0 it overrides the
+	 *  incoming clip's BlendTime for that one crossfade (outgoing-wins), so a transition owns its own
+	 *  release regardless of what follows. <= 0 (default) = no override; the incoming BlendTime governs. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	double BlendOut = 0.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName BlendProfile = NAME_None;

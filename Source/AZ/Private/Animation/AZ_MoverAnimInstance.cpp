@@ -38,11 +38,11 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 	// Cache pawn + Mover refs — pawn class is fixed at spawn, no need to re-cast every tick.
 	if (APawn* PawnOwner = TryGetPawnOwner())
 	{
-		CachedPawn = Cast<AAZ_PawnMoverHeroCharacter>(PawnOwner);
-		if (CachedPawn)
+		Cached_Pawn = Cast<AAZ_PawnMoverHeroCharacter>(PawnOwner);
+		if (Cached_Pawn)
 		{
-			CachedMover = CachedPawn->GetMoverComponent();
-			CachedCMC = Cast<UCharacterMoverComponent>(CachedMover);
+			Cached_MoverComponent = Cached_Pawn->GetMoverComponent();
+			Cahed_CharacterMoverComponent = Cast<UCharacterMoverComponent>(Cached_MoverComponent);
 		}
 	}
 }
@@ -51,7 +51,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
-	if (!CachedPawn || !CachedMover)
+	if (!Cached_Pawn || !Cached_MoverComponent)
 	{
 		return;
 	}
@@ -93,17 +93,17 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		//    plays the clip and extracts root motion in place, so the mesh animates correctly while
 		//    replication carries the world movement.
 		const UWorld* World = GetWorld();
-		if (World && World->IsGameWorld() && CachedPawn->GetLocalRole() != ROLE_SimulatedProxy)
+		if (World && World->IsGameWorld() && Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy)
 		{
 			// REPLACE, don't stack: a direction reversal chains stop → turn-start with no
 			// non-transition frame between them, so the teardown below never runs in the gap —
 			// without this cancel, both clips' moves would be live and double-drive the capsule.
 			// No-op in the normal case (no prior transition move active).
-			CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+			Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 
 			TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
 			RMMove->DurationMs = PendingTransitionRMMoveDurationMs;
-			CachedMover->QueueLayeredMove(RMMove);
+			Cached_MoverComponent->QueueLayeredMove(RMMove);
 		}
 	}
 
@@ -114,7 +114,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// the intent-based IsMoving below. Mirrors v1 Update_Trajectory. The predictor is Setup on the pawn in
 	// BeginPlay. Future velocity is finite-differenced from the predicted samples (the sample struct carries
 	// position/facing/time, not velocity), giving a leading indicator that catches start/stop on intent.
-	if (UMoverTrajectoryPredictor* Predictor = CachedPawn->GetTrajectoryPredictor())
+	if (UMoverTrajectoryPredictor* Predictor = Cached_Pawn->GetTrajectoryPredictor())
 	{
 		TScriptInterface<IPoseSearchTrajectoryPredictorInterface> PredictorInterface;
 		PredictorInterface.SetObject(Predictor);
@@ -131,7 +131,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	// ---- Mover-derived fields ----
-	const FVector Velocity = CachedMover->GetVelocity();
+	const FVector Velocity = Cached_MoverComponent->GetVelocity();
 	ChooserContext.Speed2D = static_cast<float>(Velocity.Size2D());   // measured speed (gait thresholds, leaning)
 
 	// Intent-based "is moving" — keyed on the player's ACTUAL movement INPUT, not predicted/measured
@@ -143,7 +143,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// for start AND stop.) PredictedFutureVelocity is still used below for MovementDirection + MM trajectory.
 	FVector MoveIntentWS = FVector::ZeroVector;
 	{
-		const FMoverInputCmdContext& LastInput = CachedMover->GetLastInputCmd();
+		const FMoverInputCmdContext& LastInput = Cached_MoverComponent->GetLastInputCmd();
 		if (const FCharacterDefaultInputs* CharIn = LastInput.InputCollection.FindDataByType<FCharacterDefaultInputs>())
 		{
 			MoveIntentWS = CharIn->GetMoveInput_WorldSpace();
@@ -152,7 +152,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ChooserContext.bIsMoving = MoveIntentWS.SizeSquared2D() > FMath::Square(0.1f);   // small input deadzone
 
 	// MovementMode from the active mode's registered name (set on the MoverComponent's MovementModes map).
-	const FName ModeName = CachedMover->GetMovementModeName();
+	const FName ModeName = Cached_MoverComponent->GetMovementModeName();
 	if (ModeName == TEXT("Walking"))
 	{
 		ChooserContext.MovementMode = EAZ_MovementMode::OnGround;
@@ -173,23 +173,23 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// ---- Hybrid jump: flag cache + apex-handoff RM teardown ----
 	{
-		const UAZ_PawnMoverComponent* AZMover = Cast<UAZ_PawnMoverComponent>(CachedMover);
+		const UAZ_PawnMoverComponent* AZMover = Cast<UAZ_PawnMoverComponent>(Cached_MoverComponent);
 		bHybridJumpActive = AZMover && AZMover->bUseHybridJump;
 
 		// At the apex, RMAction switches itself to Falling. The rise's OverrideAll root-motion move must die
 		// WITH it: under Falling the engine merely downgrades it (SkipVerticalAnimRootMotion strips the Z) while
 		// the HORIZONTAL would stay clip-driven and fight air control/gravity pathing. Cancel on the observed
 		// RMAction→Falling edge. Simulating machines only — proxies never queued the move.
-		if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy &&
+		if (Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy &&
 			LastRawMoverModeName == TEXT("RMAction") && ModeName == TEXT("Falling"))
 		{
-			CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+			Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 		}
 		LastRawMoverModeName = ModeName;
 	}
 
 	// Stance — CharacterMoverComponent owns crouch state.
-	ChooserContext.Stance = (CachedCMC && CachedCMC->IsCrouching())
+	ChooserContext.Stance = (Cahed_CharacterMoverComponent && Cahed_CharacterMoverComponent->IsCrouching())
 		? EAZ_Stance::Crouching
 		: EAZ_Stance::Standing;
 
@@ -200,9 +200,9 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// lagging until speed crosses a threshold. Mirrors how bIsMoving above reads the input cmd. The gait is
 	// produced in ProduceInput from the player's Movement.* GAS tags. Falls back to Walk when absent (e.g.
 	// sim proxies without bSyncInputsForSimProxy — same pending MP fix as bIsMoving).
-	const FVector CurrentForward = CachedPawn->GetActorForwardVector();
+	const FVector CurrentForward = Cached_Pawn->GetActorForwardVector();
 	{
-		const FMoverInputCmdContext& GaitInput = CachedMover->GetLastInputCmd();
+		const FMoverInputCmdContext& GaitInput = Cached_MoverComponent->GetLastInputCmd();
 		if (const FAZ_MoverCustomInputs* Custom = GaitInput.InputCollection.FindDataByType<FAZ_MoverCustomInputs>())
 		{
 			ChooserContext.Gait = Custom->Gait;
@@ -218,7 +218,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		const FVector VelDir2D = PredictedFutureVelocity.GetSafeNormal2D();   // intent direction (future, not lagging current)
 		const float Forward = static_cast<float>(FVector::DotProduct(VelDir2D, CurrentForward));
-		const float Right   = static_cast<float>(FVector::DotProduct(VelDir2D, CachedPawn->GetActorRightVector()));
+		const float Right   = static_cast<float>(FVector::DotProduct(VelDir2D, Cached_Pawn->GetActorRightVector()));
 		if (FMath::Abs(Forward) > FMath::Abs(Right))
 		{
 			ChooserContext.MovementDirection = Forward >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
@@ -254,17 +254,17 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// ---- GAS tag snapshot from the pawn (routes through IGameplayTagAssetInterface → ASC). ----
 	ChooserContext.OwnedTags.Reset();
-	CachedPawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
+	Cached_Pawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
 
 	// ---- Camera/facing — for rotation-aware chooser rows (TIP, AO chains) ----
-	if (const AController* Controller = CachedPawn->GetController())
+	if (const AController* Controller = Cached_Pawn->GetController())
 	{
 		ChooserContext.AimingRotation = Controller->GetControlRotation();
 	}
 	// RotationOffset is signed delta from actor yaw to camera yaw (radians or degrees?
 	// Project convention: degrees. Matches FAZ_MoverCustomInputs::RotationOffset units.)
 	ChooserContext.RotationOffset = FRotator::NormalizeAxis(
-		ChooserContext.AimingRotation.Yaw - CachedPawn->GetActorRotation().Yaw);
+		ChooserContext.AimingRotation.Yaw - Cached_Pawn->GetActorRotation().Yaw);
 
 #if !UE_BUILD_SHIPPING
 	if (bDebugTrajectory && GEngine)
@@ -352,10 +352,10 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	};
 	// Sim proxies never queued an RM move (gated above), so there's nothing to cancel — and they must not
 	// touch their Mover (the capsule is replication-driven). Gate the teardown to the simulating machine too.
-	if (CachedPawn->GetLocalRole() != ROLE_SimulatedProxy &&
+	if (Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy &&
 		IsTransitionPhase(PreviousSMState) && !IsTransitionPhase(ChooserContext.SMState))
 	{
-		CachedMover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+		Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 	}
 
 	// ---- Jump mode flow (HYBRID: RM rise → physics fall; toggleable) ----
@@ -403,9 +403,11 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	// the other foot every few frames. The entry frame (SMState just changed from the loop) is NOT locked
 	// — only subsequent frames where we're still in the same transition.
 	const bool bInTransition =
-		ChooserContext.SMState == EAZ_StateMachineState::TransitionToIdle ||
-		ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion ||
-		ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir;
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionToIdle ||
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion ||
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir ||
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionStance;
+
 	if (bInTransition && ChooserContext.SMState == LastPushedSMState && !bForceBlend)
 	{
 		return;
@@ -436,6 +438,13 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	LastPushedLeftFootDown   = ChooserContext.bLeftFootDown;
 
 	bool bAssetLooping = false;
+
+	// Outgoing-wins blend-out: if the clip we're REPLACING authored a BlendOut (one-shot stash from its own
+	// push), that clip owns this crossfade; otherwise the incoming clip's BlendTime governs (standard). The
+	// stash is refreshed to THIS clip's BlendOut after the push commits, below.
+	const float Crossfade = (PendingBlendOut > 0.f)
+		? PendingBlendOut
+		: static_cast<float>(ChooserOut.BlendTime);
 
 	if (ChooserOut.bUseMM)
 	{
@@ -500,7 +509,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		BlendStackInputs.Anim         = MMAnim;
 		BlendStackInputs.bLoop        = bAssetLooping;
 		BlendStackInputs.StartTime    = MMStartTime;
-		BlendStackInputs.BlendTime    = ChooserOut.BlendTime;
+		BlendStackInputs.BlendTime    = Crossfade;
 		BlendStackInputs.BlendProfile = const_cast<UBlendProfile*>(GetBlendProfileByName(ChooserOut.BlendProfile));
 		BlendStackInputs.Tags         = ChooserOut.Tags;
 	}
@@ -518,10 +527,15 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		BlendStackInputs.Anim         = DirectAnim;
 		BlendStackInputs.bLoop        = bAssetLooping;
 		BlendStackInputs.StartTime    = ChooserOut.StartTime;
-		BlendStackInputs.BlendTime    = ChooserOut.BlendTime;
+		BlendStackInputs.BlendTime    = Crossfade;
 		BlendStackInputs.BlendProfile = const_cast<UBlendProfile*>(GetBlendProfileByName(ChooserOut.BlendProfile));
 		BlendStackInputs.Tags         = ChooserOut.Tags;
 	}
+
+	// Refresh the one-shot stash with THIS clip's blend-out, so the NEXT push (which replaces it) honors it.
+	// Reached only on a committed push (every no-push path returned above), so PendingBlendOut survives across
+	// the transition lock until the clip is actually replaced.
+	PendingBlendOut = static_cast<float>(ChooserOut.BlendOut);
 
 	// Idle-break duration tracking — when an IdleBreak anim is pushed, record when DeriveSMState
 	// should flip back to IdleLoop. Using world time + (anim length - threshold) lets the
@@ -576,10 +590,16 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 				bHybridJumpActive &&
 				ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir &&
 				!ChooserContext.bJustLanded;
+			
 			const bool bPhysicsDrivenTransition =
-				(ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir || ChooserContext.bJustLanded) &&
+				(ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir ||
+				ChooserContext.bJustLanded) && 
 				!bHybridJumpRise;
-			if (!bPhysicsDrivenTransition)
+			
+			const bool bInPlaceStanceTransition =
+				ChooserContext.SMState == EAZ_StateMachineState::TransitionStance;
+			
+			if (!bPhysicsDrivenTransition && !bInPlaceStanceTransition)
 			{
 				PendingTransitionRMMoveDurationMs = Remaining * 1000.f;
 				bPendingTransitionRMMove = true;
