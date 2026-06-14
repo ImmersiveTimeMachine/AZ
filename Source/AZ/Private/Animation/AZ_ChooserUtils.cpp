@@ -128,11 +128,28 @@ bool UAZ_ChooserUtils::AddAnimRow(const FString& ChooserPath, UAnimSequence* Ani
 #if WITH_EDITOR
 	UChooserTable* Table = LoadChooser(ChooserPath);
 	if (!Table || !AnimAsset) return false;
-	if (Table->ColumnsStructs.Num() < 3)
+	// HARD GUARD (audit P3-26): this legacy helper assumes the ORIGINAL 3-column layout (SMState/Gait/
+	// Stance, all FEnumColumn) and appends cells ONLY to columns 0-2. On a wider table (the live CHT_v2
+	// has 11 columns) that silently MISALIGNS every later row's cells — the engine indexes RowValues[r]
+	// positionally. Refuse anything but exactly-3 enum columns; use AddEmptyRowToSub + SetCell* instead.
+	if (Table->ColumnsStructs.Num() != 3)
 	{
-		UE_LOG(LogTemp, Error, TEXT("AZ_ChooserUtils: Chooser not configured (need 3 columns, have %d)"), Table->ColumnsStructs.Num());
+		UE_LOG(LogTemp, Error, TEXT("AZ_ChooserUtils: AddAnimRow requires the legacy EXACT 3-column layout "
+			"(have %d). On wider tables use AddEmptyRowToSub + SetCell* — appending to a subset of columns "
+			"misaligns all later rows."), Table->ColumnsStructs.Num());
 		return false;
 	}
+	for (int32 ColIdx = 0; ColIdx < 3; ++ColIdx)
+	{
+		if (!Table->ColumnsStructs[ColIdx].GetPtr<FEnumColumn>())
+		{
+			UE_LOG(LogTemp, Error, TEXT("AZ_ChooserUtils: AddAnimRow — column %d is not an FEnumColumn; aborting "
+				"(GetMutable would assert)."), ColIdx);
+			return false;
+		}
+	}
+	// NOTE: bUseMM/BlendTime/BlendProfileName are accepted for signature compatibility but NOT stored —
+	// the root table has no OutputStruct column in this legacy layout (outputs live on sub-tables).
 
 	// Add result row
 	FInstancedStruct& Result = Table->ResultsStructs.AddDefaulted_GetRef();
@@ -218,13 +235,17 @@ bool UAZ_ChooserUtils::CompileAndSave(const FString& ChooserPath)
 
 	Table->Compile(true);
 
-	// Save the package
+	// Save the package — and REPORT the save result. Dropping it returned true on a declined/failed
+	// save, which combined with open-asset-tab races produced disk/live divergences (audit P3-26).
 	TArray<UPackage*> PackagesToSave;
 	PackagesToSave.Add(Table->GetOutermost());
-	FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+	const FEditorFileUtils::EPromptReturnCode SaveResult =
+		FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
 
-	UE_LOG(LogTemp, Log, TEXT("AZ_ChooserUtils: Compiled and saved (%d rows)"), Table->ResultsStructs.Num());
-	return true;
+	const bool bSaved = (SaveResult == FEditorFileUtils::PR_Success);
+	UE_LOG(LogTemp, Log, TEXT("AZ_ChooserUtils: Compiled (%d rows), save %s"),
+		Table->ResultsStructs.Num(), bSaved ? TEXT("OK") : TEXT("FAILED/DECLINED"));
+	return bSaved;
 #else
 	return false;
 #endif
@@ -582,19 +603,21 @@ bool UAZ_ChooserUtils::SetChooserRowMultiEnumValues(const FString& ChooserPath, 
 	}
 	if (!Enum) return false;
 
-	// Build bitmask from enum value names
+	// Build bitmask from enum value names. The bitmask is indexed by the enum INDEX, NOT the raw value
+	// (matches SetCellMultiEnumOnSub + the dump decoder) — shifting by raw value writes wrong masks the
+	// moment a sparse enum is used (audit P3-26). Any unresolvable name = honest failure, no partial write.
 	uint32 Bitmask = 0;
 	for (const FString& ValName : EnumValues)
 	{
-		int64 EnumVal = Enum->GetValueByNameString(ValName);
-		if (EnumVal != INDEX_NONE)
+		const int64 EnumVal = Enum->GetValueByNameString(ValName);
+		const int32 EnumIdx = (EnumVal != INDEX_NONE) ? Enum->GetIndexByValue(EnumVal) : INDEX_NONE;
+		if (EnumIdx == INDEX_NONE)
 		{
-			Bitmask |= (1u << static_cast<uint32>(EnumVal));
+			UE_LOG(LogTemp, Warning, TEXT("AZ_ChooserUtils: Enum value '%s' not found in %s — row untouched"),
+				*ValName, *Enum->GetName());
+			return false;
 		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("AZ_ChooserUtils: Enum value '%s' not found in %s"), *ValName, *Enum->GetName());
-		}
+		Bitmask |= (1u << EnumIdx);
 	}
 
 	Table->Modify();
@@ -1241,8 +1264,15 @@ int32 UAZ_ChooserUtils::AddEnumColumnToSub(const FString& RootChooserPath, const
 #if WITH_EDITORONLY_DATA
 	Prop.Binding.Enum = Enum;
 #endif
-	// Extend existing rows: add default cell value for this new column so indices stay aligned
-	Col.RowValues.SetNum(Table->ResultsStructs.Num());
+	// Extend existing rows with MATCH-ANY cells (audit P3-26): SetNum's default-constructed cell is
+	// Comparison=MatchEqual/Value=0 — adding a column to a populated table silently turned every existing
+	// row into "must equal enum value 0". Mirror AppendDefaultCellToAllColumns' Any-equivalents.
+	{
+		FChooserEnumRowData AnyCell;
+		AnyCell.Comparison = EEnumColumnCellValueComparison::MatchAny;
+		AnyCell.Value = 0;
+		Col.RowValues.Init(AnyCell, Table->ResultsStructs.Num());
+	}
 	const int32 NewIndex = Table->ColumnsStructs.Add(MoveTemp(ColStruct));
 	Root->MarkPackageDirty();
 	return NewIndex;
@@ -1275,7 +1305,12 @@ int32 UAZ_ChooserUtils::AddMultiEnumColumnToSub(const FString& RootChooserPath, 
 #if WITH_EDITORONLY_DATA
 	Prop.Binding.Enum = Enum;
 #endif
-	Col.RowValues.SetNum(Table->ResultsStructs.Num());
+	// Backfill = match-any (Value 0 IS match-any for the multi-enum bitmask; explicit for clarity).
+	{
+		FChooserMultiEnumRowData AnyCell;
+		AnyCell.Value = 0;
+		Col.RowValues.Init(AnyCell, Table->ResultsStructs.Num());
+	}
 	const int32 NewIndex = Table->ColumnsStructs.Add(MoveTemp(ColStruct));
 	Root->MarkPackageDirty();
 	return NewIndex;
@@ -1299,7 +1334,13 @@ int32 UAZ_ChooserUtils::AddFloatRangeColumnToSub(const FString& RootChooserPath,
 	FFloatContextProperty& Prop = Col.InputValue.GetMutable<FFloatContextProperty>();
 	Prop.Binding.PropertyBindingChain = { FName(*PropertyName) };
 	Prop.Binding.ContextIndex = 0;
-	Col.RowValues.SetNum(Table->ResultsStructs.Num());
+	// Backfill = match-any (audit P3-26): SetNum's default cell is [0..0] with bNoMin/bNoMax=false —
+	// "must be exactly 0". Existing rows must not gain a constraint from a column add.
+	{
+		FChooserFloatRangeRowData AnyCell;
+		AnyCell.Min = 0.f; AnyCell.Max = 0.f; AnyCell.bNoMin = true; AnyCell.bNoMax = true;
+		Col.RowValues.Init(AnyCell, Table->ResultsStructs.Num());
+	}
 	const int32 NewIndex = Table->ColumnsStructs.Add(MoveTemp(ColStruct));
 	Root->MarkPackageDirty();
 	return NewIndex;
@@ -1447,12 +1488,30 @@ int32 UAZ_ChooserUtils::AddOutputStructColumnToSub(const FString& RootChooserPat
 	Col.InputValue.InitializeAs<FStructContextProperty>();
 	FStructContextProperty& Prop = Col.InputValue.GetMutable<FStructContextProperty>();
 	Prop.Binding.PropertyBindingChain = {};
-	// ⚠ ContextIndex must point at the AZ_ChooserOutputs context. This default "1" assumes a 2-context layout
-	// ([0] AnimInstance, [1] Outputs). The v2 choosers are 3-context ([0] AnimInstance, [1] AZ_v2_ChooserContext,
-	// [2] AZ_ChooserOutputs) → must be 2, else the output struct (bUseMM/BlendTime/...) never reaches the
-	// EvaluateChooser node's output (ChooserOut stuck at defaults). Fix per-chooser via
-	// SetColumnBindingChain(path, outputColIdx, {}, 2). (Cost the cross-clip MM a long debug, 2026-05-31.)
-	Prop.Binding.ContextIndex = 1;
+	// RESOLVE the context index by scanning the root's ContextData for the struct-typed entry matching
+	// StructType — fully determined, no layout guessing (audit P3-26). The old hard default "1" assumed a
+	// 2-context layout; on the v2 3-context choosers ([0] AnimInstance, [1] AZ_v2_ChooserContext,
+	// [2] AZ_ChooserOutputs) the output struct silently never reached EvaluateChooser's output (ChooserOut
+	// stuck at defaults — cost the cross-clip MM a long debug, 2026-05-31).
+	int32 ResolvedContextIndex = INDEX_NONE;
+	for (int32 CtxIdx = 0; CtxIdx < Root->ContextData.Num(); ++CtxIdx)
+	{
+		if (const FContextObjectTypeStruct* StructCtx = Root->ContextData[CtxIdx].GetPtr<FContextObjectTypeStruct>())
+		{
+			if (StructCtx->Struct == StructType)
+			{
+				ResolvedContextIndex = CtxIdx;
+				break;
+			}
+		}
+	}
+	if (ResolvedContextIndex == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AddOutputStructColumnToSub: no struct-typed context entry of type '%s' on "
+			"the root chooser — the column could never bind. Add the context entry first."), *StructTypeName);
+		return -1;
+	}
+	Prop.Binding.ContextIndex = ResolvedContextIndex;
 	Prop.Binding.IsBoundToRoot = true;
 #if WITH_EDITORONLY_DATA
 	Prop.Binding.StructType = StructType;
@@ -1595,12 +1654,25 @@ bool UAZ_ChooserUtils::SetCellEnumOnSub(const FString& RootChooserPath, const FS
 	}
 	else
 	{
-		Cell.Comparison = (Comparison == 1) ? EEnumColumnCellValueComparison::MatchNotEqual : EEnumColumnCellValueComparison::MatchEqual;
-		if (Enum)
+		// HONEST FAILURE (audit P3-26 — the "silent no-op" trap): validate BEFORE writing anything.
+		// The old code wrote Comparison first and returned true even when the enum was unresolved
+		// (null on a fresh session until the chooser compiles) or the name didn't resolve — so a
+		// failed call could flip a cell from Any to "Equal <stale value>" while reporting success.
+		if (!Enum)
 		{
-			const int64 Val = Enum->GetValueByNameString(EnumValueName);
-			if (Val != INDEX_NONE) Cell.Value = static_cast<uint8>(Val);
+			UE_LOG(LogTemp, Warning, TEXT("AZ_ChooserUtils: SetCellEnumOnSub col %d — column enum unresolved "
+				"(compile the chooser first, then set enum cells). Cell untouched."), ColumnIndex);
+			return false;
 		}
+		const int64 Val = Enum->GetValueByNameString(EnumValueName);
+		if (Val == INDEX_NONE)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AZ_ChooserUtils: SetCellEnumOnSub — '%s' is not a value of %s. Cell untouched."),
+				*EnumValueName, *Enum->GetName());
+			return false;
+		}
+		Cell.Comparison = (Comparison == 1) ? EEnumColumnCellValueComparison::MatchNotEqual : EEnumColumnCellValueComparison::MatchEqual;
+		Cell.Value = static_cast<uint8>(Val);
 	}
 	Root->MarkPackageDirty();
 	return true;
@@ -1786,9 +1858,13 @@ static TSet<FString> NormalizeNameTokens(const FString& InName)
 {
 	FString Work = InName.ToLower();
 
-	// Strip common prefixes iteratively
+	// Strip common prefixes iteratively. rtg_rm_ MUST be here alongside lm_rm_: the two parallel retarget
+	// batches (LM_RM_* v1 in /Game/AZ/NoWeapons/RootMotions, RTG_RM_* v2 in /Game/Assets/RM_Movement)
+	// duplicate ~100 clip names — stripping only one prefix made the fuzzy matcher able to silently swap
+	// a chooser row onto the OTHER batch (audit P3-27).
 	static const TArray<FString> Prefixes = {
 		TEXT("m_relaxed_"), TEXT("m_neutral_"), TEXT("m_"),
+		TEXT("rtg_rm_"), TEXT("rtg_"),
 		TEXT("lm_rm_"), TEXT("lm_"), TEXT("rm_"),
 		TEXT("sv_"), TEXT("ret_"), TEXT("lean_"),
 		TEXT("ret_01_"),

@@ -7,6 +7,11 @@
 #include "AZ_PawnMovementMode_Walking.generated.h"
 
 struct FMoverTickStartData;
+struct FMoverEventContext;
+struct FMoverSyncState;
+struct FMoverAuxStateContext;
+struct FMoverTimeStep;
+struct FProposedMove;
 enum class EAZ_Gait : uint8;
 
 UCLASS(BlueprintType, Blueprintable, meta = (DisplayName = "AZ Pawn Movement Mode - Walking"))
@@ -129,24 +134,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Decel")
 	FName FallingModeName = FName(TEXT("Falling"));
 
-	virtual void OnRegistered(const FName ModeName, const FMoverSimContext& SimContext) override;
-	virtual void OnUnregistered(const FMoverSimContext& SimContext) override;
+	/** Sticky-landing latch, SIM-TIME based: records the landing sim time when activated from the Falling
+	 *  mode. The old version latched a bool via a game-thread delegate + FTimerManager — wall-clock (wrong
+	 *  under time dilation), not rollback-aware, and the timer survived unrelated mode churn (audit P1-14). */
+	virtual void Activate(const FMoverEventContext& Context, FName PrevModeName, const FMoverSimContext& SimContext,
+		const FMoverTickStartData& StartState, FMoverSyncState* OutSyncState, FMoverAuxStateContext* OutAuxState) override;
+
+	/** Derives bJustLanded from sim time (TimeStep.BaseSimTimeMs vs LandedSimTimeMs) before the walk-move
+	 *  math runs, then defers to Super (which calls GenerateWalkMove). */
+	virtual void GenerateMove_Implementation(const FMoverSimContext& SimContext, const FMoverTickStartData& StartState,
+		const FMoverTimeStep& TimeStep, FProposedMove& OutProposedMove) const override;
 
 protected:
-	UFUNCTION()
-	void HandleMovementModeChanged(const FName& Previous, const FName& Next);
+	/** True within JustLandedDuration (sim seconds) of a Falling→Walking activation. Derived each
+	 *  GenerateMove from LandedSimTimeMs — mutable because GenerateMove is const; plain member (sim
+	 *  scratch, no GC ref). */
+	mutable bool bJustLanded = false;
 
-	void OnJustLandedTimerExpired();
-
-	/** Set true when previous mode was Falling and this mode just activated; cleared after JustLandedDuration. */
-	UPROPERTY(Transient)
-	bool bJustLanded = false;
-
-	/** Cached at OnRegistered — used to detect "this mode just became active" in the delegate. */
-	UPROPERTY(Transient)
-	FName MyModeName = NAME_None;
-
-	FTimerHandle JustLandedTimerHandle;
+	/** Sim time (ms, server timespace) of the last Falling→Walking activation; -1 = never landed. */
+	double LandedSimTimeMs = -1.0;
 
 	/** Persists across ticks — used to clamp RotationOffset to ±179° around the prior frame's
 	 *  offset so the spring damper always picks the short arc toward DesiredFacing. */

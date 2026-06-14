@@ -70,3 +70,6 @@ Script/
 # Claude Code — keep shared skills + mcp config, ignore personal/runtime state
 .claude/settings.local.json
 .claude/*.lock
+
+# UnrealClaude MCP Live-Coding scratch TUs (UBT compiles every .cpp under Source — never commit these)
+/Source/AZ/Generated/

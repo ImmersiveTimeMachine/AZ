@@ -113,18 +113,39 @@ void UAZ_AbilitySystemComponent::ForEachAbility(const FForEachAbility& Delegate)
 	}
 }
 
+void UAZ_AbilitySystemComponent::AddStateTag(const FGameplayTag& Tag)
+{
+	// Local first (the caller's own queries — unchanged behavior), then the replicated loose-tag count map
+	// on the authority (FMinimalReplicationTagCountMap — the 5.8 surface; the old convenience methods are
+	// gone and the accessor is protected, hence member functions). See header doc (audit P1-12).
+	AddLooseGameplayTag(Tag);
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		GetReplicatedLooseTags_Mutable().AddTag(Tag);
+	}
+}
+
+void UAZ_AbilitySystemComponent::RemoveStateTag(const FGameplayTag& Tag)
+{
+	RemoveLooseGameplayTag(Tag);
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		GetReplicatedLooseTags_Mutable().RemoveTag(Tag);
+	}
+}
+
 void UAZ_AbilitySystemComponent::OnWeaponEquipped(const FGameplayTag& NewWeaponTag)
 {
 	// Remove the old weapon state tag if it's valid
 	if (CurrentWeaponTag.IsValid())
 	{
-		RemoveLooseGameplayTag(CurrentWeaponTag);
-	} 
+		RemoveStateTag(CurrentWeaponTag);
+	}
 
 	// Add the new weapon state tag
 	if (NewWeaponTag.IsValid())
 	{
-		AddLooseGameplayTag(NewWeaponTag);
+		AddStateTag(NewWeaponTag);
 	}
 
 	// Update the currently stored tag
@@ -139,15 +160,15 @@ void UAZ_AbilitySystemComponent::OnMovementStateChanged(const FGameplayTag& NewM
 		// Remove the old tag if it was valid
 		if (CurrentMovementStateTag.IsValid())
 		{
-			RemoveLooseGameplayTag(CurrentMovementStateTag);
+			RemoveStateTag(CurrentMovementStateTag);
 		}
-        
+
 		// Add the new tag
 		if (NewMovementStateTag.IsValid())
 		{
-			AddLooseGameplayTag(NewMovementStateTag);
+			AddStateTag(NewMovementStateTag);
 		}
-        
+
 		// Update our cached state for the next frame's comparison
 		CurrentMovementStateTag = NewMovementStateTag;
 	}

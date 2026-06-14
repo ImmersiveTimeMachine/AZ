@@ -42,10 +42,12 @@ protected:
 		const FGameplayTagContainer* TargetTags,
 		OUT FGameplayTagContainer* OptionalRelevantTags) const override;
 
-	virtual void InputReleased(
-		const FGameplayAbilitySpecHandle Handle,
-		const FGameplayAbilityActorInfo* ActorInfo,
-		const FGameplayAbilityActivationInfo ActivationInfo) override;
+	/** WaitInputRelease task callback — the ONLY end path for natural release. The task replicates the
+	 *  release to the server instance (ServerSetReplicatedEvent); the old raw InputReleased virtual was
+	 *  invoked only on the owning client, so the LocalPredicted server instance stayed Active forever and
+	 *  rejected every subsequent jump from a remote client (audit P1-8). Same pattern as GA_Crouch. */
+	UFUNCTION()
+	void OnJumpInputReleased(float TimeHeld);
 
 	virtual void EndAbility(
 		const FGameplayAbilitySpecHandle Handle,

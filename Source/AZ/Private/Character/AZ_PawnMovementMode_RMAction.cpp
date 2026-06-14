@@ -22,6 +22,19 @@ UAZ_PawnMovementMode_RMAction::UAZ_PawnMovementMode_RMAction()
 	// no gravity, no speed clamps). Stays dependency-free so registering it can't perturb shared settings.
 }
 
+void UAZ_PawnMovementMode_RMAction::Activate(const FMoverEventContext& Context, FName PrevModeName,
+	const FMoverSimContext& SimContext, const FMoverTickStartData& StartState,
+	FMoverSyncState* OutSyncState, FMoverAuxStateContext* OutAuxState)
+{
+	Super::Activate(Context, PrevModeName, SimContext, StartState, OutSyncState, OutAuxState);
+
+	// Fresh action = fresh apex detector. The engine fires Activate inside the sim (incl. resim re-entries),
+	// so this is the authoritative "the mode just became active" signal — no sim-time-gap guessing.
+	NetRiseCm = 0.f;
+	NonPositiveZDeltaTicks = 0;
+	RiseElapsedMs = 0.f;
+}
+
 void UAZ_PawnMovementMode_RMAction::GenerateMove_Implementation(const FMoverSimContext& SimContext,
 	const FMoverTickStartData& StartState, const FMoverTimeStep& TimeStep, FProposedMove& OutProposedMove) const
 {
@@ -98,14 +111,7 @@ void UAZ_PawnMovementMode_RMAction::SimulationTick_Implementation(const FSimulat
 	// VerticalAnimRootMotion) while the horizontal kept overriding air control.
 	if (bHandOffToFallingAtApex)
 	{
-		// Fresh-activation detection without lifecycle hooks: a gap in sim time means we weren't ticking.
-		if (Params.TimeStep.BaseSimTimeMs != ExpectedNextTickStartMs)
-		{
-			NetRiseCm = 0.f;
-			NonPositiveZDeltaTicks = 0;
-			RiseElapsedMs = 0.f;
-		}
-		ExpectedNextTickStartMs = Params.TimeStep.BaseSimTimeMs + Params.TimeStep.StepMs;
+		// Detector state is reset in Activate() — the engine's authoritative mode-entry hook.
 		RiseElapsedMs += Params.TimeStep.StepMs;
 
 		const float ZDelta = static_cast<float>(MoveDelta.Z);

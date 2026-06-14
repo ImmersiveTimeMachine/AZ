@@ -5,6 +5,22 @@
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Character/AZ_PawnMovementMode_RMAction.h"
 #include "DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.h"   // FJumpImpulseEffect
+#include "MoverDataModelTypes.h"   // FMoverDefaultSyncState (patch probe below)
+
+// ---- COMPILE-TIME PROBE for the local Mover engine patch (project_local_plugin_patches #5,
+// docs/engine-patches/mover-crouch-skipinterp.patch). ----
+// FMoverDefaultSyncState::bSkipInterpolation is ADDED BY THE PATCH (it implements the engine's own TODO:
+// teleports SNAP on smoothed views instead of lerping — the crouch proxy-pop fix). AZ code has no other
+// compile-time coupling to it, so an engine sync that drops the patch would otherwise regress SILENTLY
+// (pop returns) and change the NetSerialize wire format (mixed builds desync). If this function fails to
+// compile, RE-APPLY THE PATCH — do not delete the probe (audit P1-9).
+namespace
+{
+	[[maybe_unused]] void AZ_Probe_MoverSkipInterpolationPatch(FMoverDefaultSyncState& SyncState)
+	{
+		SyncState.bSkipInterpolation = true;
+	}
+}
 
 UAZ_PawnMoverComponent::UAZ_PawnMoverComponent()
 {

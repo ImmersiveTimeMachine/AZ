@@ -4,6 +4,31 @@
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimNotifies/AnimNotifyState.h"
 
+namespace
+{
+	// EDITOR VISIBILITY + TRACK-CACHE INTEGRITY (audit P3-25, the 2026-06-12 "notifies gone" saga):
+	// a notify appended straight to UAnimSequenceBase::Notifies is fully FUNCTIONAL (MM/runtime read the raw
+	// array) but INVISIBLE in the anim editor's notify panel, which only draws events registered on a named
+	// track (AnimNotifyTracks) — they only reappear after PostLoad rebuilds the cache on the next restart.
+	// Register the event on track 0 and refresh the editor cache. ALSO required after REMOVALS:
+	// RemoveAt without RefreshCacheData leaves DANGLING FAnimNotifyEvent pointers inside
+	// AnimNotifyTracks[].Notifies — a latent editor crash, not just a cosmetic gap.
+	void RegisterNotifyOnTrackAndRefresh(UAnimSequence* Sequence, FAnimNotifyEvent* EvtOrNull)
+	{
+#if WITH_EDITOR
+		if (Sequence->AnimNotifyTracks.Num() == 0)
+		{
+			Sequence->InitializeNotifyTrack();
+		}
+		if (EvtOrNull)
+		{
+			EvtOrNull->TrackIndex = 0;
+		}
+		Sequence->RefreshCacheData();
+#endif
+	}
+}
+
 bool UAZ_PoseSearchUtils::AddSequenceToDatabase(UPoseSearchDatabase* Database, UAnimSequence* Sequence)
 {
 	if (!Database || !Sequence)
@@ -89,6 +114,7 @@ bool UAZ_PoseSearchUtils::AddBlockTransitionNotify(UAnimSequence* Sequence, floa
 	// Set time via link
 	NotifyEvent.Link(Sequence, StartTime);
 	NotifyEvent.SetTime(StartTime);
+	RegisterNotifyOnTrackAndRefresh(Sequence, &NotifyEvent);
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
 
@@ -166,6 +192,7 @@ bool UAZ_PoseSearchUtils::AddBranchInNotify(UAnimSequence* Sequence, UPoseSearch
 	Evt.EndTriggerTimeOffset = 0.f;
 	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
+	RegisterNotifyOnTrackAndRefresh(Sequence, &Evt);
 
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
@@ -189,6 +216,7 @@ bool UAZ_PoseSearchUtils::AddExcludeFromDatabaseNotify(UAnimSequence* Sequence, 
 	Evt.EndTriggerTimeOffset = 0.f;
 	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
+	RegisterNotifyOnTrackAndRefresh(Sequence, &Evt);
 
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
@@ -214,6 +242,7 @@ bool UAZ_PoseSearchUtils::AddModifyCostNotify(UAnimSequence* Sequence, float Sta
 	Evt.EndTriggerTimeOffset = 0.f;
 	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
+	RegisterNotifyOnTrackAndRefresh(Sequence, &Evt);
 
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
@@ -239,6 +268,7 @@ bool UAZ_PoseSearchUtils::AddOverrideContinuingPoseCostBiasNotify(UAnimSequence*
 	Evt.EndTriggerTimeOffset = 0.f;
 	Evt.Link(Sequence, StartTime);
 	Evt.SetTime(StartTime);
+	RegisterNotifyOnTrackAndRefresh(Sequence, &Evt);
 
 	Sequence->PostEditChange();
 	Sequence->MarkPackageDirty();
@@ -263,6 +293,9 @@ int32 UAZ_PoseSearchUtils::RemoveAllPoseSearchNotifies(UAnimSequence* Sequence)
 
 	if (Removed > 0)
 	{
+		// Rebuild the editor track cache — RemoveAt alone leaves dangling event pointers in
+		// AnimNotifyTracks[].Notifies (latent editor crash; see helper doc above).
+		RegisterNotifyOnTrackAndRefresh(Sequence, nullptr);
 		Sequence->PostEditChange();
 		Sequence->MarkPackageDirty();
 	}

@@ -24,8 +24,6 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 {
 	Super::NativeOnActivated();
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("NativeOnActivated called"));
-
 	// IMC is pushed automatically by base class UCommonActivatableWidget::ActivateMappingContext()
 	// via the InputMapping property set in Blueprint (IMC_AZ_InventoryMenu).
 
@@ -48,12 +46,11 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 
 	if (ContextMenuAction)
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Registering ContextMenuAction: %s"), *ContextMenuAction->GetName()));
 		RegisterUIActionBinding(FBindUIActionArgs(ContextMenuAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleContextMenu)));
 	}
 	else
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("ContextMenuAction is NULL!"));
+		UE_LOG(LogTemp, Warning, TEXT("AZ_Inv_CommonUI_GameInventoryMenu: ContextMenuAction is not set — context menu unavailable."));
 	}
 }
 
@@ -119,7 +116,6 @@ UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_CommonUI_GameInventoryMenu::GetHoverItem() c
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleContextMenu()
 {
-	GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow, TEXT("HandleContextMenu triggered"));
 	if (InventorySwitcherPanel) InventorySwitcherPanel->TryShowContextMenu();
 }
 

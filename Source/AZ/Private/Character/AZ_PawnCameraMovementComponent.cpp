@@ -3,6 +3,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "AZ_GameplayTags.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Character/AZ_HeroPawn.h"
@@ -89,6 +90,9 @@ void UAZ_PawnCameraMovementComponent::BeginPlay()
 		ASC = ASI->GetAbilitySystemComponent();
 	}
 
+	// Mover result channel for crouch framing (see header doc on CharacterMover).
+	CharacterMover = Owner->FindComponentByClass<UCharacterMoverComponent>();
+
 	ActiveStance = DefaultStance;
 }
 
@@ -101,7 +105,9 @@ void UAZ_PawnCameraMovementComponent::TickComponent(float DeltaTime, ELevelTick 
 		return;
 	}
 
-	// --- Read GAS state tags ---
+	// --- Read state: aim/sprint from GAS tags; CROUCH from the Mover RESULT (v2 doctrine — the capsule
+	// resizes on IsCrouching(), and a ceiling-blocked uncrouch keeps it true while the intent tag is
+	// already gone; reading the tag made the camera pop to standing against a still-crouched body). ---
 	bool bIsAiming = false;
 	bool bIsCrouching = false;
 	bIsSprinting = false;
@@ -110,8 +116,12 @@ void UAZ_PawnCameraMovementComponent::TickComponent(float DeltaTime, ELevelTick 
 	{
 		const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 		bIsAiming = ASC->HasMatchingGameplayTag(Tags.Ability_State_Aiming);
-		bIsCrouching = ASC->HasMatchingGameplayTag(Tags.Movement_Crouching);
 		bIsSprinting = ASC->HasMatchingGameplayTag(Tags.Ability_State_Sprinting);
+		bIsCrouching = ASC->HasMatchingGameplayTag(Tags.Movement_Crouching);   // fallback (legacy CMC pawn)
+	}
+	if (CharacterMover.IsValid())
+	{
+		bIsCrouching = CharacterMover->IsCrouching();
 	}
 
 	// --- Resolve target stance ---

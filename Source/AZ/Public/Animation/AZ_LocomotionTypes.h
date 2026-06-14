@@ -596,6 +596,12 @@ struct AZ_API FAZ_v2_ChooserContext
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	EAZ_Stance Stance = EAZ_Stance::Standing;
 
+	/** The last SETTLED stance (what the body still SHOWS). During TransitionStance it holds the stance
+	 *  being left, so a chooser column can disambiguate the transition pair the day a third stance exists
+	 *  (Stand2Prone vs Crouch2Prone). Equal to Stance everywhere outside a stance transition. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_Stance FromStance = EAZ_Stance::Standing;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
 

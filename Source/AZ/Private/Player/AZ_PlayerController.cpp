@@ -14,6 +14,7 @@
 #include "Input/AZ_EnhancedInputComponent.h"
 #include "InputMappingContext.h"
 #include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerState.h"
 #include "InventoryOld/Components/AZ_Inv_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
@@ -44,6 +45,20 @@ void AAZ_PlayerController::BeginPlay()
 
 UAbilitySystemComponent* AAZ_PlayerController::GetAbilitySystemComponent() const
 {
+	// PlayerState FIRST: the player ASC lives there and exists PAWN-LESS. Resolving through GetPawn()
+	// silently dropped any press/release landing in a possession gap — a release lost mid-swap left
+	// WaitInputRelease waiting forever and the next pawn spawned with a stuck Movement.Crouching tag
+	// (audit P1-13). Pawn-interface fallback kept for pawn-owned-ASC setups (e.g. future vehicle ASC).
+	if (const APlayerState* PS = PlayerState)
+	{
+		if (const IAbilitySystemInterface* PSI = Cast<IAbilitySystemInterface>(PS))
+		{
+			if (UAbilitySystemComponent* ASC = PSI->GetAbilitySystemComponent())
+			{
+				return ASC;
+			}
+		}
+	}
 	if (const IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(GetPawn()))
 	{
 		return ASI->GetAbilitySystemComponent();
@@ -198,7 +213,7 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 	{
 		Asc->AbilityInputTagPressed(InputTag);
 	}
-	UE_LOG(Log_AZ, Warning, TEXT("AbilityInputTagPressed: %s"), *InputTag.ToString());
+	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagPressed: %s"), *InputTag.ToString());
 }
 
 void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
@@ -207,7 +222,7 @@ void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 	{
 		Asc->AbilityInputTagReleased(InputTag);
 	}
-	UE_LOG(Log_AZ, Warning, TEXT("AbilityInputTagReleased: %s"), *InputTag.ToString());
+	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagReleased: %s"), *InputTag.ToString());
 }
 
 void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
@@ -216,7 +231,7 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 	{
 		Asc->AbilityInputTagHeld(InputTag);
 	}
-	UE_LOG(Log_AZ, Warning, TEXT("AbilityInputTagHeld: %s"), *InputTag.ToString());
+	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagHeld: %s"), *InputTag.ToString());
 }
 
 void AAZ_PlayerController::CreateHUDWidget()

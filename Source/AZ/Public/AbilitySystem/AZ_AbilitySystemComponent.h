@@ -102,6 +102,13 @@ protected:
 	FGameplayTag CurrentWeaponTag;
 	FGameplayTag CurrentMovementStateTag;
 
+	/** State-tag set/clear that REPLICATES: applies the loose tag locally (caller's own queries), and on
+	 *  the authority also records it in the replicated loose-tag count map so remote views and late-joiners
+	 *  receive it — plain loose tags never replicate (audit P1-12). Member functions because the 5.8 map
+	 *  accessor (GetReplicatedLooseTags_Mutable) is protected on UAbilitySystemComponent. */
+	void AddStateTag(const FGameplayTag& Tag);
+	void RemoveStateTag(const FGameplayTag& Tag);
+
 public:
 
 	// ----------------------------------------------------------------------------------------------------------------

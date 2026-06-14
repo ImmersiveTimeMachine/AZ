@@ -982,8 +982,8 @@ void UAZ_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// (equivalent to GASP's S_CharacterPropertiesForAnimation.bIsTurning).
 	bIsTurning = ShouldTurnInPlace();
 
-	// TEMP DEBUG — remove after testing
-	if (GEngine && OwningHeroPawn)
+	// Anim diagnostic overlay — gated (was an ungated TEMP block spamming ~15 prints/frame; audit P0-7).
+	if (bShowAnimDebug && GEngine && OwningHeroPawn)
 	{
 		const FString AnimName = BlendStackInputs.Anim ? BlendStackInputs.Anim->GetName() : TEXT("None");
 		FString TagsStr;

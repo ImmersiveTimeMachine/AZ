@@ -7,7 +7,7 @@
 #include "Engine/World.h"
 #include "MoverComponent.h"
 #include "MoverDataModelTypes.h"
-#include "TimerManager.h"
+#include "MoverTypes.h"   // FMoverEventContext
 #include "DefaultMovementSet/Settings/StanceSettings.h"
 
 UAZ_PawnMovementMode_Walking::UAZ_PawnMovementMode_Walking()
@@ -41,48 +41,29 @@ EAZ_Gait UAZ_PawnMovementMode_Walking::ResolveGait(const FMoverTickStartData& St
 	return CustomInputs ? CustomInputs->Gait : EAZ_Gait::Walk;
 }
 
-void UAZ_PawnMovementMode_Walking::OnRegistered(const FName ModeName, const FMoverSimContext& SimContext)
+void UAZ_PawnMovementMode_Walking::Activate(const FMoverEventContext& Context, FName PrevModeName,
+	const FMoverSimContext& SimContext, const FMoverTickStartData& StartState,
+	FMoverSyncState* OutSyncState, FMoverAuxStateContext* OutAuxState)
 {
-	Super::OnRegistered(ModeName, SimContext);
-	MyModeName = ModeName;
+	Super::Activate(Context, PrevModeName, SimContext, StartState, OutSyncState, OutAuxState);
 
-	if (UMoverComponent* Mover = GetMoverComponent<UMoverComponent>())
+	// Sticky-landing: record the landing SIM time when entering from the Falling mode. The window itself
+	// is derived in GenerateMove — sim-time math, no wall-clock timer, valid under time dilation and resim.
+	if (PrevModeName == FallingModeName)
 	{
-		Mover->OnMovementModeChanged.AddDynamic(this, &UAZ_PawnMovementMode_Walking::HandleMovementModeChanged);
+		LandedSimTimeMs = Context.EventTimeMs;
 	}
 }
 
-void UAZ_PawnMovementMode_Walking::OnUnregistered(const FMoverSimContext& SimContext)
+void UAZ_PawnMovementMode_Walking::GenerateMove_Implementation(const FMoverSimContext& SimContext,
+	const FMoverTickStartData& StartState, const FMoverTimeStep& TimeStep, FProposedMove& OutProposedMove) const
 {
-	if (UMoverComponent* Mover = GetMoverComponent<UMoverComponent>())
-	{
-		Mover->OnMovementModeChanged.RemoveDynamic(this, &UAZ_PawnMovementMode_Walking::HandleMovementModeChanged);
-	}
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(JustLandedTimerHandle);
-	}
-	bJustLanded = false;
-	Super::OnUnregistered(SimContext);
-}
+	// Derive the sticky-landing window in sim time, BEFORE Super runs the walk-move math (which calls our
+	// GenerateWalkMove — the Deceleration pick below reads bJustLanded).
+	bJustLanded = (LandedSimTimeMs >= 0.0) &&
+		((TimeStep.BaseSimTimeMs - LandedSimTimeMs) < static_cast<double>(JustLandedDuration) * 1000.0);
 
-void UAZ_PawnMovementMode_Walking::HandleMovementModeChanged(const FName& Previous, const FName& Next)
-{
-	// Sticky-landing: latch JustLanded for JustLandedDuration when entering this mode from the Falling mode.
-	if (Next == MyModeName && Previous == FallingModeName)
-	{
-		bJustLanded = true;
-		if (UWorld* World = GetWorld())
-		{
-			World->GetTimerManager().SetTimer(JustLandedTimerHandle, this,
-				&UAZ_PawnMovementMode_Walking::OnJustLandedTimerExpired, JustLandedDuration, /*bLoop*/ false);
-		}
-	}
-}
-
-void UAZ_PawnMovementMode_Walking::OnJustLandedTimerExpired()
-{
-	bJustLanded = false;
+	Super::GenerateMove_Implementation(SimContext, StartState, TimeStep, OutProposedMove);
 }
 
 void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickStartData& StartState, float DeltaSeconds,

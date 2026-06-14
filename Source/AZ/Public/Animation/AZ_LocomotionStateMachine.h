@@ -9,10 +9,14 @@
 /**
  * Inputs the SM reads each tick. Snapshotted by the AnimInstance and passed by const ref so the SM body
  * has ZERO engine/Mover API surface — it is a pure decision function (deterministic, unit-testable,
- * AI-reusable). The air phase is now driven entirely by bInAirMode (the replicated MovementMode), so the
- * SM derivation is IDENTICAL on the authority and on simulated proxies — no one-shot jump edge to miss, no
- * proxy-only mirror branch. (Physics jump: the engine Falling mode is persistent replicated STATE; proxies
- * read it via the synced sim state exactly like the authority.)
+ * AI-reusable). The air phase is driven entirely by MovementMode (replicated state), so the SM derivation
+ * is IDENTICAL on the authority and on simulated proxies — no one-shot jump edge to miss, no proxy-only
+ * mirror branch. (Physics jump: the engine Falling mode is persistent replicated STATE; proxies read it
+ * via the synced sim state exactly like the authority.)
+ * KNOWN EXCEPTION to the determinism claim: idle-break scheduling uses FMath::FRandRange (global RNG), so
+ * authority and proxies pick different break moments — ACCEPTED nondeterminism, cosmetic only (the break
+ * is an idle flourish; every gameplay-relevant phase stays identical). Seed deterministically if it ever
+ * matters.
  */
 USTRUCT()
 struct FAZ_LocoSMInputs
@@ -25,14 +29,19 @@ struct FAZ_LocoSMInputs
 	/** Intent-based moving flag (ChooserContext.bIsMoving). */
 	bool bIsMoving = false;
 
-	/** Pawn is airborne — MovementMode == InAir (engine Falling for physics jumps; RMAction for future
-	 *  vault/mantle). Persistent replicated state, so it drives the air phase identically on proxy + authority. */
-	bool bInAirMode = false;
+	/** The pawn's movement mode mapped to the anim-side enum (OnGround / InAir / future Slide / Traversing).
+	 *  Replaces the old bInAirMode bool: dispatching on the full enum is what lets the reserved Slide states
+	 *  (TransitionToSlide=7 / SlideLoop=8) become a case instead of another flag (audit scalability pre-work).
+	 *  Persistent replicated state, so it drives the air phase identically on proxy + authority. */
+	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
+
+	/** Vehicle/driver-pose hook: pins the SM to IdleLoop with timers cleared — an external pose system owns
+	 *  the skeleton, and the SM must not derive phases from Mover input it shouldn't trust (audit pre-work). */
+	bool bSuppressLocomotion = false;
 
 	/** Current stance (from IsCrouching()). A change cancels an in-progress idle
 	break — same tier as bIsMoving. */
 	EAZ_Stance Stance = EAZ_Stance::Standing;
-	EAZ_Stance PreviousStance = EAZ_Stance::Standing;
 
 	/** HYBRID JUMP: true while the RM rise owns the capsule (raw Mover mode == RMAction). Holds
 	 *  TransitionToInAir PAST the takeoff timer so the rising Start clip keeps driving the capsule
@@ -74,10 +83,7 @@ struct FAZ_LocoSMOutputs
  *
  * Created via NewObject in the AnimInstance's NativeInitializeAnimation. See
  * project_locomotion_sm_refactor_plan for the migration steps and the latent AI-jump gap.
- *
- * NOTE (refactor Step 1): this class is currently DORMANT — built and verified to compile, but the
- * AnimInstance still runs its own DeriveSMState until the switch-over increment (which first checks the ABP
- * for references to the BlueprintReadOnly timer fields before they are removed).
+ * LIVE since the v2 switch-over — this class owns the phase derivation; DeriveSMState is gone.
  */
 UCLASS()
 class AZ_API UAZ_LocomotionStateMachine : public UObject
@@ -98,10 +104,10 @@ public:
 	/** As above, for the idle-break clip → replaces the old IdleBreakEndTime write. */
 	void NotifyIdleBreakClipPushed(float WorldNow, float ClipPlayLength, float AlmostCompleteThreshold);
 
-	/** Read-only accessors (the AnimInstance exposed these as BlueprintReadOnly; provide parity for the ABP). */
-	float GetTransitionEndTime() const { return TransitionEndTime; }
-	float GetNextIdleBreakTime() const { return NextIdleBreakTime; }
-	float GetIdleBreakEndTime()  const { return IdleBreakEndTime; }
+	/** The last SETTLED stance — what the body currently SHOWS, not last tick's input. During a stance
+	 *  transition this still holds the OLD stance, which is exactly the "FromStance" the chooser needs
+	 *  the day a third stance (prone) makes the transition pair ambiguous (audit scalability pre-work). */
+	EAZ_Stance GetSettledStance() const { return PreviousStance; }
 
 private:
 	/** The faithful port of DeriveSMState's body — returns the next phase, mutating the timers/latches. */

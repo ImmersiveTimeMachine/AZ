@@ -358,6 +358,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|States")
 	bool bIsTurning = false;
 
+	/** Gates the per-frame on-screen anim diagnostic overlay (SM/CHT/OFR/Steering/AO/STOP/FOOT/Trj).
+	 *  Off by default — ~15 screen prints per tick when on. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Debug")
+	bool bShowAnimDebug = false;
+
 	// ----------------------------------------
 	// ESSENTIAL VALUES — Velocity, Acceleration, Transforms
 	// Updated in NativeUpdateAnimation via Update_EssentialValues()

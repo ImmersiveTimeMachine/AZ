@@ -287,18 +287,16 @@ void AAZ_PawnMoverHeroCharacter::OnLookTriggered(const FInputActionValue& Value)
 
 void AAZ_PawnMoverHeroCharacter::SetJumpPressed(bool bPressed)
 {
-	// One-shot edge-detect: bIsJumpJustPressed = press-this-tick, consumed by
-	// ProduceInput. bIsJumpPressed holds the steady state for as long as GA_PawnJump
-	// is active (release ends the GA, which calls SetJumpPressed(false)).
+	// One-shot edge-detect: bIsJumpJustPressed = press-this-tick, consumed ONLY by
+	// ProduceInput (both the normal path and the no-PC early-return consume it).
+	// Release deliberately does NOT clear the edge — a press+release inside one game
+	// frame (fast tap / low FPS) must still deliver its one-shot to the next sim tick;
+	// clearing on release silently dropped those jumps (audit P2-18).
 	if (bPressed && !bIsJumpPressed)
 	{
 		bIsJumpJustPressed = true;
 	}
 	bIsJumpPressed = bPressed;
-	if (!bPressed)
-	{
-		bIsJumpJustPressed = false;
-	}
 }
 
 // ========================================
@@ -340,9 +338,14 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	const APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC)
 	{
-		// AI / unpossessed: leave defaults zero-initialized. AI parity (BT writing
-		// to the cached fields directly) lands in a later step.
+		// AI / unpossessed: zero the defaults AND the custom inputs, and consume the jump
+		// one-shot — a press just before unpossession must not stay latched and fire on the
+		// next possession, and a recycled cmd context must not carry stale gait/crouch
+		// (audit P1 §ProduceInput no-PC path).
 		CharacterDefaultInputs = FCharacterDefaultInputs();
+		FAZ_MoverCustomInputs& NoPCCustom = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
+		NoPCCustom = FAZ_MoverCustomInputs();
+		bIsJumpJustPressed = false;
 		return;
 	}
 

@@ -39,7 +39,26 @@ void AAZ_Inv_ProxyMesh::DelayedInitializeOwner()
 		return;
 	}
 
-	APlayerController* PC = World->GetFirstPlayerController();
+	// Resolve the OWNING player, not player 0: in 2-player listen-server PIE every proxy mesh resolved to
+	// player 0's character regardless of whose inventory it mirrored (audit P1-14). Spawners should set
+	// Owner (controller or pawn) or Instigator; GetFirstPlayerController stays as the SP-only fallback.
+	APlayerController* PC = nullptr;
+	if (AController* OwnerController = Cast<AController>(GetOwner()))
+	{
+		PC = Cast<APlayerController>(OwnerController);
+	}
+	else if (const APawn* OwnerPawn = Cast<APawn>(GetOwner()))
+	{
+		PC = Cast<APlayerController>(OwnerPawn->GetController());
+	}
+	else if (const APawn* InstigatorPawn = GetInstigator())
+	{
+		PC = Cast<APlayerController>(InstigatorPawn->GetController());
+	}
+	if (!IsValid(PC))
+	{
+		PC = World->GetFirstPlayerController();   // SP/legacy fallback — wrong player in MP, set Owner instead
+	}
 	if (!IsValid(PC))
 	{
 		DelayedInitialization();

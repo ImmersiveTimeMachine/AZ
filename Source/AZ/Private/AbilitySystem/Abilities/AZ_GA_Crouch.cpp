@@ -2,6 +2,7 @@
 
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Character/AZ_HeroCharacter.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 
@@ -40,9 +41,18 @@ bool UAZ_GA_Crouch::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	{
 		return false;
 	}
-	
-	// Can always activate to toggle — Crouch/UnCrouch handles validation internally
-	return true;
+
+	// Avatar gate (mirrors GA_PawnJump's opt-in pattern): only pawns that can actually crouch — a
+	// CharacterMoverComponent (v2 Mover pawn) or an ACharacter (legacy CMC). Without this, pressing
+	// crouch while driving a vehicle activated the GA and held a meaningless Movement.Crouching tag
+	// on the PlayerState ASC (audit P1-13).
+	const AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
+	if (!Avatar)
+	{
+		return false;
+	}
+	return Avatar->FindComponentByClass<UCharacterMoverComponent>() != nullptr
+		|| Avatar->IsA<ACharacter>();
 }
 
 void UAZ_GA_Crouch::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

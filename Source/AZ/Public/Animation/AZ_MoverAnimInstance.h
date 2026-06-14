@@ -108,7 +108,14 @@ public:
 
 	/** When true, draws the predicted future velocity on screen (dev only). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Anim|Trajectory")
-	bool bDebugTrajectory = true;
+	bool bDebugTrajectory = false;
+
+	/** Vehicle/driver-pose hook: when true the locomotion SM is pinned to IdleLoop (timers frozen, no idle
+	 *  breaks) so an external pose system (e.g. State.InVehicle.Driver.*) can own the skeleton without the
+	 *  SM fighting it with phases derived from Mover input it shouldn't trust. Set by gameplay code on
+	 *  vehicle enter/exit; passed into the SM every tick. */
+	UPROPERTY(BlueprintReadWrite, Category = "AZ|V2|Anim|StateMachine")
+	bool bSuppressLocomotion = false;
 
 	/** Called from the ABP each tick (after EvaluateChooser2). Populates BlendStackInputs from
 	 *  the chooser result + optionally runs a single-frame MotionMatch over ValidAnims when
@@ -135,7 +142,7 @@ protected:
 	TObjectPtr<UAZ_PawnMoverComponent> Cached_MoverComponent;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UCharacterMoverComponent> Cahed_CharacterMoverComponent;
+	TObjectPtr<UCharacterMoverComponent> Cached_CharacterMoverComponent;
 
 	/** The locomotion phase machine (extracted from the old DeriveSMState). Pure C++ decision function — this
 	 *  AnimInstance feeds it inputs each tick and applies its outputs; it owns the phase + the transition /
@@ -183,9 +190,20 @@ protected:
 
 	// ---- Per-push state cache — gates BlendStack pushes so RandomizeColumn rows
 	// don't churn the stack every tick within the same logical chooser context.
+	// COMMITTED only after a push actually lands (every abort path returns first) — committing
+	// earlier wedged transitions: an aborted entry push poisoned the cache and the transition
+	// lock then suppressed every retry for the whole transition (audit P0-2).
 	UPROPERTY(Transient) EAZ_StateMachineState LastPushedSMState = EAZ_StateMachineState::IdleLoop;
 	UPROPERTY(Transient) EAZ_Stance              LastPushedStance = EAZ_Stance::Standing;
 	UPROPERTY(Transient) EAZ_Gait                LastPushedGait   = EAZ_Gait::Walk;
 	UPROPERTY(Transient) EAZ_MovementDirection   LastPushedDir    = EAZ_MovementDirection::F;
 	UPROPERTY(Transient) bool                    LastPushedLeftFootDown = false;
+
+	// Transition-entry token: incremented on the game thread whenever SMState changes; stamped into
+	// LastPushedTransitionSerial on a COMMITTED push. The transition lock compares serials, not raw
+	// SMState — raw-state equality let a stale LastPushedSMState from a bailed push suppress a LATER
+	// same-state transition (stop → bailed jump push → land-to-stop locked out; audit P0-3).
+	// Plain members: game-thread write / worker read, fenced by the anim-task boundary like ChooserContext.
+	uint32 TransitionSerial = 0;
+	uint32 LastPushedTransitionSerial = 0;
 };

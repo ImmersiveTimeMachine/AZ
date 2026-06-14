@@ -55,7 +55,7 @@ public:
 	bool bUseHybridJump = true;
 
 	/** Engine UCharacterMoverComponent::Jump() queues FJumpImpulseEffect with the flat settings value;
-	 *  this override applies the per-gait speed above. Reached via the bHandleJump pre-sim path
+	 *  this override applies the per-gait speed above. Reached via the bHandleJump p`re-sim path
 	 *  (OnMoverPreSimulationTick → CanActorJump → Jump). */
 	virtual bool Jump() override;
 	

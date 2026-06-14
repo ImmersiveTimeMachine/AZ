@@ -219,9 +219,8 @@ bool UAZ_EquipmentManagerComponent::RemoveOverlappedItem(AAZ_Item* InItem)
 
 void UAZ_EquipmentManagerComponent::ItemAddedToInventoryChanged(FGuid InInventoryItemInstanceId)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString("ItemAddedToInventory"));
-
-	auto PlayerState = GetOwner<AAZ_HeroCharacter>()->GetPlayerState<AAZ_PlayerState>();
+	// Intentionally empty — kept as the delegate landing point. (Was debug residue: an ungated
+	// screen print + an unchecked GetOwner<AAZ_HeroCharacter>() deref; audit P0-7.)
 }
 
 // --- SERVER RPC IMPLEMENTATIONS ---

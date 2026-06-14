@@ -7,6 +7,7 @@
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
+#include "Character/AZ_PawnMovementMode_RMAction.h"
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "MoverDataModelTypes.h"   // FCharacterDefaultInputs
@@ -42,9 +43,18 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 		if (Cached_Pawn)
 		{
 			Cached_MoverComponent = Cached_Pawn->GetMoverComponent();
-			Cahed_CharacterMoverComponent = Cast<UCharacterMoverComponent>(Cached_MoverComponent);
+			Cached_CharacterMoverComponent = Cast<UCharacterMoverComponent>(Cached_MoverComponent);
 		}
 	}
+
+	// Re-init can run on a re-used / Live-Coding-re-instanced object: clear every one-shot stash and
+	// push-cache so the first real push can't inherit state from a clip that no longer exists.
+	PendingBlendOut                   = 0.f;
+	bPendingTransitionRMMove          = false;
+	PendingTransitionRMMoveDurationMs = 0.f;
+	TransitionSerial                  = 0;
+	LastPushedTransitionSerial        = 0;
+	LastPushedSMState                 = EAZ_StateMachineState::IdleLoop;
 }
 
 void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -172,16 +182,33 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// Slide / Swim left as default until those modes exist.
 
 	// ---- Hybrid jump: flag cache + apex-handoff RM teardown ----
+	// bRMActionIsJumpRise: TYPED RMAction-kind read (audit pre-work) — the mode's own
+	// bHandOffToFallingAtApex distinguishes a jump RISE (true: hands to Falling at apex, the SM must hold
+	// the takeoff phase) from a self-contained traversal action (false: vault/mantle plays to completion
+	// and must NOT be classified as a jump takeoff; it gets its own Traversal SM phase when built).
+	bool bRMActionIsJumpRise = false;
 	{
 		const UAZ_PawnMoverComponent* AZMover = Cast<UAZ_PawnMoverComponent>(Cached_MoverComponent);
 		bHybridJumpActive = AZMover && AZMover->bUseHybridJump;
 
+		if (ModeName == TEXT("RMAction"))
+		{
+			if (const UAZ_PawnMovementMode_RMAction* RMMode = Cast<UAZ_PawnMovementMode_RMAction>(
+					Cached_MoverComponent->FindMovementModeByName(TEXT("RMAction"))))
+			{
+				bRMActionIsJumpRise = RMMode->bHandOffToFallingAtApex;
+			}
+		}
+
 		// At the apex, RMAction switches itself to Falling. The rise's OverrideAll root-motion move must die
 		// WITH it: under Falling the engine merely downgrades it (SkipVerticalAnimRootMotion strips the Z) while
-		// the HORIZONTAL would stay clip-driven and fight air control/gravity pathing. Cancel on the observed
-		// RMAction→Falling edge. Simulating machines only — proxies never queued the move.
+		// the HORIZONTAL would stay clip-driven and fight air control/gravity pathing. Cancel on ANY observed
+		// RMAction-exit edge, not just →Falling: a low-ceiling abort or instant ground re-contact exits straight
+		// to Walking, and the move (whose DurationMs is the FULL remaining clip incl. the fall tail) would keep
+		// clip-driving the capsule on the ground until it expired (audit P1-15). Simulating machines only —
+		// proxies never queued the move.
 		if (Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy &&
-			LastRawMoverModeName == TEXT("RMAction") && ModeName == TEXT("Falling"))
+			LastRawMoverModeName == TEXT("RMAction") && ModeName != TEXT("RMAction"))
 		{
 			Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 		}
@@ -189,7 +216,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	// Stance — CharacterMoverComponent owns crouch state.
-	ChooserContext.Stance = (Cahed_CharacterMoverComponent && Cahed_CharacterMoverComponent->IsCrouching())
+	ChooserContext.Stance = (Cached_CharacterMoverComponent && Cached_CharacterMoverComponent->IsCrouching())
 		? EAZ_Stance::Crouching
 		: EAZ_Stance::Standing;
 
@@ -291,14 +318,18 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		FAZ_LocoSMInputs SMIn;
 		SMIn.WorldNow             = SMWorld ? SMWorld->GetTimeSeconds() : 0.f;
 		SMIn.bIsMoving            = ChooserContext.bIsMoving;
-		// Airborne = MovementMode InAir (engine Falling for physics jumps; RMAction for future vault/mantle).
-		// This is persistent replicated STATE, so the SM derives the whole air phase identically on simulated
-		// proxies and the authority — there is no jump-press edge to read and no proxy-only mirror branch (that
-		// was the old one-shot-edge RM jump, which proxies routinely missed).
-		SMIn.bInAirMode           = (ChooserContext.MovementMode == EAZ_MovementMode::InAir);
+		// Full movement-mode enum (engine Falling/RMAction map to InAir above; Slide/Traversing become SM
+		// cases when those modes land). Persistent replicated STATE, so the SM derives the whole air phase
+		// identically on simulated proxies and the authority — there is no jump-press edge to read and no
+		// proxy-only mirror branch (that was the old one-shot-edge RM jump, which proxies routinely missed).
+		SMIn.MovementMode         = ChooserContext.MovementMode;
+		// Vehicle/driver-pose pin — set by gameplay code on vehicle enter/exit; SM holds IdleLoop while true.
+		SMIn.bSuppressLocomotion  = bSuppressLocomotion;
 		// HYBRID JUMP: hold TransitionToInAir while the RM rise (RMAction) owns the capsule, so the
 		// rising Start clip keeps driving until the apex handoff to Falling (then InAirLoop + air MM).
-		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && (ModeName == TEXT("RMAction"));
+		// Typed: keyed off the mode's bHandOffToFallingAtApex, not the bare mode name — a vault/mantle
+		// RMAction (plays to completion, never hands to Falling) must not be held as a jump takeoff.
+		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && bRMActionIsJumpRise;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
@@ -316,6 +347,18 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		ChooserContext.StartDirection    = SMOut.StartDirection;
 		ChooserContext.bMovingTransition = SMOut.bMovingTransition;
 		ChooserContext.bJustLanded       = SMOut.bJustLanded;
+
+		// FromStance — the last SETTLED stance (pre-transition). With two stances the chooser's "from" is
+		// implied by the Stance column; a third stance (prone) makes Stand2Prone vs Crouch2Prone undecidable
+		// without it, so surface it now (audit scalability pre-work). During TransitionStance the SM's settled
+		// stance still holds the OLD stance — exactly the "from" the chooser row wants.
+		ChooserContext.FromStance = StateMachine->GetSettledStance();
+
+		// Transition-entry token for the push lock in SetBlendStackAnimFromChooser (see header).
+		if (ChooserContext.SMState != PreviousSMState)
+		{
+			++TransitionSerial;
+		}
 	}
 
 	// ---- Foot/intent latch: hold the takeoff foot + move-intent stable through the air ----
@@ -374,11 +417,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	UAnimationAsset* ChosenAnim,
 	const TArray<UObject*>& Candidates)
 {
-	//is the single source of truth for the SM phase. The `State`
-	// parameter is kept for BP-signature stability but is advisory only — assigning it back
-	// here would let an EventGraph wiring (e.g. literal IdleLoop on the pin) cl// NOTE: do NOT assign ChooserContext.SMState from `State`. DeriveSMState (called from
-                                                                                	//	// NativeUpdateAnimation) obber the
-	// derived phase, causing IdleBreak to flash for one tick then revert to IdleLoop.
+	// ChooserContext.SMState (written by the StateMachine in NativeUpdateAnimation) is the single source
+	// of truth for the SM phase — never assign it from a caller-supplied value here. The old `State`
+	// parameter was removed for exactly that reason: a stale EventGraph wire (e.g. a literal IdleLoop on
+	// the pin) could clobber the derived phase, making IdleBreak flash one tick then revert.
 	ChooserOutputs = ChooserOut;
 
 	// Nothing to play: first-match mode gives ChosenAnim, return-all mode gives Candidates.
@@ -408,7 +450,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 				ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir ||
 				ChooserContext.SMState == EAZ_StateMachineState::TransitionStance;
 
-	if (bInTransition && ChooserContext.SMState == LastPushedSMState && !bForceBlend)
+	// Serial-keyed: each SMState CHANGE mints a new TransitionSerial (game thread); a committed push stamps
+	// it. Equal serials = "this same transition entry already pushed" → locked. Comparing raw SMState here
+	// let a bailed push's stale cache suppress a later same-state transition entirely (audit P0-3).
+	if (bInTransition && TransitionSerial == LastPushedTransitionSerial && !bForceBlend)
 	{
 		return;
 	}
@@ -431,11 +476,9 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		return;
 	}
 
-	LastPushedSMState        = ChooserContext.SMState;
-	LastPushedStance         = ChooserContext.Stance;
-	LastPushedGait           = ChooserContext.Gait;
-	LastPushedDir            = ChooserContext.MovementDirection;
-	LastPushedLeftFootDown   = ChooserContext.bLeftFootDown;
+	// NOTE: the LastPushed* cache is committed AFTER the push lands (next to the PendingBlendOut refresh
+	// below) — every abort path between here and there must leave the cache untouched so the next frame
+	// retries instead of wedging behind the transition lock (audit P0-2).
 
 	bool bAssetLooping = false;
 
@@ -532,9 +575,22 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		BlendStackInputs.Tags         = ChooserOut.Tags;
 	}
 
+	// ---- COMMITTED-PUSH bookkeeping: everything from here down runs only when an anim actually landed in
+	// BlendStackInputs (every no-push path returned above). ----
+
+	// Per-push cache + transition serial stamp — gates re-pushes within the same logical context / the same
+	// transition entry. Committed here, NOT before the push: an aborted push must leave them stale so the
+	// next frame retries (audit P0-2/P0-3).
+	LastPushedSMState          = ChooserContext.SMState;
+	LastPushedStance           = ChooserContext.Stance;
+	LastPushedGait             = ChooserContext.Gait;
+	LastPushedDir              = ChooserContext.MovementDirection;
+	LastPushedLeftFootDown     = ChooserContext.bLeftFootDown;
+	LastPushedTransitionSerial = TransitionSerial;
+
 	// Refresh the one-shot stash with THIS clip's blend-out, so the NEXT push (which replaces it) honors it.
-	// Reached only on a committed push (every no-push path returned above), so PendingBlendOut survives across
-	// the transition lock until the clip is actually replaced.
+	// Reached only on a committed push, so PendingBlendOut survives across the transition lock until the clip
+	// is actually replaced.
 	PendingBlendOut = static_cast<float>(ChooserOut.BlendOut);
 
 	// Idle-break duration tracking — when an IdleBreak anim is pushed, record when DeriveSMState
@@ -550,7 +606,11 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			const float Now = World ? World->GetTimeSeconds() : 0.f;
 			if (StateMachine)
 			{
-				StateMachine->NotifyIdleBreakClipPushed(Now, Seq->GetPlayLength(), IdleBreakAlmostCompleteThreshold);
+				// Remaining = Len - StartTime, same as the transition path below — a break row authored
+				// with StartTime > 0 must not hold IdleBreak past the clip's actual end (audit P2-19).
+				const float BreakRemaining = FMath::Max(0.05f,
+					Seq->GetPlayLength() - static_cast<float>(BlendStackInputs.StartTime));
+				StateMachine->NotifyIdleBreakClipPushed(Now, BreakRemaining, IdleBreakAlmostCompleteThreshold);
 			}
 		}
 	}
@@ -564,7 +624,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	{
 #if !UE_BUILD_SHIPPING
 		// DIAGNOSTIC: which transition phase did we enter, what did the chooser see, and what clip did it pick?
-		UE_LOG(LogTemp, Warning, TEXT("[v2 TRANS] entry: SM=%d ctx.bLeftFootDown=%d Dir=%d Gait=%d -> chosen=%s"),
+		UE_LOG(LogTemp, Verbose, TEXT("[v2 TRANS] entry: SM=%d ctx.bLeftFootDown=%d Dir=%d Gait=%d -> chosen=%s"),
 			static_cast<int32>(ChooserContext.SMState), ChooserContext.bLeftFootDown ? 1 : 0,
 			static_cast<int32>(ChooserContext.MovementDirection),
 			static_cast<int32>(ChooserContext.Gait), *GetNameSafe(BlendStackInputs.Anim));

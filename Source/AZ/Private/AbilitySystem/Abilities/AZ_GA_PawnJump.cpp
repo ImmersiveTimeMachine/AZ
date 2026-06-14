@@ -2,6 +2,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_PawnJump.h"
 
+#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Character/AZ_JumpRequester.h"
 
 UAZ_GA_PawnJump::UAZ_GA_PawnJump()
@@ -53,16 +54,23 @@ void UAZ_GA_PawnJump::ActivateAbility(
 		Requester->SetJumpPressed(true);
 	}
 
+	// Release via the WaitInputRelease TASK, not the raw InputReleased virtual: the task replicates the
+	// release to the server instance, which otherwise NEVER ends under LocalPredicted (the ASC invokes the
+	// virtual only on the owning client) — a remote co-op client could jump exactly once (audit P1-8).
+	// bTestAlreadyReleased=true: the server activation arrives via replication and a fast tap may already
+	// have released — fire immediately instead of waiting forever. Same pattern as GA_Crouch.
+	UAbilityTask_WaitInputRelease* WaitRelease =
+		UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased*/ true);
+	WaitRelease->OnRelease.AddDynamic(this, &UAZ_GA_PawnJump::OnJumpInputReleased);
+	WaitRelease->ReadyForActivation();
+
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 }
 
-void UAZ_GA_PawnJump::InputReleased(
-	const FGameplayAbilitySpecHandle Handle,
-	const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayAbilityActivationInfo ActivationInfo)
+void UAZ_GA_PawnJump::OnJumpInputReleased(float TimeHeld)
 {
-	// End the ability on release; EndAbility clears the pawn's press flag.
-	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+		/*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 }
 
 void UAZ_GA_PawnJump::EndAbility(

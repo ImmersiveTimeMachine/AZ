@@ -160,8 +160,13 @@ void AAZ_Item::HandleBeginOverlap(UPrimitiveComponent* OverlappedComp,
 		return;
 	}
 
-	if (const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor);
-		const auto EquipmentManagerComponent = Hero->GetEquipmentManagerComponent())
+	const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor);
+	if (!Hero)
+	{
+		return;
+	}
+
+	if (const auto EquipmentManagerComponent = Hero->GetEquipmentManagerComponent())
 	{
 		// Server: track item by GUID
 		if (HasAuthority())
@@ -195,8 +200,13 @@ void AAZ_Item::HandleEndOverlap(UPrimitiveComponent* OverlappedComp,
                                 UPrimitiveComponent* OtherComp,
                                 int32 OtherBodyIndex)
 {
-	if (const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor);
-		const auto EquipmentManagerComponent = Hero->GetEquipmentManagerComponent())
+	const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor);
+	if (!Hero)
+	{
+		return;
+	}
+
+	if (const auto EquipmentManagerComponent = Hero->GetEquipmentManagerComponent())
 	{
 		// Server: remove item from GUID list
 		if (HasAuthority())

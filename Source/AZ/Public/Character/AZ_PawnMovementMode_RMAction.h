@@ -12,6 +12,9 @@ struct FMoverTimeStep;
 struct FProposedMove;
 struct FSimulationTickParams;
 struct FMoverTickEndData;
+struct FMoverEventContext;
+struct FMoverSyncState;
+struct FMoverAuxStateContext;
 
 /**
  * UAZ_PawnMovementMode_RMAction — a gravity-free, floor-snap-free movement mode whose ONLY job is to
@@ -78,13 +81,19 @@ public:
 	 *  blocking geometry still resolves; the vertical lift survives. */
 	virtual void SimulationTick_Implementation(const FSimulationTickParams& Params, FMoverTickEndData& OutputState) override;
 
+	/** Reset the apex detector on every activation. Replaces the old sim-time-gap heuristic, whose float
+	 *  equality could spuriously reset mid-rise (accumulated drift) AND inherit stale state on an exact-tick
+	 *  re-entry (audit P1-15). */
+	virtual void Activate(const FMoverEventContext& Context, FName PrevModeName, const FMoverSimContext& SimContext,
+		const FMoverTickStartData& StartState, FMoverSyncState* OutSyncState, FMoverAuxStateContext* OutAuxState) override;
+
 private:
 	// ---- Apex-detection sim state (hybrid jump) ----
-	// Lives on the mode instance, NOT in the sync state — NOT rollback-safe under NetworkPrediction
-	// resimulation (prototype scope; migrate into a sync-state data block if MP resim jitter shows).
-	// Fresh-activation is detected by a gap in sim time instead of lifecycle hooks.
+	// Lives on the mode instance, NOT in the sync state — reset per-activation via Activate(), but still
+	// NOT rollback-safe under NetworkPrediction resimulation MID-action (a resim replay recomputes the
+	// apex tick from partial accumulators). Migrate into a sync-state data block if MP resim jitter shows
+	// during the rise — documented trigger, see audit P1 §sim-state.
 	float NetRiseCm = 0.f;
 	int32 NonPositiveZDeltaTicks = 0;
 	float RiseElapsedMs = 0.f;
-	float ExpectedNextTickStartMs = -1.f;
 };

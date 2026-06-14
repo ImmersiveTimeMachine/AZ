@@ -8,6 +8,7 @@
 class USpringArmComponent;
 class UCameraComponent;
 class UAbilitySystemComponent;
+class UCharacterMoverComponent;
 
 /**
  * FAZ_CameraStanceConfig: Camera settings for a single stance (default, aim, crouch, etc.)
@@ -199,6 +200,13 @@ protected:
 
 	UPROPERTY()
 	TWeakObjectPtr<UAbilitySystemComponent> ASC;
+
+	/** v2 doctrine: visuals derive from the Mover RESULT, not GAS intent. Crouch framing reads
+	 *  IsCrouching() off this (the channel the capsule actually resizes on) — the ASC tag is intent
+	 *  and can lead/lag the body (e.g. ceiling-blocked uncrouch: capsule stays crouched, the tag is
+	 *  already gone). Null on pawns without a Mover (legacy CMC hero) → falls back to the GAS tag. */
+	UPROPERTY()
+	TWeakObjectPtr<UCharacterMoverComponent> CharacterMover;
 
 	FAZ_StanceDefinition ActiveStance;
 	FVector2D CurrentMoveOffset = FVector2D::ZeroVector;

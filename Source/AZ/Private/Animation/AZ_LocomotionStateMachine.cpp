@@ -76,41 +76,44 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	const EAZ_StateMachineState Previous = PreviousState;
 	const float Now = In.WorldNow;
 
-	// ---- Airborne (physics jump / RM action): MODE-driven, identical on proxy + authority ----
-	// MovementMode == InAir (engine Falling for jumps; RMAction for future vault/mantle) is persistent
-	// replicated STATE — proxies derive the air phase from it exactly like the authority, so there is no
-	// one-shot jump edge to miss and no proxy-only mirror branch. Takeoff (brief, timed) → fall-loop, which
-	// holds until the engine plants us back in Walking on REAL floor contact. The air phase is variable-length
-	// and is NOT clip-length-bounded (that was the old RM jump; physics owns the arc now).
-	if (In.bInAirMode)
+	// ---- Suppressed (vehicle / external pose system owns the skeleton): pin IdleLoop, clear every timer
+	// and latch, and CONSUME stance flips (so exiting the vehicle crouched doesn't fire a stale
+	// TransitionStance from a flip that happened while suppressed). One early-return = zero interaction
+	// with the phase logic below. ----
+	if (In.bSuppressLocomotion)
 	{
-		PreviousStance = In.Stance;
+		PreviousStance     = In.Stance;
+		NextIdleBreakTime  = -1.f;
+		IdleBreakEndTime   = -1.f;
+		TransitionEndTime  = -1.f;
+		TakeoffEndTime     = -1.f;
+		bLatchedJustLanded = false;
+		return EAZ_StateMachineState::IdleLoop;
+	}
+
+	// ---- Airborne (physics jump / RM action): MODE-driven, identical on proxy + authority ----
+	// MovementMode == InAir (engine Falling for jumps; RMAction for the hybrid rise / future vault/mantle) is
+	// persistent replicated STATE — proxies derive the air phase from it exactly like the authority, so there
+	// is no one-shot jump edge to miss and no proxy-only mirror branch.
+	// SIMPLIFIED JUMP (2026-06-14): the jump has only TWO anim phases — START (this) and LAND (the touchdown
+	// block below). There is NO separate in-air loop: TransitionToInAir (the "start jump" / launch phase)
+	// PERSISTS for the ENTIRE airborne duration. The Start clip plays through takeoff -> rise -> fall
+	// cosmetically while the capsule arc is owned by the RM rise then the engine Falling fall, until REAL
+	// floor contact hands us to the land transition below. Collapsing the air to one phase is purely an
+	// animation-selection change: the capsule handoff (RMAction->Falling) and the RM-rise-move cancel are raw
+	// Mover-mode edges in UAZ_MoverAnimInstance (independent of this phase), so the physics is untouched.
+	// EAZ_StateMachineState::InAirLoop is now a RESERVED/unused enum value — never produced; kept only to
+	// preserve the chooser-asset integer ABI. bHoldTakeoffPhase / TakeoffEndTime / TakeoffDurationSeconds are
+	// likewise vestigial (the in-air loop they gated is gone) — remove them at the next editor-closed build.
+	// (Slide/Traversing: add explicit MovementMode cases here when those modes land — the enum input exists
+	// for exactly that; do NOT add more bool flags.)
+	if (In.MovementMode == EAZ_MovementMode::InAir)
+	{
+		PreviousStance     = In.Stance;
 		NextIdleBreakTime  = -1.f;
 		IdleBreakEndTime   = -1.f;
 		bLatchedJustLanded = false;
-		if (Previous == EAZ_StateMachineState::InAirLoop)
-		{
-			return EAZ_StateMachineState::InAirLoop;   // keep falling
-		}
-		if (Previous == EAZ_StateMachineState::TransitionToInAir)
-		{
-			// HYBRID JUMP: while the RM rise owns the capsule (RMAction), hold the launch phase regardless
-			// of the takeoff timer — the rising Start clip must keep driving until the apex handoff. The
-			// frame RMAction switches to Falling this flag drops and the (long-expired) timer advances us.
-			if (In.bHoldTakeoffPhase)
-			{
-				return EAZ_StateMachineState::TransitionToInAir;
-			}
-			if (TakeoffEndTime > 0.f && Now >= TakeoffEndTime)
-			{
-				TakeoffEndTime = -1.f;
-				return EAZ_StateMachineState::InAirLoop;
-			}
-			return EAZ_StateMachineState::TransitionToInAir;   // still inside the launch window
-		}
-		// Ground → air this frame: start the brief takeoff pose.
-		TakeoffEndTime = Now + TakeoffDurationSeconds;
-		return EAZ_StateMachineState::TransitionToInAir;
+		return EAZ_StateMachineState::TransitionToInAir;   // start -> (held through the whole air) -> land
 	}
 
 	// ---- Touchdown: airborne last frame, grounded now (engine Falling → Walking on REAL floor contact). ----
