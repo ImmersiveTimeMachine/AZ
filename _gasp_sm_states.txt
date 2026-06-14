@@ -1,0 +1,9 @@
+PKG: /Game/Blueprints/SandboxCharacter_Mover_ABP
+  NO_CLASS: AnimationStateMachineGraph
+  no find_all: AnimationStateGraph
+  no find_all: AnimGraphNode_StateMachine
+  NO_CLASS: AnimStateNode
+  no find_all: AnimStateTransitionNode
+  NO_CLASS: AnimStateConduitNode
+  no find_all: AnimStateAliasNode
+  no find_all: AnimGraphNode_StateResult

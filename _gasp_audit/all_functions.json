@@ -1,0 +1,23 @@
+{
+  "all_interfaces": [],
+  "iface_err1": "BlueprintGeneratedClass: Failed to find property 'interfaces' for attribute 'interfaces' on 'BlueprintGeneratedClass'",
+  "pcls": "BlueprintGeneratedClass",
+  "bpi_blueprints": [
+    "/Game/Blueprints/BPI_SandboxCharacter_ABP",
+    "/Game/Blueprints/Data/BPI_InteractionTransform",
+    "/Game/Blueprints/BPI_SandboxCharacter_Pawn"
+  ],
+  "root_blueprints_dir_assets": [
+    "BPI_SandboxCharacter_ABP",
+    "BPI_SandboxCharacter_Pawn",
+    "SandboxCharacter_CMC_ABP",
+    "AC_TraversalLogic",
+    "SandboxCharacter_Mover_ABP",
+    "AC_PreCMCTick",
+    "SandboxCharacter_CMC",
+    "AC_VisualOverrideManager",
+    "GM_Sandbox",
+    "PC_Sandbox",
+    "SandboxCharacter_Mover"
+  ]
+}

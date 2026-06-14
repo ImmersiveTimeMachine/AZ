@@ -1,0 +1,1057 @@
+# Transitions: 29
+
+================================================================================
+TRANS: 'Idle -> Locomotion' -> 'Transition to Locomotion'   raw=Idle -> Locomotion -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Idle to Locomotion",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=DB36CEE0486365F86F000E99907BE92D,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=FDF39E2846071261744D238B44915B50 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=54B8A45544267797EAE99EA456A9969C Class=K2Node_VariableGet Title=Get MovementState Pins=[MovementState(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=9F0219BB4C32ADF9C94360BCB249C5F7 Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator0) ]
+
+================================================================================
+TRANS: 'Locomotion -> Idle' -> 'Transition to Idle'   raw=Locomotion -> Idle -> Transition to Idle [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Locomotion To Idle",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=689A1EC1457B691E7ECC1AB0171A38F9,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=B3B59AF648B3ED5B970A9A9A92AC7B78 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=649191D245B703829DABDC9B22E06D9B Class=K2Node_VariableGet Title=Get MovementState Pins=[MovementState(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=219BA1DE45B98D7217DA6AABADF144BD Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator4) ]
+
+================================================================================
+TRANS: 'Transition to Locomotion' -> 'Locomotion Loop'   raw=Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 2
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Animation Finished",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=6DA1240443411AB825AE579382219433,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=CEF6B9D44BC5593A42A7BFA48F2B22DA,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=D9C54CE741C8A1E8BC018FA490FA962D,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - Animation Almost Complete
+  PROP: SharedRulesGuid = BD0480AC4BDF6892BB831A99A0F81E7E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 3
+  RULE_NODES (6):
+    GUID=DBCB107E4C84371B33E1B7BC4D3634D6 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=12CD0C884EB316FD1ED69CB1572A36AE Class=K2Node_CallFunction Title=Is Animation Almost Complete Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=3E6E6D7D4721DD1C4994748DB43DD301 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=9FB1C27948C5B3B9C55786AD6C782564 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=16D893BB4176EF1BDE956F8B4A9FF2F5 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=CA4F943C4CCA6C839DAE99B07C6EDFE5 Class=EdGraphNode_Comment Title=This acts simliar to the "Automatic Rule" condition in typical state machines, which triggers the transition automatically whenever the animation is almost over. Since this state machine is purely logical and contains no animations, we need to do this manually by looking at the current animation in the blendstack. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 2
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: No Valid Anim",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=586A679641CB91FF614C73A1D0E46415,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=37A4C0BB4914990E993FDFBA25B9882B,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=929413A54E1EE9CCDEF1AE8DF0B0D98F,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - No Valid Anim
+  PROP: SharedRulesGuid = 8FAEAEDF4505DB64C0F225A50A7E1FEF
+  PROP: SharedColor = (R=0.150000,G=1.000000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=CED0A38E4A76B8C71DDB72A69760579B Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=87DA68AF427168D99ECEDBBC15DC340F Class=K2Node_VariableGet Title=Get NoValidAnim Pins=[NoValidAnim(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=10B0297844E8FDA20708BDA21704D7ED Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=2C84BA7B4F2E4E2466F2D2A91A420CBC Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=3AF3A2EE44ED8F24F95432A9CBADF81B Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=99D3FB654C510A0ECB63D18B76A74943 Class=EdGraphNode_Comment Title=If no animations were found when entering into the transition state, this transition takes us straight to the looping state.
+
+In addition, if a looping animation was chosen when searching for transition animations, then that should force us into the looping state. This allows us to do things like perform a motion match between a transition and a looping animation. If the looping animation wins, we enter into the looping state. Pins=[]
+  --- transition_index=2 ---
+  PROP: CustomTransitionGraph = /Script/AnimGraph.AnimationCustomTransitionGraph'/Game/Blueprints/SandboxCharacter_Mover_ABP.SandboxCharacter_Mover_ABP:AnimGraph.AnimGraphNode_StateMachine_2.State Controller.AnimStateTransitionNode_10.CustomTransition'
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_Custom
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=AAFDDDA1436EA350ED297BB76D43EF1D Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=E386DDD24F1CE41F2DD1A0816B62B3FE Class=K2Node_VariableGet Title=Get NotifyTransition_ToLoop Pins=[NotifyTransition_ToLoop(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=698AA6F043B846FECEEA5EAED50C5D00 Class=EdGraphNode_Comment Title=This condition is set using the "BP_NotifyState_EarlyTransition" notify state. This notify state allows us to transition out of animations early depending on the conditions in the notify. Pins=[]
+  --- transition_index=3 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Started Circling",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=8A9A4A6B43204F25AA7A28BAE11EDADE,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (11):
+    GUID=7B00B15C45726FF1A7AFDFA4F3400B42 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=7508E1DB43ACCA53E30A4F9074270F5F Class=K2Node_VariableGet Title=Get Trj_CirclingTime Pins=[Trj_CirclingTime(Out,real,conn=1,def=0.0) self(In,object,conn=0) ]
+    GUID=D312503649C3DD9EC72C4CAC2C797386 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=03A25B64409D9ED9378164A9AAA09A0C Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) C(In,bool,conn=1) ]
+    GUID=D87C5CA9467B1FA4BE55E8B95823029F Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0,def=0.500000) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=42BAB0894081338BCDD312A76100A171 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=3DEA3D054AAA797AFDD9A0BC27973F6C Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=F471489F4662634299943D97A356C6A7 Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Tags_19_18D941324A799DF19CBC80B5DC420349(Out,name,conn=2) ]
+    GUID=91ACEFEB4877181C6223E9A90317ED88 Class=K2Node_CallArrayFunction Title=Contains Item Pins=[self(In,object,conn=0) TargetArray(In,name,conn=1) ItemToFind(In,name,conn=0,def=Start) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=98131E4C4CB86AF8A62EF29FF71D941B Class=K2Node_CallArrayFunction Title=Contains Item Pins=[self(In,object,conn=0) TargetArray(In,name,conn=1) ItemToFind(In,name,conn=0,def=Pivot) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=99F144734C1C3E8B4E75AE8093A1E06B Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+
+================================================================================
+TRANS: 'Transition to Locomotion' -> 'Locomotion Loop'   raw=Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Transition to Idle' -> 'Idle Loop'   raw=Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Animation Finished",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=78CC48174CB3DF1638F52793114D099A,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=E1E585B24D9788810082A4AD91B82113,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=BADA6F7A43478CC7BCE2388DF1439D37,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - Animation Almost Complete
+  PROP: SharedRulesGuid = BD0480AC4BDF6892BB831A99A0F81E7E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 3
+  RULE_NODES (6):
+    GUID=DBCB107E4C84371B33E1B7BC4D3634D6 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=12CD0C884EB316FD1ED69CB1572A36AE Class=K2Node_CallFunction Title=Is Animation Almost Complete Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=3E6E6D7D4721DD1C4994748DB43DD301 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=9FB1C27948C5B3B9C55786AD6C782564 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=16D893BB4176EF1BDE956F8B4A9FF2F5 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=CA4F943C4CCA6C839DAE99B07C6EDFE5 Class=EdGraphNode_Comment Title=This acts simliar to the "Automatic Rule" condition in typical state machines, which triggers the transition automatically whenever the animation is almost over. Since this state machine is purely logical and contains no animations, we need to do this manually by looking at the current animation in the blendstack. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: No Valid Anim",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=31A022414F3C06235F07899E5FF32C21,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=E240CFD848CEA675234EB788033974C5,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=5AA828574E4193A94578F19C6F0BA798,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - No Valid Anim
+  PROP: SharedRulesGuid = 8FAEAEDF4505DB64C0F225A50A7E1FEF
+  PROP: SharedColor = (R=0.150000,G=1.000000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=CED0A38E4A76B8C71DDB72A69760579B Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=87DA68AF427168D99ECEDBBC15DC340F Class=K2Node_VariableGet Title=Get NoValidAnim Pins=[NoValidAnim(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=10B0297844E8FDA20708BDA21704D7ED Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=2C84BA7B4F2E4E2466F2D2A91A420CBC Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=3AF3A2EE44ED8F24F95432A9CBADF81B Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=99D3FB654C510A0ECB63D18B76A74943 Class=EdGraphNode_Comment Title=If no animations were found when entering into the transition state, this transition takes us straight to the looping state.
+
+In addition, if a looping animation was chosen when searching for transition animations, then that should force us into the looping state. This allows us to do things like perform a motion match between a transition and a looping animation. If the looping animation wins, we enter into the looping state. Pins=[]
+
+================================================================================
+TRANS: 'Transition to Idle' -> 'Idle Loop'   raw=Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Transition to In Air' -> 'In Air Loop'   raw=Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Animation Finished",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=89DF998647DE9E318851B7BD5E40A3B8,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - Animation Almost Complete
+  PROP: SharedRulesGuid = BD0480AC4BDF6892BB831A99A0F81E7E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=DBCB107E4C84371B33E1B7BC4D3634D6 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=12CD0C884EB316FD1ED69CB1572A36AE Class=K2Node_CallFunction Title=Is Animation Almost Complete Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=3E6E6D7D4721DD1C4994748DB43DD301 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=9FB1C27948C5B3B9C55786AD6C782564 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=16D893BB4176EF1BDE956F8B4A9FF2F5 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=CA4F943C4CCA6C839DAE99B07C6EDFE5 Class=EdGraphNode_Comment Title=This acts simliar to the "Automatic Rule" condition in typical state machines, which triggers the transition automatically whenever the animation is almost over. Since this state machine is purely logical and contains no animations, we need to do this manually by looking at the current animation in the blendstack. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: No Valid Anim",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=63B5E8BD44F2F081A9D369A939AEE53C,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - No Valid Anim
+  PROP: SharedRulesGuid = 8FAEAEDF4505DB64C0F225A50A7E1FEF
+  PROP: SharedColor = (R=0.150000,G=1.000000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=CED0A38E4A76B8C71DDB72A69760579B Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=87DA68AF427168D99ECEDBBC15DC340F Class=K2Node_VariableGet Title=Get NoValidAnim Pins=[NoValidAnim(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=10B0297844E8FDA20708BDA21704D7ED Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=2C84BA7B4F2E4E2466F2D2A91A420CBC Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=3AF3A2EE44ED8F24F95432A9CBADF81B Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=99D3FB654C510A0ECB63D18B76A74943 Class=EdGraphNode_Comment Title=If no animations were found when entering into the transition state, this transition takes us straight to the looping state.
+
+In addition, if a looping animation was chosen when searching for transition animations, then that should force us into the looping state. This allows us to do things like perform a motion match between a transition and a looping animation. If the looping animation wins, we enter into the looping state. Pins=[]
+
+================================================================================
+TRANS: 'Transition to In Air' -> 'In Air Loop'   raw=Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: '-> In Air' -> 'Transition to In Air'   raw=-> In Air -> Transition to In Air [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: to In Air",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=80A27D5244B6C16B1B916D87F2F4D930,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=19CCEE4F4FC6B44799C4E5B0781449A4 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=BEC34E914D94DD8511B649AF3DB0804F Class=K2Node_VariableGet Title=Get MovementMode Pins=[MovementMode(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=D3AB2D164F4722C46C8895933D8EEE8D Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator5) ]
+
+================================================================================
+TRANS: '-> Grounded' -> 'Conduit'   raw=-> Grounded -> Conduit [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=4DDEA8B04867288494B7EEBB23144D11 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=63EB722A49F1D440DF14E8B92068057B Class=K2Node_VariableGet Title=Get MovementMode Pins=[MovementMode(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=A63296454C0DBE715C32C3BA292B9C03 Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator4) ]
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Locomotion'   raw=Re-Enter -> Transition to Locomotion [RuleNodes=15, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: State Changed",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=CE180FE84321DCD23550DA9DA9067ACE,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = Loco - State Changed
+  PROP: SharedRulesGuid = 8394A02B453661A75D0765A9E9CD9047
+  PROP: SharedColor = (R=0.150000,G=0.150000,B=1.000000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.000000,Y=1.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (15):
+    GUID=CFE8F23E4BA188206B08398995D7BEC7 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=DD6160074C74586DF87A09BF99E2F1FD Class=K2Node_VariableGet Title=Get Stance Pins=[Stance(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=0E9AA83244ED0E15D5D7158FD56F6B47 Class=K2Node_EnumInequality Title=Not Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=1,def=NewEnumerator0) ]
+    GUID=71CC8AC547645902072958B08685C054 Class=K2Node_VariableGet Title=Get Stance_LastFrame Pins=[Stance_LastFrame(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=C9B5309C4A95D49996D353BAF76E2641 Class=K2Node_VariableGet Title=Get MovementDirection Pins=[MovementDirection(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=D13C7A6347525DAB822185818D2ADC28 Class=K2Node_VariableGet Title=Get MovementDirection_LastFrame Pins=[MovementDirection_LastFrame(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=8C518C6C429789AE272A58A2269EAB24 Class=K2Node_EnumInequality Title=Not Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=1,def=NewEnumerator0) ]
+    GUID=BD72CD52404B47D52D650C8718C64BEB Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) C(In,bool,conn=1) ]
+    GUID=5F07EE8541680EDA8C8DFCA65EABB494 Class=K2Node_VariableGet Title=Get Gait Pins=[Gait(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=5639DF1A4AB2A7B58730B3AEFCD7ED14 Class=K2Node_EnumInequality Title=Not Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=1,def=NewEnumerator0) ]
+    GUID=A9422C0E45586AF82E7F01A02210AE70 Class=K2Node_VariableGet Title=Get Gait_LastFrame Pins=[Gait_LastFrame(Out,byte,conn=1,def=NewEnumerator0) self(In,object,conn=0) ]
+    GUID=7DA358554BF946A61DA121ABD1ED394A Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=82239AF342D1EF9C03FB1F9FCA239AF7 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=9A8E249449E6601640819A8848D72657 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=F7A7F869408AF58D3CCB30BB579C8E33 Class=EdGraphNode_Comment Title=If any of these states have changed, we know we need to reselect a locomotion animation. Therefore, transition to (or re-start) the "Transition to Locomotion Loop" state.
+
+Checking to see if the current state time is greater than 0 prevents this transition from firing multiple times per frame. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Pivot",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=B7E9D11F45DC3CFEC4CE50B71B226443,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = Loco - Pivot
+  PROP: SharedRulesGuid = 1484F4AF4B1F34C514C73DB1769EF39E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=1.000000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.000000,Y=1.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (13):
+    GUID=B776424D48443B3C6FB03D9C6BFD5737 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=A5A4C0CC4F19FE21403296865ADA12B1 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=1) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=8BFBFBEC43EBA18C11231DBE7E2C02E0 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=DAAB24574B1ED1BE4325F6BB1A923A21 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) C(In,bool,conn=1) D(In,bool,conn=1) ]
+    GUID=01C3B9F9476D0421226B02BECC636302 Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=0118CF3949367DE477340FAA185648AE Class=K2Node_Select Title=Select Pins=[Option 0(In,real,conn=0,def=0.500000) Option 1(In,real,conn=0,def=0.0) Index(In,bool,conn=1,def=false) ReturnValue(Out,real,conn=1) ]
+    GUID=5CD436DF47EE395860FCFE83F18B50CE Class=K2Node_CallFunction Title=Is Pivoting Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=4E7D7CF4491B93F709A2B887E7CE6667 Class=EdGraphNode_Comment Title=If "Is Pivoting" is true, and we are not playing the beginning of a pivot or start animation, then transition into the "Transition to Locomotion Loop" state. Since "Is Pivoting" is also used in the chooser, a pivoting animation will likely be chosen.
+
+If other conditions in the chooser prevent a pivot from being chosen, or no pivot animation is found, then the transition state will be skipped. HOWEVER, as long as the "Is Pivoting" condition is true and no pivot animation is playing, this transition will trigger once per frame, allowing a pivot to be selected if conditions change on subsequent frames. Pins=[]
+    GUID=0A36AD8041523067DACDFBA172E3DF05 Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=907F80BF4864E419E7830A9A68B0FAC5 Class=K2Node_VariableGet Title=Get Trj_IsCircling Pins=[Trj_IsCircling(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=D97DC06F4953CC797F8F5CAFC4633CB5 Class=K2Node_CallFunction Title=NOT Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=78F1B21443971908E65DD8870C00CEF7 Class=K2Node_VariableGet Title=Get MovementMode_Recent Pins=[MovementMode_Recent(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=8802DBB34B05D8AA530672A09145EEB9 Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator4) ]
+  --- transition_index=2 ---
+  PROP: PriorityOrder = 2
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: \"Broke\" rotation",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=D18F01784BCAC96C19B9C19DAE400735,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=895F12BC40C1174817ECBA9B4FE0B464,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=17EE75A9464AD0F7597449BEADEC30ED,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.000000,Y=1.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (17):
+    GUID=0F98E68F4106536C14142BAF2BE64CCC Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=ACF0F751452400DBC732B2AFC94452E2 Class=K2Node_PromotableOperator Title=float < float Pins=[A(In,real,conn=1) B(In,real,conn=0,def=0.500000) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=B53F1F0E44857F54A29507BF4E32157E Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=538DE8A14C19C0709B064D82E0804D11 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=66A558AD4CC964221DAB3DBBE6FB1413 Class=K2Node_VariableGet Title=Get Trj_FutureFacing Pins=[Trj_FutureFacing(Out,struct,conn=1,def=0, 0, 0) self(In,object,conn=0) ]
+    GUID=40891FBA4A6A26DDEDCBD6A7D2337B7D Class=K2Node_VariableGet Title=Get FutureFacingOnTransitionStart Pins=[FutureFacingOnTransitionStart(Out,struct,conn=1,def=0, 0, 0) self(In,object,conn=0) ]
+    GUID=19CA04FD45F84C7234F5A7B8E83C95E8 Class=K2Node_CallFunction Title=Delta (Rotator) Pins=[self(In,object,conn=0) A(In,struct,conn=1,def=0, 0, 0) B(In,struct,conn=1,def=0, 0, 0) ReturnValue(Out,struct,conn=0,def=0, 0, 0) ReturnValue_Roll(Out,real,conn=0,def=0.0) ReturnValue_Pitch(Out,real,conn=0,def=0.0) ReturnValue_Yaw(Out,real,conn=1,def=0.0) ]
+    GUID=B2D95E8B4630AC671CF035B7E2C3FB78 Class=K2Node_CallFunction Title=Absolute (Float) Pins=[self(In,object,conn=0) A(In,real,conn=1,def=0.0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=4328AE6E43408750F0ED09BF43ABB503 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0,def=60.000000) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=2282F1CF4BF0DFF36F3FDDB415BFA41E Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) C(In,bool,conn=1) D(In,bool,conn=1) ]
+    GUID=E3C37DD14B1C7A60AC1D6CBC9344E258 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=2,def=0.0) ]
+    GUID=91D0CEC2405147101187639C10DA75FE Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=1FC0A86D4EAD565888D9188B947017DF Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=D7A017EF411EF798DEEC6CA62B489767 Class=EdGraphNode_Comment Title=This transition handles the concept of "breaking" a rotational animation.
+
+Sometimes, right after a start or a pivot is triggered, the Target Rotation changes rapidly on the following frames. For instance, say you perform a 90 degree pivot, but then quickly rotate the input further to perform a 180 (happens frequently on gamepad), or begin a forward start but then quickly rotate to the left or right. In these cases, we want to perform a reselction since the current anim is likely no longer a good choice.
+
+In order to do this, we cache the value of the Target Rotation whenever a transition begins into a second rotator "Target Rotation on Transition Start" (set within the "OnstateEntry" anim node function). Then, on following frames we interpolate that rotator toward the Target Rotation in the "OnUpdate" anim node function. Becuase this value is interpolated, if the target rotation changes slowly, the delta between the two will stay small. But it is changes quickly enough, the delta will be large. Therefore, If the delta is greater than 60 degrees and we are still in the beginning of a start or pivot (we can know this by checking the current tags and the current state time), then we should trigger a reselection by restarting this state.
+
+The "sensitivity" of the break can be tuned by modifying the interp speed as well as the angle threshold. Pins=[]
+    GUID=ED3A515543205729F09286A44B17263B Class=K2Node_CallFunction Title=NOT Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=F9ED01364D115AD4F43E7FA3C5F36C9C Class=K2Node_VariableGet Title=Get Trj_IsCircling Pins=[Trj_IsCircling(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=9EF2D3D84F0FA2EC950C709727E196C8 Class=K2Node_CallFunction Title=NOT Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+  --- transition_index=3 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.000000,Y=1.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 3
+  RULE_NODES (3):
+    GUID=00D9BA3247B1C5393DD8A6B52A09424E Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=132F4AEB4A6FD7B4F1F85FA17524E5F2 Class=K2Node_VariableGet Title=Get NotifyTransition_Re-Transition Pins=[NotifyTransition_Re-Transition(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=DB048CAA440137BF1B0F4FB92C06B7AC Class=EdGraphNode_Comment Title=This condition is set using the "BP_NotifyState_EarlyTransition" notify state. This notify state allows us to transition out of animations early depending on the conditions in the notify. Pins=[]
+  --- transition_index=4 ---
+  PROP: PriorityOrder = 3
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: WrongWay!",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=419BF01F45035F65A396D18667DC1485,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.000000,Y=1.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (9):
+    GUID=2781FD16425CF39C02E22394ED307510 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=195E09E344769815925B60B7CE7DD00F Class=K2Node_CallFunction Title=Absolute (Float) Pins=[self(In,object,conn=0) A(In,real,conn=1,def=0.0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=115BA2514CD5EFCCD1D9848FDE893C3E Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0,def=200.000000) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=8ADEEDB044BCC1CCE5C2CB9C8DBFBBA7 Class=K2Node_VariableGet Title=Get FutureFacingDelta Pins=[FutureFacingDelta(Out,real,conn=1,def=0.0) self(In,object,conn=0) ]
+    GUID=DD40B26F40F1B48DC80F378787000890 Class=K2Node_VariableGet Title=Get FutureFacingDelta_LastFrame Pins=[FutureFacingDelta_LastFrame(Out,real,conn=1,def=0.0) self(In,object,conn=0) ]
+    GUID=F542315144AAC6D5312A448DCB106749 Class=K2Node_PromotableOperator Title=float - float Pins=[A(In,real,conn=1) B(In,real,conn=1) ReturnValue(Out,real,conn=1) ]
+    GUID=A4E93F9446AA9BB4FA9E9ABDE49EF515 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=89F31CC7469D5A0AE43E7A837CA99465 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=7D96B977485FCBFD782B0CBDB2FC8189 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Locomotion'   raw=Re-Enter -> Transition to Locomotion [RuleNodes=13, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Locomotion'   raw=Re-Enter -> Transition to Locomotion [RuleNodes=17, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Idle'   raw=Re-Enter  -> Transition to Idle [RuleNodes=8, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: ERROR: Transition not found
+  RULE_NODES (0):
+  --- transition_index=1 ---
+  PROP: ERROR: Transition not found
+  RULE_NODES (0):
+
+================================================================================
+TRANS: 'Idle Loop' -> 'Idle Break'   raw=Idle Loop -> Idle Break [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Idle Break",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=3502AED7402724840C10A49B7C93364C,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.050859,Y=-0.998706)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 3
+  RULE_NODES (3):
+    GUID=6A3396744699FEB7E42445BE35CDD64E Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=9B40653149A0FD6FCB7E7E9DBD271458 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=D6FAA6FA4CF4652F10A691BDE09DB517 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0,def=3.000000) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+
+================================================================================
+TRANS: 'Idle Break' -> 'Idle Loop'   raw=Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Animation Finished",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=BF039CD345EF4023370120B3C8CF329C,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - Animation Almost Complete
+  PROP: SharedRulesGuid = BD0480AC4BDF6892BB831A99A0F81E7E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=-0.050859,Y=0.998706)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=DBCB107E4C84371B33E1B7BC4D3634D6 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=12CD0C884EB316FD1ED69CB1572A36AE Class=K2Node_CallFunction Title=Is Animation Almost Complete Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=3E6E6D7D4721DD1C4994748DB43DD301 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=9FB1C27948C5B3B9C55786AD6C782564 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=16D893BB4176EF1BDE956F8B4A9FF2F5 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=CA4F943C4CCA6C839DAE99B07C6EDFE5 Class=EdGraphNode_Comment Title=This acts simliar to the "Automatic Rule" condition in typical state machines, which triggers the transition automatically whenever the animation is almost over. Since this state machine is purely logical and contains no animations, we need to do this manually by looking at the current animation in the blendstack. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: No Valid Anim",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=5F8087F7482252FADAF177819FB77BFD,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - No Valid Anim
+  PROP: SharedRulesGuid = 8FAEAEDF4505DB64C0F225A50A7E1FEF
+  PROP: SharedColor = (R=0.150000,G=1.000000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=-0.050859,Y=0.998706)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=CED0A38E4A76B8C71DDB72A69760579B Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=87DA68AF427168D99ECEDBBC15DC340F Class=K2Node_VariableGet Title=Get NoValidAnim Pins=[NoValidAnim(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=10B0297844E8FDA20708BDA21704D7ED Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=2C84BA7B4F2E4E2466F2D2A91A420CBC Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=3AF3A2EE44ED8F24F95432A9CBADF81B Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=99D3FB654C510A0ECB63D18B76A74943 Class=EdGraphNode_Comment Title=If no animations were found when entering into the transition state, this transition takes us straight to the looping state.
+
+In addition, if a looping animation was chosen when searching for transition animations, then that should force us into the looping state. This allows us to do things like perform a motion match between a transition and a looping animation. If the looping animation wins, we enter into the looping state. Pins=[]
+
+================================================================================
+TRANS: 'Idle Break' -> 'Idle Loop'   raw=Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Idle'   raw=Re-Enter  -> Transition to Idle [RuleNodes=21, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Conduit' -> 'Transition to Locomotion'   raw=Conduit -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: to Locomotion",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=392DF9424AE87F7FBE9AB09E1C095F2D,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.630019,Y=-0.776580)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=44FDDF6E4CC55165581661BA41BCA938 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=97184B4B46B2DEEC3ADE15BF70D4EB4C Class=K2Node_VariableGet Title=Get MovementState Pins=[MovementState(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=91E1B28F444B583F2C905FBE9894262B Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator0) ]
+
+================================================================================
+TRANS: 'Conduit' -> 'Transition to Idle'   raw=Conduit -> Transition to Idle [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: to Idle",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=2EB33F514558EBA3658165A716CF90EF,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = False
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=0.676835,Y=0.736135)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (3):
+    GUID=2382D84A45F022ED252D6CA46002FEF5 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=F82C316943A80ACC973EB5A580D646CD Class=K2Node_VariableGet Title=Get MovementState Pins=[MovementState(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=416D65C74DF35794796AD5BACD8AD2B7 Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator4) ]
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Locomotion'   raw=Re-Enter -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Transition to Locomotion' -> 'Locomotion Loop'   raw=Transition to Locomotion -> Locomotion Loop [RuleNodes=3, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Transition to Slide' -> 'Slide Loop'   raw=Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+================================================================================
+  --- transition_index=0 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: Animation Finished",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=959D4D6E43CBD5500E8D2D82D27CADF8,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - Animation Almost Complete
+  PROP: SharedRulesGuid = BD0480AC4BDF6892BB831A99A0F81E7E
+  PROP: SharedColor = (R=1.000000,G=0.150000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=DBCB107E4C84371B33E1B7BC4D3634D6 Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=12CD0C884EB316FD1ED69CB1572A36AE Class=K2Node_CallFunction Title=Is Animation Almost Complete Pins=[self(In,object,conn=0) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=3E6E6D7D4721DD1C4994748DB43DD301 Class=K2Node_PromotableOperator Title=float > float Pins=[A(In,real,conn=1) B(In,real,conn=0) ReturnValue(Out,bool,conn=1) ErrorTolerance(In,None,conn=0) ]
+    GUID=9FB1C27948C5B3B9C55786AD6C782564 Class=K2Node_AnimGetter Title=Current State Time (State Controller) Pins=[self(In,object,conn=0) MachineIndex(In,int,conn=0,def=0) ReturnValue(Out,real,conn=1,def=0.0) ]
+    GUID=16D893BB4176EF1BDE956F8B4A9FF2F5 Class=K2Node_CommutativeAssociativeBinaryOperator Title=AND Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=CA4F943C4CCA6C839DAE99B07C6EDFE5 Class=EdGraphNode_Comment Title=This acts simliar to the "Automatic Rule" condition in typical state machines, which triggers the transition automatically whenever the animation is almost over. Since this state machine is purely logical and contains no animations, we need to do this manually by looking at the current animation in the blendstack. Pins=[]
+  --- transition_index=1 ---
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: No Valid Anim",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=3321CACB4F98DE89A4A92188AF42DEF9,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = True
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesName = General - No Valid Anim
+  PROP: SharedRulesGuid = 8FAEAEDF4505DB64C0F225A50A7E1FEF
+  PROP: SharedColor = (R=0.150000,G=1.000000,B=0.150000,A=0.250000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 0
+  RULE_NODES (6):
+    GUID=CED0A38E4A76B8C71DDB72A69760579B Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=87DA68AF427168D99ECEDBBC15DC340F Class=K2Node_VariableGet Title=Get NoValidAnim Pins=[NoValidAnim(Out,bool,conn=1,def=false) self(In,object,conn=0) ]
+    GUID=10B0297844E8FDA20708BDA21704D7ED Class=K2Node_CommutativeAssociativeBinaryOperator Title=OR Boolean Pins=[self(In,object,conn=0) A(In,bool,conn=1,def=false) B(In,bool,conn=1,def=false) ReturnValue(Out,bool,conn=1,def=false) ]
+    GUID=2C84BA7B4F2E4E2466F2D2A91A420CBC Class=K2Node_VariableGet Title=Get BlendStackInputs Pins=[BlendStackInputs(Out,struct,conn=1) self(In,object,conn=0) ]
+    GUID=3AF3A2EE44ED8F24F95432A9CBADF81B Class=K2Node_BreakStruct Title=Break S Blend Stack Inputs Pins=[S_BlendStackInputs(In,struct,conn=1) Loop_10_8449993743CEC16731CC8FAB59BD2480(Out,bool,conn=1) ]
+    GUID=99D3FB654C510A0ECB63D18B76A74943 Class=EdGraphNode_Comment Title=If no animations were found when entering into the transition state, this transition takes us straight to the looping state.
+
+In addition, if a looping animation was chosen when searching for transition animations, then that should force us into the looping state. This allows us to do things like perform a motion match between a transition and a looping animation. If the looping animation wins, we enter into the looping state. Pins=[]
+
+================================================================================
+TRANS: 'Transition to Slide' -> 'Slide Loop'   raw=Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: '-> Slide' -> 'Transition to Slide'   raw=-> Slide -> Transition to Slide [RuleNodes=3, Custom=yes]
+================================================================================
+  PROP: PriorityOrder = 1
+  PROP: CrossfadeDuration = 0.200000
+  PROP: CrossfadeMode = TBM_Linear
+  PROP: BlendMode = HermiteCubic
+  PROP: BlendProfileWrapper = (bIsSkeletonBlendProfile=True)
+  PROP: bAutomaticRuleBasedOnSequencePlayerInState = False
+  PROP: AutomaticRuleTriggerTime = -1.000000
+  PROP: MinTimeBeforeReentry = -1.000000
+  PROP: LogicType = TLT_StandardBlend
+  PROP: TransitionStart = (TriggerWeightThreshold=0.000010,NotifyName="Transition: to Slide",EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=61E502E24B302475CFF0BFB7F2259E2E,SegmentIndex=-1)
+  PROP: TransitionEnd = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: TransitionInterrupt = (TriggerWeightThreshold=0.000010,EndLink=(SegmentIndex=-1),NotifyTriggerChance=1.000000,bCanBeFilteredViaRequest=True,bTriggerOnDedicatedServer=True,NotifyColor=(B=0,G=0,R=0,A=255),Guid=00000000000000000000000000000000,SegmentIndex=-1)
+  PROP: bAllowInertializationForSelfTransitions = True
+  PROP: Bidirectional = False
+  PROP: bDisabled = False
+  PROP: bSharedRules = False
+  PROP: bSharedCrossfade = False
+  PROP: SharedRulesGuid = 00000000000000000000000000000000
+  PROP: SharedColor = (R=0.000000,G=0.000000,B=0.000000,A=0.000000)
+  PROP: SharedCrossfadeGuid = 00000000000000000000000000000000
+  PROP: SharedCrossfadeIdx = -1
+  PROP: CachedRotation = (X=1.000000,Y=0.000000)
+  PROP: NodeWidth = 0
+  PROP: NodeHeight = 0
+  PROP: bIsIntermediateNode = False
+  PROP: bCommentBubbleMakeVisible = False
+  PROP: bCanRenameNode = False
+  PROP: ErrorType = 3
+  RULE_NODES (3):
+    GUID=479A403C44496C9177FDA9AC1C6A4A8D Class=AnimGraphNode_TransitionResult Title=Result Pins=[bCanEnterTransition(In,bool,conn=1,def=False) ]
+    GUID=A6E296B84104D1C98360058CB70A5997 Class=K2Node_VariableGet Title=Get MovementMode Pins=[MovementMode(Out,byte,conn=1,def=NewEnumerator4) self(In,object,conn=0) ]
+    GUID=CEE3287F4412548B2E0E89BB91D20D94 Class=K2Node_EnumEquality Title=Equal (Enum) Pins=[ReturnValue(Out,bool,conn=1) A(In,byte,conn=1) B(In,byte,conn=0,def=NewEnumerator6) ]
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Slide'   raw=Re-Enter   -> Transition to Slide [RuleNodes=7, Custom=yes]
+================================================================================
+  PROP: ERROR: Transition not found
+  RULE_NODES (0):
+
+================================================================================
+TRANS: 'Transition to Locomotion' -> 'Locomotion Loop'   raw=Transition to Locomotion -> Locomotion Loop [RuleNodes=11, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to Locomotion'   raw=Re-Enter -> Transition to Locomotion [RuleNodes=9, Custom=yes]
+================================================================================
+
+================================================================================
+TRANS: 'Re-Enter' -> 'Transition to In Air'   raw=Re-Enter    -> Transition to In Air [RuleNodes=7, Custom=yes]
+================================================================================
+  PROP: ERROR: Transition not found
+  RULE_NODES (0):

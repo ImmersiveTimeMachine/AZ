@@ -1,0 +1,22 @@
+{
+  "impl_iface_err": "Blueprint: Failed to find property 'implemented_interfaces' for attribute 'implemented_interfaces' on 'Blueprint'",
+  "parent_class_err": "Blueprint: Failed to find property 'parent_class' for attribute 'parent_class' on 'Blueprint'",
+  "shared_settings": [
+    {
+      "class": "CommonLegacyMovementSettings",
+      "path": "/Game/Blueprints/SandboxCharacter_Mover.SandboxCharacter_Mover_C:CharacterMover_GEN_VARIABLE.CommonLegacyMovementSettings_0",
+      "max_speed": "300.0",
+      "jump_upwards_speed": "500.0",
+      "ground_friction": "0.0",
+      "braking_friction": "8.0",
+      "braking_friction_factor": "0.0",
+      "max_step_height": "40.0"
+    },
+    {
+      "class": "StanceSettings",
+      "path": "/Game/Blueprints/SandboxCharacter_Mover.SandboxCharacter_Mover_C:CharacterMover_GEN_VARIABLE.StanceSettings_0",
+      "crouch_half_height": "60.0"
+    }
+  ],
+  "movement_modes_class_paths": {
+    

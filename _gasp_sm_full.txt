@@ -1,0 +1,165 @@
+# =================================================
+# STATE MACHINE: 'State Controller' (in SandboxCharacter_Mover_ABP)
+# =================================================
+# State count: 9
+  STATE: Idle Loop
+  STATE: Transition to Idle
+  STATE: Transition to Locomotion
+  STATE: Locomotion Loop
+  STATE: Transition to In Air
+  STATE: In Air Loop
+  STATE: Idle Break
+  STATE: Transition to Slide
+  STATE: Slide Loop
+
+
+# TRANSITIONS: 29
+  Idle -> Locomotion -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+  Locomotion -> Idle -> Transition to Idle [RuleNodes=3, Custom=yes]
+  Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+  Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+  Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+  Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+  Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+  Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+  -> In Air -> Transition to In Air [RuleNodes=3, Custom=yes]
+  -> Grounded -> Conduit [RuleNodes=3, Custom=yes]
+  Re-Enter -> Transition to Locomotion [RuleNodes=15, Custom=yes]
+  Re-Enter -> Transition to Locomotion [RuleNodes=13, Custom=yes]
+  Re-Enter -> Transition to Locomotion [RuleNodes=17, Custom=yes]
+  Re-Enter  -> Transition to Idle [RuleNodes=8, Custom=yes]
+  Idle Loop -> Idle Break [RuleNodes=3, Custom=yes]
+  Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+  Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+  Re-Enter  -> Transition to Idle [RuleNodes=21, Custom=yes]
+  Conduit -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+  Conduit -> Transition to Idle [RuleNodes=3, Custom=yes]
+  Re-Enter -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+  Transition to Locomotion -> Locomotion Loop [RuleNodes=3, Custom=yes]
+  Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+  Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+  -> Slide -> Transition to Slide [RuleNodes=3, Custom=yes]
+  Re-Enter   -> Transition to Slide [RuleNodes=7, Custom=yes]
+  Transition to Locomotion -> Locomotion Loop [RuleNodes=11, Custom=yes]
+  Re-Enter -> Transition to Locomotion [RuleNodes=9, Custom=yes]
+  Re-Enter    -> Transition to In Air [RuleNodes=7, Custom=yes]
+
+# =================================================
+# PER-TRANSITION DETAILS
+# =================================================
+
+----------------------------------------------------------------------
+TRANSITION: Idle -> Locomotion -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Locomotion -> Idle -> Transition to Idle [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Locomotion -> Locomotion Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Idle -> Idle Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to In Air -> In Air Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: -> In Air -> Transition to In Air [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: -> Grounded -> Conduit [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter -> Transition to Locomotion [RuleNodes=15, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter -> Transition to Locomotion [RuleNodes=13, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter -> Transition to Locomotion [RuleNodes=17, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter  -> Transition to Idle [RuleNodes=8, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Idle Loop -> Idle Break [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Idle Break -> Idle Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter  -> Transition to Idle [RuleNodes=21, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Conduit -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Conduit -> Transition to Idle [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter -> Transition to Locomotion [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Locomotion -> Locomotion Loop [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Slide -> Slide Loop [RuleNodes=6, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: -> Slide -> Transition to Slide [RuleNodes=3, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter   -> Transition to Slide [RuleNodes=7, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Transition to Locomotion -> Locomotion Loop [RuleNodes=11, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter -> Transition to Locomotion [RuleNodes=9, Custom=yes]
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+TRANSITION: Re-Enter    -> Transition to In Air [RuleNodes=7, Custom=yes]
+----------------------------------------------------------------------

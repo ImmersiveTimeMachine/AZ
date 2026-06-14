@@ -1,0 +1,498 @@
+
+================================================================================
+# BLEND STACK INNER GRAPH: StateMachine_BlendStack  (parent guid=BE7289C04D79DB9808E5269EE4963996)
+================================================================================
+# inner node count: 40
+GUID=8C4186D1455450E90EFB83AECDF75C5F Class=AnimGraphNode_BlendStackResult Title=Output Pose | AnimationBlendStackGraph_0 Pins=[Result(In,struct,conn=1) ]
+GUID=5C301DF34FD37B6539EF5FB6A47EB63B Class=AnimGraphNode_BlendStackInput Title=Blend Stack Input Pins=[PlayRate(In,real,conn=1) Pose(Out,struct,conn=1) ]
+GUID=236690B8419A065D91F717BB55BF4F29 Class=AnimGraphNode_Steering Title=Steering Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=1) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) TargetOrientation(In,struct,conn=1) bMirrored(In,bool,conn=0) ProceduralTargetTime(In,real,conn=1) AnimatedTargetTime(In,real,conn=0) MirrorDataTable(In,object,conn=0) CurrentAnimAsset(In,object,conn=1) CurrentAnimAssetTime(In,real,conn=1) Pose(Out,struct,conn=1) ]
+GUID=894A90DC4D08E85E395998BE448852EE Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]
+GUID=8FAC873842ACEAB63FEDAEAE68FA308C Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=EBEB2F4949898B071A42CE801596A244 Class=K2Node_CallFunction Title=Get Desired Facing Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,struct,conn=1) ]
+GUID=24C2DBE84ABFA9449AC417B935B44FCD Class=AnimGraphNode_OrientationWarping Title=Orientation Warping Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) TargetTime(In,real,conn=0) OrientationAngle(In,real,conn=0) LocomotionDirection(In,struct,conn=0) CurrentAnimAsset(In,object,conn=0) CurrentAnimAssetTime(In,real,conn=0) Pose(Out,struct,conn=1) ]
+GUID=E372A42F4942871E6AE4758E973D8863 Class=AnimGraphNode_ResetRoot Title=Reset Root Transform Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) Pose(Out,struct,conn=1) ]
+GUID=59DA218943771D6864B81A9D164BDA6B Class=AnimGraphNode_LocalToComponentSpace Title=Local To Component Pins=[LocalPose(In,struct,conn=1) ComponentPose(Out,struct,conn=1) ]
+GUID=17D7B60E41FAC1604F375D847554E748 Class=AnimGraphNode_ComponentToLocalSpace Title=Component To Local Pins=[ComponentPose(In,struct,conn=1) Pose(Out,struct,conn=1) ]
+GUID=FD5F92BE475C085B14DF20B70F13FAA3 Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=5) ]
+GUID=0FCA918F4399476F5AD4CA9466055CC5 Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]
+GUID=50E2B9D64A1F742AB4BFE693E4BB6978 Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=CEB041FE4679CDFEA6ED7BAE7BC0E18A Class=K2Node_CallFunction Title=Get Desired Facing Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,struct,conn=1) ]
+GUID=9C18DE2E4F5DDC8CF1B564A0A6C9CFD9 Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=3) ]
+GUID=CC97E413487F7F73B48BAAB097E2F998 Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]
+GUID=EB13352C425D3CF56EB2B1A29067B588 Class=K2Node_CallFunction Title=Get Curve Value from Animation Pins=[self(In,object,conn=0) Animation(In,object,conn=1) CurveName(In,name,conn=0) Time(In,real,conn=1) OutValue(Out,real,conn=1) ReturnValue(Out,bool,conn=0) ]
+GUID=2F8D3853424B14FA9AAECEB149F35D2F Class=K2Node_DynamicCast Title=Cast To AnimSequence Pins=[Object(In,object,conn=1) AsAnim Sequence(Out,object,conn=1) bSuccess(Out,bool,conn=0) ]
+GUID=FED6EECD40F4AECE47DC98AB4656D9D1 Class=K2Node_CallFunction Title=Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=E6B64DA54E3E2D5F6B36DD9F7FF52A21 Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=2) ]
+GUID=6110CD58405516644E3D758E2CFBB54C Class=AnimGraphNode_Steering Title=Steering Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) TargetOrientation(In,struct,conn=1) bMirrored(In,bool,conn=0) ProceduralTargetTime(In,real,conn=0) AnimatedTargetTime(In,real,conn=0) MirrorDataTable(In,object,conn=0) CurrentAnimAsset(In,object,conn=1) CurrentAnimAssetTime(In,real,conn=1) Pose(Out,struct,conn=1) ]
+GUID=D510AFAB481E8037708ECC99E7EA406C Class=EdGraphNode_Comment Title=Steering (Experimental!): A second steering node is needed for turn in places, since certain properties on this node are not yet pinnable. This will be removed in future releases. Pins=[]
+GUID=EAF886844642922E43A3C9928B1774FE Class=EdGraphNode_Comment Title=Steering (Experimental!): This node applies additional rotation to the animation's root motion in order to steer it toward a target. The root motion is consumed by the Offset Root Bone node, which is handles the actual rotation of the root. This node is heavily work in progress and there are some unwanted behaviors that will be fixed in future releases. Pins=[]
+GUID=1FB3825C47E9329F8893528D4DFBEE85 Class=EdGraphNode_Comment Title=Apply Orientation Warping (Strafe Warping is a better descriptor) to the animation, which causes the feet to move in different directions based on the locomotion direction. This can allow a forward walk to "strafe" at different angles, which reduces foot sliding. Pins=[]
+GUID=37E63FC24732A1F368AB919BF2CCD739 Class=K2Node_CallFunction Title=Get Dynamic Play Rate Pins=[self(In,object,conn=0) BlendStackInput(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=C36B740C48E883A32F9E06AB0FA60380 Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]
+GUID=64D6FDA745612BC39EFDD3BC2CBB9EC5 Class=K2Node_CallFunction Title=Enable Steering Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,bool,conn=1) ]
+GUID=839718F54764A28C21599FB9A63997EF Class=K2Node_CallFunction Title=Get Procedural Target Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=3CB2C1544E9E3E96EFD9C7BE9BB6F699 Class=AnimGraphNode_StrideWarping Title=Stride Warping Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) StrideDirection(In,struct,conn=0) StrideScale(In,real,conn=0) LocomotionSpeed(In,real,conn=0) Pose(Out,struct,conn=1) ]
+GUID=BDC1260B4A0ACA33CAD930982326B6F1 Class=EdGraphNode_Comment Title=When sampling animations in between keyframes, we can get some error from the source data between the foot position and the IK foot bone. We fix this up here by manually copying the component space foot bones on to the ik bones. It is important to do this before any procedural nodes that could modify the IK bones, e.g. the orientation warping Pins=[]
+GUID=8DF5786B40446B1BD82611A5FF042B82 Class=AnimGraphNode_CopyBone Title=Copy Bone | Source Bone: foot_l | Target Bone: ik_foot_l Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) bCopyTranslation(In,bool,conn=0) bCopyRotation(In,bool,conn=0) bCopyScale(In,bool,conn=0) Pose(Out,struct,conn=1) ]
+GUID=546083134DA6644CAE4AE591EE69E30F Class=AnimGraphNode_CopyBone Title=Copy Bone | Source Bone: foot_r | Target Bone: ik_foot_r Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) bCopyTranslation(In,bool,conn=0) bCopyRotation(In,bool,conn=0) bCopyScale(In,bool,conn=0) Pose(Out,struct,conn=1) ]
+GUID=F90713724D6EF2F4D5FEDC8919043912 Class=AnimGraphNode_ComponentToLocalSpace Title=Component To Local Pins=[ComponentPose(In,struct,conn=1) Pose(Out,struct,conn=1) ]
+GUID=1868B9654A202E91FBE4C2A125D107EB Class=AnimGraphNode_LocalToComponentSpace Title=Local To Component Pins=[LocalPose(In,struct,conn=1) ComponentPose(Out,struct,conn=1) ]
+GUID=2A3B5DE148B71EC05FAE62A7D1888AA4 Class=EdGraphNode_Comment Title=Apply Stride Warping to the animation, which scales the length of stride to reduce sliding when moving at speeds different than the animated speed. Pins=[]
+GUID=F261CD434A7FE00877FCD4996A563A52 Class=K2Node_Knot Title=Reroute Node Pins=[InputPin(In,struct,conn=1) OutputPin(Out,struct,conn=1) ]
+GUID=BBFB697E451350E934F73395D6F871E8 Class=K2Node_CallFunction Title=Get Stride Warp Alpha Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=242F98F44489EE785FC92F900DE733DC Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]
+GUID=1375C5094DFC1A98E45BFE9B25CC3A83 Class=K2Node_CallFunction Title=Get Strafe Warp Alpha Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]
+GUID=6D2798AC48F834C34E5D5EACBA7B7FC8 Class=K2Node_AnimNodeReference Title=Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]
+
+----------------------------------------------------------------------
+INNER guid=8C4186D1455450E90EFB83AECDF75C5F  class=AnimGraphNode_BlendStackResult  title='Output Pose | AnimationBlendStackGraph_0 Pins=[Result(In,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (Result=(LinkID=-1,SourceLinkID=-1),LayerGroup="DefaultSharedGroup",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+----------------------------------------------------------------------
+INNER guid=5C301DF34FD37B6539EF5FB6A47EB63B  class=AnimGraphNode_BlendStackInput  title='Blend Stack Input Pins=[PlayRate(In,real,conn=1) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (SampleIndex=-1,BlendStackAllocationIndex=-1,bOverridePlayRate=True,PlayRate=1.000000,InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = UsesBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 3
+----------------------------------------------------------------------
+INNER guid=236690B8419A065D91F717BB55BF4F29  class=AnimGraphNode_Steering  title='Steering Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=1) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) TargetOrientation(In,struct,conn=1) bMirrored(In,bool,conn=0) ProceduralTargetTime(In,real,conn=1) AnimatedTargetTime(In,real,conn=0) MirrorDataTable(In,object,conn=0) CurrentAnimAsset(In,object,conn=1) CurrentAnimAssetTime(In,real,conn=1) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (TargetOrientation=(X=0.000000,Y=0.000000,Z=0.000000,W=1.000000),ProceduralTargetTime=0.200000,AnimatedTargetTime=2.000000,RootMotionThreshold=-1.000000,DisableSteeringBelowSpeed=10.000000,DisableAdditiveBelowSpeed=-1.000000,MinScaleRatio=0.500000,MaxScaleRatio=1.500000,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,AlphaInputType=Bool,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = UsesBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+----------------------------------------------------------------------
+INNER guid=894A90DC4D08E85E395998BE448852EE  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAsset",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=8FAC873842ACEAB63FEDAEAE68FA308C  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAssetTime",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=EBEB2F4949898B071A42CE801596A244  class=K2Node_CallFunction  title='Get Desired Facing Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_DesiredFacing",MemberGuid=7E912C4641EDBE342D62488DA1CFD3A9,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=24C2DBE84ABFA9449AC417B935B44FCD  class=AnimGraphNode_OrientationWarping  title='Orientation Warping Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) TargetTime(In,real,conn=0) OrientationAngle(In,real,conn=0) LocomotionDirection(In,struct,conn=0) CurrentAnimAsset(In,object,conn=0) CurrentAnimAssetTime(In,real,conn=0) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (Mode=Graph,TargetTime=0.800000,LocomotionDirection=(X=0.000000,Y=0.000000,Z=0.000000),MinRootMotionSpeedThreshold=10.000000,LocomotionAngleDeltaThreshold=135.000000,SpineBones=((BoneName="spine_01"),(BoneName="spine_02"),(BoneName="spine_03"),(BoneName="spine_04"),(BoneName="spine_05"),(BoneName="neck_01"),(BoneName="neck_02"),(BoneName="head")),IKFootRootBone=(BoneName="ik_foot_root"),IKFootBones=((BoneName="ik_foot_l"),(BoneName="ik_foot_r")),RotationAxis=Z,DistributedBoneOrientationAlpha=0.600000,RotationInterpSpeed=5.000000,CounterCompensateInterpSpeed=45.000000,MaxCorrectionDegrees=180.000000,MaxRootMotionDeltaToCompensateDegrees=45.000000,bCounterCompenstateInterpolationByRootMotion=True,ManualRootMotionVelocity=(X=0.000000,Y=0.000000,Z=0.000000),WarpingSpace=RootBoneTransform,WarpingSpaceTransform=(Rotation=(X=0.000000,Y=0.000000,Z=0.000000,W=1.000000),Translation=(X=0.000000,Y=0.000000,Z=0.000000),Scale3D=(X=1.000000,Y=1.000000,Z=1.000000)),DebugDrawScale=1.000000,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = UsesBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 3
+  Binding:LocomotionDirection = Get_StrafeWarpDirection (func)
+----------------------------------------------------------------------
+INNER guid=E372A42F4942871E6AE4758E973D8863  class=AnimGraphNode_ResetRoot  title='Reset Root Transform Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=59DA218943771D6864B81A9D164BDA6B  class=AnimGraphNode_LocalToComponentSpace  title='Local To Component Pins=[LocalPose(In,struct,conn=1) ComponentPose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (LocalPose=(LinkID=-1,SourceLinkID=-1),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=17D7B60E41FAC1604F375D847554E748  class=AnimGraphNode_ComponentToLocalSpace  title='Component To Local Pins=[ComponentPose(In,struct,conn=1) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (ComponentPose=(LinkID=-1,SourceLinkID=-1),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=FD5F92BE475C085B14DF20B70F13FAA3  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=5) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=0FCA918F4399476F5AD4CA9466055CC5  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAsset",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=50E2B9D64A1F742AB4BFE693E4BB6978  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAssetTime",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=CEB041FE4679CDFEA6ED7BAE7BC0E18A  class=K2Node_CallFunction  title='Get Desired Facing Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_DesiredFacing",MemberGuid=7E912C4641EDBE342D62488DA1CFD3A9,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=9C18DE2E4F5DDC8CF1B564A0A6C9CFD9  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=3) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=CC97E413487F7F73B48BAAB097E2F998  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,object,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAsset",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=EB13352C425D3CF56EB2B1A29067B588  class=K2Node_CallFunction  title='Get Curve Value from Animation Pins=[self(In,object,conn=0) Animation(In,object,conn=1) CurveName(In,name,conn=0) Time(In,real,conn=1) OutValue(Out,real,conn=1) ReturnValue(Out,bool,conn=0) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/AnimationWarpingRuntime.AnimationWarpingLibrary'",MemberName="GetCurveValueFromAnimation",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=2F8D3853424B14FA9AAECEB149F35D2F  class=K2Node_DynamicCast  title='Cast To AnimSequence Pins=[Object(In,object,conn=1) AsAnim Sequence(Out,object,conn=1) bSuccess(Out,bool,conn=0) ]'
+----------------------------------------------------------------------
+  TargetType = /Script/CoreUObject.Class'/Script/Engine.AnimSequence'
+  bIsPureCast = False
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=FED6EECD40F4AECE47DC98AB4656D9D1  class=K2Node_CallFunction  title='Get Current Blend Stack Anim Asset Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberParent="/Script/CoreUObject.Class'/Script/BlendStack.BlendStackAnimNodeLibrary'",MemberName="GetCurrentBlendStackAnimAssetTime",MemberGuid=00000000000000000000000000000000)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=E6B64DA54E3E2D5F6B36DD9F7FF52A21  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=2) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=6110CD58405516644E3D758E2CFBB54C  class=AnimGraphNode_Steering  title='Steering Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) TargetOrientation(In,struct,conn=1) bMirrored(In,bool,conn=0) ProceduralTargetTime(In,real,conn=0) AnimatedTargetTime(In,real,conn=0) MirrorDataTable(In,object,conn=0) CurrentAnimAsset(In,object,conn=1) CurrentAnimAssetTime(In,real,conn=1) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (TargetOrientation=(X=0.000000,Y=0.000000,Z=0.000000,W=1.000000),ProceduralTargetTime=0.200000,AnimatedTargetTime=2.000000,RootMotionThreshold=1.000000,DisableSteeringBelowSpeed=-1.000000,DisableAdditiveBelowSpeed=-1.000000,MinScaleRatio=0.500000,MaxScaleRatio=1.500000,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(BlendInTime=0.100000,BlendOutTime=0.100000),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = UsesBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+----------------------------------------------------------------------
+INNER guid=37E63FC24732A1F368AB919BF2CCD739  class=K2Node_CallFunction  title='Get Dynamic Play Rate Pins=[self(In,object,conn=0) BlendStackInput(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_DynamicPlayRate",MemberGuid=15C4055143A1B75A02890E8FBC1D3335,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 3
+----------------------------------------------------------------------
+INNER guid=C36B740C48E883A32F9E06AB0FA60380  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=64D6FDA745612BC39EFDD3BC2CBB9EC5  class=K2Node_CallFunction  title='Enable Steering Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,bool,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="EnableSteering",MemberGuid=A909156C48B688219D84918A2B0A5881,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=839718F54764A28C21599FB9A63997EF  class=K2Node_CallFunction  title='Get Procedural Target Time Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_ProceduralTargetTime",MemberGuid=E598453442D2129D6A3F3BBF354EF27C,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=3CB2C1544E9E3E96EFD9C7BE9BB6F699  class=AnimGraphNode_StrideWarping  title='Stride Warping Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=1) AlphaCurveName(In,name,conn=0) StrideDirection(In,struct,conn=0) StrideScale(In,real,conn=0) LocomotionSpeed(In,real,conn=0) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (Mode=Graph,StrideDirection=(X=1.000000,Y=0.000000,Z=0.000000),StrideScale=1.000000,MinRootMotionSpeedThreshold=10.000000,PelvisBone=(BoneName="pelvis"),IKFootRootBone=(BoneName="ik_foot_root"),FootDefinitions=((IKFootBone=(BoneName="ik_foot_l"),FKFootBone=(BoneName="foot_l"),ThighBone=(BoneName="thigh_l")),(IKFootBone=(BoneName="ik_foot_r"),FKFootBone=(BoneName="foot_r"),ThighBone=(BoneName="thigh_r"))),StrideScaleModifier=(bClampResult=True,bInterpResult=True,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),FloorNormalDirection=(Mode=WorldSpaceVector,Value=(X=0.000000,Y=0.000000,Z=1.000000)),GravityDirection=(Mode=WorldSpaceVector,Value=(X=0.000000,Y=0.000000,Z=-1.000000)),PelvisIKFootSolver=(PelvisAdjustmentInterp=(StiffnessConstant=1.000000,DampeningRatio=1.000000),PelvisAdjustmentInterpAlpha=0.500000,PelvisAdjustmentMaxDistance=10.000000,PelvisAdjustmentErrorTolerance=0.010000,PelvisAdjustmentMaxIter=3),bOrientStrideDirectionUsingFloorNormal=True,bCompensateIKUsingFKThighRotation=True,bClampIKUsingFKLimits=True,bDisableIfMissingRootMotion=True,DebugDrawScale=1.000000,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(BlendOption=HermiteCubic),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = UsesBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 3
+  Binding:LocomotionSpeed = Speed2D (prop)
+----------------------------------------------------------------------
+INNER guid=8DF5786B40446B1BD82611A5FF042B82  class=AnimGraphNode_CopyBone  title='Copy Bone | Source Bone: foot_l | Target Bone: ik_foot_l Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) bCopyTranslation(In,bool,conn=0) bCopyRotation(In,bool,conn=0) bCopyScale(In,bool,conn=0) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (SourceBone=(BoneName="foot_l"),TargetBone=(BoneName="ik_foot_l"),ControlSpace=BCS_ComponentSpace,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(BlendOption=HermiteCubic),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=546083134DA6644CAE4AE591EE69E30F  class=AnimGraphNode_CopyBone  title='Copy Bone | Source Bone: foot_r | Target Bone: ik_foot_r Pins=[ComponentPose(In,struct,conn=1) bAlphaBoolEnabled(In,bool,conn=0) Alpha(In,real,conn=0) AlphaCurveName(In,name,conn=0) bCopyTranslation(In,bool,conn=0) bCopyRotation(In,bool,conn=0) bCopyScale(In,bool,conn=0) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (SourceBone=(BoneName="foot_r"),TargetBone=(BoneName="ik_foot_r"),ControlSpace=BCS_ComponentSpace,ComponentPose=(LinkID=-1,SourceLinkID=-1),LODThreshold=-1,bAlphaBoolEnabled=True,Alpha=1.000000,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(BlendOption=HermiteCubic),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=F90713724D6EF2F4D5FEDC8919043912  class=AnimGraphNode_ComponentToLocalSpace  title='Component To Local Pins=[ComponentPose(In,struct,conn=1) Pose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (ComponentPose=(LinkID=-1,SourceLinkID=-1),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=1868B9654A202E91FBE4C2A125D107EB  class=AnimGraphNode_LocalToComponentSpace  title='Local To Component Pins=[LocalPose(In,struct,conn=1) ComponentPose(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Node = (LocalPose=(LinkID=-1,SourceLinkID=-1),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=F261CD434A7FE00877FCD4996A563A52  class=K2Node_Knot  title='Reroute Node Pins=[InputPin(In,struct,conn=1) OutputPin(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = True
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=BBFB697E451350E934F73395D6F871E8  class=K2Node_CallFunction  title='Get Stride Warp Alpha Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_StrideWarpAlpha",MemberGuid=F4DEC24148321ABAE53D2D8612E9A804,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=242F98F44489EE785FC92F900DE733DC  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=1375C5094DFC1A98E45BFE9B25CC3A83  class=K2Node_CallFunction  title='Get Strafe Warp Alpha Pins=[self(In,object,conn=0) Node(In,struct,conn=1) ReturnValue(Out,real,conn=1) ]'
+----------------------------------------------------------------------
+  bDefaultsToPureFunc = True
+  bWantsEnumToExecExpansion = False
+  FunctionReference = (MemberName="Get_StrafeWarpAlpha",MemberGuid=E883BA224B38412D00D7F0B15F0D57CC,bSelfContext=True)
+  NodePurityOverride = Unset
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+----------------------------------------------------------------------
+INNER guid=6D2798AC48F834C34E5D5EACBA7B7FC8  class=K2Node_AnimNodeReference  title='Node Reference: State Machine Blend Stack Input Pins=[Value(Out,struct,conn=1) ]'
+----------------------------------------------------------------------
+  Tag = State Machine Blend Stack Input
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+
+================================================================================
+# BLEND STACK INNER GRAPH: MotionMatching  (parent guid=C38E79074825E233B5E811B948B4F131)
+================================================================================
+# inner node count: 0

@@ -1,0 +1,292 @@
+# AnimGraph nodes: 23
+GUID=4E122C5B4DB554E65D88549408D0932C Class=AnimGraphNode_Root Title=Output Pose | AnimGraph
+GUID=BDEF837D4943162E2B6A338676674047 Class=AnimGraphNode_PoseSearchHistoryCollector Title=Pose History
+GUID=FBAFC10F4660DFE83C5B2D9DE2C6427E Class=AnimGraphNode_Slot Title=Slot 'DefaultSlot' | Group 'DefaultGroup'
+GUID=0C0C1D9B450C481C116E9C8F61FFD5FE Class=AnimGraphNode_OffsetRootBone Title=Offset Root Bone
+GUID=C38E79074825E233B5E811B948B4F131 Class=AnimGraphNode_MotionMatching Title=Motion Matching
+GUID=436B678245191E2DA9FC029DE5347D15 Class=EdGraphNode_Comment Title=Additive Lean Layer
+GUID=67A588934EB0CF1F2CF91C8B714025DF Class=EdGraphNode_Comment Title=Motion Matching Node: NOT YET FULLY TUNED |  | This node is the primary AnimGraph node that drives pose selection in a Motion Matching system. |  | The Motion Matching node requires two key components: |  | 1. A Pose Search Database, which contains the animation data the node will use to make selections. Additionally, Pose Search Database assets use a Pose Search Schema asset which defines what pose and trajectory data is used to make the selection. |  | 2. A Pose History node, which contains the pose and Character Trajectory data that will be used to query and match animation data against. |  | In this example setup, the Pose Search Database asset is set in the Update Motion Matching Function, which can be viewed in the node’s Details panel in the On Update property. |  | In addition to the required inputs, the node has some additional notable features. |  | On the Motion Matching node you can use the Blend Time float input to dynamically change the blend time. This can be helpful when different kinds of animations need to blend at different speeds. In this example setup, the Blend Time input is set using the Get_MMBlendTime function. |  | The Motion Matching node also has two AnimNode Functions that are applied to the node: |  | 1. On Update which calls the Update_MotionMatching function. |  | 2. On Motion Matching State Update which calls the Update_MotionMatching_PostSelection function. |  | The Update_MotionMatching function is evaluating a Chooser asset and outputs an array of Motion Matching Databases. This allows us to separate our locomotion data into multiple databases and allows the Chooser to filter the pool of animation data the Motion Matching node can search in any given frame, to only relevant animations. This implementation can increase both your control over the final selection and reduce your project’s performance cost. |  | The Update_MotionMatching_PostSelection function allows us to perform additional logic based on the result of the Motion Matching selection. In this case, we cache the database the selected animation is in so that we can grab any tags it has, which can be used for future selection logic. The tags are grabbed in the event graph (due to a thread safety issue). See "CurrentDatabaseTags". |  | You can also double-click the Motion Matching Node to open up it's Blend Stack Graph, which is an internal graph applied to each animation where we're handling Orientation Warping and Steering.
+GUID=D0D272AC4F1BD7B9F1F6F2AC4C0A520F Class=EdGraphNode_Comment Title=Default Slot Node: |  | This Slot Node is where the traversal Animation Montages are injected into the graph.
+GUID=2852E3544DBBFA7C939C9B9B124B3EE4 Class=EdGraphNode_Comment Title=Offset Root Bone (Experimental!):
+GUID=0E0C7AD940E56257EFAC57A3C98F991F Class=EdGraphNode_Comment Title=Pose History Node: |  | This node is the second Motion Matching related AnimGraph node that is critical for Motion Matching to function. |  | This node contains a reference to the trajectory (or optionally generates the trajectory itself) which is needed in order to match animation data against it, as well as a cache of previous pose data, which is also used by the Motion Matching query. |  | This node contains settings on how often poses are collected, how many previous poses can be stored, and a list of bones we want to sample from.
+GUID=12D3F2A846CAE652DCB1E0926835CE76 Class=EdGraphNode_Comment Title=Aim Offset Layer
+GUID=3ED280F443FE734C5DEAF79FB5E5E732 Class=AnimGraphNode_TwoWayBlend Title=Two Way Blend
+GUID=24CFE1EB46A85AEA1E9E80AF69402FFB Class=AnimGraphNode_StateMachine Title=State Controller | State Machine
+GUID=BE7289C04D79DB9808E5269EE4963996 Class=AnimGraphNode_BlendStack Title=Blend Stack
+GUID=E39F2F4D4A5C31E153EBC9B0616F985A Class=EdGraphNode_Comment Title=State Machine + Choosers + Motion Matching + Blendstack (Experimental!): |  | This is a highly experimental setup that aims to combine the controllability of State Machines, the scalability of Choosers, the power of Motion Matching, and the blending behavior of Blend Stack, all in an effort to build a flexible locomotion system that is artist friendly and easy to control. |  | The state machine below is used as a purely logical state machine, and outputs no pose. Its job is to write to the Blend Stack using "On State Entry" anim node functions. The Two Way Blend node allows only the Blend Stack pose to pass through, but is set to "always update children", enabling the State Machine to run its logic before the Blend Stack. |  | The main purpose of this setup is to inform future tool development and experiment with workflow questions such as "what could we do if state machines used a blend stack internally, and could easily handle state re-entry?" Although the current workflow is far from ideal, we felt it'd be great to show this off anyway.
+GUID=3E00B2ED497D17C9A6F23EBDF32D66A3 Class=AnimGraphNode_BlendListByInt Title=Blend Poses by int
+GUID=F7BBCCA74F2B16249093A8A1C6CE71F0 Class=AnimGraphNode_Inertialization Title=Inertialization
+GUID=D7FD4B4A443C9C80B3C96EB930C67CED Class=AnimGraphNode_LinkedAnimLayer Title=Procedural | Anim Layer (self)
+GUID=3886AF2441B998BDF1A1308893E347D3 Class=AnimGraphNode_LinkedAnimLayer Title=Procedural_PreLayering | Anim Layer (self)
+GUID=B07F4A74495FE0AD567B0BB2521B72DC Class=AnimGraphNode_LinkedAnimLayer Title=AdditiveLeans | Anim Layer (self)
+GUID=4E0E64B642348DC4F6691B82D1862F21 Class=AnimGraphNode_LinkedAnimLayer Title=AimOffset | Anim Layer (self)
+GUID=C7D2389E42516FCDB506D6A50C78021E Class=EdGraphNode_Comment Title=Post Layering Procedural Layer
+GUID=C4F4BCB749B3CF46097E588B5A21C4EE Class=EdGraphNode_Comment Title=Pre Layering Procedural Layer
+
+# === FULL NODE PROPERTY DUMPS ===
+
+======================================================================
+NODE guid=4E122C5B4DB554E65D88549408D0932C
+  class=AnimGraphNode_Root
+  title='Output Pose | AnimGraph'
+======================================================================
+  Node = (Result=(LinkID=-1,SourceLinkID=-1),LayerGroup="DefaultSharedGroup",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+
+======================================================================
+NODE guid=BDEF837D4943162E2B6A338676674047
+  class=AnimGraphNode_PoseSearchHistoryCollector
+  title='Pose History'
+======================================================================
+  Node = (Source=(LinkID=-1,SourceLinkID=-1),PoseCount=2,CollectedBones=((BoneName="foot_r"),(BoneName="foot_l"),(BoneName="thigh_r"),(BoneName="thigh_l"),(BoneName="spine_05"),(BoneName="pelvis"),(BoneName="hand_l"),(BoneName="hand_r")),CollectedCurves=("Phase"),bResetOnBecomingRelevant=True,RootBoneRecoveryTime=0.300000,RootBoneTranslationRecoveryRatio=1.000000,RootBoneRotationRecoveryRatio=1.000000,DebugColor=(R=1.000000,G=0.000000,B=0.000000,A=1.000000),TrajectorySpeedMultiplier=1.000000,TrajectoryHistoryCount=10,TrajectoryPredictionCount=8,PredictionSamplingInterval=0.400000,TrajectoryData=(RotateTowardsMovementSpeed=10.000000,MaxControllerYawRate=70.000000,SpeedRemappingCurve=(EditorCurveData=(DefaultValue=340282346638528859811704183484516925440.000000,PreInfinityExtrap=RCCE_Constant,PostInfinityExtrap=RCCE_Constant)),AccelerationRemappingCurve=(EditorCurveData=(DefaultValue=340282346638528859811704183484516925440.000000,PreInfinityExtrap=RCCE_Constant,PostInfinityExtrap=RCCE_Constant))),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  Tag = PoseHistory
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+  Binding:TransformTrajectory = Trajectory (prop)
+
+======================================================================
+NODE guid=FBAFC10F4660DFE83C5B2D9DE2C6427E
+  class=AnimGraphNode_Slot
+  title="Slot 'DefaultSlot' | Group 'DefaultGroup'"
+======================================================================
+  Node = (Source=(LinkID=-1,SourceLinkID=-1),SlotName="DefaultSlot",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+
+======================================================================
+NODE guid=0C0C1D9B450C481C116E9C8F61FFD5FE
+  class=AnimGraphNode_OffsetRootBone
+  title='Offset Root Bone'
+======================================================================
+  Node = (Source=(LinkID=-1,SourceLinkID=-1),EvaluationMode=Graph,TranslationMode=Interpolate,TranslationHalflife=0.200000,RotationHalfLife=0.100000,MaxTranslationError=30.000000,MaxRotationError=-1.000000,TranslationSpeedRatio=0.500000,RotationSpeedRatio=0.500000,bOnGround=True,GroundNormal=(X=0.000000,Y=0.000000,Z=1.000000),TranslationDelta=(X=0.000000,Y=0.000000,Z=0.000000),RotationDelta=(Pitch=0.000000,Yaw=0.000000,Roll=0.000000),CollisionTestShapeRadius=30.000000,CollisionTestShapeOffset=(X=0.000000,Y=0.000000,Z=60.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  Tag = OffsetRoot
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+  Binding:RotationMode = Get_OffsetRootRotationMode (func)
+  Binding:TranslationMode = Get_OffsetRootTranslationMode (func)
+  Binding:bClampToTranslationVelocity = IsMoving (func)
+  Binding:TranslationHalflife = Get_OffsetRootTranslationHalfLife (func)
+  Binding:MaxTranslationError = Get_OffsetRootTranslationRadius (func)
+
+======================================================================
+NODE guid=C38E79074825E233B5E811B948B4F131
+  class=AnimGraphNode_MotionMatching
+  title='Motion Matching'
+======================================================================
+  Node = (BlendParameters=(X=0.000000,Y=0.000000,Z=0.000000),GroupRole=ExclusiveAlwaysLeader,bOverridePositionWhenJoiningSyncGroupAsLeader=True,BlendTime=0.500000,BlendProfile="/Script/Engine.BlendProfile'/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin.SK_UEFN_Mannequin:FastFeet_InstantRoot'",BlendOption=HermiteCubic,PoseJumpThresholdTime=(),PoseReselectHistory=0.300000,PlayRate=(Min=0.850000,Max=1.150000),PlayRateMultiplier=1.000000,bResetOnBecomingRelevant=True,bShouldSearch=True,EventToSearch=(EventTag=(),bUsePlayRateRangeOverride=True,PlayRateRangeOverride=(Min=1.000000,Max=1.000000)),bValidateResultAgainstAvailabilities=True,bWarpUsingRootBone=True,WarpingTranslationRatio=1.000000,WarpingRotationRatio=1.000000,OnMotionMatchingStateUpdated=(FunctionName="OnStateExit"),bShouldFilterNotifies=True,StitchBlendTime=0.100000,StitchBlendMaxCost=100.000000,MaxActiveBlends=4,bStoreBlendedPose=True,NotifyRecencyTimeOut=0.200000,MaxBlendInTimeToOverrideAnimation=0.030000,PlayerDepthBlendInTimeMultiplier=1.100000,InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=(FunctionName="Update_MotionMatching"))
+  OnMotionMatchingStateUpdatedFunction = (MemberName="Update_MotionMatching_PostSelection",MemberGuid=24796C9B4A2D043B3F7961BDC96B21A8,bSelfContext=True)
+  AlwaysDynamicProperties = ("Database")
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberName="Update_MotionMatching",MemberGuid=29BFB0784646B66E73FFA8BE9D780AAF,bSelfContext=True)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 1
+  Binding:BlendTime = Get_MMBlendTime (func)
+  Binding:NotifyRecencyTimeOut = Get_MMNotifyRecencyTimeOut (func)
+
+======================================================================
+NODE guid=3ED280F443FE734C5DEAF79FB5E5E732
+  class=AnimGraphNode_TwoWayBlend
+  title='Two Way Blend'
+======================================================================
+  BlendNode = (A=(LinkID=-1,SourceLinkID=-1),B=(LinkID=-1,SourceLinkID=-1),bAlphaBoolEnabled=True,bAlwaysUpdateChildren=True,AlphaScaleBias=(Scale=1.000000),AlphaBoolBlend=(),AlphaScaleBiasClamp=(InRange=(Max=1.000000),OutRange=(Max=1.000000),Scale=1.000000,ClampMax=1.000000,InterpSpeedIncreasing=10.000000,InterpSpeedDecreasing=10.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+
+======================================================================
+NODE guid=24CFE1EB46A85AEA1E9E80AF69402FFB
+  class=AnimGraphNode_StateMachine
+  title='State Controller | State Machine'
+======================================================================
+  Node = (MaxTransitionsPerFrame=3,MaxTransitionsRequests=32,bSkipFirstUpdateTransition=True,bReinitializeOnBecomingRelevant=True,bCreateNotifyMetaData=True,bAllowConduitEntryStates=True,InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  EditorStateMachineGraph = /Script/AnimGraph.AnimationStateMachineGraph'/Game/Blueprints/SandboxCharacter_Mover_ABP.SandboxCharacter_Mover_ABP:AnimGraph.AnimGraphNode_StateMachine_2.State Controller'
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = True
+  ErrorType = 3
+
+======================================================================
+NODE guid=BE7289C04D79DB9808E5269EE4963996
+  class=AnimGraphNode_BlendStack
+  title='Blend Stack'
+======================================================================
+  Node = (AnimationTime=-1.000000,bLoop=True,WantedPlayRate=1.000000,BlendTime=0.200000,MaxAnimationDeltaTime=-1.000000,BlendOption=QuadraticInOut,BlendParameters=(X=0.000000,Y=0.000000,Z=0.000000),MirrorDataTable="/Script/Engine.MirrorDataTable'/Game/Characters/UEFN_Mannequin/Rigs/MDT_UEFN_Mannequin.MDT_UEFN_Mannequin'",bResetOnBecomingRelevant=True,StitchBlendTime=0.100000,StitchBlendMaxCost=100.000000,MaxActiveBlends=4,bStoreBlendedPose=True,NotifyRecencyTimeOut=0.200000,PlayerDepthBlendInTimeMultiplier=1.000000,InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  Tag = State Machine Blend Stack
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 3
+  Binding:AnimationAsset = BlendStackInputs.Anim_3_CE8F6C8948855759C43A24A538203DDC (prop)
+  Binding:AnimationTime = BlendStackInputs.StartTime_13_FF14272D469780193CB17C9AB22D7074 (prop)
+  Binding:bLoop = BlendStackInputs.Loop_10_8449993743CEC16731CC8FAB59BD2480 (prop)
+  Binding:BlendTime = BlendStackInputs.BlendTime_15_691FD40340AB54CA80B6E7A78476F549 (prop)
+  Binding:BlendProfile = BlendStackInputs.BlendProfile_30_766A68204211AB10459C6FA24253AF8D (prop)
+
+======================================================================
+NODE guid=3E00B2ED497D17C9A6F23EBDF32D66A3
+  class=AnimGraphNode_BlendListByInt
+  title='Blend Poses by int'
+======================================================================
+  Node = (BlendPose=((),()),BlendTime=(0.000000,0.000000),InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = DoesNotUseBlueprint
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 4
+  Binding:ActiveChildIndex = LocomotionSetup (prop)
+
+======================================================================
+NODE guid=F7BBCCA74F2B16249093A8A1C6CE71F0
+  class=AnimGraphNode_Inertialization
+  title='Inertialization'
+======================================================================
+  Node = (Source=(LinkID=-1,SourceLinkID=-1),bForwardRequestsThroughSkippedCachedPoseNodes=True,InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+
+======================================================================
+NODE guid=D7FD4B4A443C9C80B3C96EB930C67CED
+  class=AnimGraphNode_LinkedAnimLayer
+  title='Procedural | Anim Layer (self)'
+======================================================================
+  Node = (Layer="Procedural",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  InterfaceGuid = 00000000000000000000000000000000
+  FunctionReference = (MemberName="Procedural",MemberGuid=E953568D4AF1392175A24AAE484AA673,bSelfContext=True)
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+
+======================================================================
+NODE guid=3886AF2441B998BDF1A1308893E347D3
+  class=AnimGraphNode_LinkedAnimLayer
+  title='Procedural_PreLayering | Anim Layer (self)'
+======================================================================
+  Node = (Layer="Procedural_PreLayering",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  InterfaceGuid = 00000000000000000000000000000000
+  FunctionReference = (MemberName="Procedural_PreLayering",MemberGuid=0AAA50B643FC5BCB8CDD4F9CA3A6EFA9,bSelfContext=True)
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 1
+
+======================================================================
+NODE guid=B07F4A74495FE0AD567B0BB2521B72DC
+  class=AnimGraphNode_LinkedAnimLayer
+  title='AdditiveLeans | Anim Layer (self)'
+======================================================================
+  Node = (Layer="AdditiveLeans",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  InterfaceGuid = 00000000000000000000000000000000
+  FunctionReference = (MemberName="AdditiveLeans",MemberGuid=B672ACF5423949DF80E888BDAEE13564,bSelfContext=True)
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
+
+======================================================================
+NODE guid=4E0E64B642348DC4F6691B82D1862F21
+  class=AnimGraphNode_LinkedAnimLayer
+  title='AimOffset | Anim Layer (self)'
+======================================================================
+  Node = (Layer="AimOffset",InitialUpdateFunction=(),BecomeRelevantFunction=(),UpdateFunction=())
+  InterfaceGuid = 00000000000000000000000000000000
+  FunctionReference = (MemberName="AimOffset",MemberGuid=1A73F9BF4355A2D8BF8F3BBF3DEBEBBD,bSelfContext=True)
+  BlueprintUsage = NoProperties
+  InitialUpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  BecomeRelevantFunction = (MemberGuid=00000000000000000000000000000000)
+  UpdateFunction = (MemberGuid=00000000000000000000000000000000)
+  NodeWidth = 0
+  NodeHeight = 0
+  bIsIntermediateNode = False
+  bCommentBubbleMakeVisible = False
+  bCanRenameNode = False
+  ErrorType = 0
