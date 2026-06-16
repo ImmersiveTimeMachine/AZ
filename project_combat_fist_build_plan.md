@@ -21,12 +21,69 @@ User's words: *"the first equipment is our fist and we will add more and more lo
 3. **FIST = weapon #0 = `Weapon.Fist`** — a real, first-class weapon profile (sibling of `Weapon.Pistol`/`Rifle`), NOT "no weapon." `Weapon.None` = genuinely empty hands ("no_fist"). `Weapon.Fist` tag must be ADDED (missing today).
 4. **Fist is a real inventory item**: `EquipmentFragment(EquipmentType=Weapon.Fist, EquipActorClass=null)` (no mesh — hands already exist) + `AbilityGrantFragment(GA_MeleeAttack)`. Goes through the *identical* CommonUI equip path as every gun → real parity, punch is *equip-granted* (not special-cased default-granted).
 5. **Equip axis (the quick-slot):** `no_fist(Weapon.None)  <->  fist(Weapon.Fist)  <->  pistol  <->  rifle ...`
-6. **For FISTS, equip = ready stance** (cleaner, free given the clips): equip/draw fist = `Idle2Fists` -> fighting stance (Strafe, ready); unequip/holster = `Fists2Idle` -> relaxed/explore (= no_fist). The **quick-slot selection doubles as the fists-up toggle.** GUNS are different — equipped-but-lowered is a real state, so they keep the full **explore -> combat-ready -> aiming** tier axis. *(CONFIRMED 2026-06-15: equip=ready.)*
+6. **For FISTS, equip = ready stance** (cleaner, free given the clips): equip/draw fist = `Idle2Fists` -> fighting stance (Strafe, ready); unequip/holster = `Fists2Idle` -> relaxed/explore (= no_fist). The **quick-slot selection doubles as the fists-up toggle.** GUNS are different — equipped-but-lowered is a real state, so they keep the full **explore -> combat-ready -> aiming** tier axis. *(CONFIRMED 2026-06-15: equip=ready.)* **REFINED 2026-06-15: fist draw/holster (`Idle2Fists`/`Fists2Idle`) = an SM TRANSITION (like crouch's `TransitionStance`), NOT a montage — fists have no anim-led gameplay event (no weapon-attach frame, no holster-while-walking overlay) so nothing earns a montage. GUN draw/holster STAYS a montage (the "weapon now usable" attach frame + walk-while-holster overlay are anim-led events). See RAIL DOCTRINE below.**
 7. **Quick-slot manager skeleton IS needed** (user reaffirmed — the equip/unequip of fist & weapons flows through it). Build a slim **`UAZ_QuickBarComponent` on the PlayerController** (cross-pawn, co-op-safe): `Slots[] -> CommonUI item refs`, `ActiveSlotIndex`, `Select(N)` / `CycleNext/Prev`. On change -> holster old + draw new -> `Server_EquipSlotClicked(newItem, oldItem)`. **Logic only, no widget.**
 8. **Number keys `0,1,2,...` = debug front-end that SIMULATES the future real UI** (radial wheel / directional cross — see ref image, STALKER/Metro-style). Keys and the future UI are interchangeable front-ends; both call `Select(N)`. Slot 0 = no_fist, slot 1 = fist, slot 2 = pistol, ...
 9. **`GA_MeleeAttack` = ONE weapon-agnostic parameterized ability.** Params latched at activation: `hand` (LMB=L / RMB=R), `weight` (hold>threshold = Heavy/Light), `movement` (`bIsMoving` INTENT = Moving/Idle — NO trace/targeting), `profile` (the ASC weapon tag), `comboIndex`. Selector: `montage = CHT(profile,hand,weight,movement,combo)`. Unarmed = the `Weapon.Fist` profile; weapons inherit by swapping rows/data.
 10. **Attacks are FULLY root-motion.** Moving punch = forward-advancing RM (queue an `FLayeredMove_RootMotionAttribute` for the montage window — same Mover RM bridge as loco/jump). Idle punch = in-place, cosmetic.
 11. **Combat is NOT new `EAZ_StateMachineState` phases** — it's tags + montages + chooser rows over the existing SM. Profile = ASC tag (from equip); tier = a readiness tag + `RotationMode` switch; chooser keys on `(profile x tier x MovementDirection x gait)`.
+
+## RAIL DOCTRINE — montage vs CHT/SM (converged 2026-06-15)
+The discriminator for "montage or chooser?" is **NOT** one-shot-vs-continuous — jump & crouch are one-shot and use NO montage. It is: **who owns gameplay timing — the simulation, or the animation?**
+- **Sim-led -> CHT/SM rail (no montage).** Timing comes from sim/state: jump (apex = RM Z-delta; "falling" = MovementMode->Falling; land pose MM-picked), crouch (`TransitionStance` SM state). The action **IS / transitions the whole-body locomotion state**; anim follows physics. This is also the traversal rail (vault/slide/dodge belong here).
+- **Anim-led -> montage via GA.** Timing is **authored into the clip**: fire point, **hit window**, **combo input window**, "weapon now usable" frame. Needs anim-frame -> `GameplayEvent` -> ability (the `EventReceived` path in `GA_Shoot`), deterministic start->end playback, GAS replication. Punch/shoot live here; gameplay follows anim.
+
+**"Why not just restrict the CHT so fight can't escape to locomotion?"** That restriction = **containment**, and containment is ONE of four needs. The chooser/SM can do containment but NOT: (a) frame-accurate gameplay events, (b) **sequencing/memory** (combo windows, lockout — the chooser is a *stateless per-frame decision table*, no timeline), (c) replication/lifecycle. Forcing temporal logic into a spatial row-table = combinatorial explosion (`profile x tier x dir x gait x combatState x comboIndex x window x hand ...`) + undebuggable stateless-acting-stateful (the frame-0 fallback hell, see [[feedback_posesearch_branchin_db_sync]]). Building "lock + windows + state + events + lockout" into the chooser = **a worse montage**.
+
+**They compose — three layers, not either/or:**
+| layer | fight job | who |
+|---|---|---|
+| SM state (existing) | which state you're in / containment | locomotion SM |
+| CHT | pick the combat pose set (fists idle, strafe combat loco) within the state | chooser |
+| montage (GA) | the attack itself (**full-body montage + RM** for fists): hit/combo window, contact event, lockout, replication | `GA_MeleeAttack` |
+
+**Containment for the fist build is FREE — no new SM phase needed.** An attack montage plays on its slot and owns the body for its duration. **Coverage is a per-attack choice:** *upper-body masked* slot (Layered Blend Per Bone from `spine_02`) = legs keep the CHT locomotion (this is shoot-while-moving / later niche jabs); *full-body* slot at full weight = the montage overrides the WHOLE body, CHT base blended to ~0, root motion drives the capsule. **Our fist punch is FULL-BODY** (decision #10 = full-RM): legs included, RM moves you, the moving punch steps into the advance — NOT an upper-body overlay (that would slide a floaty torso over still-strafing legs). The CHT only shows through at the blend-in/out edges. MM never gets to "escape" the punch because **the punch isn't on the MM rail at all.** Between attacks, combat-ready = strafe locomotion (tier tag + `RotationMode=Strafe` + chooser rows) — which IS locomotion, nothing to contain. So **decision #11 holds: no new `EAZ_StateMachineState` phases for the fist build.** (A dedicated SM "Attacking" hold is available LATER only if a full-body attack must suppress locomotion transitions globally — not required now.)
+
+**One-liner:** the CHT/SM decides **what state you're in**; the montage decides **what happens, and when, inside an action**. Restricting the chooser fixes the first and leaves the second untouched — and the second ("when does the hit land, can I chain?") is the whole "good fist model."
+
+## SELECTION MECHANISM — how each action picks its anim (converged 2026-06-15)
+**Scope note:** `GA_MeleeAttack` only knows about MELEE (punch). Swap, fire, aim are OTHER abilities (quickbar/equip, `GA_Shoot`, `GA_Aim`). They do **not** all pick a montage — *what an action selects, and how, depends on its rail* (see RAIL DOCTRINE).
+
+### `GA_MeleeAttack` — builds a context key, hands it to a selector
+At activation it assembles a small key from gameplay state, then one selector returns one montage:
+| key field | value | source |
+|---|---|---|
+| **profile** | `Weapon.Fist` / Pistol / Rifle | ASC `OwnedTags` (set by equip via `OnWeaponEquipped`) |
+| **hand** | L / R | the **InputTag** that fired it (`Input.Action.PrimaryAttack` vs `SecondaryAttack`) — ability bound to both |
+| **movement** | Idle / Moving | `ChooserContext.bIsMoving` (INTENT: Trj future-vel + accel, NOT distance) |
+| **weight** | Light / Heavy (later) | hold time vs threshold, measured by the ability |
+| **comboIndex** | 0,1,2… (later) | the ability's own state (bumped when a chain fires in the combo window) |
+
+`key {profile, hand, weight, movement, combo} -> SelectMontage(key) -> one montage -> PlayMontageAndWaitForEvent`
+
+**Selector has two forms (decision #9):**
+- **NOW (offline, no editor):** hardcoded C++ `switch`/map -> the 4 fist clips (`!Moving`+L->`Fists_Punch_L`, `!Moving`+R->`Fists_Punch_R`, `Moving`+L->`Fists_Punch_Move_L`, `Moving`+R->`Fists_Punch_Move_R`).
+- **LATER:** a **Chooser Table used as an ASSET PICKER** — `montage = CHT_Melee(profile, hand, weight, movement, combo)`, evaluated **ONCE** at activation (via `AZ_ChooserUtils`/EvaluateChooser), returning the montage asset (NOT a per-frame pose-stream). Same chooser tech as locomotion, different *use*. Adding pistol melee = new rows, no code.
+
+### Generalization — each action builds a similar key, but the RAIL decides the output
+| action | ability | rail | selects | based on |
+|---|---|---|---|---|
+| fist equip/holster | quickbar->equip | **SM transition** | transition clip (`Idle2Fists`/`Fists2Idle`) | target slot/profile |
+| gun draw/holster | quickbar->equip | **montage** | draw/holster montage (on EquipmentFragment) | profile + draw vs holster |
+| **punch** | `GA_MeleeAttack` | **montage** | a punch montage | profile, hand, weight, movement, combo |
+| fire | `GA_Shoot` | **montage** | fire montage (`switch(FireMode)` -> CHT later) | profile, fire mode |
+| aim | `GA_Aim` | **CHT pose-set (tier)** | *NO montage* — flips `RotationMode=Aiming` + tier tag; CHT serves the aim pose-set; AO from camera trace | profile + aiming tier |
+| locomotion | (no GA — the SM) | **CHT pose-stream + MM** | anim set -> MM pose | SMState, profile, tier, dir, gait, tags |
+
+**Key insight: aim does NOT "play an anim."** It changes a *context field* (`RotationMode` + tier tag) and the CHT picks a different **pose-set** while MM keeps generating the pose (+ camera aim-offset). Same for "combat-ready" — a tier tag flip, not a clip.
+
+### THE PRINCIPLE (one rule for all combat actions)
+Every action assembles the *same kind* of context key (profile + intent + tags + action-specific bits). The **output rail** differs:
+> **anim-led -> the key picks a MONTAGE** (punch, fire, gun-draw)
+> **tier/state -> the key flips a CHOOSER FIELD and the CHT serves a POSE-SET** (aim, combat-ready)
+> **transition -> an SM TRANSITION state plays a transition clip** (fist equip, crouch)
+
+Adding the pistol later: *fire* reuses this key-building pattern (own selector), *aim* uses the pose-set rail, *draw* uses the montage rail — none touch `GA_MeleeAttack`, none touch the SM.
 
 ## ARCHITECTURE DRAWING
 ```
@@ -95,7 +152,19 @@ Cells = chooser rows (data), NOT new SM states. "Same for pistol and so on" = ad
 **Tags:** EXIST — `Weapon.None`(GameplayTags.cpp:263), `Weapon.Pistol/Rifle/Shotgun/SMG/Melee`(264-269), `Weapon.Slot.Primary/Secondary/Sidearm/Melee`(272-275), `Input.Action.PrimaryAttack/SecondaryAttack/MeleeAttack`(197/198/201), `Input.Action.EquipWeaponSlot1/2/3`+`NextWeapon`+`PreviousWeapon`(194-225), `Ability.State.MeleeAttacking`(245), `Ability.Cooldown.Melee`(255), `Combat.Attacking/Aiming/...`(291-296), `Animation.State.Unarmed.*`(385+)/`Melee.*`(429+). **MISSING (add):** `Weapon.Fist` (needed now); `State.Combat.Ready`, `Weapon.Slot.Rifle/Pistol` (later/optional). Tag source: `Public/AZ_GameplayTags.h` + `Private/AZ_GameplayTags.cpp`.
 
 ## ASSETS (verified on disk this session)
-**MovementAnimsetPro fist starter set** (`Content/MovementAnimsetPro/Animations/InPlace/`, same animset as the current CHT — on `SKEL_SurvivalMan`):
+**BUILT 2026-06-15 — 4 punch montages** in `/Game/AZ/Blueprints/Animation/Montage` (created via Python from the source clips; all on `SKEL_SurvivalMan`, slot `DefaultSlot`, RM-enabled source):
+| montage | source clip | len |
+|---|---|---|
+| `AM_Fists_Punch_L` | `AnimPro_Fists_Punch_L` | 0.800 |
+| `AM_Fists_Punch_R` | `AnimPro_Fists_Punch_R` | 0.800 |
+| `AM_Fists_Punch_Move_L` | `AnimPro_Fists_Punch_Move_L` | 0.833 |
+| `AM_Fists_Punch_Move_R` | `AnimPro_Fists_Punch_Move_R` | 0.833 |
+These map 1:1 to `GA_MeleeAttack`'s `PunchIdle_L/R` + `PunchMove_L/R` UPROPERTYs (assign in the `BP_GA_Punch_L/R` children).
+- ⚠️ **GATING: the AnimBP must have a montage Slot node named `DefaultSlot`** on a FULL-BODY pose path (so the RM punch overrides locomotion). Without a matching slot node the montage plays nothing on screen. The v2 graph is BlendStack+chooser — confirm/add a `DefaultSlot` slot before PIE. (Slot name is editable on the montage if the graph uses a different name.)
+- Python montage-creation gotchas learned: `skeleton` + `AnimSegment.start_pos` are READ-ONLY (skeleton set via `AnimMontageFactory.target_skeleton`); `composite_sections`/`loop_count`/`link_value` not exposed (a "Default" section auto-creates); montage length does NOT recompute on `set_editor_property` (only in PostLoad) → set it via `montage.controller.set_play_length(len)`.
+- Source clip names carry an **`AnimPro_`** prefix; actual folder is `/Game/Assets/RTG_AZ/MovementAnimsetPro` (NOT `/Content/MovementAnimsetPro/...InPlace`).
+
+**MovementAnimsetPro fist starter set** (`/Game/Assets/RTG_AZ/MovementAnimsetPro`, `AnimPro_` prefix, same animset as the current CHT — on `SKEL_SurvivalMan`):
 | role | clip |
 |---|---|
 | enter / exit combat stance (draw / holster) | `Idle2Fists` / `Fists2Idle` |
