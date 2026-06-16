@@ -207,6 +207,7 @@ struct AZ_API FAZ_GameplayTags
 
     // Weapon Type Tags
     FGameplayTag Weapon_None;
+	FGameplayTag Weapon_Fist;
     FGameplayTag Weapon_Pistol;
     FGameplayTag Weapon_Rifle;
     FGameplayTag Weapon_RocketLauncher;

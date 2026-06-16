@@ -13,6 +13,8 @@ class UInputMappingContext;
 class UAbilitySystemComponent;
 struct FGameplayTag;
 class UAZ_InputConfig;
+class UAZ_QuickBarComponent;
+struct FInputActionInstance;
 
 
 UCLASS()
@@ -21,6 +23,8 @@ class AZ_API AAZ_PlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+
+	AAZ_PlayerController();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
 	class UInputAction* OpenInventoryAction;
@@ -37,6 +41,11 @@ public:
 	 *  photo mode, scoreboard). Per-pawn IAs live on the pawn's DefaultMappingContext. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Character|Input")
 	TObjectPtr<UInputMappingContext> SharedInputMappingContext;
+
+	/** Quick-slot select inputs (AZ_IA_Weapon_0/1/...). Array index = quick-bar slot.
+	 *  Native (non-ability) input bound directly to the QuickBar, same lane as Move/Look. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Character|Input")
+	TArray<TObjectPtr<const UInputAction>> WeaponSlotActions;
 
 	virtual void SetupInputComponent() override;
 
@@ -94,6 +103,13 @@ private:
 	void AbilityInputTagPressed(FGameplayTag InputTag);
 	void AbilityInputTagReleased(FGameplayTag InputTag);
 	void AbilityInputTagHeld(FGameplayTag InputTag);
+
+	/** Native quick-slot input -> QuickBar->Select(index of the firing action). */
+	void OnQuickSlotInput(const FInputActionInstance& Instance);
+
+	/** Cross-pawn quick-bar (equip/loadout). Owned by the PC so it survives pawn swaps. */
+	UPROPERTY(VisibleAnywhere, Category = "AZ|QuickBar")
+	TObjectPtr<UAZ_QuickBarComponent> QuickBar;
 
 	TWeakObjectPtr<UAZ_Inv_InventoryComponent> InventoryComponent;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;

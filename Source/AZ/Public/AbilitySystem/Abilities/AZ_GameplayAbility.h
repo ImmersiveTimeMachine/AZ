@@ -8,6 +8,8 @@
 #include "AZ/AZ.h"
 #include "AZ_GameplayAbility.generated.h"
 
+class AAZ_HeroPawn;
+
 USTRUCT()
 struct AZ_API FAbilityMeshMontage
 {
@@ -102,6 +104,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Ability")
 	AAZ_HeroCharacter* GetHeroCharacterFromActorInfo() const;
+	
+	UFUNCTION(BlueprintCallable, Category = "AZ|Ability")
+	AAZ_HeroPawn* GetHeroPawnFromActorInfo() const;
 
 	/** Find the primary weapon attached to the avatar actor by Weapon.Slot.Primary tag. */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Ability")

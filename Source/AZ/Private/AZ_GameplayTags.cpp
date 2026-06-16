@@ -261,6 +261,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     // WEAPON TYPES
     // =========================================================
     AddTag(GameplayTags.Weapon_None,            FName("Weapon.None"),            TEXT("No weapon equipped"));
+	AddTag(GameplayTags.Weapon_Fist,            FName("Weapon.Fist"),            TEXT("Fist weapon type"));
     AddTag(GameplayTags.Weapon_Pistol,          FName("Weapon.Pistol"),          TEXT("Pistol weapon type"));
     AddTag(GameplayTags.Weapon_Rifle,           FName("Weapon.Rifle"),           TEXT("Rifle weapon type"));
     AddTag(GameplayTags.Weapon_RocketLauncher,  FName("Weapon.RocketLauncher"),  TEXT("Rocket launcher weapon type"));

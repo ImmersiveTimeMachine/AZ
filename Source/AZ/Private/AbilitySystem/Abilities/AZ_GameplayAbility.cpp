@@ -5,6 +5,7 @@
 #include "AbilitySystem/AttributeSets/AZ_HeroAttributeSet.h"
 #include "AZ_GameplayTags.h"
 #include "Character/AZ_HeroCharacter.h"
+#include "Character/AZ_HeroPawn.h"
 #include "Weapon/AZ_Weapon.h"
 
 UAZ_GameplayAbility::UAZ_GameplayAbility(const FObjectInitializer& ObjectInitializer)
@@ -64,6 +65,11 @@ FString UAZ_GameplayAbility::GetLockedDescription(int32 Level)
 AAZ_HeroCharacter* UAZ_GameplayAbility::GetHeroCharacterFromActorInfo() const
 {
 	return (CurrentActorInfo ? Cast<AAZ_HeroCharacter>(CurrentActorInfo->AvatarActor.Get()) : nullptr);
+}
+
+AAZ_HeroPawn* UAZ_GameplayAbility::GetHeroPawnFromActorInfo() const
+{
+	return (CurrentActorInfo ? Cast<AAZ_HeroPawn>(CurrentActorInfo->AvatarActor.Get()) : nullptr);
 }
 
 AAZ_Weapon* UAZ_GameplayAbility::GetPrimaryWeapon() const

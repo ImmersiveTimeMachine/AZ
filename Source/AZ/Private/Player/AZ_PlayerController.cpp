@@ -19,7 +19,15 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "Items/AZ_Inv_ItemComponent.h"
+#include "Inventory/AZ_QuickBarComponent.h"
+#include "InputAction.h"
 
+
+AAZ_PlayerController::AAZ_PlayerController()
+{
+	// Code-owned cross-pawn quick-bar. Configure its Slots on BP_AZ_PlayerController.
+	QuickBar = CreateDefaultSubobject<UAZ_QuickBarComponent>(TEXT("QuickBar"));
+}
 
 void AAZ_PlayerController::BeginPlay()
 {
@@ -77,6 +85,30 @@ void AAZ_PlayerController::SetupInputComponent()
 	// GAS ability input, menu/HUD shortcuts.
 	checkf(InputConfig, TEXT("InputConfig is null in AAZ_PlayerController::SetupInputComponent"));
 	AZ_InputComponent->BindAbilityActions(InputConfig, this, &ThisClass::AbilityInputTagPressed, &ThisClass::AbilityInputTagReleased, &ThisClass::AbilityInputTagHeld);
+
+	// Native (non-ability) quick-slot/equip inputs -> QuickBar->Select. Same component,
+	// different lane than BindAbilityActions (which only ACTIVATES GAS abilities).
+	for (int32 SlotIdx = 0; SlotIdx < WeaponSlotActions.Num(); ++SlotIdx)
+	{
+		if (WeaponSlotActions[SlotIdx])
+		{
+			AZ_InputComponent->BindAction(WeaponSlotActions[SlotIdx], ETriggerEvent::Triggered, this, &ThisClass::OnQuickSlotInput);
+		}
+	}
+}
+
+void AAZ_PlayerController::OnQuickSlotInput(const FInputActionInstance& Instance)
+{
+	if (!QuickBar)
+	{
+		return;
+	}
+	// Map the firing action back to its slot index (array index = slot), then select it.
+	const int32 SlotIndex = WeaponSlotActions.IndexOfByKey(Instance.GetSourceAction());
+	if (SlotIndex != INDEX_NONE)
+	{
+		QuickBar->Select(SlotIndex);
+	}
 }
 
 void AAZ_PlayerController::Tick(float DeltaSeconds)
