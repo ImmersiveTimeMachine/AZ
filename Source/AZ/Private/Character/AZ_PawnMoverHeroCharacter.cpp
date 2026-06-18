@@ -354,12 +354,18 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// World-space move = camera-yaw-relative WASD. Pitch/roll discarded — character
 	// moves on the ground plane regardless of where the camera tilts.
 	const FRotator YawOnly(0.f, ControlRot.Yaw, 0.f);
-	const FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent);
+	FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent);
 
 	// Where the camera is pointing this sim tick. Mover stores it on the
 	// SyncState so modes / animation can read "look direction" deterministically
 	// (don't query PlayerCameraManager from inside a mode — it isn't replayed).
 	CharacterDefaultInputs.ControlRotation = ControlRot;
+	
+	// Attack owns movement: drop locomotion intent mid-melee so the capsule doesn't
+	// glide under the full-body punch.
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // you implement IAbilitySystemInterface
+			if (ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Ability_State_MeleeAttacking))
+				WorldMove = FVector::ZeroVector;
 
 	// The move command itself. DirectionalIntent = "a unit-ish vector pointing
 	// where I want to go" (vs. Velocity = "an exact velocity vector"). World-space

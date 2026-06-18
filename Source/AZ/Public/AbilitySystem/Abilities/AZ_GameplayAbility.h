@@ -8,6 +8,7 @@
 #include "AZ/AZ.h"
 #include "AZ_GameplayAbility.generated.h"
 
+class AAZ_PawnMoverHeroCharacter;
 class AAZ_HeroPawn;
 
 USTRUCT()
@@ -106,7 +107,7 @@ public:
 	AAZ_HeroCharacter* GetHeroCharacterFromActorInfo() const;
 	
 	UFUNCTION(BlueprintCallable, Category = "AZ|Ability")
-	AAZ_HeroPawn* GetHeroPawnFromActorInfo() const;
+	AAZ_PawnMoverHeroCharacter* GetHeroPawnFromActorInfo() const;
 
 	/** Find the primary weapon attached to the avatar actor by Weapon.Slot.Primary tag. */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Ability")

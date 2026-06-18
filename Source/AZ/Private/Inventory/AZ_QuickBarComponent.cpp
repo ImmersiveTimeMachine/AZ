@@ -16,11 +16,35 @@ UAZ_QuickBarComponent::UAZ_QuickBarComponent()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// ...
+	// Replicated so a client can send Server_Select to the authority (which owns ability grants).
+	SetIsReplicatedByDefault(true);
 }
 
 void UAZ_QuickBarComponent::Select(int32 SlotIndex)
 {
+	if (!Slots.IsValidIndex(SlotIndex)) return;   // archetype Slots exist on both client and server
+
+	// Equip grants abilities = authority-only. The equip input runs on the owning client, so a
+	// client hops to the server; the host/server does it directly. Without this, a remote client's
+	// EquipSlot bailed on !HasAuthority -> no grant -> the punch never activated on that client.
+	if (GetOwner()->HasAuthority())
+	{
+		SelectInternal(SlotIndex);
+	}
+	else
+	{
+		Server_Select(SlotIndex);
+	}
+}
+
+void UAZ_QuickBarComponent::Server_Select_Implementation(int32 SlotIndex)
+{
+	SelectInternal(SlotIndex);
+}
+
+void UAZ_QuickBarComponent::SelectInternal(int32 SlotIndex)
+{
+	// Authority only (server / listen-host). Toggle: re-selecting the active slot unequips.
 	if (!Slots.IsValidIndex(SlotIndex)) return;
 	if (SlotIndex == ActiveSlotIndex) { UnequipActive(); return; }  // re-press = fists-up toggle
 	UnequipActive();

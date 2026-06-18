@@ -45,6 +45,12 @@ protected:
 	void EquipSlot(int32 SlotIndex);
 	void UnequipActive();
 
+	// Client equip presses route here — grants are authority-only, so the client hops to the server.
+	// The granted specs (with seeded InputTag) replicate back, so the client's LocalPredicted ability fires.
+	UFUNCTION(Server, Reliable) void Server_Select(int32 SlotIndex);
+	// Authority-side toggle + equip/unequip (server / listen-host only).
+	void SelectInternal(int32 SlotIndex);
+
 	UPROPERTY() TArray<FGameplayAbilitySpecHandle> GrantedHandles;   // so we clear only OUR abilities
 
 public:	

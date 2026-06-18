@@ -55,7 +55,7 @@ protected:
 
 	// --- Runtime state, latched at activation ---
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* MontageTask = nullptr;
-	EAZ_MeleeHand Hand = EAZ_MeleeHand::Left;
+	UPROPERTY(EditDefaultsOnly) EAZ_MeleeHand Hand = EAZ_MeleeHand::Left;
 	bool bIsMovingLatched = false;
 	FGameplayTag ProfileTag;          // current Weapon.* — used by SelectMontage when CHT lands
 	int32 ComboIndex = 0;             // later
