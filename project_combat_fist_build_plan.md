@@ -8,7 +8,44 @@ metadata:
 ---
 
 # CHALK — Fist-First Combat & Quick-Slot Build Plan
-**Status:** design converged, NOT yet built. Editor was DOWN this session (no live MCP checks, no content authoring). Companion/refinement of the broader [[project_combat_system_plan]] (read that for full design rationale). **Read this first to resume the build.**
+**Status:** ✅ **FIRST WORKING PUNCH (2026-06-17)** — equip + LMB/RMB punch + full-RM moving punch all work in SP PIE. **C++ BUILD PENDING**: Stage-2 RM (`AZ_GA_MeleeAttack`) + the QuickBar `Server_Select` RPC are written but NOT compiled (new `UFUNCTION` ⇒ editor-closed CLI build). Committed as a checkpoint. Companion/refinement of [[project_combat_system_plan]]. **Read the SESSION LOG below first to resume.**
+
+## SESSION LOG — 2026-06-17 (first working punch)
+**Net: punch is on screen and advances with RM. Build pending; next = fist anim set + MP polish.**
+
+### What now works (SP PIE)
+- **Equip:** tap **`0`** (`AZ_IA_RT_Weapon_0`) → `QuickBar.Select(0)` → grant `BP_GA_Punch_L/R` (+ seed InputTag) → `OnWeaponEquipped(Weapon.Fist)`.
+- **Punch:** **LMB**=`Input.Action.PrimaryAttack`→`BP_GA_Punch_L`, **RMB**=`Input.Action.SecondaryAttack`→`BP_GA_Punch_R` (ability `InputTag` ↔ ASC `HasTagExact`).
+- Montage plays on slot **`FullBody`**; `bIsMoving` picks idle vs move punch; Stage 1+2 = no glide + forward RM advance.
+
+### Verified project facts (corrected stale assumptions)
+- **Active hero ABP = `AZ_ABP_MoverAnimInstance`** (parent `UAZ_MoverAnimInstance`). `AZ_ABP_Hero` / `AZ_ABP_HeroPawn` are INACTIVE — don't edit.
+- Active pawn = `AAZ_PawnMoverHeroCharacter`, mesh via **`GetMesh()`**. `AAZ_HeroPawn` is a SIBLING (both `: APawn`), NOT a parent, and is the wrong/inactive class.
+- Active IMC = `AZ_IMC_RT_PawnInputs` (UE5.8 stores mappings in **`DefaultKeyMappings`**, not the deprecated `mappings`). `0`→Weapon_0, `1`→Weapon_1, LMB/RMB→Primary/SecondaryAttack.
+- InputConfig = `AZ_InputConfig` (`ability_input_actions`) — pre-today only Jump/Run/Crouch were wired; combat was unrouted (nothing to break).
+
+### Input architecture — DECIDED (Model A)
+One IMC + **profile-gated ability grants** (NOT per-weapon IMCs). Meaning lives in the ability: **InputTag = which button**, **ability logic = what it does**; the equipped profile's grants decide who answers. User took the clean path: **deleted** `AZ_IA_RT_FireWeapon`/`Aim`, **created** `AZ_IA_RT_PrimaryAttack`(LMB)/`SecondaryAttack`(RMB), filled the 2 InputConfig rows. Per-weapon IMC rejected (pose≠movement; client-only IMC vs server-authoritative grants split) — revisit only if a weapon needs different IA *trigger* config on a shared key.
+
+### Architecture principle added
+**One GA per interaction SHAPE — parameterize *within*, separate *across*.** Melee swing = one `GA_MeleeAttack` (punch/kick/weapon/combos via context-key→chooser). Aim/shoot/block/traversal = own GA (different lifecycle). Same discriminator as the RAIL DOCTRINE, one level up.
+
+### Bugs found & fixed today
+1. **Invisible punch** — Slot node was `UpperBody`, montages are `FullBody`; a montage only renders through a NAME-MATCHING slot. Renamed node → `FullBody`; chain `BlendStack→PoseHistory→Slot 'FullBody'→Output`.
+2. **`bIsMovingLatched` always false** (→ always idle punch). `GetHeroPawnFromActorInfo()` casts avatar to `AAZ_HeroPawn` (sibling ⇒ null on `AAZ_PawnMoverHeroCharacter`). Fixed in GA: cast to `AAZ_PawnMoverHeroCharacter` + `GetMesh()`. ⚠️ `GetHeroPawnFromActorInfo()` is still wrong PROJECT-WIDE (null on the active pawn) — repoint or stop using.
+3. **Equip toggled every frame while held** — `OnQuickSlotInput` bound to `ETriggerEvent::Triggered` (fires per-frame for a held key) + `Select` toggles. Fixed with a **Tap trigger on the equip IA** (data fix; bind stays `Triggered`). `ETriggerEvent::Started` is the code alternative.
+4. **Glide / foot-slide on the moving punch** — pose overridden, but the Mover kept driving locomotion velocity (pose≠movement). **Stage 1** (done): `ProduceInput_Implementation` zeroes `WorldMove` while ASC has `Ability.State.MeleeAttacking`. **Stage 2** (done, build-pending): `GA_MeleeAttack::ActivateAbility` queues `FLayeredMove_RootMotionAttribute` (Duration=montage len, skip sim proxy, replace-don't-stack via `Mover_AnimRootMotion`), cancel in `EndAbility`. FullBody slot override ⇒ `RootMotionFromEverything` extracts the MONTAGE delta. **Move-punch clips need Enable Root Motion.** (Template: `AZ_MoverAnimInstance.cpp:112-116`.)
+5. **Abilities don't trigger on a remote CLIENT** — `QuickBar::EquipSlot` is `HasAuthority`-gated but equip input runs client-only ⇒ no grant on client. Fixed: `Server_Select` RPC + `SelectInternal` split + `SetIsReplicatedByDefault(true)`. Granted spec + seeded InputTag replicate; client LocalPredicted punch then fires.
+
+### GAS tag config on BP_GA_Punch_L/R
+`ActivationOwnedTags = Ability.State.MeleeAttacking` (GAS auto add/remove; the signal Stage 1 reads; replaces the manual loose-tag TODO). Optional `ActivationBlockedTags = Ability.State.MeleeAttacking` for one-at-a-time. L/R differ ONLY in the custom `InputTag` + `Hand` fields, NOT these engine containers.
+
+### OPEN / NEXT (tomorrow)
+- **BUILD** (editor-closed CLI): Stage-2 RM + the `Server_Select` UFUNCTION are uncompiled (committed as checkpoint). Then 2-player PIE verify.
+- **"Position correction" jitter** seen occasionally during the punch — suspect MP proxy / RM correction; investigate after build.
+- **NEXT FEATURE: fist anim SET** in the equipped state (fists-up locomotion/stance set via the chooser reacting to `Weapon.Fist`). Needs `Weapon.Fist` visible to the AnimInstance/chooser.
+- **Loose-tag replication gap**: `OnWeaponEquipped` uses `AddLooseGameplayTag` ⇒ `Weapon.Fist` NOT replicated ⇒ client anim/camera blind. Switch to `AddReplicatedLooseGameplayTag` for the anim-set pass.
+- **HitWindowEventTag + damage**: greenfield (no `Event.*` tag, no sender). Plan: register `Event.Montage.Melee.Hit` + a `UAZ_AnimNotify_SendGameplayEvent`; wire `OnMontageEvent` → trace + Damage GE. Currently a guarded stub (optional).
 
 ## GOAL
 Build and *iterate* the **FIST** combat model first (punch logic + combat movement), on the cheapest possible equipment, then generalize to weapons by **data, not code** (parity by construction). Build only the minimum **quick-slot/equip skeleton** needed to switch the active profile (fist <-> none <-> weapons). "Concentrate on logic, not design (UI)."
