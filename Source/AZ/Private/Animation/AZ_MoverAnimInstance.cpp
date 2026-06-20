@@ -298,6 +298,25 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ChooserContext.RotationOffset = FRotator::NormalizeAxis(
 		ChooserContext.AimingRotation.Yaw - Cached_Pawn->GetActorRotation().Yaw);
 
+	// ---- Additive lean (port of AZ_AnimInstance::Update_AdditiveLean) — FORWARD ONLY ----
+	// Lateral acceleration (velocity derivative, rotated into velocity-local space) -> a [-1..1] lean signal.
+	// Gated to forward movement (both explore and strafe); falls smoothly to 0 otherwise. Consumed by the lean
+	// BlendSpace through an Apply-Additive node in the ABP. (Lean is a continuous overlay, NOT an MM pick — the
+	// lean clips are pose-tilts with no curving root motion, so MM can't select them; see project_strafe_system.)
+	{
+		const FVector VelAccel = (Velocity - PrevVelocity) / FMath::Max(0.0001f, DeltaSeconds);
+		PrevVelocity = Velocity;
+		const FRotator VelRot = Velocity.IsNearlyZero(1.0) ? FRotator::ZeroRotator : Velocity.Rotation();
+		const FVector LocalAccel = VelRot.UnrotateVector(VelAccel);
+		const float Divisor = static_cast<float>(FMath::GetMappedRangeValueClamped(
+			FVector2D(200.f, 320.f), FVector2D(500.f, 800.f), ChooserContext.Speed2D));
+		const float Lat = FMath::Clamp(static_cast<float>(LocalAccel.Y) / FMath::Max(1.f, Divisor), -1.f, 1.f);
+		const FVector2D Target =
+			(ChooserContext.bIsMoving && ChooserContext.MovementDirection == EAZ_MovementDirection::F)
+				? FVector2D(Lat, 0.f) : FVector2D::ZeroVector;
+		LeanAmount = FMath::Vector2DInterpTo(LeanAmount, Target, DeltaSeconds, 10.f);
+	}
+
 #if !UE_BUILD_SHIPPING
 	if (bDebugTrajectory && GEngine)
 	{

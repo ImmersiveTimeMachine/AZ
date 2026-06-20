@@ -229,6 +229,13 @@ protected:
 	UPROPERTY(Transient) EAZ_MovementDirection   LastPushedDir    = EAZ_MovementDirection::F;
 	UPROPERTY(Transient) bool                    LastPushedLeftFootDown = false;
 
+	/** Additive lean — X = left/right lean while moving FORWARD (cornering). Lateral-acceleration driven
+	 *  (port of AZ_AnimInstance::Update_AdditiveLean), forward-gated; consumed by the lean BlendSpace via an
+	 *  Apply-Additive node in the ABP (mirror AZ_ABP_Mover). BlueprintReadOnly so the AnimGraph can bind it. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Lean")
+	FVector2D LeanAmount = FVector2D::ZeroVector;
+	UPROPERTY(Transient) FVector PrevVelocity = FVector::ZeroVector;   // for the VelocityAcceleration derivative (lean)
+
 	// Transition-entry token: incremented on the game thread whenever SMState changes; stamped into
 	// LastPushedTransitionSerial on a COMMITTED push. The transition lock compares serials, not raw
 	// SMState — raw-state equality let a stale LastPushedSMState from a bailed push suppress a LATER
