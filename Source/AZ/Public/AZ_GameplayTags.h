@@ -232,6 +232,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Movement_Aiming;
     FGameplayTag Movement_Swimming;
     FGameplayTag Movement_Climbing;
+    FGameplayTag Movement_Strafe;   // combat-ready rotation mode: body faces target, locomotion is directional
 
     // Combat State Tags
     FGameplayTag Combat_Aiming;

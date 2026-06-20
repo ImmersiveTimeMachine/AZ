@@ -150,30 +150,48 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		CurrentSpeedXY));
 
 	// Set the Facing Smoothing Time, which controls how fast the pawn can rotate to get to the
-	// desired facing direction.
-	if (bMoveInputZero)
+	// desired facing direction. Strafe (combat-ready) overrides it with a tight aim-lock.
+	const FAZ_MoverCustomInputs* FacingInputs =
+		StartState.InputCmd.InputCollection.FindDataByType<FAZ_MoverCustomInputs>();
+	const bool bStrafeFacing = FacingInputs && FacingInputs->RotationMode == EAZ_RotationMode::Strafe;
+
+	if (bStrafeFacing)
 	{
-		FacingSmoothingTime = IdleFacingTime;
+		// Aim-lock, no camera-snap-shorten either way. While MOVING, a tight constant facing (body stays
+		// glued to the camera for strafe loco). While IDLE, a looser facing so the body visibly LAGS then
+		// catches the camera — giving the idle turn-in-place clip room to read instead of an instant snap.
+		constexpr float StrafeFacingTime     = 0.10f;
+		constexpr float StrafeIdleFacingTime = 0.25f;
+		FacingSmoothingTime = bMoveInputZero ? StrafeIdleFacingTime : StrafeFacingTime;
 	}
 	else
 	{
-		FacingSmoothingTime = static_cast<float>(FMath::GetMappedRangeValueClamped(
-			FVector2D(RunSpeed, SprintSpeed),
-			FVector2D(WalkRunFacingTime, SprintFacingTime),
-			CurrentSpeedXY));
-	}
+		if (bMoveInputZero)
+		{
+			FacingSmoothingTime = IdleFacingTime;
+		}
+		else
+		{
+			FacingSmoothingTime = static_cast<float>(FMath::GetMappedRangeValueClamped(
+				FVector2D(RunSpeed, SprintSpeed),
+				FVector2D(WalkRunFacingTime, SprintFacingTime),
+				CurrentSpeedXY));
+		}
 
-	// GASP BP_MovementMode_Walking parity: when |Δfacing| > 90°, subtract up to 0.2s
-	// from FacingSmoothingTime so the capsule's angular velocity ramps up to at least
-	// the control rotation's rate (which is high when the camera is turning quickly).
-	// Without this, the spring damper under-rotates past ~135° and the mesh lags.
-	const float FacingDeltaAbs = static_cast<float>(FMath::Abs(
-		FRotator::NormalizeAxis((CurrentFacing.Inverse() * DesiredFacing).Rotator().Yaw)));
-	const float SnapShorten = static_cast<float>(FMath::GetMappedRangeValueClamped(
-		FVector2D(CameraSnapShortenStartAngle, CameraSnapShortenFullAngle),
-		FVector2D(0.f, CameraSnapShortenMaxSeconds),
-		FacingDeltaAbs));
-	FacingSmoothingTime = FMath::Max(0.f, FacingSmoothingTime - SnapShorten);
+		// GASP BP_MovementMode_Walking parity: when |Δfacing| > 90°, subtract up to 0.2s
+		// from FacingSmoothingTime so the capsule's angular velocity ramps up to at least
+		// the control rotation's rate (which is high when the camera is turning quickly).
+		// Without this, the spring damper under-rotates past ~135° and the mesh lags.
+		// EXPLORE ONLY — in strafe the body already tracks the camera tightly, and this snap is exactly
+		// what produced the catch-up spin when the camera was whipped around.
+		const float FacingDeltaAbs = static_cast<float>(FMath::Abs(
+			FRotator::NormalizeAxis((CurrentFacing.Inverse() * DesiredFacing).Rotator().Yaw)));
+		const float SnapShorten = static_cast<float>(FMath::GetMappedRangeValueClamped(
+			FVector2D(CameraSnapShortenStartAngle, CameraSnapShortenFullAngle),
+			FVector2D(0.f, CameraSnapShortenMaxSeconds),
+			FacingDeltaAbs));
+		FacingSmoothingTime = FMath::Max(0.f, FacingSmoothingTime - SnapShorten);
+	}
 
 	// Phase 4: pass OverridenDesiredFacing (not raw DesiredFacing) to the parent spring-damper.
 	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity,

@@ -54,6 +54,15 @@ struct FAZ_LocoSMInputs
 	/** Signed facing→desired-heading yaw (deg, +right), recomputed each moving frame; buckets the turn-start. */
 	float PendingStartAngleDeg = 0.f;
 
+	/** Strafe / combat-ready rotation mode active (ChooserContext.bStrafe). The body holds facing on the
+	 *  camera/target, so there are NO body-turning starts or reversal pivots: idle→move steps straight into
+	 *  the directional loop, and a direction change just switches the directional loop. */
+	bool bStrafe = false;
+
+	/** Signed camera→body yaw (deg, +right). Strafe idle turn-in-place selector: while standing in strafe,
+	 *  |delta| past the enter/exit thresholds drives IdleTurnLeft/Right (preempting IdleBreak). */
+	float CameraYawDelta = 0.f;
+
 	// ---- Tunables (kept CDO-editable on the AnimInstance, passed in rather than duplicated here) ----
 	float IdleBreakMinTime = 5.f;
 	float IdleBreakMaxTime = 15.f;

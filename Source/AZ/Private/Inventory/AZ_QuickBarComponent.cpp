@@ -74,6 +74,18 @@ void UAZ_QuickBarComponent::EquipSlot(const int32 SlotIndex)
 	const FAZ_QuickSlot& Slot = Slots[SlotIndex];
 
 	ASC->OnWeaponEquipped(Slot.WeaponTag);                       // publish profile tag -> OwnedTags -> chooser
+
+	// Combat-ready profiles (fists) flip to strafe on equip. REPLICATED loose tag so the chooser
+	// (ChooserContext.bStrafe) and Mover (ProduceInput facing) see it on every role incl. sim
+	// proxies. Authority-only here (EquipSlot is HasAuthority-gated), so this is the correct site.
+	if (Slot.bStrafeOnEquip)
+	{
+		// Replicated state tag (local + FMinimalReplicationTagCountMap on authority — the project's
+		// Iris-aligned surface; AZ_AbilitySystemComponent audit P1-12). Visible to the chooser
+		// (ChooserContext.bStrafe) and Mover (ProduceInput facing) on every role incl. sim proxies.
+		ASC->AddStateTag(FAZ_GameplayTags::Get().Movement_Strafe);
+	}
+
 	for (const TSubclassOf<UAZ_GameplayAbility>& AbilityClass : Slot.WeaponAbilities)
 	{
 		if (!*AbilityClass) continue;
@@ -92,6 +104,7 @@ void UAZ_QuickBarComponent::UnequipActive()
 	for (const FGameplayAbilitySpecHandle& Handle : GrantedHandles) ASC->ClearAbility(Handle);
 	GrantedHandles.Reset();
 	ASC->OnWeaponEquipped(FAZ_GameplayTags::Get().Weapon_None);   // empty hands (Q6)
+	ASC->RemoveStateTag(FAZ_GameplayTags::Get().Movement_Strafe);  // drop strafe; next strafe equip re-adds
 	ActiveSlotIndex = -1;
 }
 

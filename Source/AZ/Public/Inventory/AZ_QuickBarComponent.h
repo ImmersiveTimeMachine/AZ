@@ -18,6 +18,8 @@ struct FAZ_QuickSlot
   	GENERATED_BODY()
   	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") FGameplayTag WeaponTag;            // Weapon.Fist, ...
   	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UAZ_GameplayAbility>> WeaponAbilities; //{BP_GA_Punch_L, BP_GA_Punch_R}
+  	// Combat-ready profiles (fists) flip to strafe on equip: body faces the target, locomotion is directional.
+  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") bool bStrafeOnEquip = false;
   };
 
 

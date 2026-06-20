@@ -361,11 +361,18 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// (don't query PlayerCameraManager from inside a mode — it isn't replayed).
 	CharacterDefaultInputs.ControlRotation = ControlRot;
 	
-	// Attack owns movement: drop locomotion intent mid-melee so the capsule doesn't
-	// glide under the full-body punch.
-	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // you implement IAbilitySystemInterface
-			if (ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Ability_State_MeleeAttacking))
-				WorldMove = FVector::ZeroVector;
+	// Read the movement-domain GAS state once, here on the game thread (the Mover sim / replay
+	// can't query the ASC). Attack owns movement: drop locomotion intent mid-melee so the capsule
+	// doesn't glide under the full-body punch. Strafe (combat-ready, set on equip of a strafe
+	// profile): the body must face the camera/target, NOT the movement direction.
+	bool bStrafe = false;
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // we implement IAbilitySystemInterface
+	{
+		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking))
+			WorldMove = FVector::ZeroVector;
+		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
+	}
 
 	// The move command itself. DirectionalIntent = "a unit-ish vector pointing
 	// where I want to go" (vs. Velocity = "an exact velocity vector"). World-space
@@ -373,10 +380,12 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	CharacterDefaultInputs.SetMoveInput(EMoveInputType::DirectionalIntent, WorldMove);
 
 	// Where the body should face. Mover modes use this as the rotation target unless
-	// a mode overrides via ResolveRotationTarget(). Step 2 baseline: face movement
-	// direction (Orient-to-Movement). Step 3's UAZ_PawnMoverSmoothWalkingMode replaces
-	// this with always-back-to-camera + idle-TIP via the virtual seam.
-	CharacterDefaultInputs.OrientationIntent = WorldMove;
+	// a mode overrides via ResolveRotationTarget().
+	//   Explore (orient-to-movement): face where I move.
+	//   Strafe (combat-ready): face camera-forward ALWAYS — even standing still (WorldMove may be
+	//     zero) — so the target stays in front and the body turns-in-place toward it; WASD then
+	//     reads as directional side-steps / back-pedal and the chooser routes to the strafe set.
+	CharacterDefaultInputs.OrientationIntent = bStrafe ? YawOnly.Vector() : WorldMove;
 
 	// ---- Gait → Mover (v2: movement-domain GAS tags bridge to the Mover sim) ----
 	// The walking mode's ResolveGait reads FAZ_MoverCustomInputs.Gait and maps it to
@@ -403,16 +412,25 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		}
 		
 		CustomInputs.bWantsToCrouch = HasMatchingGameplayTag(AZTags.Movement_Crouching);
+		// Strafe (combat-ready) → the walking mode tracks the camera TIGHTLY (aim-lock) instead of the
+		// explore lag-then-snap. Reuses the existing (replicated/reconciled) RotationMode field; same
+		// Movement.Strafe source as OrientationIntent above. GenerateWalkMove reads it.
+		CustomInputs.RotationMode = bStrafe ? EAZ_RotationMode::Strafe : EAZ_RotationMode::OrientToMovement;
 	}
+
+	// Jump is EXPLORE-ONLY for now — suppress jump input while strafing (combat-ready). The one-shot 0->1
+	// edge is still consumed at the bottom of this function, so a press during strafe can't latch and fire
+	// the moment you leave strafe. (Strafe jump = a later decision: physics jump vs none.)
+	const bool bJumpAllowed = !bStrafe;
 
 	// "Held" jump flag — true the whole time the player is holding Space, false
 	// on release. Mover's falling-mode air-control / coyote-time reads this each tick.
-	CharacterDefaultInputs.bIsJumpPressed = bIsJumpPressed;
+	CharacterDefaultInputs.bIsJumpPressed = bJumpAllowed && bIsJumpPressed;
 
 	// One-shot edge — true ONLY on the sim tick where press transitioned 0→1. Used
 	// by the walking mode to fire the initial jump impulse exactly once. Consumed
 	// at the bottom of this function (we set bIsJumpJustPressed = false there).
-	CharacterDefaultInputs.bIsJumpJustPressed = bIsJumpJustPressed;
+	CharacterDefaultInputs.bIsJumpJustPressed = bJumpAllowed && bIsJumpJustPressed;
 
 	// Optional movement-mode override. NAME_None = "let Mover pick the mode from
 	// state" (walking, falling, swimming via the transitions registered on the

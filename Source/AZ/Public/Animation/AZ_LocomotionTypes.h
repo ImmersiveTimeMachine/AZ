@@ -114,7 +114,9 @@ enum class EAZ_StateMachineState : uint8
 	IdleBreak					= 6,	// LOOP* - cosmetic idle fidget; from IdleLoop on a timer, held to clip end, cancelled by move / air / stance change
 	TransitionToSlide			= 7,	// TRANS - RESERVED: slide entry (no ComputeNextState path emits this yet)
 	SlideLoop					= 8,	// LOOP  - RESERVED: slide steady state (not wired yet)
-	TransitionStance			= 9		// TRANS - in-place stance change (Idle2Crouch)
+	TransitionStance			= 9,	// TRANS - in-place stance change (Idle2Crouch)
+	IdleTurnLeft				= 10,	// LOOP* - strafe idle turn-in-place toward camera (left);  preempts IdleBreak
+	IdleTurnRight				= 11	// LOOP* - strafe idle turn-in-place toward camera (right); preempts IdleBreak
 };
 
 /** Turn magnitude + side for a from-idle start (TransitionToLocomotion).
@@ -645,6 +647,13 @@ struct AZ_API FAZ_v2_ChooserContext
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	bool bIsMoving = false;
+
+	/** True while the strafe / combat-ready rotation mode is active (player ASC has Movement.Strafe,
+	 *  set on equip of a strafe profile). Body faces camera/target; the chooser routes to the
+	 *  directional strafe loco set instead of the orient-to-movement forward clips. Drives a
+	 *  BoolColumn gate on the strafe rows. Replicated loose tag -> present on all roles. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bStrafe = false;
 
 	// ---- GAS-driven state (full tag snapshot from the player ASC) ----
 	/** Chooser predicates query with HasTag / HasMatchingTag — e.g. Weapon.Slot.Rifle,

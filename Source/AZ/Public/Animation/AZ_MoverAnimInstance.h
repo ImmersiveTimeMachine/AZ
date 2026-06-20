@@ -12,6 +12,7 @@ class AAZ_PawnMoverHeroCharacter;
 class UAZ_PawnMoverComponent;
 class UCharacterMoverComponent;
 class UPoseSearchDatabase;
+class UAnimSequence;
 class UAZ_LocomotionStateMachine;
 
 /**
@@ -57,6 +58,35 @@ public:
 	 *  packaged build (a raw LoadObject would leave it orphaned). Null = fall back to the chooser's direct clip. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
 	TObjectPtr<UPoseSearchDatabase> LocomotionLoopDatabase = nullptr;
+
+	/** Strafe (combat-ready) directional RUN loops — the full 8-way set (fwd / 45 / 90 / 135 / back, L+R).
+	 *  When bStrafe && LocomotionLoop && Gait==Run, SetBlendStackAnimFromChooser searches THIS DB so MM picks
+	 *  the directional pose (incl. the 45/135 diagonals) by trajectory — the 4-way MovementDirection enum can't
+	 *  address 8 directions. Assign PSD_v2_StrafeRun in the AZ_ABP_MoverAnimInstance CDO so it cooks. Walk
+	 *  strafe stays direct-play (no full diagonal set exists for walk). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> StrafeRunDatabase = nullptr;
+
+	/** Strafe WALK directional loops — the 8-way walk-speed set (AnimPro_Strafe* lateral/diagonals + Walk
+	 *  Fwd/Bwd). Used when bStrafe && LocomotionLoop && Gait==Walk. Gait-gated alongside StrafeRunDatabase so
+	 *  the chosen clip's speed matches the Mover's gait-driven move speed. Assign PSD_v2_StrafeWalk in the CDO. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> StrafeWalkDatabase = nullptr;
+
+	/** Strafe CROUCH directional loops — the 8-way crouch set (AnimPro_Crouch_Walk* directional). Used when
+	 *  bStrafe && LocomotionLoop && Stance==Crouching (gait-agnostic — crouch is one speed). Takes priority
+	 *  over the walk/run DBs. Assign PSD_v2_StrafeCrouch in the AZ_ABP_MoverAnimInstance CDO. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> StrafeCrouchDatabase = nullptr;
+
+	/** EXPLORE forward-loop set per gait — Fwd + LeanL/R (cornering lean). When NOT strafe && LocomotionLoop &&
+	 *  Standing, SetBlendStackAnimFromChooser searches the gait's loco DB so MM picks the lean variant on a
+	 *  curving trajectory. Assign PSD_v2_WalkLoco / PSD_v2_RunLoco in the CDO. (Crouch explore = single clip;
+	 *  strafe forward-lean is handled by the lean clips living inside the strafe DBs.) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> WalkLocoDatabase = nullptr;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|V2|Anim|MotionMatching")
+	TObjectPtr<UPoseSearchDatabase> RunLocoDatabase = nullptr;
 
 	/** PoseSearch database of JUMP clips (start + air + land). When set, the air states (TransitionToInAir /
 	 *  InAirLoop) motion-match across this whole DB instead of the chooser's single clip, so MM walks the jump

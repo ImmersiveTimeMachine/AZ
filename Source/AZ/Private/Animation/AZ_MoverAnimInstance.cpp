@@ -3,7 +3,9 @@
 #include "Animation/AZ_MoverAnimInstance.h"
 
 #include "Animation/AnimSequenceBase.h"
+#include "Animation/AnimSequence.h"
 #include "Animation/AZ_LocomotionStateMachine.h"
+#include "AZ_GameplayTags.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
@@ -282,6 +284,9 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// ---- GAS tag snapshot from the pawn (routes through IGameplayTagAssetInterface → ASC). ----
 	ChooserContext.OwnedTags.Reset();
 	Cached_Pawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
+	// Strafe / combat-ready — derived from the replicated Movement.Strafe tag (set on equip).
+	// Gates the chooser's directional strafe rows. Replicated loose tag -> present on sim proxies too.
+	ChooserContext.bStrafe = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
 
 	// ---- Camera/facing — for rotation-aware chooser rows (TIP, AO chains) ----
 	if (const AController* Controller = Cached_Pawn->GetController())
@@ -331,6 +336,8 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// RMAction (plays to completion, never hands to Falling) must not be held as a jump takeoff.
 		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && bRMActionIsJumpRise;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
+		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops + idle turn-in-place
+		SMIn.CameraYawDelta       = static_cast<float>(ChooserContext.RotationOffset);   // strafe idle turn-in-place selector
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 		SMIn.Stance				  = ChooserContext.Stance;
@@ -500,6 +507,40 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		if (AssetsToSearch.Num() == 0)
 		{
 			AssetsToSearch.Add(ChosenAnim);
+		}
+
+		// Strafe directional loop: search the full 8-way strafe DB so MM picks the directional clip (incl. the
+		// 45/135 diagonals) by trajectory, instead of refining the entry frame within the single chooser-picked
+		// clip. Keyed off CONTEXT, not the matched row — any bUseMM strafe loco row routes here. Gait-gated:
+		// walk-speed set for Walk, run-speed set for Run/Sprint, so the clip speed matches the Mover's gait-
+		// driven move speed (no foot-slide). Null DB → falls through to the direct single-clip MM below.
+		if (ChooserContext.bStrafe && ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
+		{
+			// Crouch takes priority (gait-agnostic — one crouch speed); else gait-gated walk/run. (Strafe DBs
+			// also carry the forward-lean clips, so a forward-curving strafe corner gets the lean too.)
+			UPoseSearchDatabase* StrafeDB;
+			if (ChooserContext.Stance == EAZ_Stance::Crouching)
+				StrafeDB = StrafeCrouchDatabase.Get();
+			else
+				StrafeDB = (ChooserContext.Gait == EAZ_Gait::Walk) ? StrafeWalkDatabase.Get() : StrafeRunDatabase.Get();
+			if (StrafeDB)
+			{
+				AssetsToSearch.Reset();
+				AssetsToSearch.Add(StrafeDB);
+			}
+		}
+		else if (ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop
+			&& ChooserContext.Stance == EAZ_Stance::Standing)
+		{
+			// EXPLORE forward cornering lean: standing loco searches the per-gait loco DB (Fwd + LeanL/R) so MM
+			// picks the lean variant when the trajectory curves. Gait-gated; crouch falls through to single-clip.
+			UPoseSearchDatabase* LocoDB =
+				(ChooserContext.Gait == EAZ_Gait::Walk) ? WalkLocoDatabase.Get() : RunLocoDatabase.Get();
+			if (LocoDB)
+			{
+				AssetsToSearch.Reset();
+				AssetsToSearch.Add(LocoDB);
+			}
 		}
 
 		// FINAL JUMP DESIGN (2026-06-07): the air NEVER pushes — there are no InAirLoop chooser rows. The

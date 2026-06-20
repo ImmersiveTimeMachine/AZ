@@ -16,6 +16,11 @@ namespace
 	constexpr float TurnBucket135_180Deg = 157.5f;   // 135 | 180
 	constexpr float ReversalAngleDeg     = 135.0f;   // hard-turn pivot threshold
 
+	// Strafe idle turn-in-place: enter the turn when the camera is off the body by more than Enter; leave it
+	// when back under Exit (hysteresis so it doesn't flicker idle<->turn at the boundary). Feel-tunable.
+	constexpr float IdleTurnEnterDeg     = 10.0f;
+	constexpr float IdleTurnExitDeg      = 4.0f;
+
 	// Physics-jump takeoff window (seconds): how long TransitionToInAir (the launch pose) holds before the
 	// SM advances to InAirLoop (the fall loop). The total air phase is variable (gravity + floor contact),
 	// so only the takeoff is timed; the rest is governed by MovementMode == InAir. Feel-tunable — promote to
@@ -158,15 +163,23 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 
 		// Hard-reversal / sharp-turn detection while MOVING: a stop that runs WHILE input is held is a
 		// committed reversal — pivot through a turn-start instead of smearing the loop to a backward clip.
-		const bool bHardTurn = FMath::Abs(In.PendingStartAngleDeg) >= ReversalAngleDeg;
+		// No reversal pivot in strafe — the body never turns to face movement; a direction change just
+		// switches the directional loop (MovementDirection picks the new clip).
+		const bool bHardTurn = !In.bStrafe && FMath::Abs(In.PendingStartAngleDeg) >= ReversalAngleDeg;
 
 		switch (Previous)
 		{
 		// Start transition: idle → moving routes through TransitionToLocomotion (from-rest turn-start clips).
 		case EAZ_StateMachineState::IdleLoop:
 		case EAZ_StateMachineState::IdleBreak:
-			LatchedStartDirection = BucketStartDirection(In.PendingStartAngleDeg);
-			bLatchedMovingTransition = false;   // from rest → from-rest turn-start clips
+		case EAZ_StateMachineState::IdleTurnLeft:
+		case EAZ_StateMachineState::IdleTurnRight:
+			// Strafe uses a DIRECTIONAL step-off start (StrafeLeftStart etc.), selected by MovementDirection,
+			// NOT a body-turning turn-start — so force StartDirection=Fwd (no turn bucketing) so the explore
+			// turn-start rows don't fire, and let the chooser pick the strafe start by direction. Explore keeps
+			// the turn-start bucketing. (No "rotate-first": the strafe start clip steps off without turning.)
+			LatchedStartDirection = In.bStrafe ? EAZ_StartDirection::Fwd : BucketStartDirection(In.PendingStartAngleDeg);
+			bLatchedMovingTransition = false;   // from rest → from-rest start clips
 			TransitionEndTime = Now + 1.0f;     // overridden by the real clip length
 			return EAZ_StateMachineState::TransitionToLocomotion;
 
@@ -202,12 +215,39 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		}
 	}
 
-	// Not moving — stop / idle / idle-break dispatch.
+	// Not moving — stop / idle / idle-break / idle-turn dispatch.
+
+	// Strafe idle turn-in-place PREEMPTS the idle break: while standing in strafe with the camera off the
+	// body, turn in place toward it. Idle family only (not mid-stop/stance) and stance settled (a stance flip
+	// falls through to TransitionStance in the switch). Hysteresis via Enter/Exit so it doesn't flicker.
+	{
+		const bool bIdleFamily =
+			Previous == EAZ_StateMachineState::IdleLoop ||
+			Previous == EAZ_StateMachineState::IdleBreak ||
+			Previous == EAZ_StateMachineState::IdleTurnLeft ||
+			Previous == EAZ_StateMachineState::IdleTurnRight;
+		const bool bWasTurning =
+			Previous == EAZ_StateMachineState::IdleTurnLeft || Previous == EAZ_StateMachineState::IdleTurnRight;
+		const float TurnThresh = bWasTurning ? IdleTurnExitDeg : IdleTurnEnterDeg;
+		if (bIdleFamily && In.bStrafe && In.Stance == PreviousStance
+			&& FMath::Abs(In.CameraYawDelta) > TurnThresh)
+		{
+			NextIdleBreakTime = -1.f;
+			IdleBreakEndTime  = -1.f;
+			return (In.CameraYawDelta > 0.f)
+				? EAZ_StateMachineState::IdleTurnRight
+				: EAZ_StateMachineState::IdleTurnLeft;
+		}
+	}
+
 	switch (Previous)
 	{
 	// Stop transition: moving → idle routes through TransitionToIdle.
 	case EAZ_StateMachineState::LocomotionLoop:
-		bLatchedJustLanded = false;   // this TransitionToIdle is a STOP, not a land
+		bLatchedJustLanded = false;   // this stop is a STOP, not a land
+		// Strafe now routes through TransitionToIdle like explore — the chooser picks the DIRECTIONAL strafe
+		// stop clip (WalkBwdStop / StrafeLeft/RightStop_LU/RU) by MovementDirection + foot; forward reuses the
+		// explore fwd stop (pinned Dir==F). The RM bridge drives the plant.
 		TransitionEndTime = Now + 1.0f;
 		return EAZ_StateMachineState::TransitionToIdle;
 
@@ -256,7 +296,9 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		}
 		return EAZ_StateMachineState::TransitionStance;
 
-	// IdleLoop or fresh entry into idle. Schedule the next break if none pending, else fire when due.
+	// IdleLoop / IdleTurn (settling back, not turning) / fresh entry into idle. Schedule + fire idle breaks.
+	case EAZ_StateMachineState::IdleTurnLeft:
+	case EAZ_StateMachineState::IdleTurnRight:
 	default:
 		// Stance changed while idle -> play the in-place lower/rise clip. The chooser keys on
 		// TransitionStance + the (target) Stance column to pick Idle2Crouch vs Crouch2Idle.
