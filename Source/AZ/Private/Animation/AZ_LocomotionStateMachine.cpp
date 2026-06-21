@@ -167,14 +167,18 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		// Start transition: idle → moving routes through TransitionToLocomotion (from-rest turn-start clips).
 		case EAZ_StateMachineState::IdleLoop:
 		case EAZ_StateMachineState::IdleBreak:
-			// Strafe uses a DIRECTIONAL step-off start (StrafeLeftStart etc.), selected by MovementDirection,
-			// NOT a body-turning turn-start — so force StartDirection=Fwd (no turn bucketing) so the explore
-			// turn-start rows don't fire, and let the chooser pick the strafe start by direction. Explore keeps
-			// the turn-start bucketing. (No "rotate-first": the strafe start clip steps off without turning.)
-			LatchedStartDirection = In.bStrafe ? EAZ_StartDirection::Fwd : BucketStartDirection(In.PendingStartAngleDeg);
+		{
+			// Strafe SIDEWAYS/BACK: directional step-off (Fwd, no turn). Strafe FORWARD: bucket like explore — a
+			// forward move has movement==camera, so the bucket (body→movement) == the body→camera realign, and the
+			// cosmetic WalkFwdStart90_L etc. (step-while-turning) masks the spring align. Explore always buckets.
+			const bool bStrafeNonForwardStart = In.bStrafe && In.MovementDirection != EAZ_MovementDirection::F;
+			LatchedStartDirection = bStrafeNonForwardStart
+				? EAZ_StartDirection::Fwd
+				: BucketStartDirection(In.PendingStartAngleDeg);
 			bLatchedMovingTransition = false;   // from rest → from-rest start clips
 			TransitionEndTime = Now + 1.0f;     // overridden by the real clip length
 			return EAZ_StateMachineState::TransitionToLocomotion;
+		}
 
 		case EAZ_StateMachineState::TransitionToLocomotion:
 			if (TransitionEndTime > 0.f && Now >= TransitionEndTime)

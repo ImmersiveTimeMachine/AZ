@@ -54,10 +54,15 @@ struct FAZ_LocoSMInputs
 	/** Signed facing→desired-heading yaw (deg, +right), recomputed each moving frame; buckets the turn-start. */
 	float PendingStartAngleDeg = 0.f;
 
-	/** Strafe / combat-ready rotation mode active (ChooserContext.bStrafe). The body continuously faces the
-	 *  camera/target, so there are NO body-turning starts or reversal pivots: idle→move steps straight into
-	 *  the directional loop, and a direction change just switches the directional loop. */
+	/** Strafe / combat-ready rotation mode active (ChooserContext.bStrafe). The body faces the camera; direction
+	 *  changes just switch the directional loop (no body-turning reversal pivots). */
 	bool bStrafe = false;
+
+	/** Camera-relative movement direction (ChooserContext.MovementDirection). Used at a strafe move-start to pick
+	 *  a cosmetic turn-start clip ONLY for a FORWARD move (W): there movement == camera, so the explore turn-start
+	 *  bucket (PendingStartAngleDeg = body→movement = body→camera) also aligns the body to the camera. Sideways/
+	 *  back strafe starts force a plain directional step-off (those forward-turn clips don't fit them). */
+	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
 
 	// ---- Tunables (kept CDO-editable on the AnimInstance, passed in rather than duplicated here) ----
 	float IdleBreakMinTime = 5.f;

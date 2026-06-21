@@ -384,6 +384,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && bRMActionIsJumpRise;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops, no body-turning
+		SMIn.MovementDirection    = ChooserContext.MovementDirection;   // strafe forward move-start → cosmetic turn-start
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 		SMIn.Stance				  = ChooserContext.Stance;
