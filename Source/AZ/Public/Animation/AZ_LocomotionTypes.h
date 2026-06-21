@@ -115,8 +115,8 @@ enum class EAZ_StateMachineState : uint8
 	TransitionToSlide			= 7,	// TRANS - RESERVED: slide entry (no ComputeNextState path emits this yet)
 	SlideLoop					= 8,	// LOOP  - RESERVED: slide steady state (not wired yet)
 	TransitionStance			= 9,	// TRANS - in-place stance change (Idle2Crouch)
-	IdleTurnLeft				= 10,	// LOOP* - strafe idle turn-in-place toward camera (left);  preempts IdleBreak
-	IdleTurnRight				= 11	// LOOP* - strafe idle turn-in-place toward camera (right); preempts IdleBreak
+	IdleTurnLeft				= 10,	// VESTIGIAL - strafe idle turn-in-place (removed; strafe now continuously faces camera). Kept for ABI; no ComputeNextState path emits these. Dead CHT rows 77/78 still map them (harmless).
+	IdleTurnRight				= 11	// VESTIGIAL - see above.
 };
 
 /** Turn magnitude + side for a from-idle start (TransitionToLocomotion).

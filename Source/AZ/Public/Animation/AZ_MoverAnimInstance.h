@@ -234,6 +234,11 @@ protected:
 	 *  Apply-Additive node in the ABP (mirror AZ_ABP_Mover). BlueprintReadOnly so the AnimGraph can bind it. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Lean")
 	FVector2D LeanAmount = FVector2D::ZeroVector;
+	/** Layer alpha for the additive lean — 0 at idle / non-forward (base pose passes through clean), ramps to 1
+	 *  while walking/running forward. Bind to the Apply-Mesh-Space-Additive node's Alpha pin (AlphaInputType=Float).
+	 *  This is what keeps the walk-derived additive OFF the idle base pose. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Lean")
+	float LeanAlpha = 0.f;
 	UPROPERTY(Transient) FVector PrevVelocity = FVector::ZeroVector;   // for the VelocityAcceleration derivative (lean)
 
 	// Transition-entry token: incremented on the game thread whenever SMState changes; stamped into

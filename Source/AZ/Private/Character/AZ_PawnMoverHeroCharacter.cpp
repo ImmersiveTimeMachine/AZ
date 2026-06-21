@@ -382,10 +382,36 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// Where the body should face. Mover modes use this as the rotation target unless
 	// a mode overrides via ResolveRotationTarget().
 	//   Explore (orient-to-movement): face where I move.
-	//   Strafe (combat-ready): face camera-forward ALWAYS — even standing still (WorldMove may be
-	//     zero) — so the target stays in front and the body turns-in-place toward it; WASD then
-	//     reads as directional side-steps / back-pedal and the chooser routes to the strafe set.
-	CharacterDefaultInputs.OrientationIntent = bStrafe ? YawOnly.Vector() : WorldMove;
+	//   Strafe (combat-ready): the body does NOT rotate at idle — it HOLDS its facing. When you start moving it
+	//     smoothly rotates toward the camera (the walking-mode spring at StrafeFacingTime) AND moves at the same
+	//     time. The align is LATCHED so a brief tap still completes the turn (no part-way freeze / multi-tap
+	//     creep). NOTE: the strafe START transition is excluded from the RM move (see AZ_MoverAnimInstance) so the
+	//     spring aligns from the FIRST moving frame instead of waiting out the start clip (that wait was the
+	//     "double": start-clip motion, then realign). WASD = directional side-steps / back-pedal vs the camera.
+	if (bStrafe)
+	{
+		constexpr float AlignExitDeg = 5.f;   // "aligned" once within this of the camera → may hold again
+		const bool bHasMoveInput = !CachedMoveInputIntent.IsNearlyZero();
+		if (bHasMoveInput)
+		{
+			bStrafeAligning = true;   // moving (even a tap) → align to + track the camera
+		}
+		else if (bStrafeAligning)
+		{
+			// Input released mid-align: keep turning to the camera until we get there, then allow the hold.
+			const float CamBodyDelta = FMath::Abs(FRotator::NormalizeAxis(
+				static_cast<float>(ControlRot.Yaw) - static_cast<float>(GetActorRotation().Yaw)));
+			if (CamBodyDelta <= AlignExitDeg) { bStrafeAligning = false; }
+		}
+		CharacterDefaultInputs.OrientationIntent = (bHasMoveInput || bStrafeAligning)
+			? YawOnly.Vector()                                                            // align to / track camera
+			: FRotator(0.f, static_cast<float>(GetActorRotation().Yaw), 0.f).Vector();   // idle: HOLD facing
+	}
+	else
+	{
+		bStrafeAligning = false;
+		CharacterDefaultInputs.OrientationIntent = WorldMove;
+	}
 
 	// ---- Gait → Mover (v2: movement-domain GAS tags bridge to the Mover sim) ----
 	// The walking mode's ResolveGait reads FAZ_MoverCustomInputs.Gait and maps it to

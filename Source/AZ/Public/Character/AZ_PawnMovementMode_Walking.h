@@ -108,6 +108,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing", meta = (ClampMin = "0", ForceUnits = "s"))
 	float IdleFacingTime = 0.2f;
 
+	// ---- Strafe (combat-ready) facing ----
+	/** Strafe aim-lock facing time = CMC's RotationRate analog — how tightly the body continuously tracks the
+	 *  camera (idle and moving; engine-standard bUseControllerDesiredRotation). Lower = snappier/more rigid (→0
+	 *  ≈ instant bUseControllerRotationYaw); higher = a softer, laggier follow. BP-tunable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Strafe", meta = (ClampMin = "0", ForceUnits = "s"))
+	float StrafeFacingTime = 0.10f;
+
 	// ---- Rotation-offset clamp ----
 	/** Max delta (degrees) the new RotationOffset can move per tick away from the prior frame's
 	 *  cached offset. 179° guarantees the spring damper always picks the short arc — without

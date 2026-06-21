@@ -157,12 +157,11 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 
 	if (bStrafeFacing)
 	{
-		// Aim-lock, no camera-snap-shorten either way. While MOVING, a tight constant facing (body stays
-		// glued to the camera for strafe loco). While IDLE, a looser facing so the body visibly LAGS then
-		// catches the camera — giving the idle turn-in-place clip room to read instead of an instant snap.
-		constexpr float StrafeFacingTime     = 0.10f;
-		constexpr float StrafeIdleFacingTime = 0.25f;
-		FacingSmoothingTime = bMoveInputZero ? StrafeIdleFacingTime : StrafeFacingTime;
+		// Strafe (combat-ready): aim-lock spring at StrafeFacingTime (BP-tunable). The idle HOLD (don't follow the
+		// camera) and the latched move-start align are driven by OrientationIntent in ProduceInput, NOT here — so
+		// this just springs the body toward whatever target that produced (current facing at idle, camera when
+		// moving/aligning).
+		FacingSmoothingTime = StrafeFacingTime;
 	}
 	else
 	{
@@ -193,7 +192,7 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		FacingSmoothingTime = FMath::Max(0.f, FacingSmoothingTime - SnapShorten);
 	}
 
-	// Phase 4: pass OverridenDesiredFacing (not raw DesiredFacing) to the parent spring-damper.
+	// Phase 4: pass OverridenDesiredFacing (raw DesiredFacing + aim offset) to the parent spring-damper.
 	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity,
 		OverridenDesiredFacing, CurrentFacing, InOutAngularVelocityDegrees, InOutVelocity);
 }

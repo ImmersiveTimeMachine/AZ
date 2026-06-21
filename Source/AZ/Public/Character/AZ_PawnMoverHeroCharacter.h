@@ -167,6 +167,11 @@ protected:
 	bool bIsJumpPressed = false;
 	bool bIsJumpJustPressed = false;
 
+	// Strafe: at idle the body HOLDS its facing (no camera follow); a move aligns it to the camera. This latch
+	// keeps the align going until the body reaches the camera even if the move was a brief tap, so one tap aligns
+	// fully instead of freezing part-way. While set (or move held), face camera; else (idle) hold current facing.
+	bool bStrafeAligning = false;
+
 	void OnMoveTriggered(const FInputActionValue& Value);
 	void OnMoveCompleted(const FInputActionValue& Value);
 	void OnLookTriggered(const FInputActionValue& Value);

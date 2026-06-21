@@ -242,12 +242,36 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 	}
 
-	// MovementDirection — relative to actor forward. Cheap dot/sign decision for F/B/L/R.
+	// MovementDirection — the directional clip selector. Cheap dot/sign decision for F/B/L/R.
 	if (ChooserContext.bIsMoving)
 	{
-		const FVector VelDir2D = PredictedFutureVelocity.GetSafeNormal2D();   // intent direction (future, not lagging current)
-		const float Forward = static_cast<float>(FVector::DotProduct(VelDir2D, CurrentForward));
-		const float Right   = static_cast<float>(FVector::DotProduct(VelDir2D, Cached_Pawn->GetActorRightVector()));
+		// Reference frame:
+		//   EXPLORE — velocity vs the BODY (orient-to-movement; the body faces where it goes).
+		//   STRAFE  — the KEYBOARD INTENT vs the CAMERA. In strafe the body faces the camera, so "W = forward"
+		//     is true the instant the key is pressed, regardless of where the body currently points. Classifying
+		//     by velocity-vs-body instead would read a side/back clip on move-start (body still rotating to the
+		//     camera, velocity lagging) and only correct once the body caught up — the "walks sideways then snaps
+		//     forward" bug. Using intent-vs-camera makes the FIRST start clip correct, no align stall needed.
+		//     Falls back to velocity for the STOP (input released → MoveIntentWS is zero) so the directional stop
+		//     clip still matches the last travel direction.
+		FVector RefForward, RefRight, Dir2D;
+		if (ChooserContext.bStrafe)
+		{
+			const FRotator CamYaw(0.f, ChooserContext.AimingRotation.Yaw, 0.f);
+			RefForward = CamYaw.Vector();
+			RefRight   = FRotationMatrix(CamYaw).GetScaledAxis(EAxis::Y);
+			Dir2D      = MoveIntentWS.IsNearlyZero()
+				? PredictedFutureVelocity.GetSafeNormal2D()
+				: MoveIntentWS.GetSafeNormal2D();
+		}
+		else
+		{
+			RefForward = CurrentForward;
+			RefRight   = Cached_Pawn->GetActorRightVector();
+			Dir2D      = PredictedFutureVelocity.GetSafeNormal2D();   // intent direction (future, not lagging current)
+		}
+		const float Forward = static_cast<float>(FVector::DotProduct(Dir2D, RefForward));
+		const float Right   = static_cast<float>(FVector::DotProduct(Dir2D, RefRight));
 		if (FMath::Abs(Forward) > FMath::Abs(Right))
 		{
 			ChooserContext.MovementDirection = Forward >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
@@ -311,10 +335,14 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		const float Divisor = static_cast<float>(FMath::GetMappedRangeValueClamped(
 			FVector2D(200.f, 320.f), FVector2D(500.f, 800.f), ChooserContext.Speed2D));
 		const float Lat = FMath::Clamp(static_cast<float>(LocalAccel.Y) / FMath::Max(1.f, Divisor), -1.f, 1.f);
-		const FVector2D Target =
-			(ChooserContext.bIsMoving && ChooserContext.MovementDirection == EAZ_MovementDirection::F)
-				? FVector2D(Lat, 0.f) : FVector2D::ZeroVector;
+		// Forward-only gate (both explore + strafe). bForwardLean drives BOTH the BS coordinate AND the layer
+		// Alpha: the coordinate alone isn't enough — the additive node would still apply the walk-derived delta
+		// at full strength over the IDLE base pose (the "takes a root anim / weird at idle" bug). Gating Alpha to
+		// 0 lets the base pose pass through untouched; it ramps to 1 only while walking/running forward.
+		const bool bForwardLean = ChooserContext.bIsMoving && ChooserContext.MovementDirection == EAZ_MovementDirection::F;
+		const FVector2D Target = bForwardLean ? FVector2D(Lat, 0.f) : FVector2D::ZeroVector;
 		LeanAmount = FMath::Vector2DInterpTo(LeanAmount, Target, DeltaSeconds, 10.f);
+		LeanAlpha  = FMath::FInterpTo(LeanAlpha, bForwardLean ? 1.f : 0.f, DeltaSeconds, 10.f);
 	}
 
 #if !UE_BUILD_SHIPPING
@@ -355,8 +383,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// RMAction (plays to completion, never hands to Falling) must not be held as a jump takeoff.
 		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && bRMActionIsJumpRise;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
-		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops + idle turn-in-place
-		SMIn.CameraYawDelta       = static_cast<float>(ChooserContext.RotationOffset);   // strafe idle turn-in-place selector
+		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops, no body-turning
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 		SMIn.Stance				  = ChooserContext.Stance;
@@ -718,8 +745,16 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			
 			const bool bInPlaceStanceTransition =
 				ChooserContext.SMState == EAZ_StateMachineState::TransitionStance;
-			
-			if (!bPhysicsDrivenTransition && !bInPlaceStanceTransition)
+
+			// STRAFE START: do NOT queue the RM move. The RM move is OverrideAll — while it's live (the whole start
+			// clip) it suppresses the facing spring, so the body wouldn't rotate toward the camera until the start
+			// clip ENDED (the "start-clip motion, then realign" double). Excluding it lets the spring align to the
+			// camera from the first moving frame (smooth, immediate); the strafe start clip plays cosmetically and
+			// the capsule is velocity-driven (same as the strafe loops). Explore starts keep RM (turn-start clips).
+			const bool bStrafeStart =
+				ChooserContext.bStrafe && ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion;
+
+			if (!bPhysicsDrivenTransition && !bInPlaceStanceTransition && !bStrafeStart)
 			{
 				PendingTransitionRMMoveDurationMs = Remaining * 1000.f;
 				bPendingTransitionRMMove = true;
