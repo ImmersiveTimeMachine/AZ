@@ -47,6 +47,30 @@ One IMC + **profile-gated ability grants** (NOT per-weapon IMCs). Meaning lives 
 - **Loose-tag replication gap**: `OnWeaponEquipped` uses `AddLooseGameplayTag` ⇒ `Weapon.Fist` NOT replicated ⇒ client anim/camera blind. Switch to `AddReplicatedLooseGameplayTag` for the anim-set pass.
 - **HitWindowEventTag + damage**: greenfield (no `Event.*` tag, no sender). Plan: register `Event.Montage.Melee.Hit` + a `UAZ_AnimNotify_SendGameplayEvent`; wire `OnMontageEvent` → trace + Damage GE. Currently a guarded stub (optional).
 
+## SESSION LOG — 2026-06-21 (combat-ready / fists-up stance — C++ done, build ✅, BP+AnimGraph pending)
+**Feature:** equip fists → upper-body "fists-up" pose; **auto-lowers after 5–10 s idle**; any punch refreshes it. Built the C++ interface + a data-driven GE-apply path; the GE itself + the AnimGraph layer are the user's BP work (resume there).
+
+**DESIGN (locked this session):**
+- **Upper-body pose ONLY — independent of strafe.** User: *"only the upper-body pose."* `Movement.Strafe` (strafe loco/camera, set on equip via `bStrafeOnEquip`) stays untouched. Fists-up is its own tag + overlay; it does NOT drive rotation/loco. (Earlier plan considered unifying combat-ready⟺strafe; user chose to keep them separate for now.)
+- **State lifecycle = a BP Duration GE, NOT a C++ timer.** User rejected a C++ `FTimerHandle` ("more scalable in BP"). The GE owns grant+duration+auto-remove+refresh+**unequip-off**. **`GE_CombatReady`** (BP, user creates): Has Duration (5–10 s), grants `Combat.Ready` (Grant-Tags-to-Target-Actor component in 5.8), Stacking = Aggregate-by-Target / Limit 1 / **Refresh on Successful Application** (= refresh on re-apply), **+ Target-Tag-Requirements component → Ongoing Require `Weapon.Fist`** so UNEQUIP (which removes `Weapon.Fist` via `OnWeaponEquipped(Weapon.None)`) inhibits the GE → `Combat.Ready` drops immediately (also covers slot-switch fist→gun). C++ applies it but NOTHING removes it — the ongoing-requirement is the symmetric off-switch (cleaner than a C++ remove; the inhibited GE still expires on its timer).
+- **Cooldown GE REJECTED for this.** Same *shape* (duration GE granting a tag) but the cooldown *mechanism* BLOCKS re-activation (`CheckCooldown`) — opposite of refresh-on-every-attack. (And there's **no GA_Equip** to pair a cooldown with: equip = C++ `QuickBar::EquipSlot`, only Jump/PawnJump/Aim/Shoot/Crouch/Interact/MeleeAttack exist; `GA_EquipSlot` is plan-only.)
+
+**C++ INTERFACE BUILT (compiled ✅ 2026-06-21) — the stable surface the BP GE plugs into:**
+- **`Combat.Ready`** native tag — `AZ_GameplayTags.h/.cpp` (registered; now in the GE tag-picker).
+- **`bCombatReady`** (BlueprintReadOnly) on `UAZ_MoverAnimInstance` = `OwnedTags.HasTag(Combat.Ready)`, set each `NativeUpdateAnimation` next to `bStrafe` (`AZ_MoverAnimInstance.cpp` ~313). Drives the AnimGraph layer.
+- **Data-driven GE application (centralized, the user's "Most centralized" pick):**
+  - `FAZ_QuickSlot.EffectsOnEquip` (`TArray<TSubclassOf<UGameplayEffect>>`) — applied in `QuickBar::EquipSlot` (authority-gated → granted tags replicate). Put `GE_CombatReady` on the **fist slot**.
+  - `UAZ_GA_MeleeAttack.EffectsOnActivate` (same type) — applied in `ActivateAbility` after `CommitAbility` via `MakeOutgoingGameplayEffectSpec`+`ApplyGameplayEffectSpecToOwner`. Put `GE_CombatReady` on the **BP melee ability** (= refresh per punch).
+  - Both are generic loops (any weapon/ability declares its GEs by data — parity by construction).
+
+**PENDING (user, in editor — resume here):**
+1. Create `GE_CombatReady` (recipe above) — `Combat.Ready` now appears in the picker.
+2. Set `EffectsOnEquip=[GE_CombatReady]` on the fist slot (QuickBar `Slots` on `BP_AZ_PlayerController`); `EffectsOnActivate=[GE_CombatReady]` on the BP melee ability.
+3. **AnimGraph upper-body layer** (the last anim piece): Layered Blend Per Bone from **`spine_02`**, upper-body input = `AnimPro_Fists_Idle` (or the draw/holster SM below). **Weight pin (`BlendWeights[0]`) = `CombatReadyAlpha`** — a C++ smoothed float (built 2026-06-21; `FInterpTo` toward `bCombatReady`, knobs `CombatReadyBlendIn/OutSpeed` 8/6). ⚠️ **Layered Blend Per Bone has NO built-in alpha interp** — its `BlendWeights` are RAW floats (verified `AnimNode_LayeredBoneBlend.h:55`); `Interp Result`/`Interp Speed Increasing-Decreasing` only exist on single-`Alpha` nodes (Apply Additive, Apply Mesh Space Additive [= the lean node], Blend, Blend-by-Bool). Hence the C++ smoothing. Use the raw `bCombatReady` BOOL for SM transitions, `CombatReadyAlpha` for the weight.
+   - **Draw/holster integration (user direction 2026-06-21): an SM INSIDE the layer, NOT CHT, NOT montage** (matches RAIL DOCTRINE — state-driven, no anim-led gameplay event). States `Down(passthrough)→Draw(AnimPro_Idle2Fists)→Up(AnimPro_Fists_Idle loop)→Holster(AnimPro_Fists2Idle)→Down`, driven by `bCombatReady` + clip-complete. "Combat-ready after the draw" is satisfied free: `Up` (held stance) is only reached after the `Draw` clip finishes. Punch doesn't gate on the `Combat.Ready` tag yet, so the tag-timing is purely visual (the SM covers it); if gameplay must wait for fists-up later, fire a notify at `Idle2Fists` end.
+   - Claude can wire over MCP — needs the ABP confirmed (`AZ_ABP_MoverAnimInstance`).
+4. PIE-verify the whole loop (equip→up, idle 5–10s→down, punch→up).
+
 ## GOAL
 Build and *iterate* the **FIST** combat model first (punch logic + combat movement), on the cheapest possible equipment, then generalize to weapons by **data, not code** (parity by construction). Build only the minimum **quick-slot/equip skeleton** needed to switch the active profile (fist <-> none <-> weapons). "Concentrate on logic, not design (UI)."
 
