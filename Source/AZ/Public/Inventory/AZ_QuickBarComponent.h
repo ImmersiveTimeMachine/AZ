@@ -10,6 +10,7 @@
 struct FGameplayAbilitySpecHandle;
 class UAZ_AbilitySystemComponent;
 class UAZ_GameplayAbility;
+class UGameplayEffect;
 // One quick-slot: a profile tag + the abilities that profile grants.
   // Phase 1 inline data; mirrors what AbilityGrantFragment carries in the real path.
   USTRUCT(BlueprintType)
@@ -20,6 +21,9 @@ struct FAZ_QuickSlot
   	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UAZ_GameplayAbility>> WeaponAbilities; //{BP_GA_Punch_L, BP_GA_Punch_R}
   	// Combat-ready profiles (fists) flip to strafe on equip: body faces the target, locomotion is directional.
   	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") bool bStrafeOnEquip = false;
+  	// GEs applied to the owner ASC on equip (authority site -> granted tags replicate). e.g. GE_CombatReady on the
+  	// fist slot grants Combat.Ready (timed); the melee ability's EffectsOnActivate re-applies it to refresh.
+  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UGameplayEffect>> EffectsOnEquip;
   };
 
 

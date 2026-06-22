@@ -157,11 +157,20 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 
 	if (bStrafeFacing)
 	{
-		// Strafe (combat-ready): aim-lock spring at StrafeFacingTime (BP-tunable). The idle HOLD (don't follow the
-		// camera) and the latched move-start align are driven by OrientationIntent in ProduceInput, NOT here — so
-		// this just springs the body toward whatever target that produced (current facing at idle, camera when
-		// moving/aligning).
-		FacingSmoothingTime = StrafeFacingTime;
+		// Strafe (combat-ready): aim-lock spring, but RAMP the spring time by how far the body is off its target
+		// so a big move-start turn matches the turn-start CLIP instead of outrunning it. The angle band mirrors the
+		// SM turn-start buckets: <=45deg is the Fwd bucket (no turn clip) -> snappy StrafeFacingTime; >=135deg is the
+		// 135/180 bucket -> slow StrafeTurnFacingTime so the body turns over ~the clip's length; lerp between. As the
+		// body closes on the target the angle shrinks and the spring tightens back to the snappy aim-lock, so steady
+		// camera-tracking and small adjustments stay rigid. |delta| is already cached above (CachedRotationOffsetDegrees,
+		// signed current->desired facing yaw). The idle HOLD + latched/frozen move-start target are produced by
+		// OrientationIntent in ProduceInput, NOT here — this only sets HOW FAST we spring toward that target.
+		constexpr float TurnRampStartDeg = 45.f;    // == SM TurnBucketFwd_90Deg: below this there is no turn-start clip
+		constexpr float TurnRampFullDeg  = 135.f;   // == SM 135/180 bucket onset: at/above this use the full slow time
+		FacingSmoothingTime = static_cast<float>(FMath::GetMappedRangeValueClamped(
+			FVector2D(TurnRampStartDeg, TurnRampFullDeg),
+			FVector2D(StrafeFacingTime, StrafeTurnFacingTime),
+			FMath::Abs(CachedRotationOffsetDegrees)));
 	}
 	else
 	{

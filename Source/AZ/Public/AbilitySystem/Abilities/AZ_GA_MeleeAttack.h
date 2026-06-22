@@ -8,6 +8,7 @@
 #include "AZ_GA_MeleeAttack.generated.h"
 
 class UAZ_AT_PlayMontageAndWaitForEvent;
+class UGameplayEffect;
 
 // Which hand threw it — latched at activation from the InputTag.
 UENUM(BlueprintType)
@@ -52,6 +53,10 @@ protected:
 
 	// The tag the hit-window notify will send (matched in OnMontageEvent). Wire later.
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee") FGameplayTag HitWindowEventTag;
+
+	// GEs applied to the owner on each activation — e.g. GE_CombatReady to REFRESH the fists-up stance every punch.
+	// The GE owns its own duration + refresh-on-reapply stacking; this just re-applies it. Set in the BP ability.
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee") TArray<TSubclassOf<UGameplayEffect>> EffectsOnActivate;
 
 	// --- Runtime state, latched at activation ---
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* MontageTask = nullptr;

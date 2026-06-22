@@ -287,6 +287,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Movement_Falling,       FName("Movement.Falling"),       TEXT("Character is falling"));
     AddTag(GameplayTags.Movement_Aiming,        FName("Movement.Aiming"),        TEXT("Character is aiming down sights"));
     AddTag(GameplayTags.Movement_Strafe,        FName("Movement.Strafe"),        TEXT("Strafe / combat-ready rotation mode — body faces camera/target, locomotion is directional"));
+    AddTag(GameplayTags.Combat_Ready,           FName("Combat.Ready"),           TEXT("Upper-body fists-up combat stance — timed, auto-clears after CombatReadyDuration; refreshed on equip/attack"));
     AddTag(GameplayTags.Movement_Swimming,      FName("Movement.Swimming"),      TEXT("Character is swimming"));
     AddTag(GameplayTags.Movement_Climbing,      FName("Movement.Climbing"),      TEXT("Character is climbing/vaulting"));
 

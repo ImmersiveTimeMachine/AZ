@@ -241,6 +241,23 @@ protected:
 	float LeanAlpha = 0.f;
 	UPROPERTY(Transient) FVector PrevVelocity = FVector::ZeroVector;   // for the VelocityAcceleration derivative (lean)
 
+	/** Upper-body combat-ready (fists-up) stance active — RAW mirror of the replicated Combat.Ready tag (set on
+	 *  fist equip, refreshed on attack, auto-clears after the GE duration). Independent of bStrafe. Use the BOOL
+	 *  for state transitions (e.g. an SM in the layer); bind CombatReadyAlpha (below) for the blend weight. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Combat")
+	bool bCombatReady = false;
+	/** Smoothed 0..1 alpha for the spine_02 fists-up Layered-Blend-Per-Bone overlay — that node has NO built-in
+	 *  alpha interp (its BlendWeights are raw floats), so we ease it here: rises to 1 on enable, falls to 0 on
+	 *  disable, separate in/out speeds. Bind to the layer's BlendWeights[0]. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Combat")
+	float CombatReadyAlpha = 0.f;
+	/** Blend-IN rate for CombatReadyAlpha (0->1 on enable). FInterpTo speed — higher = snappier. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Combat", meta = (ClampMin = "0"))
+	float CombatReadyBlendInSpeed = 8.f;
+	/** Blend-OUT rate for CombatReadyAlpha (1->0 on disable). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Combat", meta = (ClampMin = "0"))
+	float CombatReadyBlendOutSpeed = 6.f;
+
 	// Transition-entry token: incremented on the game thread whenever SMState changes; stamped into
 	// LastPushedTransitionSerial on a COMMITTED push. The transition lock compares serials, not raw
 	// SMState — raw-state equality let a stale LastPushedSMState from a bailed push suppress a LATER

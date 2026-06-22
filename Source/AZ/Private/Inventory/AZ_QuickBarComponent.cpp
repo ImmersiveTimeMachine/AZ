@@ -5,6 +5,7 @@
 
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
+#include "GameplayEffect.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 
@@ -94,6 +95,19 @@ void UAZ_QuickBarComponent::EquipSlot(const int32 SlotIndex)
 			Spec.GetDynamicSpecSourceTags().AddTag(GameplayAbility->InputTag);   // seed InputTag so input rig can fire it
 		GrantedHandles.Add(ASC->GiveAbility(Spec));
 	}
+
+	// Data-driven GEs on equip (e.g. GE_CombatReady on the fist slot). Authority-gated above, so applying here
+	// records the granted tags in the replicated map -> they reach clients. The GE owns its own duration + refresh
+	// (re-applied by the melee ability's EffectsOnActivate); no C++ timer.
+	for (const TSubclassOf<UGameplayEffect>& EffectClass : Slot.EffectsOnEquip)
+	{
+		if (!*EffectClass) continue;
+		FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+		Ctx.AddSourceObject(this);
+		const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(EffectClass, 1.f, Ctx);
+		if (Spec.IsValid()) ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+
 	ActiveSlotIndex = SlotIndex;
 }
 

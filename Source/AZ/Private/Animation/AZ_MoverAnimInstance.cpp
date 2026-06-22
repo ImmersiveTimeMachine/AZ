@@ -311,6 +311,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// Strafe / combat-ready — derived from the replicated Movement.Strafe tag (set on equip).
 	// Gates the chooser's directional strafe rows. Replicated loose tag -> present on sim proxies too.
 	ChooserContext.bStrafe = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
+	// Upper-body fists-up combat stance — timed Combat.Ready tag (set on fist equip / refreshed on attack).
+	// Drives the spine_02 layered fists-up overlay in the AnimGraph; independent of bStrafe.
+	bCombatReady = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Combat_Ready);
+	// Ease the fists-up overlay weight here — Layered Blend Per Bone has no built-in alpha interp (raw BlendWeights).
+	// Rises to 1 on enable, falls to 0 on disable, with separate in/out speeds. Bind CombatReadyAlpha -> BlendWeights[0].
+	CombatReadyAlpha = FMath::FInterpTo(CombatReadyAlpha, bCombatReady ? 1.f : 0.f, DeltaSeconds,
+		bCombatReady ? CombatReadyBlendInSpeed : CombatReadyBlendOutSpeed);
 
 	// ---- Camera/facing — for rotation-aware chooser rows (TIP, AO chains) ----
 	if (const AController* Controller = Cached_Pawn->GetController())
@@ -339,7 +346,12 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// Alpha: the coordinate alone isn't enough — the additive node would still apply the walk-derived delta
 		// at full strength over the IDLE base pose (the "takes a root anim / weird at idle" bug). Gating Alpha to
 		// 0 lets the base pose pass through untouched; it ramps to 1 only while walking/running forward.
-		const bool bForwardLean = ChooserContext.bIsMoving && ChooserContext.MovementDirection == EAZ_MovementDirection::F;
+		// Only in the steady LocomotionLoop — NOT during any transition (start / stop / turn / pivot / air). Those
+		// phases play an RM clip that already owns the body; the additive lean stacked on top of root motion reads
+		// wrong (it tilts over the planted turn-start). Loops carry ~zero RM, so this == "no lean while RM plays".
+		const bool bForwardLean = ChooserContext.bIsMoving
+			&& ChooserContext.MovementDirection == EAZ_MovementDirection::F
+			&& ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop;
 		const FVector2D Target = bForwardLean ? FVector2D(Lat, 0.f) : FVector2D::ZeroVector;
 		LeanAmount = FMath::Vector2DInterpTo(LeanAmount, Target, DeltaSeconds, 10.f);
 		LeanAlpha  = FMath::FInterpTo(LeanAlpha, bForwardLean ? 1.f : 0.f, DeltaSeconds, 10.f);
@@ -747,15 +759,18 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			const bool bInPlaceStanceTransition =
 				ChooserContext.SMState == EAZ_StateMachineState::TransitionStance;
 
-			// STRAFE START: do NOT queue the RM move. The RM move is OverrideAll — while it's live (the whole start
-			// clip) it suppresses the facing spring, so the body wouldn't rotate toward the camera until the start
-			// clip ENDED (the "start-clip motion, then realign" double). Excluding it lets the spring align to the
-			// camera from the first moving frame (smooth, immediate); the strafe start clip plays cosmetically and
-			// the capsule is velocity-driven (same as the strafe loops). Explore starts keep RM (turn-start clips).
-			const bool bStrafeStart =
-				ChooserContext.bStrafe && ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion;
+			// RM-drive ONLY the strafe TURN-bucket starts (StartDirection L90/R90/L135/R135/L180/R180): the SM
+			// bucketed those to the body->camera angle so the clip's baked turn already aims at the camera, and the
+			// OverrideAll RM grounds the turn (planted feet) landing the body ~on camera = explore's "Root-motion
+			// turn" start. The Fwd bucket has NO baked turn (small-angle forward AND every sideways/back start, which
+			// force StartDirection=Fwd), so RM there would hold a stale facing the whole clip then snap after = the
+			// old "double". Keep those cosmetic so the facing spring aligns from the first moving frame.
+			const bool bStrafeNoTurnStart =
+				ChooserContext.bStrafe
+				&& ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion
+				&& ChooserContext.StartDirection == EAZ_StartDirection::Fwd;
 
-			if (!bPhysicsDrivenTransition && !bInPlaceStanceTransition && !bStrafeStart)
+			if (!bPhysicsDrivenTransition && !bInPlaceStanceTransition && !bStrafeNoTurnStart)
 			{
 				PendingTransitionRMMoveDurationMs = Remaining * 1000.f;
 				bPendingTransitionRMMove = true;

@@ -78,6 +78,25 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	Camera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
 
+	// Per-mode camera framing — interpolated toward in Tick by the active rotation mode (see UpdateCameraForMode).
+	// Explore mirrors the boom set up above + the engine-default FOV (90), so explore looks unchanged.
+	CameraExplore.BoomLength   = 220.f;
+	CameraExplore.SocketOffset = FVector(0.f, 70.f, 0.f);
+	CameraExplore.FOV          = 90.f;
+	CameraExplore.InterpSpeed  = 8.f;
+	// Strafe (combat-ready): only the SOCKET OFFSET differs from explore by default (shifted further over the
+	// shoulder) — boom length + FOV left equal so the transition is purely the offset the request asked for.
+	// Tune boom/FOV in the details panel if you want strafe to also pull in / zoom.
+	CameraStrafe.BoomLength    = 220.f;
+	CameraStrafe.SocketOffset  = FVector(0.f, 100.f, 10.f);
+	CameraStrafe.FOV           = 90.f;
+	CameraStrafe.InterpSpeed   = 8.f;
+	// Aiming (ADS): close + narrow. Reachable once ProduceInput sets EAZ_RotationMode::Aiming.
+	CameraAiming.BoomLength    = 120.f;
+	CameraAiming.SocketOffset  = FVector(0.f, 55.f, 5.f);
+	CameraAiming.FOV           = 55.f;
+	CameraAiming.InterpSpeed   = 8.f;
+
 	// --- Mover ---
 	MoverComponent = CreateDefaultSubobject<UAZ_PawnMoverComponent>(TEXT("MoverComponent"));
 	MoverComponent->SetUpdatedComponent(Capsule);
@@ -154,6 +173,41 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 void AAZ_PawnMoverHeroCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UpdateCameraForMode(DeltaTime);
+}
+
+void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
+{
+	// Camera is a LOCAL-viewer concern — only the controlling client looks through this boom. Skip on the server
+	// and on simulated proxies (their boom drives no viewport): saves the interp + the ASC query, and keeps the
+	// framing a purely cosmetic, client-local thing (co-op-safe: each client frames its own pawn).
+	if (!IsLocallyControlled() || !CameraBoom || !Camera)
+	{
+		return;
+	}
+
+	// Resolve the framing by rotation mode from replicated GAS state, same precedence as ProduceInput's
+	// RotationMode pick: Aiming (zoom) > Strafe (combat-ready) > Explore (default).
+	const FAZ_CameraStanceConfig* Target = &CameraExplore;
+	if (const UAbilitySystemComponent* AbilityComp = GetAbilitySystemComponent())
+	{
+		const FAZ_GameplayTags& GPTags = FAZ_GameplayTags::Get();
+		if (AbilityComp->HasMatchingGameplayTag(GPTags.Ability_State_Aiming))
+		{
+			Target = &CameraAiming;
+		}
+		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Movement_Strafe))
+		{
+			Target = &CameraStrafe;
+		}
+	}
+
+	// Critically-damped-ish glide toward the mode's framing (the "transition"). Composes fine with the boom's
+	// own camera lag — that smooths the camera following the boom; this moves the boom's target offset/length.
+	const float Speed = Target->InterpSpeed;
+	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, Target->BoomLength, DeltaTime, Speed);
+	CameraBoom->SocketOffset    = FMath::VInterpTo(CameraBoom->SocketOffset, Target->SocketOffset, DeltaTime, Speed);
+	Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, Target->FOV, DeltaTime, Speed));
 }
 
 // ========================================
@@ -390,22 +444,31 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	//     "double": start-clip motion, then realign). WASD = directional side-steps / back-pedal vs the camera.
 	if (bStrafe)
 	{
-		constexpr float AlignExitDeg = 5.f;   // "aligned" once within this of the camera → may hold again
+		constexpr float AlignExitDeg = 5.f;   // "aligned" once within this of the target → may hold again
 		const bool bHasMoveInput = !CachedMoveInputIntent.IsNearlyZero();
+		const float CamYaw = static_cast<float>(ControlRot.Yaw);
 		if (bHasMoveInput)
 		{
-			bStrafeAligning = true;   // moving (even a tap) → align to + track the camera
+			bStrafeAligning = true;        // moving (even a tap) → align to + track the LIVE camera
+			StrafeAlignTargetYaw = CamYaw; // keep the latch's frozen target current while the move is held
 		}
 		else if (bStrafeAligning)
 		{
-			// Input released mid-align: keep turning to the camera until we get there, then allow the hold.
-			const float CamBodyDelta = FMath::Abs(FRotator::NormalizeAxis(
-				static_cast<float>(ControlRot.Yaw) - static_cast<float>(GetActorRotation().Yaw)));
-			if (CamBodyDelta <= AlignExitDeg) { bStrafeAligning = false; }
+			// Input released mid-align: finish turning to the camera yaw CAPTURED at release (frozen), NOT the live
+			// camera — so swinging the camera after you stop does not drag the idle body. Clear once we arrive.
+			const float TargetBodyDelta = FMath::Abs(FRotator::NormalizeAxis(
+				StrafeAlignTargetYaw - static_cast<float>(GetActorRotation().Yaw)));
+			if (TargetBodyDelta <= AlignExitDeg) { bStrafeAligning = false; }
 		}
-		CharacterDefaultInputs.OrientationIntent = (bHasMoveInput || bStrafeAligning)
-			? YawOnly.Vector()                                                            // align to / track camera
-			: FRotator(0.f, static_cast<float>(GetActorRotation().Yaw), 0.f).Vector();   // idle: HOLD facing
+
+		FVector OrientTarget;
+		if (bHasMoveInput)
+			OrientTarget = YawOnly.Vector();                                              // track the live camera while moving
+		else if (bStrafeAligning)
+			OrientTarget = FRotator(0.f, StrafeAlignTargetYaw, 0.f).Vector();             // finish to the FROZEN target
+		else
+			OrientTarget = FRotator(0.f, static_cast<float>(GetActorRotation().Yaw), 0.f).Vector();  // idle: HOLD facing
+		CharacterDefaultInputs.OrientationIntent = OrientTarget;
 	}
 	else
 	{

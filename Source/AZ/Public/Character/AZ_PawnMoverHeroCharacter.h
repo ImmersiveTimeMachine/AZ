@@ -6,6 +6,7 @@
 #include "GameFramework/Pawn.h"
 #include "AbilitySystemInterface.h"
 #include "Character/AZ_JumpRequester.h"
+#include "Character/AZ_PawnCameraMovementComponent.h"   // FAZ_CameraStanceConfig (per-mode camera framing)
 #include "GameplayTagAssetInterface.h"
 #include "GenericTeamAgentInterface.h"
 #include "MoverSimulationTypes.h"
@@ -138,6 +139,26 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Pawn")
 	TObjectPtr<UCameraComponent> Camera;
 
+	// ========================================
+	// Camera — per rotation-mode framing (Explore / Strafe / Aiming)
+	// ========================================
+	// The boom (TargetArmLength + SocketOffset) and FOV are interpolated each Tick toward the config for the
+	// CURRENT rotation mode (resolved from GAS tags), so switching mode glides the framing instead of snapping.
+	// "Mode" mirrors ProduceInput's RotationMode pick: Aiming > Strafe > Explore. Set per-mode SocketOffset (etc.)
+	// in the details panel; leave fields equal across modes to make that field not change between them.
+
+	/** OrientToMovement (explore) — the default framing. Defaults match the boom set up in the constructor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraStanceConfig CameraExplore;
+
+	/** Strafe (combat-ready) — e.g. shifted over-the-shoulder for an aim-able framing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraStanceConfig CameraStrafe;
+
+	/** Aiming (ADS) — close + narrow. Used once the Aiming rotation mode is wired (ProduceInput sets it). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraStanceConfig CameraAiming;
+
 protected:
 	// ========================================
 	// Input (Enhanced Input)
@@ -169,8 +190,16 @@ protected:
 
 	// Strafe: at idle the body HOLDS its facing (no camera follow); a move aligns it to the camera. This latch
 	// keeps the align going until the body reaches the camera even if the move was a brief tap, so one tap aligns
-	// fully instead of freezing part-way. While set (or move held), face camera; else (idle) hold current facing.
+	// fully instead of freezing part-way. While set (or move held), face the align target; else (idle) hold current facing.
 	bool bStrafeAligning = false;
+	// The yaw the post-release align finishes to: the camera yaw CAPTURED at the moment input was released (kept
+	// current while a move is held). The latch drives to THIS frozen heading, not the live camera, so turning the
+	// camera after you stop does not drag the idle body around (that was the "idle still adjusts to camera" bug).
+	float StrafeAlignTargetYaw = 0.f;
+
+	/** Interp the camera boom (arm length + socket offset) and FOV toward the current rotation-mode config.
+	 *  Local-viewer only; called every Tick. */
+	void UpdateCameraForMode(float DeltaTime);
 
 	void OnMoveTriggered(const FInputActionValue& Value);
 	void OnMoveCompleted(const FInputActionValue& Value);

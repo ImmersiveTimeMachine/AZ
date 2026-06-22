@@ -115,6 +115,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Strafe", meta = (ClampMin = "0", ForceUnits = "s"))
 	float StrafeFacingTime = 0.10f;
 
+	/** Strafe BIG-TURN facing time — used when the body is far off the camera at a move-start (the angle band that
+	 *  triggers the 90/135/180 turn-start CLIPS). The spring time is ramped from StrafeFacingTime (small angle,
+	 *  snappy aim-lock) up to this (large angle) so the body turns over roughly the turn-start clip's DURATION
+	 *  instead of snapping in ~0.3s and leaving the clip to play out desynced. Higher = the body turn matches a
+	 *  longer/heavier clip; set == StrafeFacingTime to disable the ramp (uniform snappy turn). BP-tunable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Strafe", meta = (ClampMin = "0", ForceUnits = "s"))
+	float StrafeTurnFacingTime = 0.50f;
+
 	// ---- Rotation-offset clamp ----
 	/** Max delta (degrees) the new RotationOffset can move per tick away from the prior frame's
 	 *  cached offset. 179° guarantees the spring damper always picks the short arc — without

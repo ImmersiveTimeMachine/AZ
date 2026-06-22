@@ -7,6 +7,7 @@
 #include "Animation/AZ_MoverAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "AZ_GameplayTags.h"
+#include "GameplayEffect.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "MoverComponent.h"
@@ -46,7 +47,16 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	
+
+	// Data-driven GEs on activation (e.g. GE_CombatReady -> refresh the fists-up stance every punch). The GE owns
+	// its duration + refresh-on-reapply stacking; ApplyGameplayEffectSpecToOwner routes prediction/authority.
+	for (const TSubclassOf<UGameplayEffect>& EffectClass : EffectsOnActivate)
+	{
+		if (!*EffectClass) continue;
+		const FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(EffectClass, GetAbilityLevel());
+		if (Spec.IsValid()) ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
+	}
+
 	bIsMovingLatched = false;
 
 	if (const auto* Pawn = GetHeroPawnFromActorInfo())
