@@ -96,6 +96,7 @@ Migrated from UE 5.7.4 on 2026-05-10. Active work: v2 character system (hero paw
 - [reference_ue5_python_posesearch.md](reference_ue5_python_posesearch.md), [reference_ue5_python_anim_notifies.md](reference_ue5_python_anim_notifies.md) — Python recipes (procedural surface in skill `asset-modification-via-python`)
 - [reference_zaggoth_lh_ik_tutorial.md](reference_zaggoth_lh_ik_tutorial.md) — FABRIK bone-space LH IK tutorial summary
 - [ue_ai_plugins_comparison.md](ue_ai_plugins_comparison.md) — unrealclaude vs SpecialAgent vs UnrealGenAISupport
+- [reference_ue_native_mcp_server.md](reference_ue_native_mcp_server.md) — UE 5.8 NATIVE MCP server plugin (ModelContextProtocol/"Unreal MCP"): enable/start/port/config, toolset surface, critical gaps vs unrealclaude, HYBRID decision (Epic primary + keep unrealclaude for execute_script/chooser/anim). Read before any "switch MCP backend" work.
 
 ## CommonUI Migration Patterns
 - UUserWidget → UCommonUserWidget / UCommonButtonBase
