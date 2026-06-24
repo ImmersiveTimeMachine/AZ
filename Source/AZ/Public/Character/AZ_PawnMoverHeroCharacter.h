@@ -15,6 +15,7 @@
 class UAbilitySystemComponent;
 class UAZ_GameplayAbility;
 class UAZ_PawnMoverComponent;
+class UAZ_MovementDirectionCapabilityComponent;
 class UNetworkPredictionComponent;
 class UMoverTrajectoryPredictor;
 class UCapsuleComponent;
@@ -123,6 +124,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	UMoverTrajectoryPredictor* GetTrajectoryPredictor() const { return TrajectoryPredictor; }
 
+	/** The "where can I move" query — clamps move intent to free directions in ProduceInput. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
+	UAZ_MovementDirectionCapabilityComponent* GetMovementCapability() const { return MovementCapability; }
+
+	/** RAW (pre-clearance-clamp) world-space move intent produced this sim tick. The obstacle sensor reads THIS
+	 *  (not the clamped Mover input cmd) so a straight-in wall hit still registers after the clamp zeroes the cmd. */
+	FVector GetWorldMoveIntentRaw() const { return CachedWorldMoveIntentRaw; }
+
 	// ========================================
 	// Components
 	// ========================================
@@ -188,6 +197,11 @@ protected:
 	bool bIsJumpPressed = false;
 	bool bIsJumpJustPressed = false;
 
+	// The RAW world-space move intent produced this sim tick, captured in ProduceInput BEFORE the movement-
+	// capability clamp. Exposed via GetWorldMoveIntentRaw() so the obstacle sensor keeps sensing the wall even
+	// after the clamp zeroes the shipped Mover input cmd (otherwise a straight-in hit would self-blind).
+	FVector CachedWorldMoveIntentRaw = FVector::ZeroVector;
+
 	// Strafe: at idle the body HOLDS its facing (no camera follow); a move aligns it to the camera. This latch
 	// keeps the align going until the body reaches the camera even if the move was a brief tap, so one tap aligns
 	// fully instead of freezing part-way. While set (or move held), face the align target; else (idle) hold current facing.
@@ -241,6 +255,11 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|MotionMatching")
 	TObjectPtr<UMoverTrajectoryPredictor> TrajectoryPredictor;
+
+	/** "Where can I move" clearance query — clamps the move intent to free directions in ProduceInput (reuses
+	 *  Mover's slide math). Created in the ctor; self-contained (finds the Mover + capsule in BeginPlay). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Movement")
+	TObjectPtr<UAZ_MovementDirectionCapabilityComponent> MovementCapability;
 
 	/** Default team id for this pawn class. Player pawns default to 0; AI subclasses
 	 *  set their team in the constructor or at spawn. Read by AI perception. */

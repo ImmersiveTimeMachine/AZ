@@ -64,6 +64,12 @@ struct FAZ_LocoSMInputs
 	 *  back strafe starts force a plain directional step-off (those forward-turn clips don't fit them). */
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
 
+	/** True while the obstacle sensor reports an active reaction (Brace/Blocked). The SM HOLDS LocomotionLoop and
+	 *  skips start/stop/turn transitions so a wall reaction can't be interrupted by turning / stick-flicker into
+	 *  the wall (those would fire pivots/stops that out-match the reaction row). Grounded-only; clears the instant
+	 *  the reaction does (you turn off the wall) -> normal dispatch resumes. See project_obstacle_reaction_system. */
+	bool bObstacleReacting = false;
+
 	// ---- Tunables (kept CDO-editable on the AnimInstance, passed in rather than duplicated here) ----
 	float IdleBreakMinTime = 5.f;
 	float IdleBreakMaxTime = 15.f;
@@ -114,10 +120,21 @@ public:
 	/** As above, for the idle-break clip → replaces the old IdleBreakEndTime write. */
 	void NotifyIdleBreakClipPushed(float WorldNow, float ClipPlayLength, float AlmostCompleteThreshold);
 
+	/** Impact-reaction clip (Brace/Stumble/HeadHit) played in the held LocomotionLoop. Hands the SM the chosen
+	 *  clip's real remaining length so the loop holds until the flinch is almost done — the reaction plays in FULL
+	 *  then releases to idle, the hold tracking whatever clip the CHT picked (no per-clip magic hold number). */
+	void NotifyReactionClipPushed(float WorldNow, float ClipRemainingSeconds, float AlmostCompleteThreshold);
+
 	/** The last SETTLED stance — what the body currently SHOWS, not last tick's input. During a stance
 	 *  transition this still holds the OLD stance, which is exactly the "FromStance" the chooser needs
 	 *  the day a third stance (prone) makes the transition pair ambiguous (audit scalability pre-work). */
 	EAZ_Stance GetSettledStance() const { return PreviousStance; }
+
+	/** True while an impact-reaction clip is still being held (window set by NotifyReactionClipPushed from the clip
+	 *  length). The AnimInstance reads this to keep ChooserContext.Reaction LATCHED past the sensor's brief trigger
+	 *  window, so the chooser keeps selecting the flinch clip for its full length instead of dropping back to the
+	 *  loop mid-flinch. Benign single-word read (same race class as the Notify* writes). */
+	bool IsReactionActive(float WorldNow) const { return ReactionEndTime > 0.f && WorldNow < ReactionEndTime; }
 
 private:
 	/** The faithful port of DeriveSMState's body — returns the next phase, mutating the timers/latches. */
@@ -134,6 +151,9 @@ private:
 	float NextIdleBreakTime = -1.f;
 	float IdleBreakEndTime  = -1.f;
 	float TransitionEndTime = -1.f;
+	/** World time the active impact-reaction clip is ~done; holds LocomotionLoop past the sensor's brief trigger
+	 *  window so the flinch plays in full. <0 = no reaction active. Set by NotifyReactionClipPushed. */
+	float ReactionEndTime   = -1.f;
 
 	/** Brief takeoff window: while airborne, hold TransitionToInAir until Now >= this, then fall (InAirLoop).
 	 *  Physics jumps are variable-length, so the air phase is mode-driven; only the TAKEOFF is timed. */

@@ -46,6 +46,12 @@ void UAZ_LocomotionStateMachine::NotifyIdleBreakClipPushed(float WorldNow, float
 	IdleBreakEndTime = WorldNow + ClipPlayLength - AlmostCompleteThreshold;
 }
 
+void UAZ_LocomotionStateMachine::NotifyReactionClipPushed(float WorldNow, float ClipRemainingSeconds, float AlmostCompleteThreshold)
+{
+	// Same shape as the transition/idle-break notifies: hold until the reaction clip is almost done.
+	ReactionEndTime = WorldNow + ClipRemainingSeconds - AlmostCompleteThreshold;
+}
+
 FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 {
 	const EAZ_StateMachineState NewState = ComputeNextState(In);
@@ -87,6 +93,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		IdleBreakEndTime   = -1.f;
 		TransitionEndTime  = -1.f;
 		TakeoffEndTime     = -1.f;
+		ReactionEndTime    = -1.f;
 		bLatchedJustLanded = false;
 		return EAZ_StateMachineState::IdleLoop;
 	}
@@ -135,6 +142,37 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		}
 		// Standing land → land-into-idle; chooser picks JumpIdleLand by bJustLanded.
 		return EAZ_StateMachineState::TransitionToIdle;
+	}
+
+	// ---- Obstacle reaction (impact flinch): HOLD LocomotionLoop so the reaction clip plays IN FULL. bObstacleReacting
+	// (the sensor's brief trigger window) STARTS it; the clip-driven ReactionEndTime (set by NotifyReactionClipPushed
+	// from the CHT-selected clip's length) carries the hold to the clip's real end — so the flinch isn't cut and no
+	// per-clip magic hold number is needed. While held the SM must NOT run start/stop/turn transitions (turning /
+	// stick-flicker into the wall would fire pivots/stops whose rows out-match the reaction row). Grounded-only
+	// (sensor never reacts airborne), so it sits after the air/touchdown checks. Clears the instant the clip finishes
+	// → the grounded dispatch below resumes. ----
+	if (In.bObstacleReacting || (ReactionEndTime > 0.f && Now < ReactionEndTime))
+	{
+		PreviousStance     = In.Stance;
+		NextIdleBreakTime  = -1.f;
+		IdleBreakEndTime   = -1.f;
+		bLatchedJustLanded = false;
+		return EAZ_StateMachineState::LocomotionLoop;
+	}
+	// Reaction JUST ended (ReactionEndTime was set by a reaction push and its hold has now expired). The flinch
+	// already brought us to a stop, so if we're not moving go STRAIGHT to IdleLoop — do NOT run another
+	// TransitionToIdle stop clip after the flinch (that was the redundant "stop anim after impact"). If we ARE
+	// moving (redirected to a clear direction), fall through to the normal dispatch and resume the loop.
+	if (ReactionEndTime > 0.f)
+	{
+		ReactionEndTime = -1.f;
+		if (!In.bIsMoving)
+		{
+			PreviousStance     = In.Stance;
+			bLatchedJustLanded = false;
+			NextIdleBreakTime  = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+			return EAZ_StateMachineState::IdleLoop;
+		}
 	}
 
 	// ---- Grounded dispatch. The movement-intent split must precede the switch: the SAME previous phase routes

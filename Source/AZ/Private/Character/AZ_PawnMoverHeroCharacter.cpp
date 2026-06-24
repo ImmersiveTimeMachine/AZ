@@ -8,8 +8,11 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Character/AZ_MovementDirectionCapabilityComponent.h"
+#include "Character/AZ_ObstacleSensorComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
+#include "Animation/AZ_MoverAnimInstance.h"  // IsPlayingImpactReaction (lock movement during the flinch)
 #include "AZ_GameplayTags.h"                 // FAZ_GameplayTags::Get()
 #include "Engine/CollisionProfile.h"
 #include "EnhancedInputComponent.h"
@@ -114,6 +117,9 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 
 	// --- PoseSearch trajectory predictor (Mover-native) ---
 	TrajectoryPredictor = CreateDefaultSubobject<UMoverTrajectoryPredictor>(TEXT("TrajectoryPredictor"));
+
+	// --- "Where can I move" clearance query (no tick — ProduceInput calls it to clamp the move intent) ---
+	MovementCapability = CreateDefaultSubobject<UAZ_MovementDirectionCapabilityComponent>(TEXT("MovementCapability"));
 }
 
 void AAZ_PawnMoverHeroCharacter::BeginPlay()
@@ -410,6 +416,57 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	const FRotator YawOnly(0.f, ControlRot.Yaw, 0.f);
 	FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent);
 
+	// Cache the RAW (pre-clamp) world intent — the obstacle sensor reads THIS (not the clamped cmd below) so a
+	// straight-in wall hit still registers after the clamp zeroes the shipped input.
+	CachedWorldMoveIntentRaw = WorldMove;
+
+	// "Where can I move" — clamp the move INTENT to the free direction using Mover's own slide math (reuse, don't
+	// reinvent): straight-in -> ~zero -> idle; angled -> tangent -> slide-with-matching-loco. Stays INTENT-driven
+	// (predictive) — both Mover and the AnimInstance consume this single clamped cmd (no velocity read). Runs in
+	// ProduceInput so NetworkPrediction replays it identically -> co-op-safe.
+	if (MovementCapability)
+	{
+		WorldMove = MovementCapability->ConstrainIntent(WorldMove);
+	}
+
+	// LOCK movement when (a) an impact flinch is playing — it's a transition, don't slide/run through it; OR (b)
+	// we're pushing directly into an obstacle the CLAMP couldn't catch. (b) makes a SLOW approach (no flinch) stop
+	// the SAME as a fast one: the clamp already stops you at walls (closer), but its capsule CLEARS an overhead beam
+	// — the sensor sees that, so we stop here too. Without this, slow == walk under; fast == stop (the flinch-lock
+	// masked the clamp's overhead gap). SP-first: game-thread reads in the deterministic producer, same caveat as
+	// the GAS-tag reads below — co-op would need these replicated.
+	bool bLockMove = false;
+	if (Mesh)
+	{
+		if (const UAZ_MoverAnimInstance* AnimInst = Cast<UAZ_MoverAnimInstance>(Mesh->GetAnimInstance()))
+		{
+			bLockMove = AnimInst->IsPlayingImpactReaction();   // (a) flinch transition
+		}
+	}
+	if (!bLockMove && MovementCapability && !MovementCapability->bBlockedThisQuery
+		&& !CachedWorldMoveIntentRaw.IsNearlyZero())
+	{
+		// (b) clamp caught nothing this frame, but the sensor sees an obstacle dead ahead (e.g. an overhead beam
+		// above the capsule). If we're pushing INTO it (within ~60deg of head-on) and it's within trigger range,
+		// stop — so we don't walk under it on a slow approach. Walls the clamp DID catch (bBlockedThisQuery) are
+		// already handled (closer stop) and skipped here.
+		if (const UAZ_ObstacleSensorComponent* Sensor = FindComponentByClass<UAZ_ObstacleSensorComponent>())
+		{
+			FVector N = Sensor->ObstacleNormal;
+			N.Z = 0.f;
+			if (Sensor->bObstacleAhead && Sensor->ObstacleDistance <= Sensor->ImpactTriggerDistance
+				&& N.Normalize()
+				&& FVector::DotProduct(CachedWorldMoveIntentRaw.GetSafeNormal(), -N) > 0.5f)
+			{
+				bLockMove = true;
+			}
+		}
+	}
+	if (bLockMove)
+	{
+		WorldMove = FVector::ZeroVector;
+	}
+
 	// Where the camera is pointing this sim tick. Mover stores it on the
 	// SyncState so modes / animation can read "look direction" deterministically
 	// (don't query PlayerCameraManager from inside a mode — it isn't replayed).
@@ -427,6 +484,10 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 			WorldMove = FVector::ZeroVector;
 		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
 	}
+
+	// (Obstacle blocking is now handled upstream by the movement-capability clamp on WorldMove above — a wall ahead
+	// zeroes / slides the intent, so the pawn idles or strafes-along the wall without a special "blocked -> strafe"
+	// override here. The forward sensor is purely cosmetic impact flinches now.)
 
 	// The move command itself. DirectionalIntent = "a unit-ish vector pointing
 	// where I want to go" (vs. Velocity = "an exact velocity vector"). World-space

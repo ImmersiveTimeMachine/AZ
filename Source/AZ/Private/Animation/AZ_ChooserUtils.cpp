@@ -251,6 +251,26 @@ bool UAZ_ChooserUtils::CompileAndSave(const FString& ChooserPath)
 #endif
 }
 
+bool UAZ_ChooserUtils::RemoveColumnAt(const FString& ChooserPath, int32 ColumnIndex)
+{
+#if WITH_EDITOR
+	UChooserTable* Table = LoadChooser(ChooserPath);
+	if (!Table || !Table->ColumnsStructs.IsValidIndex(ColumnIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AZ_ChooserUtils::RemoveColumnAt: invalid column %d (count %d)"),
+			ColumnIndex, Table ? Table->ColumnsStructs.Num() : -1);
+		return false;
+	}
+	Table->Modify();
+	Table->ColumnsStructs.RemoveAt(ColumnIndex);   // column owns its per-row cells; others + results untouched
+	UE_LOG(LogTemp, Log, TEXT("AZ_ChooserUtils::RemoveColumnAt: removed column %d, now %d columns"),
+		ColumnIndex, Table->ColumnsStructs.Num());
+	return true;   // caller runs CompileAndSave
+#else
+	return false;
+#endif
+}
+
 int32 UAZ_ChooserUtils::GetRowCount(const FString& ChooserPath)
 {
 #if WITH_EDITOR

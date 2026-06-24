@@ -65,6 +65,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser")
 	static bool CompileAndSave(const FString& ChooserPath);
 
+	/** Remove the column at ColumnIndex from the ROOT table (our CHT has no nested sub-tables). Each column owns
+	 *  its per-row cells, so removal leaves the other columns + row outputs intact; remaining columns shift down
+	 *  by one (bindings are by object, not index, so they survive). Call CompileAndSave afterwards. Remove higher
+	 *  indices FIRST when dropping several. Fills the gap left by the Add*-only column API. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool RemoveColumnAt(const FString& ChooserPath, int32 ColumnIndex);
+
 	/** Get the number of rows in a Chooser table. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser")
 	static int32 GetRowCount(const FString& ChooserPath);

@@ -7,6 +7,7 @@
 #include "Animation/AZ_LocomotionStateMachine.h"
 #include "AZ_GameplayTags.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
+#include "Character/AZ_ObstacleSensorComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMovementMode_RMAction.h"
@@ -374,6 +375,40 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 #endif
 
+	// ---- Obstacle reactions (brace / blocked) — from the pawn's forward-trace sensor. Read BEFORE the SM so a
+	// reaction can HOLD the loop (otherwise turning / stick-flicker into the wall fires start/stop/turn
+	// transitions that out-match the reaction row). Lazily (re)find the component; absent -> None. The Run2Wall /
+	// Idle6 rows key on ChooserContext.Reaction (the Reaction enum column). See project_obstacle_reaction_system.
+	if (!Cached_ObstacleSensor.IsValid() && Cached_Pawn)
+	{
+		Cached_ObstacleSensor = Cached_Pawn->FindComponentByClass<UAZ_ObstacleSensorComponent>();
+	}
+	// LATCH the reaction for the chooser: the sensor reports the flinch only for its brief trigger window, but the SM
+	// holds the flinch clip until it's ~done (NotifyReactionClipPushed). Keep ChooserContext.Reaction set while the
+	// sensor reports it OR the SM is still holding it — otherwise the chooser drops back to the walk/run loop mid-
+	// flinch (the "plays only the trigger window then resumes loco" bug). Cleared when both are false.
+	{
+		const EAZ_ObstacleReaction SensorReaction = Cached_ObstacleSensor.IsValid()
+			? Cached_ObstacleSensor->CurrentReaction
+			: EAZ_ObstacleReaction::None;
+		const UWorld* ReactWorld = GetWorld();
+		const float   ReactNow   = ReactWorld ? ReactWorld->GetTimeSeconds() : 0.f;
+		if (SensorReaction != EAZ_ObstacleReaction::None)
+		{
+			LatchedReaction = SensorReaction;   // fresh / ongoing sensor trigger
+		}
+		else if (!(LatchedReaction != EAZ_ObstacleReaction::None && StateMachine && StateMachine->IsReactionActive(ReactNow)))
+		{
+			LatchedReaction = EAZ_ObstacleReaction::None;   // sensor cleared AND the SM is no longer holding -> done
+		}
+		ChooserContext.Reaction = LatchedReaction;
+	}
+
+	// NOTE: "blocked" is no longer an anim concern. The pawn's movement-capability clamp zeroes the move intent
+	// when you face into a wall, so bIsMoving (read from the clamped input cmd above) already goes false -> idle,
+	// and a glancing hit slides -> matching loco. The sensor's Reaction now only carries cosmetic IMPACT flinches
+	// (Brace / Stumble / HeadHit) for the chooser's Reaction column.
+
 	// ---- Phase derivation (the "C++ SM") — now owned by UAZ_LocomotionStateMachine. We resolve all role /
 	// mode / jump-edge awareness HERE (at the boundary) and hand it in; the SM stays a pure decision function,
 	// and applies the latch lifetime-gating (StartDirection / bMovingTransition / bJustLanded) inside Tick. ----
@@ -381,6 +416,9 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		const UWorld* SMWorld = GetWorld();
 		FAZ_LocoSMInputs SMIn;
 		SMIn.WorldNow             = SMWorld ? SMWorld->GetTimeSeconds() : 0.f;
+		// Pure INTENT-driven (the clamped input cmd): a wall ahead already zeroed the intent upstream (capability
+		// clamp), so no Reaction-gating is needed here — straight-in -> intent 0 -> SM stops -> idle; glancing ->
+		// slid intent -> loco along the wall. Impact flinches ride the chooser's Reaction column, not bIsMoving.
 		SMIn.bIsMoving            = ChooserContext.bIsMoving;
 		// Full movement-mode enum (engine Falling/RMAction map to InAir above; Slide/Traversing become SM
 		// cases when those modes land). Persistent replicated STATE, so the SM derives the whole air phase
@@ -400,6 +438,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 		SMIn.Stance				  = ChooserContext.Stance;
+		// IMPACT REACTION: HOLD LocomotionLoop while a one-shot impact reaction (Brace/Stumble/HeadHit) is active so
+		// its CHT row — which lives on LocomotionLoop and wins because the loop rows defer via Reaction=None — plays
+		// IN FULL, instead of being cut after ~2 frames when the capability clamp zeroes intent and the SM would
+		// otherwise fall straight to the stop transition. The sensor is impact-only (one-shot), so this releases the
+		// instant the reaction expires -> bIsMoving is already false (clamped) -> SM goes to idle. So the visible flow
+		// is still "impact -> reaction clip -> idle"; LocomotionLoop is just the bucket the reaction clip lives in.
+		SMIn.bObstacleReacting    = (ChooserContext.Reaction != EAZ_ObstacleReaction::None);
 
 		// Defensive: StateMachine is created in NativeInitializeAnimation, but Live Coding re-instancing (and any
 		// path that ticks an AnimInstance whose Init didn't run) can leave this Transient pointer null — calling
@@ -535,7 +580,8 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		ChooserContext.Stance            != LastPushedStance ||
 		ChooserContext.Gait              != LastPushedGait ||
 		ChooserContext.MovementDirection != LastPushedDir ||
-		ChooserContext.bLeftFootDown     != LastPushedLeftFootDown;
+		ChooserContext.bLeftFootDown     != LastPushedLeftFootDown ||
+		ChooserContext.Reaction          != LastPushedReaction;   // impact flinch changes the row w/o SMState/Gait/Dir
 
 	if (!bSelectionChanged && !bForceBlend && !ChooserOut.bUseMM && BlendStackInputs.Anim != nullptr)
 	{
@@ -686,6 +732,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	LastPushedGait             = ChooserContext.Gait;
 	LastPushedDir              = ChooserContext.MovementDirection;
 	LastPushedLeftFootDown     = ChooserContext.bLeftFootDown;
+	LastPushedReaction         = ChooserContext.Reaction;
 	LastPushedTransitionSerial = TransitionSerial;
 
 	// Refresh the one-shot stash with THIS clip's blend-out, so the NEXT push (which replaces it) honors it.
@@ -711,6 +758,27 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 				const float BreakRemaining = FMath::Max(0.05f,
 					Seq->GetPlayLength() - static_cast<float>(BlendStackInputs.StartTime));
 				StateMachine->NotifyIdleBreakClipPushed(Now, BreakRemaining, IdleBreakAlmostCompleteThreshold);
+			}
+		}
+	}
+
+	// Impact-reaction (Brace/Stumble/HeadHit) tracking — the reaction clip plays in the HELD LocomotionLoop
+	// (bObstacleReacting). Hand the SM the clip's real remaining length so it holds the loop until the flinch is
+	// almost done, then releases to idle — the hold tracks whatever clip the CHT picked (no per-clip magic number;
+	// this is why the sensor's per-reaction hold-time params were removed). Detected by an active Reaction on a
+	// LocomotionLoop push (a normal loop push has Reaction == None).
+	if (ChooserContext.Reaction != EAZ_ObstacleReaction::None
+		&& ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
+	{
+		if (const UAnimSequenceBase* Seq = Cast<UAnimSequenceBase>(BlendStackInputs.Anim))
+		{
+			const UWorld* World = GetWorld();
+			const float Now = World ? World->GetTimeSeconds() : 0.f;
+			const float Remaining = FMath::Max(0.05f,
+				Seq->GetPlayLength() - static_cast<float>(BlendStackInputs.StartTime));
+			if (StateMachine)
+			{
+				StateMachine->NotifyReactionClipPushed(Now, Remaining, TransitionAlmostCompleteThreshold);
 			}
 		}
 	}

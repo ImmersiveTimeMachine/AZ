@@ -14,6 +14,7 @@ class UCharacterMoverComponent;
 class UPoseSearchDatabase;
 class UAnimSequence;
 class UAZ_LocomotionStateMachine;
+class UAZ_ObstacleSensorComponent;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -41,6 +42,11 @@ public:
 	 *  Input Property. Refreshed every tick in NativeUpdateAnimation. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|V2|Anim")
 	FAZ_v2_ChooserContext ChooserContext;
+
+	/** True while an impact-reaction flinch (Brace/Stumble/HeadHit) is playing — i.e. the reaction latch is held
+	 *  (for the clip's full length). The pawn reads this in ProduceInput to LOCK movement during the flinch so it
+	 *  plays as a transition, not something you slide / run through. */
+	bool IsPlayingImpactReaction() const { return LatchedReaction != EAZ_ObstacleReaction::None; }
 
 	/** BlendStack inputs — written by SetBlendStackAnimFromChooser, read by the BlendStack
 	 *  node's internal SequencePlayer via property bindings (BlendStackInputs.Anim, .bLoop, etc.). */
@@ -228,6 +234,18 @@ protected:
 	UPROPERTY(Transient) EAZ_Gait                LastPushedGait   = EAZ_Gait::Walk;
 	UPROPERTY(Transient) EAZ_MovementDirection   LastPushedDir    = EAZ_MovementDirection::F;
 	UPROPERTY(Transient) bool                    LastPushedLeftFootDown = false;
+	// Reaction is part of the selection key: an impact flinch (None->Brace/Stumble/HeadHit) changes the chosen
+	// row WITHOUT changing SMState/Gait/Dir (the SM holds LocomotionLoop), so without this the non-MM reaction
+	// clip is never pushed — it reads as "same selection" and the loop keeps playing (the "goes straight to stop"
+	// bug). Forcing a push on a Reaction change makes the flinch land (and the return-to-None re-push the loop).
+	UPROPERTY(Transient) EAZ_ObstacleReaction    LastPushedReaction = EAZ_ObstacleReaction::None;
+
+	/** The impact reaction currently feeding the chooser. LATCHED: the sensor only reports the reaction for a brief
+	 *  trigger window, but the SM holds the flinch clip until it's ~done — so we keep this set (and thus the chooser
+	 *  selecting the flinch) while the sensor reports it OR the SM is still holding it (UAZ_LocomotionStateMachine::
+	 *  IsReactionActive). Cleared when both are false. Fixes the flinch playing only the trigger window then snapping
+	 *  back to the walk/run loop. */
+	UPROPERTY(Transient) EAZ_ObstacleReaction    LatchedReaction = EAZ_ObstacleReaction::None;
 
 	/** Additive lean — X = left/right lean while moving FORWARD (cornering). Lateral-acceleration driven
 	 *  (port of AZ_AnimInstance::Update_AdditiveLean), forward-gated; consumed by the lean BlendSpace via an
@@ -257,6 +275,15 @@ protected:
 	/** Blend-OUT rate for CombatReadyAlpha (1->0 on disable). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Combat", meta = (ClampMin = "0"))
 	float CombatReadyBlendOutSpeed = 6.f;
+
+	// ---- Obstacle reactions (impact brace + blocked) — driven by the pawn's forward-trace sensor ----
+	// The velocity heuristics for bWallImpact / bBlocked were retired in favour of UAZ_ObstacleSensorComponent:
+	// a gated forward sweep that actually MEASURES the wall (distance + height + closing speed) — reliable,
+	// height-aware, and the first leg of the traversal probe (project_traversal_system). Add the component to the
+	// pawn; we lazily find it and copy its flags into ChooserContext each tick (the Run2Wall / bBlocked chooser
+	// rows still gate on SMState==LocomotionLoop). Absent component -> no obstacle reactions (graceful).
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UAZ_ObstacleSensorComponent> Cached_ObstacleSensor;
 
 	// Transition-entry token: incremented on the game thread whenever SMState changes; stamped into
 	// LastPushedTransitionSerial on a COMMITTED push. The transition lock compares serials, not raw

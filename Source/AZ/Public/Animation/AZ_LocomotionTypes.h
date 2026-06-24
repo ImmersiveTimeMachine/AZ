@@ -137,6 +137,27 @@ enum class EAZ_StartDirection : uint8
 	R180	= 6		// about-face, lead right
 };
 
+/** What the forward obstacle sensor (UAZ_ObstacleSensorComponent) decided the pawn just ran into. ONE enum
+ *  replaces the old bWallImpact/bBlocked bools so reactions scale by adding a value + a chooser row, not a
+ *  column. Drives the obstacle-reaction chooser rows (and, later, gameplay consequences — damage / stagger /
+ *  AI-noise). Reserved values are the traversal outcomes that share the same probe. See
+ *  project_obstacle_reaction_system. */
+UENUM(BlueprintType)
+enum class EAZ_ObstacleReaction : uint8
+{
+	None		= 0,	// nothing ahead / normal locomotion
+	Brace		= 1,	// hard hit into a tall wall (Run2Wall) — one-shot, then settles to Blocked
+	Stop		= 2,	// soft approach into a tall wall — play the walk/run stop, then Blocked (Phase 2)
+	Blocked		= 3,	// pinned against a wall, still pushing — idle/push; latched until you turn off it
+	Stumble		= 4,	// ran into a LOW barrier at speed — light stumble that recovers (Phase 2)
+	StepOver	= 5,	// RESERVED (traversal): step over a low obstacle
+	Vault		= 6,	// RESERVED (traversal): vault a waist-high obstacle
+	Mantle		= 7,	// RESERVED (traversal): mantle onto a ledge
+	HeadHit		= 8		// ran into an OVERHEAD obstacle (head band hit, chest clear) — e.g. a beam (KB high hit)
+	// (Stumble = the LOW-band hit; Brace = the MID/wall hit. Blocked "fidgets" reuse the normal IdleLoop->
+	//  IdleBreak system: while Blocked the AnimInstance cancels anim-intent so the SM idles.)
+};
+
 /** Traversal action type (mirrors GASP E_TraversalActionType). */
 UENUM(BlueprintType)
 enum class EAZ_TraversalActionType : uint8
@@ -654,6 +675,13 @@ struct AZ_API FAZ_v2_ChooserContext
 	 *  BoolColumn gate on the strafe rows. Replicated loose tag -> present on all roles. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	bool bStrafe = false;
+
+	/** The obstacle reaction chosen by UAZ_ObstacleSensorComponent this frame (None = normal locomotion). One
+	 *  enum replaces the old bWallImpact/bBlocked bools — drives the obstacle-reaction chooser rows via an
+	 *  EnumColumn (Brace=Run2Wall, Blocked=idle/push, Stop/Stumble later); per arm (OwnedTags) + mode (bStrafe).
+	 *  The AnimInstance copies it straight from the sensor. See project_obstacle_reaction_system. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_ObstacleReaction Reaction = EAZ_ObstacleReaction::None;
 
 	// ---- GAS-driven state (full tag snapshot from the player ASC) ----
 	/** Chooser predicates query with HasTag / HasMatchingTag — e.g. Weapon.Slot.Rifle,
