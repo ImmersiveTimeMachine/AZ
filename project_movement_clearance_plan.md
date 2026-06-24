@@ -9,6 +9,23 @@ metadata:
 
 # Movement / Blocking — Build Plan (for 2026-06-24). The "where can I move" clearance system.
 
+## ✅ DONE 2026-06-24 — shipped + CLI-baked + PIE-verified
+The intent-clamp clearance system (`UAZ_MovementDirectionCapabilityComponent`) AND the full impact-reaction playback chain are built, baked, and working. The clamp keeps v2 intent-pure: `ConstrainIntent` in ProduceInput reuses Mover's `ComputeSlideDelta` on a raised forward capsule sweep (above `StepUpClearance`) → straight-in zeros the intent (idle), angled slides, blocked when into-wall. The reaction layer (sensor flinch → AnimInstance latch → SM clip-driven hold → flinch→idle → pawn movement-lock) is the cosmetic layer on top. **Full final design + every fix (peak-speed gate, reaction latch, push-key, flinch→idle, movement-lock incl. overhead, clip choices, tuning knobs, CHT edit traps) is in [[project_obstacle_reaction_system]] § "SHIPPED 2026-06-24 (eve)" — read THAT for the complete record.** Remaining: tune `StepUpClearance`/`MaxWallNormalZ`/`MinSlideAlignment` to taste; co-op determinism of the ProduceInput game-thread reads; future cover/AI/ledge can reuse the clamp query.
+
+
+## ★ PROGRESS 2026-06-24 (build authored, PIE pending)
+**Investigate DONE:** the only sim-safe Mover slide helper is `UMovementUtils::ComputeSlideDelta(FMovingComponentSet, Delta, Pct, Normal, Hit)` = `VectorPlaneProject(Delta, Normal)*Pct` (+ planar-constraint adjust we don't use), `BlueprintCallable`, no sim context. The Try*Slide/Move helpers ALL need a live sim tick → unusable in ProduceInput. So: OUR capsule sweep finds the wall normal; Mover's ComputeSlideDelta does the projection (stays in sync w/ the real move). `FMovingComponentSet(UMoverComponent*)` ctor exists (`MovementUtilsTypes.h:83`). AZ already deps Mover+NetworkPrediction.
+**SEPARATE COMPONENT decision:** clearance is its own component, NOT folded into the sensor — different layer (sensor=cosmetic local tick → AnimInstance; clearance=deterministic query → ProduceInput → co-op-safe), different reuse (cover/AI/ledge). Named **`UAZ_MovementDirectionCapabilityComponent`** (user's name).
+**BUILT (Steps 1,2,4,5 done in C++; Step 6 chooser still TODO):**
+- `UAZ_MovementDirectionCapabilityComponent` (.h/.cpp in `Character/`): `ConstrainIntent(WorldIntent)` (raised capsule sweep above `StepUpClearance=40` so stairs/curbs aren't clamped → ComputeSlideDelta → cancel-to-zero if `dot(slid,dir)<MinSlideAlignment=0.15` else slide), `IsDirectionClear(dir)`, outputs `bBlockedThisQuery`/`LastBlockingNormal`. No tick. Created as a C++ subobject on the pawn.
+- Pawn: `MovementCapability` subobject + getter; `CachedWorldMoveIntentRaw` + `GetWorldMoveIntentRaw()`; ProduceInput caches raw then `WorldMove = ConstrainIntent(WorldMove)` before SetMoveInput; REMOVED the Blocked→strafe block.
+- AnimInstance: REMOVED Blocked→bStrafe + the Reaction-gate of bIsMoving → `SMIn.bIsMoving = ChooserContext.bIsMoving` (pure clamped intent). Reaction read KEPT (cosmetic flinch column).
+- Sensor: intent source switched to `HeroPawn->GetWorldMoveIntentRaw()` (raw, anti-self-blind; falls back to GetLastInputCmd for non-hero); IMPACT-ONLY resolve (dropped Blocked latch + `BlockedMaxSpeed`); doc/debug text updated.
+**Build:** new UCLASS/UFUNCTION/UPROPERTY → editor-closed CLI build + restart REQUIRED. Editor was open (PID 35040) → awaiting user to close, then `Build.bat AZEditor`.
+**NEXT after green build + PIE-verify clamp:** Step 6 chooser impact=stop rows (Brace→Run2Wall, Stumble→KB_Hit_m_LowRight_Med, HeadHit→KB_Hit_m_HighFront_Med) + remove dead Blocked rows; tune ProbeDistance/StepUpClearance/MinSlideAlignment with bDrawDebug; run the validation matrix below.
+
+
+
 Resumes [[project_obstacle_reaction_system]]. Session arc: 3-probe sensor + reactions → Blocked=intent-cancel (Approach B) → Blocked=strafe (idle-slide patch) → impact=stop → "why doesn't Mover do this?" → "won't velocity regress us to old-school?" → the two settled points below.
 
 ## ★ TWO SETTLED POINTS (the architecture)
