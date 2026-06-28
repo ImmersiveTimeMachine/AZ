@@ -13,7 +13,6 @@
 #include "Engine/CollisionProfile.h"
 #include "GameplayTagContainer.h"
 #include "MoverDataModelTypes.h"            // FCharacterDefaultInputs, EMoveInputType
-#include "MoverPoseSearchTrajectoryPredictor.h"
 #include "NetworkPredictionComponent.h"
 
 AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInitializer& ObjectInitializer)
@@ -67,9 +66,6 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	// Required for Mover replication / NetworkPrediction (AI is server-authoritative; this carries corrections).
 	NetworkPredictionComponent = CreateDefaultSubobject<UNetworkPredictionComponent>(TEXT("NetworkPredictionComponent"));
 
-	// PoseSearch trajectory predictor (Mover-native). The infected AnimInstance reads it for motion matching.
-	TrajectoryPredictor = CreateDefaultSubobject<UMoverTrajectoryPredictor>(TEXT("TrajectoryPredictor"));
-
 	// "Where can I move" clearance clamp (no tick — ProduceInput calls ConstrainIntent).
 	MovementCapability = CreateDefaultSubobject<UAZ_MovementDirectionCapabilityComponent>(TEXT("MovementCapability"));
 
@@ -88,17 +84,6 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 	{
 		MoverComponent->SetHandleJump(true);
 		MoverComponent->SetHandleStanceChanges(true);
-	}
-
-	// Wire the trajectory predictor to the Mover component. Lazy-create if a BP subclass CDO nulled the instanced
-	// subobject (same guard the hero needs — UMoverTrajectoryPredictor is EditInlineNew).
-	if (!TrajectoryPredictor)
-	{
-		TrajectoryPredictor = NewObject<UMoverTrajectoryPredictor>(this, TEXT("TrajectoryPredictor_Runtime"));
-	}
-	if (TrajectoryPredictor)
-	{
-		TrajectoryPredictor->Setup(GetMoverComponent());
 	}
 
 	// Apply default faction once (subclasses / spawners can override via SetGenericTeamId).

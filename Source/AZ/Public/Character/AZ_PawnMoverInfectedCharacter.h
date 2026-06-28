@@ -16,7 +16,6 @@ class UAZ_AbilitySystemComponent;
 class UAZ_PawnMoverComponent;
 class UAZ_MovementDirectionCapabilityComponent;
 class UNetworkPredictionComponent;
-class UMoverTrajectoryPredictor;
 class UCapsuleComponent;
 class USkeletalMeshComponent;
 
@@ -25,10 +24,10 @@ class USkeletalMeshComponent;
  *
  * A STANDALONE sibling of AAZ_PawnMoverHeroCharacter (NOT a subclass): same v2 Mover stack, but WITHOUT the
  * player's camera + Enhanced Input, and with its OWN AbilitySystemComponent (NPCs have no PlayerState). It is
- * animated by its OWN AnimInstance, UAZ_InfectedAnimInstance — an independent copy of the player's MM pipeline
- * (so the infected can diverge freely; the hero's UAZ_MoverAnimInstance is left untouched). That copy casts to
- * THIS pawn and pulls GetMoverComponent()/GetTrajectoryPredictor(), exactly as the hero AnimInstance does for the
- * hero pawn — hence this pawn keeps its own trajectory predictor.
+ * animated by its OWN AnimInstance, UAZ_InfectedAnimInstance — a slim CLASSIC locomotion driver (Option B:
+ * state-machine / blendspace, NOT Motion Matching; the hero's UAZ_MoverAnimInstance is left untouched). That
+ * driver casts to THIS pawn and reads GetMoverComponent()->GetVelocity() (physics -> anim); no trajectory
+ * prediction (an MM-only artifact) is needed — hence this pawn no longer carries a trajectory predictor.
  *
  * How it is driven: the AIController (AAZ_InfectedAIController) — and later a BehaviorTree / NavMesh path-follow —
  * writes the SERVER-side intent surface (SetMoveIntentWorld / SetDesiredFacingWorld / SetGait). ProduceInput turns
@@ -112,9 +111,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	USkeletalMeshComponent* GetMesh() const { return Mesh; }
 
-	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
-	UMoverTrajectoryPredictor* GetTrajectoryPredictor() const { return TrajectoryPredictor; }
-
 	// ========================================
 	// Components (public like the hero so the BP details panel exposes them)
 	// ========================================
@@ -142,11 +138,6 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Mover", Transient)
 	TObjectPtr<UNetworkPredictionComponent> NetworkPredictionComponent;
-
-	/** PoseSearch trajectory predictor (Mover-native). UAZ_InfectedAnimInstance pulls this each tick to build the
-	 *  FTransformTrajectory for motion matching + intent-based IsMoving — same as the hero. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|MotionMatching")
-	TObjectPtr<UMoverTrajectoryPredictor> TrajectoryPredictor;
 
 	/** "Where can I move" clearance clamp — reused from the hero so the AI doesn't run-in-place into walls.
 	 *  Intent-pure (clamps the move INTENT in ProduceInput), so the anim stays predictive. */
