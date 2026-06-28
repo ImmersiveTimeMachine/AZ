@@ -38,8 +38,8 @@ void AAZ_InfectedAIController::Tick(float DeltaTime)
 		return;
 	}
 
-	AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get();
-	if (!P)
+	AAZ_PawnMoverInfectedCharacter* InfectedCharacter = InfectedPawn.Get();
+	if (!InfectedCharacter)
 	{
 		return;
 	}
@@ -49,31 +49,31 @@ void AAZ_InfectedAIController::Tick(float DeltaTime)
 	const APawn* Target = UGameplayStatics::GetPlayerPawn(this, 0);
 	if (!Target)
 	{
-		P->SetMoveIntentWorld(FVector::ZeroVector);
+		InfectedCharacter->SetMoveIntentWorld(FVector::ZeroVector);
 		return;
 	}
 
-	FVector ToTarget = Target->GetActorLocation() - P->GetActorLocation();
+	FVector ToTarget = Target->GetActorLocation() - InfectedCharacter->GetActorLocation();
 	ToTarget.Z = 0.f;
 	const float Distance = ToTarget.Size();
 	const FVector Dir = ToTarget.GetSafeNormal();
 
 	if (Dir.IsNearlyZero())
 	{
-		P->SetMoveIntentWorld(FVector::ZeroVector);
+		InfectedCharacter->SetMoveIntentWorld(FVector::ZeroVector);
 		return;
 	}
 
 	// Always face the target; move toward it until inside StopDistance.
-	P->SetDesiredFacingWorld(Dir);
+	InfectedCharacter->SetDesiredFacingWorld(Dir);
 	if (Distance > StopDistance)
 	{
-		P->SetMoveIntentWorld(Dir);
-		P->SetGait(EAZ_Gait::Run);   // a chasing Chalkie runs (Phase-2 aggressive)
+		InfectedCharacter->SetMoveIntentWorld(Dir);
+		InfectedCharacter->SetGait(EAZ_Gait::Run);   // a chasing Chalkie runs (Phase-2 aggressive)
 	}
 	else
 	{
-		P->SetMoveIntentWorld(FVector::ZeroVector);   // arrived: hold position, keep facing the target
+		InfectedCharacter->SetMoveIntentWorld(FVector::ZeroVector);   // arrived: hold position, keep facing the target
 	}
 
 	// Keep the controller's control rotation aligned with the facing so the AnimInstance's AimingRotation
