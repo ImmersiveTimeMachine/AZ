@@ -29,7 +29,7 @@ Broad & Epic-maintained, via 3 meta-tools (`list_toolsets`/`describe_toolset`/`c
 1. **No general `execute_script` (python/cpp/console).** `ProgrammaticToolset` is explicitly *"sandboxed… tool orchestration, not general Python execution."* → our `AZ_*Utils` C++ bridges are unreachable.
 2. **No Chooser editing** (CHT_v2 columns/rows) — v2 locomotion core.
 3. **No PoseSearch DB editing.**
-4. **No AnimGraph/AnimBP node wiring** (BlueprintTools is general BP only).
+4. **No AnimGraph/AnimBP node wiring.** Verified 2026-06-27: `BlueprintTools` IS a full K2 **graph DSL** (`read_graph_dsl`/`write_graph_dsl`/`get_graph_dsl_docs`, `create_node`/`connect_pins`/`set_pin_value`, variables, functions, components, `compile_blueprint`, `create`+`set_parent`) — so EVENT/FUNCTION-graph authoring on a regular BP (e.g. `BP_AZ_Chalkie` pawn child + mesh/anim-class props via ObjectTools) IS scriptable. But it has ZERO anim surface (grep of the 54 tools: 0 hits for anim/state-machine/montage/blend/transition/slot). So an **AnimBP state machine / blendspace / montage slot must be hand-built in-editor** (or duplicate a working ABP via `AssetTools.duplicate` — e.g. Zombie_01 `ABP_DemoPlayable` → `AZ_ABP_Chalkie`), OR use the `AZ_*Utils` bridges IF `unrealclaude execute_script` is restored.
 5. Our `AZ_BlueprintNodeUtils/AZ_AnimGraphNodeUtils/AZ_ChooserUtils/AZ_PoseSearchUtils/...` aren't registered `UToolsetDefinition`s → invisible to the native server. (Exposing them = writing toolset wrappers = a build project.)
 
 ## DECISION (2026-06-22): HYBRID — Epic native = primary, unrealclaude retained
