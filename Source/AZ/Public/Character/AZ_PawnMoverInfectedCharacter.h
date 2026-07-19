@@ -15,6 +15,7 @@ class UAbilitySystemComponent;
 class UAZ_AbilitySystemComponent;
 class UAZ_PawnMoverComponent;
 class UAZ_MovementDirectionCapabilityComponent;
+class UNavMoverComponent;
 class UNetworkPredictionComponent;
 class UCapsuleComponent;
 class USkeletalMeshComponent;
@@ -29,10 +30,15 @@ class USkeletalMeshComponent;
  * driver casts to THIS pawn and reads GetMoverComponent()->GetVelocity() (physics -> anim); no trajectory
  * prediction (an MM-only artifact) is needed — hence this pawn no longer carries a trajectory predictor.
  *
- * How it is driven: the AIController (AAZ_InfectedAIController) — and later a BehaviorTree / NavMesh path-follow —
- * writes the SERVER-side intent surface (SetMoveIntentWorld / SetDesiredFacingWorld / SetGait). ProduceInput turns
- * that into the deterministic Mover InputCmd. No PlayerController, so facing comes from the AI's desired heading
- * (face-target / face-movement), which the walking mode honours via OrientationIntent.
+ * How it is driven: TWO inputs feed ProduceInput, nav first, intent surface as fallback.
+ *  1. NavMesh path-follow — the AIController's MoveTo/MoveToActor (later issued by a BehaviorTree) routes through
+ *     the engine UNavMoverComponent (INavMovementInterface, auto-discovered by PathFollowing); ProduceInput
+ *     consumes its cached request via ConsumeNavMovementData and collapses it to a unit direction (speed stays
+ *     gait-driven — the walking mode is the single speed authority).
+ *  2. The raw AI intent surface (SetMoveIntentWorld / SetDesiredFacingWorld / SetGait) — direct steering with no
+ *     pathing (scripted nudges, dormant twitch-turns), used only when no nav move is in flight.
+ * Either way ProduceInput turns it into the deterministic Mover InputCmd. No PlayerController, so facing comes
+ * from the AI's desired heading (face-target / face-movement), which the walking mode honours via OrientationIntent.
  *
  * Interfaces (mirror the hero so every system treats both pawns uniformly):
  *  - IAbilitySystemInterface      — returns this pawn's OWN ASC (created here).
@@ -40,8 +46,8 @@ class USkeletalMeshComponent;
  *  - IGameplayTagAssetInterface   — tag queries route through the ASC.
  *  - IGenericTeamAgentInterface   — faction for AI perception; defaults to the player's enemy team.
  *
- * Foundation scope: pawn + own ASC + team + AI intent plumbing + Mover stack. Health/attributes, melee abilities,
- * perception, BehaviorTree and NavMesh path-following (via UNavMoverComponent) are later steps.
+ * Foundation scope: pawn + own ASC + team + AI intent plumbing + Mover stack + NavMesh path-follow bridge.
+ * Health/attributes, melee abilities, perception and the BehaviorTree brain are later steps.
  */
 UCLASS(config = Game, BlueprintType)
 class AZ_API AAZ_PawnMoverInfectedCharacter
@@ -111,6 +117,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	USkeletalMeshComponent* GetMesh() const { return Mesh; }
 
+	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
+	UNavMoverComponent* GetNavMoverComponent() const { return NavMoverComponent; }
+
 	// ========================================
 	// Components (public like the hero so the BP details panel exposes them)
 	// ========================================
@@ -143,6 +152,13 @@ protected:
 	 *  Intent-pure (clamps the move INTENT in ProduceInput), so the anim stays predictive. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Movement")
 	TObjectPtr<UAZ_MovementDirectionCapabilityComponent> MovementCapability;
+
+	/** Nav<->Mover bridge (engine): implements INavMovementInterface so the AIController's PathFollowingComponent
+	 *  auto-discovers it. Path-follow requests (BT MoveTo / MoveToActor) are cached here and consumed by
+	 *  ProduceInput each sim tick — nav data wins over the raw AI intent cache when a move is in flight.
+	 *  Also carries the RVO avoidance surface for Phase-5 hordes (Detour Crowd / avoidance masks). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Mover")
+	TObjectPtr<UNavMoverComponent> NavMoverComponent;
 
 	// ========================================
 	// AI intent cache (server-written by the controller/BT; read by ProduceInput each sim tick)

@@ -47,7 +47,10 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	Capsule = CreateDefaultSubobject<UCapsuleComponent>(TEXT("Capsule"));
 	Capsule->InitCapsuleSize(25.f, 90.f);
 	Capsule->SetCollisionProfileName(UCollisionProfile::Pawn_ProfileName);
-	Capsule->SetCanEverAffectNavigation(true);
+	// Pawns must NOT affect navigation: a nav-relevant capsule carves a hole in the navmesh under the pawn,
+	// which breaks every AI path query that starts/ends at a pawn ("start point not on navmesh"). Agents use
+	// avoidance (RVO/Detour), not carving.
+	Capsule->SetCanEverAffectNavigation(false);
 	Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Capsule->SetGenerateOverlapEvents(false);
 	SetRootComponent(Capsule);

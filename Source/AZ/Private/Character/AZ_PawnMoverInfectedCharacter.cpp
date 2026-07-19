@@ -10,6 +10,7 @@
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DefaultMovementSet/NavMoverComponent.h"
 #include "Engine/CollisionProfile.h"
 #include "GameplayTagContainer.h"
 #include "MoverDataModelTypes.h"            // FCharacterDefaultInputs, EMoveInputType
@@ -40,7 +41,10 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	Capsule = CreateDefaultSubobject<UCapsuleComponent>(TEXT("Capsule"));
 	Capsule->InitCapsuleSize(25.f, 90.f);
 	Capsule->SetCollisionProfileName(UCollisionProfile::Pawn_ProfileName);
-	Capsule->SetCanEverAffectNavigation(true);
+	// Pawns must NOT affect navigation: a nav-relevant capsule carves a hole in the navmesh under the pawn —
+	// the Chalkie's own path queries then start "off-navmesh" inside its own carve and ALL moves fail. Found
+	// the hard way (Phase 0 smoke test); agents use avoidance, not carving.
+	Capsule->SetCanEverAffectNavigation(false);
 	Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Capsule->SetGenerateOverlapEvents(false);
 	SetRootComponent(Capsule);
@@ -68,6 +72,13 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 
 	// "Where can I move" clearance clamp (no tick — ProduceInput calls ConstrainIntent).
 	MovementCapability = CreateDefaultSubobject<UAZ_MovementDirectionCapabilityComponent>(TEXT("MovementCapability"));
+
+	// Nav<->Mover bridge: PathFollowing auto-discovers it (INavMovementInterface); it finds our MoverComponent in
+	// its InitializeComponent. Agent extents mirror the capsule (25 radius / 2x90 half-height) so RecastNavMesh
+	// generation (project nav settings use the same numbers) and per-agent queries agree.
+	NavMoverComponent = CreateDefaultSubobject<UNavMoverComponent>(TEXT("NavMoverComponent"));
+	NavMoverComponent->NavAgentProps.AgentRadius = 25.f;
+	NavMoverComponent->NavAgentProps.AgentHeight = 180.f;
 
 	// --- Own ASC (NPC pattern). Minimal replication: AI is server-authoritative. ---
 	AbilitySystemComponent = CreateDefaultSubobject<UAZ_AbilitySystemComponent>(TEXT("AbilitySystemComponent"));
@@ -148,9 +159,26 @@ void AAZ_PawnMoverInfectedCharacter::ProduceInput_Implementation(int32 SimTimeMs
 	FAZ_MoverCustomInputs& Custom =
 		InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
 
-	// Move intent is already WORLD-space (the controller / BT computes it toward the goal). Keep it on the ground plane.
-	FVector WorldMove = CachedAIMoveIntentWorld;
+	// NavMesh path-follow first: MoveTo/MoveToActor requests land in the NavMoverComponent (RequestPathMove caches
+	// a unit-ish intent; RequestDirectMove caches a full velocity). Both collapse to a unit DIRECTION here — the
+	// gait remains the single speed authority (our walking modes read GetMoveInput_WorldSpace as 0..1 intent), so
+	// nav never fights the gait table. Consume writes the outs ONLY when a move is in flight (returns false and
+	// leaves them untouched otherwise — hence the zero-init locals).
+	FVector NavIntent   = FVector::ZeroVector;
+	FVector NavVelocity = FVector::ZeroVector;
+	const bool bHasNavMove =
+		NavMoverComponent && NavMoverComponent->ConsumeNavMovementData(NavIntent, NavVelocity);
+
+	// Nav data wins over the raw AI intent cache; the cache stays the no-pathing fallback (scripted nudges,
+	// dormant twitch-turns). Favor the velocity request when both are present (mirrors MoverExamplesCharacter).
+	FVector WorldMove = bHasNavMove
+		? (NavVelocity.IsNearlyZero() ? NavIntent : NavVelocity)
+		: CachedAIMoveIntentWorld;
 	WorldMove.Z = 0.f;
+	if (bHasNavMove)
+	{
+		WorldMove = WorldMove.GetSafeNormal();
+	}
 
 	// "Where can I move" — same intent-pure clamp the hero uses, so a Chalkie pinned against a wall idles instead of
 	// running in place (the anim stays intent-driven; Mover's collision is the movement backstop).
