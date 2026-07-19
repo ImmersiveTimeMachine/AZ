@@ -13,6 +13,7 @@
 #include "GameplayTagAssetInterface.h"
 #include "Navigation/PathFollowingComponent.h"   // EPathFollowingStatus
 #include "Perception/AIPerceptionComponent.h"
+#include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISenseConfig_Damage.h"
 #include "Perception/AISenseConfig_Hearing.h"
@@ -85,10 +86,37 @@ void AAZ_InfectedAIController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ApplyPerceptionTuning();
+
 	if (UAIPerceptionComponent* Perception = GetPerceptionComponent())
 	{
 		Perception->OnTargetPerceptionUpdated.AddUniqueDynamic(this, &AAZ_InfectedAIController::OnTargetPerceptionUpdated);
 	}
+}
+
+void AAZ_InfectedAIController::ApplyPerceptionTuning()
+{
+	// The constructor configures senses from NATIVE defaults (it runs before Blueprint property overrides
+	// deserialize). Re-pushing here makes the top-level tuning floats the single source of truth — edit them
+	// on BP_AZ_InfectedAIController and they actually take effect.
+	UAIPerceptionComponent* Perception = GetPerceptionComponent();
+	if (!Perception)
+	{
+		return;
+	}
+	if (SightConfig)
+	{
+		SightConfig->SightRadius = SightRadius;
+		SightConfig->LoseSightRadius = LoseSightRadius;
+		SightConfig->PeripheralVisionAngleDegrees = PeripheralVisionHalfAngleDegrees;
+		Perception->ConfigureSense(*SightConfig);
+	}
+	if (HearingConfig)
+	{
+		HearingConfig->HearingRange = HearingRange;
+		Perception->ConfigureSense(*HearingConfig);
+	}
+	Perception->RequestStimuliListenerUpdate();
 }
 
 void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
@@ -151,14 +179,26 @@ ETeamAttitude::Type AAZ_InfectedAIController::GetTeamAttitudeTowards(const AActo
 void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
 	// Event-driven bookkeeping: record WHERE hostiles were last stimulated (sight-lost location, heard-noise
-	// location, damage direction). The Phase-2 Blackboard's LastKnownLocation / Investigate branch reads this.
-	// Target PROMOTION stays in the Tick poll (sight) — hearing/damage/touch promote via the BT later, so a
-	// noise makes a Chalkie investigate, not laser-lock.
+	// location, damage direction). Target PROMOTION stays in the Tick poll (sight) — noises make a Chalkie
+	// INVESTIGATE, not laser-lock.
 	if (!Actor || GetTeamAttitudeTowards(*Actor) != ETeamAttitude::Hostile)
 	{
 		return;
 	}
 	LastKnownTargetLocation = Stimulus.StimulusLocation;
+
+	// TLOU noise-investigation: a HEARD hostile noise while not already chasing arms the Investigate branch
+	// directly — sprint footsteps, gunshots, thrown objects (whatever reports to UAISense_Hearing) pull the
+	// Chalkie to the SOUND location. Sight handles its own promotion; hearing only ever points, never locks.
+	if (Stimulus.WasSuccessfullySensed()
+		&& Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
+		&& GetFreshPerceivedTarget() == nullptr)
+	{
+		if (UBlackboardComponent* BB = GetBlackboardComponent())
+		{
+			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Stimulus.StimulusLocation);
+		}
+	}
 }
 
 void AAZ_InfectedAIController::UpdatePerception()
@@ -213,11 +253,63 @@ void AAZ_InfectedAIController::UpdatePerception()
 		}
 	}
 
+	const double NowSeconds = FPlatformTime::Seconds();
+
+	// Calm-down + stale-clear: once the grace window fully expires, forget the target ENTIRELY. This both
+	// re-arms the alert beat for the next encounter and fixes a subtle bug — a stale PerceivedTarget kept the
+	// "already my target" crouch exemption forever, so crouch-sneak stopped working after the first chase.
+	if (PerceivedTarget.IsValid() && (NowSeconds - LastStimulusTimeSeconds) > LoseTargetGraceSeconds)
+	{
+		PerceivedTarget = nullptr;
+	}
+
 	if (Best)
 	{
-		PerceivedTarget = Best;
-		LastKnownTargetLocation = Best->GetActorLocation();
-		LastStimulusTimeSeconds = FPlatformTime::Seconds();
+		if (PerceivedTarget.Get() == Best)
+		{
+			// Already aggressive on this target: keep the chase fresh.
+			LastKnownTargetLocation = Best->GetActorLocation();
+			LastStimulusTimeSeconds = NowSeconds;
+		}
+		else
+		{
+			// NEW target: TLOU-style reaction beat. Close range = instant ("it's right there!"); farther out the
+			// Chalkie freezes and faces the stimulus for AlertDelaySeconds before committing to the chase.
+			const float DistSq = FVector::DistSquared2D(InfectedCharacter->GetActorLocation(), Best->GetActorLocation());
+			const bool bInstant = DistSq <= FMath::Square(InstantDetectRange);
+
+			if (AlertCandidate.Get() != Best)
+			{
+				AlertCandidate = Best;
+				AlertStartTimeSeconds = NowSeconds;
+			}
+			if (bInstant || (NowSeconds - AlertStartTimeSeconds) >= AlertDelaySeconds)
+			{
+				// Commit: alerted -> aggressive.
+				PerceivedTarget = Best;
+				LastKnownTargetLocation = Best->GetActorLocation();
+				LastStimulusTimeSeconds = NowSeconds;
+				AlertCandidate = nullptr;
+			}
+		}
+	}
+	else if (APawn* LostGlimpse = AlertCandidate.Get())
+	{
+		// Saw SOMETHING for under the alert delay, then lost it — the TLOU "huh?" moment. Arm the Investigate
+		// branch with the glimpse location so the Chalkie walks over to check instead of shrugging it off.
+		LastKnownTargetLocation = LostGlimpse->GetActorLocation();
+		if (UBlackboardComponent* BB = GetBlackboardComponent())
+		{
+			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, LastKnownTargetLocation);
+		}
+		AlertCandidate = nullptr;
+	}
+
+	// Mirror the phase to the Blackboard (bAlerted/bAggressive — Phase-3 anims/branches read these).
+	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	{
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAlerted, AlertCandidate.IsValid() && !PerceivedTarget.IsValid());
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAggressive, GetFreshPerceivedTarget() != nullptr);
 	}
 }
 
@@ -303,9 +395,25 @@ void AAZ_InfectedAIController::Tick(float DeltaTime)
 
 	// Facing: while pathing, face the PATH direction (zero desired facing -> ProduceInput faces the move), so the
 	// Chalkie looks where it walks when rounding corners instead of staring through walls at the target. When
-	// stopped INSIDE StopDistance with a live target (caught up), stare at them.
+	// stopped INSIDE StopDistance with a live target (caught up), stare at them. While ALERTED (noticed
+	// something, chase not yet committed), snap toward the stimulus — the TLOU "head turn" telegraph that gives
+	// the player a beat to react.
 	const bool bArrived = bTargetFresh && Distance <= StopDistance && GetMoveStatus() == EPathFollowingStatus::Idle;
-	InfectedCharacter->SetDesiredFacingWorld(bArrived ? ToTarget.GetSafeNormal() : FVector::ZeroVector);
+	FVector DesiredFacing = FVector::ZeroVector;
+	if (bArrived)
+	{
+		DesiredFacing = ToTarget.GetSafeNormal();
+	}
+	else if (!bTargetFresh)
+	{
+		if (const APawn* Alert = AlertCandidate.Get())
+		{
+			FVector ToAlert = Alert->GetActorLocation() - InfectedCharacter->GetActorLocation();
+			ToAlert.Z = 0.f;
+			DesiredFacing = ToAlert.GetSafeNormal();
+		}
+	}
+	InfectedCharacter->SetDesiredFacingWorld(DesiredFacing);
 
 	// Keep the controller's control rotation aligned with the BODY facing so the AnimInstance's AimingRotation
 	// (read from the controller) yields ~zero rotation offset (no AO fighting the path direction).

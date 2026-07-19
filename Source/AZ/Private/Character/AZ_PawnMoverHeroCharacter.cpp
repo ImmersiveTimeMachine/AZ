@@ -25,6 +25,7 @@
 #include "MoverDataModelTypes.h"
 #include "MoverPoseSearchTrajectoryPredictor.h"
 #include "NetworkPredictionComponent.h"
+#include "Perception/AISense_Hearing.h"      // movement-noise reports (TLOU stealth)
 #include "Player/AZ_PlayerState.h"
 
 AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer& ObjectInitializer)
@@ -384,6 +385,10 @@ UAbilitySystemComponent* AAZ_PawnMoverHeroCharacter::GetAbilitySystemComponent()
 
 void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult)
 {
+	// AI-audible movement noise: piggybacks on the per-frame producer (throttled inside). Not part of the
+	// InputCmd — purely a world-side stimulus report. SP-first; server-authoritative noise comes with MP.
+	ReportMovementNoise();
+
 	// Mover input producer. Single point per sim tick that converts cached game-thread
 	// input state into the deterministic InputCmd Mover modes consume. NetworkPrediction
 	// replays this on the server with the same inputs, so all input must flow through
@@ -653,4 +658,39 @@ void AAZ_PawnMoverHeroCharacter::SetGenericTeamId(const FGenericTeamId& NewTeamI
 FGenericTeamId AAZ_PawnMoverHeroCharacter::GetGenericTeamId() const
 {
 	return TeamId;
+}
+
+// ========================================
+// AI-audible movement noise (TLOU-style stealth)
+// ========================================
+
+void AAZ_PawnMoverHeroCharacter::ReportMovementNoise()
+{
+	// One "footstep" per interval; louder the faster; crouch is nearly silent. Chalkie Hearing (registered,
+	// range-capped on BOTH ends: event MaxRange here vs listener HearingRange) turns these into Investigate
+	// pulls — sprinting past a dormant Chalkie is now a mistake.
+	const double NowSeconds = FPlatformTime::Seconds();
+	if (NowSeconds - LastMovementNoiseTimeSeconds < NoiseIntervalSeconds)
+	{
+		return;
+	}
+	LastMovementNoiseTimeSeconds = NowSeconds;
+
+	const float Speed2D = MoverComponent ? MoverComponent->GetVelocity().Size2D() : 0.f;
+	float Range = 0.f;
+	if (Speed2D > 450.f)      { Range = SprintNoiseRange; }   // sprint gait (585)
+	else if (Speed2D > 250.f) { Range = RunNoiseRange;    }   // run gait (375)
+	else if (Speed2D > 80.f)  { Range = WalkNoiseRange;   }   // walk gait (165)
+
+	if (Range <= 0.f)
+	{
+		return;   // standing still = silent
+	}
+
+	if (HasMatchingGameplayTag(FAZ_GameplayTags::Get().Movement_Crouching))
+	{
+		Range *= CrouchNoiseScale;
+	}
+
+	UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(), 1.f, this, Range, FName(TEXT("Footstep")));
 }

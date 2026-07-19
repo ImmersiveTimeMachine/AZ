@@ -230,6 +230,35 @@ public:
 protected:
 
 	// ========================================
+	// AI-audible movement noise (TLOU-style stealth: speed = loudness)
+	// ========================================
+
+	/** How far a SPRINTING footstep carries to AI Hearing. 0 disables movement noise entirely. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Noise", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float SprintNoiseRange = 1200.f;
+
+	/** How far a RUNNING footstep carries. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Noise", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float RunNoiseRange = 800.f;
+
+	/** How far a WALKING footstep carries. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Noise", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float WalkNoiseRange = 300.f;
+
+	/** Crouched movement noise = range * this (crouch-walk is nearly silent — the stealth verb). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Noise", meta = (ClampMin = "0", ClampMax = "1"))
+	float CrouchNoiseScale = 0.25f;
+
+	/** Seconds between noise reports while moving (throttle — one "footstep" per interval). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Noise", meta = (ClampMin = "0.05", ForceUnits = "s"))
+	float NoiseIntervalSeconds = 0.4f;
+
+	/** Report a movement noise event to AI Hearing, throttled + scaled by current speed/stance. */
+	void ReportMovementNoise();
+
+	double LastMovementNoiseTimeSeconds = 0.0;
+
+	// ========================================
 	// GAS
 	// ========================================
 

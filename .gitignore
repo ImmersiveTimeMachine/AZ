@@ -61,11 +61,12 @@ Script/
 *.opensdf
 *.sdf
 *.suo
-# Content — only Blueprints kept; rest excluded to keep LFS budget under control
+# Content — only Blueprints + AI assets (BB/BT/controller BPs) kept; rest excluded for LFS budget
 /Content/*
 !/Content/AZ/
 /Content/AZ/*
 !/Content/AZ/Blueprints/
+!/Content/AZ/AI/
 
 # Claude Code — keep shared skills + mcp config, ignore personal/runtime state
 .claude/settings.local.json

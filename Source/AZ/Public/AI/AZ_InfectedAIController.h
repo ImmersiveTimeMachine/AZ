@@ -131,6 +131,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Perception", meta = (ClampMin = "0", ForceUnits = "cm"))
 	float CrouchDetectRange = 250.f;
 
+	/** TLOU-style reaction beat: a NEW target is held in an ALERTED state this long (freeze + face it)
+	 *  before the chase commits. Instant aggro reads robotic; the beat telegraphs "it noticed you". */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Perception", meta = (ClampMin = "0", ForceUnits = "s"))
+	float AlertDelaySeconds = 0.6f;
+
+	/** Inside this range detection is INSTANT — no alert beat. The "right in its face" zone. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Perception", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float InstantDetectRange = 350.f;
+
 	/** Hearing range for reported noise events (gunshots, sprint footsteps, impacts — reported later). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Perception", meta = (ClampMin = "0", ForceUnits = "cm"))
 	float HearingRange = 1500.f;
@@ -168,8 +177,16 @@ protected:
 	FVector LastKnownTargetLocation = FVector::ZeroVector;
 	double  LastStimulusTimeSeconds = -1000.0;
 
+	/** Alert-beat state: the pawn we NOTICED but haven't committed to yet (calm -> ALERTED -> aggressive). */
+	TWeakObjectPtr<APawn> AlertCandidate;
+	double AlertStartTimeSeconds = -1000.0;
+
 	/** UpdatePerception frame guard (GFrameCounter of the last poll). */
 	uint64 LastPerceptionPollFrame = 0;
 
 	TWeakObjectPtr<AAZ_PawnMoverInfectedCharacter> InfectedPawn;
+
+	/** Push the tuning floats into the sense configs + refresh the perception listener. Runs in BeginPlay so
+	 *  BLUEPRINT overrides of the floats actually apply (the constructor only ever sees native defaults). */
+	void ApplyPerceptionTuning();
 };
