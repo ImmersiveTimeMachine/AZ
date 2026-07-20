@@ -26,7 +26,27 @@ namespace AZ_ChalkieBBKeys
 	static const FName AttackRange(TEXT("AttackRange"));
 	static const FName bAlerted(TEXT("bAlerted"));         // Phase 3: dormant->alerted->aggressive states
 	static const FName bAggressive(TEXT("bAggressive"));   // Phase 3
+	static const FName SearchLocation(TEXT("SearchLocation"));           // FindPointNear scratch (search/wander)
+	static const FName bInvestigateUrgent(TEXT("bInvestigateUrgent"));   // heard-only=walk, lost-chase/escalated=run
+
+	// Pacing keys — BT Wait nodes bind their Wait Time to these (5.8 ValueOrBBKey) instead of literals,
+	// so ALL dwell tuning lives in ONE place: SeedPacingKeys() below (per-variant DA_ChalkieConfig later).
+	// RandomDeviation stays a literal on each node (organic jitter is per-node craft, not variant tuning).
+	static const FName WaitChaseBreather(TEXT("WaitChaseBreather"));
+	static const FName WaitSearchPoint(TEXT("WaitSearchPoint"));
+	static const FName WaitSearchSettle(TEXT("WaitSearchSettle"));
+	static const FName WaitHomeArrive(TEXT("WaitHomeArrive"));
+	static const FName WaitHomeWander(TEXT("WaitHomeWander"));
 }
+
+/** Infected AI phase — mirrored as State.Infected.* tags on the pawn's OWN ASC (replicated; the AnimInstance
+ *  reads the ASC, never the controller, so alert/scream anims work on client-side Chalkies in co-op). */
+enum class EAZ_InfectedPhase : uint8
+{
+	Dormant,      // calm/unaware — idle or home-wander
+	Alerted,      // reaction beat / investigating a stimulus
+	Aggressive    // committed to a target — chase/attack
+};
 
 /**
  * AAZ_InfectedAIController — controller for the Chalkie infected pawn.
@@ -84,6 +104,21 @@ public:
 	FVector GetLastKnownTargetLocation() const { return LastKnownTargetLocation; }
 	float GetStopDistance() const { return StopDistance; }
 	AAZ_PawnMoverInfectedCharacter* GetInfectedPawn() const { return InfectedPawn.Get(); }
+
+	/** SINGLE entry point for arming the Investigate branch (BB LastKnownLocation + bInvestigateUrgent).
+	 *  bUrgent semantics: false = wary/curious (heard a noise, glimpsed something) -> Walk gait; true = it KNOWS
+	 *  (lost a target it was chasing) -> Run gait. Escalation memory can PROMOTE a calm arm to urgent: repeated
+	 *  investigations inside EscalationWindowSeconds mean the Chalkie is "onto you". */
+	void ArmInvestigation(const FVector& Location, bool bUrgent);
+
+	/** True while escalated (recent repeated investigations) — FindPointNear widens its search radius on this. */
+	bool IsInvestigationEscalated() const;
+
+	/** Facing override for BT tasks (ScanAround's look pulses). The controller Tick rewrites the pawn's desired
+	 *  facing EVERY frame — tasks must route through this or their facing gets stomped next tick.
+	 *  Zero vector = no override (Tick resumes its arrived-stare / alert-snap / face-the-path logic). */
+	void SetFacingOverrideWorld(const FVector& WorldFacing) { FacingOverrideWorld = WorldFacing; }
+	void ClearFacingOverride() { FacingOverrideWorld = FVector::ZeroVector; }
 
 protected:
 	/** Central perception event: every sense funnels through here; updates the target/last-known state. */
@@ -152,6 +187,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Chase", meta = (ClampMin = "0", ForceUnits = "s"))
 	float LoseTargetGraceSeconds = 3.f;
 
+	/** Escalation memory window: this many investigations inside the window (see threshold) and the Chalkie is
+	 *  "onto you" — subsequent investigations run urgent (Run gait, wider search) until the window lapses. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Investigate", meta = (ClampMin = "0", ForceUnits = "s"))
+	float EscalationWindowSeconds = 30.f;
+
+	/** Investigations within the window needed to escalate (2 = the second one already runs urgent). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Investigate", meta = (ClampMin = "1"))
+	int32 EscalationThreshold = 2;
+
+	/** Arms closer together than this are ONE investigation episode (a running player's footsteps re-arm every
+	 *  noise interval — that must not count as many investigations and instantly escalate). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Investigate", meta = (ClampMin = "0", ForceUnits = "s"))
+	float InvestigationEpisodeGapSeconds = 8.f;
+
 	/** Acceptance radius for the chase move: stop (and stare) once within this distance. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|AI|Chase", meta = (ClampMin = "0", ForceUnits = "cm"))
 	float StopDistance = 150.f;
@@ -184,9 +233,24 @@ protected:
 	/** UpdatePerception frame guard (GFrameCounter of the last poll). */
 	uint64 LastPerceptionPollFrame = 0;
 
+	/** Escalation memory (see ArmInvestigation): rolling count of recent investigation arms. */
+	int32 RecentInvestigationCount = 0;
+	double LastInvestigationTimeSeconds = -1000.0;
+
+	/** BT-task facing override (zero = none). See SetFacingOverrideWorld. */
+	FVector FacingOverrideWorld = FVector::ZeroVector;
+
+	/** Current phase — the tag on the pawn's ASC is the published truth, this just avoids re-publishing. */
+	EAZ_InfectedPhase CurrentPhase = EAZ_InfectedPhase::Dormant;
+
 	TWeakObjectPtr<AAZ_PawnMoverInfectedCharacter> InfectedPawn;
 
 	/** Push the tuning floats into the sense configs + refresh the perception listener. Runs in BeginPlay so
 	 *  BLUEPRINT overrides of the floats actually apply (the constructor only ever sees native defaults). */
 	void ApplyPerceptionTuning();
+
+	/** Phase transition: swaps the State.Infected.* tag on the pawn's ASC (replicated via AddStateTag) and
+	 *  mirrors bAlerted/bAggressive to the Blackboard. The ASC tag is the co-op-correct truth the AnimInstance
+	 *  reads; the BB bools are BT-local conveniences. */
+	void SetPhase(EAZ_InfectedPhase NewPhase);
 };

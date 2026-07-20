@@ -5,6 +5,7 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystemComponent.h"
 #include "AI/AZ_InfectedAIController.h"
+#include "Animation/AnimInstance.h"          // mid-turn commitment read (temp reflection glue)
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait, EAZ_RotationMode
 #include "Character/AZ_MovementDirectionCapabilityComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
@@ -84,6 +85,12 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	AbilitySystemComponent = CreateDefaultSubobject<UAZ_AbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+
+	// Faction must be valid BEFORE possession: for placed pawns SpawnDefaultController runs from
+	// PostInitializeComponents (pre-BeginPlay), and the AI controller adopts the pawn's team in OnPossess.
+	// Leaving this to BeginPlay handed the controller NoTeam → every Chalkie read every OTHER Chalkie as
+	// Hostile (1 != NoTeam) and the horde fought itself. BeginPlay re-applies with any BP override.
+	TeamId = FGenericTeamId(DefaultTeamId);
 }
 
 void AAZ_PawnMoverInfectedCharacter::BeginPlay()
@@ -97,7 +104,7 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 		MoverComponent->SetHandleStanceChanges(true);
 	}
 
-	// Apply default faction once (subclasses / spawners can override via SetGenericTeamId).
+	// Re-apply faction with the BP-overridable default (ctor already set the native default pre-possession).
 	TeamId = FGenericTeamId(DefaultTeamId);
 
 	// Bind ASC actor info now that the pawn (owner + avatar) exists. Idempotent — safe alongside PossessedBy.
@@ -191,7 +198,8 @@ void AAZ_PawnMoverInfectedCharacter::ProduceInput_Implementation(int32 SimTimeMs
 	// facing when fully idle (no spin).
 	FVector Facing = CachedAIDesiredFacingWorld;
 	Facing.Z = 0.f;
-	if (Facing.IsNearlyZero())
+	const bool bFacingFromMove = Facing.IsNearlyZero();
+	if (bFacingFromMove)
 	{
 		Facing = WorldMove;
 	}
@@ -201,6 +209,40 @@ void AAZ_PawnMoverInfectedCharacter::ProduceInput_Implementation(int32 SimTimeMs
 	}
 	Facing = Facing.GetSafeNormal();
 	const FRotator FacingRot = Facing.Rotation();
+
+	// TLOU turn-then-move + anim intent-commitment: a move goal far off the current heading is a TURN first,
+	// then a walk. Two hold conditions, translation parked while EITHER is true:
+	//  1. Misaligned (> 60 deg off the goal): keeps GroundSpeed ~0 so the ABP's stationary turn-in-place
+	//     detection fires (simultaneous rotate+accelerate reads as a walk to the anim layer and skates).
+	//  2. The anim layer is MID-TURN (ABP 'Turning' latched until its EndRotation notify): the committed turn
+	//     clip finishes before the walk starts — no mid-clip pop when the blend gate releases.
+	// Gameplay preemption is untouched: BT decorator aborts (spotted a target) re-task instantly regardless.
+	// Only applies when facing DERIVES from the move (an explicit facing override owns the body heading).
+	// WALK GAIT ONLY — politeness is for the calm branches (investigate/wander toward STATIC points, where the
+	// spring settles and the turn completes). A chasing (Run) Chalkie skips both holds: its goal MOVES, so the
+	// spring never aligns and the hold deadlocks into stand-and-turn-forever while prey circles it. Aggression
+	// interrupts politeness — it wheels and sprints, and an in-flight turn clip just gets blended over.
+	// The BP-var reflection read is TEMPORARY glue — turn detection moves into UAZ_InfectedAnimInstance C++ at
+	// the next full build (60 deg + the var promoted to real UPROPERTYs then).
+	if (bFacingFromMove && !WorldMove.IsNearlyZero() && CachedAIGait == EAZ_Gait::Walk)
+	{
+		bool bAnimMidTurn = false;
+		if (const UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr)
+		{
+			if (const FBoolProperty* TurningProperty =
+					CastField<FBoolProperty>(AnimInstance->GetClass()->FindPropertyByName(TEXT("Turning"))))
+			{
+				bAnimMidTurn = TurningProperty->GetPropertyValue_InContainer(AnimInstance);
+			}
+		}
+
+		const float CosToGoal =
+			FVector::DotProduct(GetActorForwardVector().GetSafeNormal2D(), WorldMove.GetSafeNormal());
+		if (bAnimMidTurn || CosToGoal < FMath::Cos(FMath::DegreesToRadians(60.f)))
+		{
+			WorldMove = FVector::ZeroVector;
+		}
+	}
 
 	// Where the AI is "looking". Stored on the InputCmd so modes / anim read a deterministic heading (the
 	// AnimInstance separately reads the controller's control rotation for AO/TIP — the controller keeps that in

@@ -250,6 +250,13 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Character_Downed;
     FGameplayTag Character_Interacting;
 
+    // Infected AI phase (published by AAZ_InfectedAIController to the NPC's OWN ASC via AddStateTag, so it
+    // REPLICATES — client-side Chalkie AnimInstances read the phase from the ASC in co-op, where AI
+    // controllers exist only on the server. Exactly one of the three is present at a time.)
+    FGameplayTag State_Infected_Dormant;
+    FGameplayTag State_Infected_Alerted;
+    FGameplayTag State_Infected_Aggressive;
+
     // Equipment State Tags
     FGameplayTag State_Equipped_Weapon_Primary;
     FGameplayTag State_Equipped_Weapon_Secondary;

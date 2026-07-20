@@ -385,8 +385,8 @@ UAbilitySystemComponent* AAZ_PawnMoverHeroCharacter::GetAbilitySystemComponent()
 
 void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult)
 {
-	// AI-audible movement noise: piggybacks on the per-frame producer (throttled inside). Not part of the
-	// InputCmd — purely a world-side stimulus report. SP-first; server-authoritative noise comes with MP.
+	// AI-audible movement noise: piggybacks on the per-frame producer (throttled + authority-gated inside).
+	// Not part of the InputCmd — purely a world-side stimulus report.
 	ReportMovementNoise();
 
 	// Mover input producer. Single point per sim tick that converts cached game-thread
@@ -669,6 +669,12 @@ void AAZ_PawnMoverHeroCharacter::ReportMovementNoise()
 	// One "footstep" per interval; louder the faster; crouch is nearly silent. Chalkie Hearing (registered,
 	// range-capped on BOTH ends: event MaxRange here vs listener HearingRange) turns these into Investigate
 	// pulls — sprinting past a dormant Chalkie is now a mistake.
+	// Server-authoritative: AI perception lives on the server; a client's mirrored input producer reporting
+	// too would double-stimulate on a listen server and feed no one on a dedicated one.
+	if (!HasAuthority())
+	{
+		return;
+	}
 	const double NowSeconds = FPlatformTime::Seconds();
 	if (NowSeconds - LastMovementNoiseTimeSeconds < NoiseIntervalSeconds)
 	{

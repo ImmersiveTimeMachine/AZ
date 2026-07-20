@@ -43,7 +43,8 @@ void UAZ_BTService_ChalkieTargetSelection::TickNode(UBehaviorTreeComponent& Owne
 		if (bHadFreshTarget)
 		{
 			// The fresh->lost EDGE: arm the Investigate branch with where we last knew them to be.
-			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Chalkie->GetLastKnownTargetLocation());
+			// URGENT — it was mid-chase, it KNOWS someone is here: search at Run gait, wider radius.
+			Chalkie->ArmInvestigation(Chalkie->GetLastKnownTargetLocation(), /*bUrgent*/ true);
 		}
 	}
 	bHadFreshTarget = bFresh;

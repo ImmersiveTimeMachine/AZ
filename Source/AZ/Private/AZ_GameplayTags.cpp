@@ -291,6 +291,10 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Movement_Swimming,      FName("Movement.Swimming"),      TEXT("Character is swimming"));
     AddTag(GameplayTags.Movement_Climbing,      FName("Movement.Climbing"),      TEXT("Character is climbing/vaulting"));
 
+    AddTag(GameplayTags.State_Infected_Dormant,    FName("State.Infected.Dormant"),    TEXT("Infected AI phase: calm/unaware — idle or home-wander"));
+    AddTag(GameplayTags.State_Infected_Alerted,    FName("State.Infected.Alerted"),    TEXT("Infected AI phase: noticed a stimulus — the TLOU reaction beat / investigating"));
+    AddTag(GameplayTags.State_Infected_Aggressive, FName("State.Infected.Aggressive"), TEXT("Infected AI phase: committed to a target — chasing/attacking"));
+
     AddTag(GameplayTags.Combat_Aiming,          FName("Combat.Aiming"),          TEXT("Character is aiming"));
     AddTag(GameplayTags.Combat_Blocking,        FName("Combat.Blocking"),        TEXT("Character is blocking"));
     AddTag(GameplayTags.Combat_Attacking,       FName("Combat.Attacking"),       TEXT("Character is attacking"));

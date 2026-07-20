@@ -2,6 +2,7 @@
 
 #include "AI/AZ_InfectedAIController.h"
 
+#include "AbilitySystem/AZ_AbilitySystemComponent.h"   // AddStateTag/RemoveStateTag (replicated phase tags)
 #include "Animation/AZ_LocomotionTypes.h"   // EAZ_Gait
 #include "AZ_GameplayTags.h"                 // Movement.Crouching (crouch-sneak detection range)
 #include "BehaviorTree/BehaviorTree.h"
@@ -20,6 +21,7 @@
 #include "Perception/AISenseConfig_Prediction.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Team.h"
+#include "AI/AZ_HordeSubsystem.h"
 #include "Perception/AISenseConfig_Touch.h"
 
 AAZ_InfectedAIController::AAZ_InfectedAIController()
@@ -80,6 +82,12 @@ AAZ_InfectedAIController::AAZ_InfectedAIController()
 	GetPerceptionComponent()->ConfigureSense(*TeamConfig);
 
 	GetPerceptionComponent()->SetDominantSense(*SightConfig->GetSenseImplementation());
+
+	// Default to the infected faction OUTRIGHT — never depend on adoption timing. OnPossess still adopts
+	// the pawn's team when the pawn has one, but if possession beats the pawn's own team init (placed-pawn
+	// PostInitializeComponents possession), this keeps us on team 1 instead of NoTeam (which made every
+	// other Chalkie read as Hostile → horde in-fighting).
+	SetGenericTeamId(FGenericTeamId(1));
 }
 
 void AAZ_InfectedAIController::BeginPlay()
@@ -125,9 +133,14 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 	InfectedPawn = Cast<AAZ_PawnMoverInfectedCharacter>(InPawn);
 
 	// Adopt the pawn's faction so perception affiliation (and GetTeamAttitudeTowards) answers for THIS body.
+	// NoTeam guard: placed-pawn possession can run before the pawn's own team init — never adopt "no team"
+	// over our constructor default (team 1), or every other Chalkie reads as Hostile and the horde fights itself.
 	if (const IGenericTeamAgentInterface* PawnTeam = Cast<IGenericTeamAgentInterface>(InPawn))
 	{
-		SetGenericTeamId(PawnTeam->GetGenericTeamId());
+		if (PawnTeam->GetGenericTeamId() != FGenericTeamId::NoTeam)
+		{
+			SetGenericTeamId(PawnTeam->GetGenericTeamId());
+		}
 	}
 
 	// Phase-2 brain: run the BehaviorTree (uses the BT's own BlackboardAsset). The temp Tick brain stands
@@ -139,12 +152,42 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 		{
 			BB->SetValueAsVector(AZ_ChalkieBBKeys::HomeLocation, InPawn->GetActorLocation());
 			BB->SetValueAsFloat(AZ_ChalkieBBKeys::AttackRange, StopDistance);
+
+			// Pacing seed — the single source for every BT Wait bound to these keys. Constants for now;
+			// becomes a per-variant read from DA_ChalkieConfig in the config-DA batch. RandomDeviation
+			// on the nodes jitters around these bases per execution.
+			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitChaseBreather, 0.5f);
+			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitSearchPoint, 1.0f);
+			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitSearchSettle, 1.5f);
+			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitHomeArrive, 5.0f);
+			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitHomeWander, 8.0f);
 		}
 	}
+
+	// Join the pack registry (server-only by construction — AI controllers don't exist on clients).
+	if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
+	{
+		Horde->RegisterInfected(this);
+	}
+
+	// Seed the initial phase tag on the pawn's ASC (SetPhase early-outs on no-change, so publish directly).
+	// OnPossess is server-only; AddStateTag replicates the tag to client-side views of this Chalkie.
+	if (AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get())
+	{
+		if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(P->GetAbilitySystemComponent()))
+		{
+			ASC->AddStateTag(FAZ_GameplayTags::Get().State_Infected_Dormant);
+		}
+	}
+	CurrentPhase = EAZ_InfectedPhase::Dormant;
 }
 
 void AAZ_InfectedAIController::OnUnPossess()
 {
+	if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
+	{
+		Horde->UnregisterInfected(this);
+	}
 	if (AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get())
 	{
 		// Don't leave a stale intent latched on the pawn after we let go of it.
@@ -153,6 +196,8 @@ void AAZ_InfectedAIController::OnUnPossess()
 	}
 	InfectedPawn = nullptr;
 	PerceivedTarget = nullptr;
+	AlertCandidate = nullptr;
+	FacingOverrideWorld = FVector::ZeroVector;
 	Super::OnUnPossess();
 }
 
@@ -190,15 +235,47 @@ void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimu
 	// TLOU noise-investigation: a HEARD hostile noise while not already chasing arms the Investigate branch
 	// directly — sprint footsteps, gunshots, thrown objects (whatever reports to UAISense_Hearing) pull the
 	// Chalkie to the SOUND location. Sight handles its own promotion; hearing only ever points, never locks.
+	// Heard-only = CALM arm (wary Walk-gait investigation) — escalation memory promotes repeats to urgent.
 	if (Stimulus.WasSuccessfullySensed()
 		&& Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
 		&& GetFreshPerceivedTarget() == nullptr)
 	{
-		if (UBlackboardComponent* BB = GetBlackboardComponent())
-		{
-			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Stimulus.StimulusLocation);
-		}
+		ArmInvestigation(Stimulus.StimulusLocation, /*bUrgent*/ false);
 	}
+}
+
+void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bUrgent)
+{
+	const double NowSeconds = FPlatformTime::Seconds();
+
+	// Episode counting: a burst of stimuli (running footsteps re-arm every noise interval) is ONE
+	// investigation. A new EPISODE needs a quiet gap; the escalation window lapsing resets the chain.
+	if (NowSeconds - LastInvestigationTimeSeconds > EscalationWindowSeconds)
+	{
+		RecentInvestigationCount = 1;
+	}
+	else if (NowSeconds - LastInvestigationTimeSeconds > InvestigationEpisodeGapSeconds)
+	{
+		++RecentInvestigationCount;
+	}
+	else
+	{
+		RecentInvestigationCount = FMath::Max(RecentInvestigationCount, 1);
+	}
+	LastInvestigationTimeSeconds = NowSeconds;
+
+	LastKnownTargetLocation = Location;
+	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	{
+		BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Location);
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bInvestigateUrgent, bUrgent || IsInvestigationEscalated());
+	}
+}
+
+bool AAZ_InfectedAIController::IsInvestigationEscalated() const
+{
+	return RecentInvestigationCount >= EscalationThreshold
+		&& (FPlatformTime::Seconds() - LastInvestigationTimeSeconds) <= EscalationWindowSeconds;
 }
 
 void AAZ_InfectedAIController::UpdatePerception()
@@ -297,19 +374,72 @@ void AAZ_InfectedAIController::UpdatePerception()
 	{
 		// Saw SOMETHING for under the alert delay, then lost it — the TLOU "huh?" moment. Arm the Investigate
 		// branch with the glimpse location so the Chalkie walks over to check instead of shrugging it off.
-		LastKnownTargetLocation = LostGlimpse->GetActorLocation();
-		if (UBlackboardComponent* BB = GetBlackboardComponent())
-		{
-			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, LastKnownTargetLocation);
-		}
+		// A glimpse is a CALM arm — it isn't sure, so it walks over warily.
+		ArmInvestigation(LostGlimpse->GetActorLocation(), /*bUrgent*/ false);
 		AlertCandidate = nullptr;
 	}
 
-	// Mirror the phase to the Blackboard (bAlerted/bAggressive — Phase-3 anims/branches read these).
+	// Resolve + publish the phase: aggressive = committed target; alerted = reaction beat OR an armed
+	// investigation (LastKnownLocation pending); dormant = nothing going on. SetPhase mirrors to BB + ASC.
+	EAZ_InfectedPhase Phase = EAZ_InfectedPhase::Dormant;
+	if (GetFreshPerceivedTarget() != nullptr)
+	{
+		Phase = EAZ_InfectedPhase::Aggressive;
+	}
+	else if (AlertCandidate.IsValid()
+		|| (GetBlackboardComponent() && GetBlackboardComponent()->IsVectorValueSet(AZ_ChalkieBBKeys::LastKnownLocation)))
+	{
+		Phase = EAZ_InfectedPhase::Alerted;
+	}
+	SetPhase(Phase);
+}
+
+void AAZ_InfectedAIController::SetPhase(EAZ_InfectedPhase NewPhase)
+{
+	if (NewPhase == CurrentPhase)
+	{
+		return;
+	}
+	const EAZ_InfectedPhase OldPhase = CurrentPhase;
+	CurrentPhase = NewPhase;
+
+	// ASC = the replicated truth (client Chalkie AnimInstances read these tags; the controller is server-only).
+	const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+	auto PhaseTag = [&AZTags](EAZ_InfectedPhase Phase) -> const FGameplayTag&
+	{
+		switch (Phase)
+		{
+		case EAZ_InfectedPhase::Aggressive: return AZTags.State_Infected_Aggressive;
+		case EAZ_InfectedPhase::Alerted:    return AZTags.State_Infected_Alerted;
+		default:                            return AZTags.State_Infected_Dormant;
+		}
+	};
+	if (AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get())
+	{
+		if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(P->GetAbilitySystemComponent()))
+		{
+			ASC->RemoveStateTag(PhaseTag(OldPhase));
+			ASC->AddStateTag(PhaseTag(NewPhase));
+		}
+	}
+
+	// BB mirrors (BT-local conveniences for decorators/branches).
 	if (UBlackboardComponent* BB = GetBlackboardComponent())
 	{
-		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAlerted, AlertCandidate.IsValid() && !PerceivedTarget.IsValid());
-		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAggressive, GetFreshPerceivedTarget() != nullptr);
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAlerted, NewPhase == EAZ_InfectedPhase::Alerted);
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bAggressive, NewPhase == EAZ_InfectedPhase::Aggressive);
+	}
+
+	// Pack callout: confirmed prey wakes nearby infected — they get an URGENT investigation at the prey's
+	// position (Investigate branch, run gait). Their own sight promotes it to a chase if they get eyes on.
+	// Fires on every (re-)entry into Aggressive, so a chase that flickers re-calls with a FRESH location.
+	if (NewPhase == EAZ_InfectedPhase::Aggressive)
+	{
+		if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
+		{
+			const APawn* Prey = GetFreshPerceivedTarget();
+			Horde->NotifyAggro(this, Prey ? Prey->GetActorLocation() : LastKnownTargetLocation);
+		}
 	}
 }
 
@@ -400,7 +530,13 @@ void AAZ_InfectedAIController::Tick(float DeltaTime)
 	// the player a beat to react.
 	const bool bArrived = bTargetFresh && Distance <= StopDistance && GetMoveStatus() == EPathFollowingStatus::Idle;
 	FVector DesiredFacing = FVector::ZeroVector;
-	if (bArrived)
+	if (!FacingOverrideWorld.IsNearlyZero())
+	{
+		// A BT task (ScanAround's look pulses) owns facing right now — without this hand-off the per-frame
+		// rewrite below would stomp the task's facing the very next tick.
+		DesiredFacing = FacingOverrideWorld;
+	}
+	else if (bArrived)
 	{
 		DesiredFacing = ToTarget.GetSafeNormal();
 	}

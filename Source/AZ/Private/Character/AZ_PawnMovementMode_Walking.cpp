@@ -3,6 +3,9 @@
 #include "Character/AZ_PawnMovementMode_Walking.h"
 
 #include "Animation/AZ_LocomotionTypes.h"
+#include "Animation/AnimInstance.h"
+#include "Character/AZ_PawnMoverInfectedCharacter.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "Engine/World.h"
 #include "MoverComponent.h"
@@ -105,6 +108,33 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		case EAZ_Gait::Run:    MaxSpeedOverride = RunSpeed;    break;
 		case EAZ_Gait::Sprint: MaxSpeedOverride = SprintSpeed; break;
 		default:               MaxSpeedOverride = RunSpeed;    break;
+		}
+
+		// RM-lite curve-follow (infected only): the zombie IPC clips carry the original root motion baked
+		// into a "fwd vel" float curve (per-frame cm/s; walk 3-101 around avg 41, chase -16-186 around 77).
+		// When the playing anim exposes it, the ANIM is the metronome and the capsule FOLLOWS its lurch —
+		// override the gait constant with the blended curve value. The BS axis is fed the COMMANDED gait
+		// speed (AnimInstance side), never this pulsing measured speed, so play rate stays authored and the
+		// curve phase can't feed back into itself. No curve active (hero, idle, turn states) = constant gaits.
+		// GLUE: anim read inside the sim — same class as the pawn's Turning read; both migrate to
+		// FAZ_MoverCustomInputs in the turn-controller-v2 batch.
+		const UMoverComponent* OwnerMover = GetMoverComponent<UMoverComponent>();
+		const AAZ_PawnMoverInfectedCharacter* Infected = OwnerMover
+			? Cast<AAZ_PawnMoverInfectedCharacter>(OwnerMover->GetOwner()) : nullptr;
+		if (Infected)
+		{
+			const USkeletalMeshComponent* InfectedMesh = Infected->GetMesh();
+			if (const UAnimInstance* InfectedAnim = InfectedMesh ? InfectedMesh->GetAnimInstance() : nullptr)
+			{
+				float CurveSpeed = 0.f;
+				if (InfectedAnim->GetCurveValue(TEXT("fwd vel"), CurveSpeed))
+				{
+					// Floor 2: the chase clip dips negative (backstep) — a capsule reversing against its
+					// nav path would fight the path-follower, so bottom out at a creep instead.
+					// Ceiling 500: fastest measured set clip (HyperChase_3) averages 421 with peaks near it.
+				MaxSpeedOverride = FMath::Clamp(CurveSpeed, 2.f, 500.f);
+				}
+			}
 		}
 	}
 

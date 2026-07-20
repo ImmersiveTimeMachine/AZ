@@ -47,6 +47,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|Locomotion", meta = (ClampMin = "0", ForceUnits = "cm/s"))
 	float MoveSpeedThreshold = 5.f;
 
+	// AI phase, mirrored from the pawn's ASC State.Infected.* tags (NOT the AI controller — controllers exist
+	// only on the server; the ASC tags replicate, so these bools are valid on client-side Chalkies in co-op).
+	// Drives alert/scream telegraphs and wary-vs-committed posture overlays in AZ_ABP_Chalkie (anim pass).
+
+	/** State.Infected.Alerted — reaction beat / investigating: wary posture, look-around. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|Phase")
+	bool bIsAlerted = false;
+
+	/** State.Infected.Aggressive — committed to a target: chase posture, scream on the rising edge. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|Phase")
+	bool bIsAggressive = false;
+
 	/** Cached on init — the owning infected pawn (saves a per-tick TryGetPawnOwner cast). */
 	UPROPERTY(Transient)
 	TObjectPtr<AAZ_PawnMoverInfectedCharacter> Cached_Pawn;

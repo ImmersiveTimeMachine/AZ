@@ -19,6 +19,7 @@
 #include "K2Node_AnimNodeReference.h"
 #include "Features/IModularFeatures.h"
 #include "IPropertyAccessEditor.h"
+#include "UObject/UObjectIterator.h"
 #endif
 
 #if WITH_EDITOR
@@ -196,11 +197,27 @@ bool UAZ_AnimGraphNodeUtils::SetPinBinding(const FString& BlueprintPath, const F
 #if WITH_EDITOR
 	UAnimBlueprint* ABP = LoadAnimBP(BlueprintPath);
 	if (!ABP) return false;
-	UAnimationGraph* AnimGraph = FindAnimGraph(ABP);
-	if (!AnimGraph) return false;
 
-	UEdGraphNode* Node = FindAnimGraphNodeByGUID(AnimGraph, NodeGUID);
-	UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+	// Top-level AnimGraph first; FALL BACK to a whole-blueprint sweep — anim nodes live in state-machine
+	// state graphs, conduits, and BlendStack bound graphs too, none of which the top-level lookup reaches.
+	UAnimGraphNode_Base* AnimNode = nullptr;
+	if (UAnimationGraph* AnimGraph = FindAnimGraph(ABP))
+	{
+		AnimNode = Cast<UAnimGraphNode_Base>(FindAnimGraphNodeByGUID(AnimGraph, NodeGUID));
+	}
+	if (!AnimNode)
+	{
+		FGuid ParsedGuid;
+		FGuid::Parse(NodeGUID, ParsedGuid);
+		for (TObjectIterator<UAnimGraphNode_Base> It; It; ++It)
+		{
+			if (It->NodeGuid == ParsedGuid && It->IsIn(ABP->GetPackage()))
+			{
+				AnimNode = *It;
+				break;
+			}
+		}
+	}
 	if (!AnimNode) return false;
 
 	// Access the Binding UPROPERTY via reflection (avoids incomplete type issue)

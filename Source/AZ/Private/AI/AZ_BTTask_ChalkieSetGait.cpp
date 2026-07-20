@@ -4,6 +4,7 @@
 
 #include "AI/AZ_InfectedAIController.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 
 UAZ_BTTask_ChalkieSetGait::UAZ_BTTask_ChalkieSetGait()
@@ -20,6 +21,23 @@ EBTNodeResult::Type UAZ_BTTask_ChalkieSetGait::ExecuteTask(UBehaviorTreeComponen
 		return EBTNodeResult::Failed;
 	}
 
-	InfectedPawn->SetGait(Gait);
+	EAZ_Gait GaitToSet = Gait;
+	if (bGaitFromInvestigateUrgency)
+	{
+		const UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
+		const bool bUrgent = BB && BB->GetValueAsBool(AZ_ChalkieBBKeys::bInvestigateUrgent);
+		GaitToSet = bUrgent ? UrgentGait : CalmGait;
+	}
+
+	InfectedPawn->SetGait(GaitToSet);
 	return EBTNodeResult::Succeeded;
+}
+
+FString UAZ_BTTask_ChalkieSetGait::GetStaticDescription() const
+{
+	if (bGaitFromInvestigateUrgency)
+	{
+		return TEXT("gait from bInvestigateUrgent (calm/urgent)");
+	}
+	return FString::Printf(TEXT("gait = %s"), *UEnum::GetDisplayValueAsText(Gait).ToString());
 }
