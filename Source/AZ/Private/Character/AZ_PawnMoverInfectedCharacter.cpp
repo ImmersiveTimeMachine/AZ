@@ -150,8 +150,15 @@ void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
 	{
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
+	// Cut the MESH loose from the Mover's smoothing, keep the sim ALIVE: the smoothing pass stamps
+	// PrimaryVisualComponent (the mesh) every frame — that was both the "fully simulated skeletal
+	// mesh" warning spam and what kept teleporting the ragdoll into/through geometry. Nulling the
+	// visual component stops the stamping; the (deactivated) sim then idles harmlessly on the frozen
+	// capsule. NEVER DestroyComponent a live Mover: the NetworkPrediction backend keeps ticking the
+	// registered simulation -> use-after-free crash in WalkingMode::SimulationTick (learned 2026-07-21).
 	if (MoverComponent)
 	{
+		MoverComponent->SetPrimaryVisualComponent(nullptr);
 		MoverComponent->Deactivate();
 	}
 	UE_LOG(LogTemp, Display, TEXT("[Vitals] %s DIED"), *GetName());
@@ -168,9 +175,19 @@ void AAZ_PawnMoverInfectedCharacter::RagdollCorpse()
 	{
 		AnimInstance->StopAllMontages(0.f);
 	}
-	// Ragdoll profile: per-bone collision vs the world (walls/floor), ignores live pawns walking over.
-	Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
+	// Un-parent from the capsule FIRST: anything still nudging the capsule (Mover's network-prediction
+	// backend keeps writing transforms even deactivated) would drag the simulated mesh along and spam
+	// "Attempting to move a fully simulated skeletal mesh... use the Teleport flag" every tick. The
+	// mesh stays owned by the actor, so the lifespan despawn still cleans it up.
+	Mesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	// EXPLICIT ragdoll collision (this project's ini redefines the profile list WITHOUT the engine's
+	// "Ragdoll" profile — SetCollisionProfileName silently yields no collision -> corpse through the
+	// floor). Block the world, ignore live pawns walking over and the camera spring arm.
+	Mesh->SetCollisionObjectType(ECC_PhysicsBody);
 	Mesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
+	Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	Mesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Mesh->SetSimulatePhysics(true);
 }
 
