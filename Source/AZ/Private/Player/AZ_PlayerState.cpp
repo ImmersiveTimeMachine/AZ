@@ -6,6 +6,7 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_AttributeSet.h"
 #include "AbilitySystem/AttributeSets/AZ_WeaponAttributeSet.h"
+#include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "Inventory/AZ_InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -18,6 +19,10 @@ AAZ_PlayerState::AAZ_PlayerState()
 
 	// Weapon attributes live on player ASC so they persist across weapon swaps
 	WeaponAttributeSet = CreateDefaultSubobject<UAZ_WeaponAttributeSet>("WeaponAttributeSet");
+
+	// Combat vitals (S1 damage spine) — the set ALL damage flows through; hero default 100 HP.
+	// Legacy AZ_HeroAttributeSet.Health stays for old UI bindings until migrated; combat ignores it.
+	VitalsAttributeSet = CreateDefaultSubobject<UAZ_VitalsAttributeSet>("VitalsAttributeSet");
 
 	InventoryComponent = CreateDefaultSubobject<UAZ_InventoryComponent>(TEXT("Inventory"));
 

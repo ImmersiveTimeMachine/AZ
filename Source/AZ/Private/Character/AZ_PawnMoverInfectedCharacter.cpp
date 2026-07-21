@@ -3,6 +3,7 @@
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
+#include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "AI/AZ_InfectedAIController.h"
 #include "Animation/AnimInstance.h"          // mid-turn commitment read (temp reflection glue)
@@ -85,6 +86,12 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	AbilitySystemComponent = CreateDefaultSubobject<UAZ_AbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+
+	// Combat vitals (S1): owner-subobject → the ASC picks it up in InitAbilityActorInfo. Two hero
+	// punches (2×25) kill a standard Chalkie; per-variant HP moves to DA_ChalkieConfig later.
+	VitalsAttributeSet = CreateDefaultSubobject<UAZ_VitalsAttributeSet>(TEXT("VitalsAttributeSet"));
+	VitalsAttributeSet->InitMaxHealth(50.f);
+	VitalsAttributeSet->InitHealth(50.f);
 
 	// Faction must be valid BEFORE possession: for placed pawns SpawnDefaultController runs from
 	// PostInitializeComponents (pre-BeginPlay), and the AI controller adopts the pawn's team in OnPossess.

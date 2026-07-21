@@ -295,6 +295,10 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Infected_Alerted,    FName("State.Infected.Alerted"),    TEXT("Infected AI phase: noticed a stimulus — the TLOU reaction beat / investigating"));
     AddTag(GameplayTags.State_Infected_Aggressive, FName("State.Infected.Aggressive"), TEXT("Infected AI phase: committed to a target — chasing/attacking"));
 
+    AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("Hit-window gameplay event from an attack montage notify — GA_MeleeAttack sweeps + applies damage on it"));
+    AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
+    AddTag(GameplayTags.SetByCaller_Damage,      FName("SetByCaller.Damage"),      TEXT("SetByCaller magnitude channel for damage on GE_Damage specs"));
+
     AddTag(GameplayTags.Combat_Aiming,          FName("Combat.Aiming"),          TEXT("Character is aiming"));
     AddTag(GameplayTags.Combat_Blocking,        FName("Combat.Blocking"),        TEXT("Character is blocking"));
     AddTag(GameplayTags.Combat_Attacking,       FName("Combat.Attacking"),       TEXT("Character is attacking"));

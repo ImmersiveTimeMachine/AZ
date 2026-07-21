@@ -139,6 +139,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|GAS")
 	TObjectPtr<UAZ_AbilitySystemComponent> AbilitySystemComponent;
 
+	/** Shared combat vitals (S1 damage spine) — owner-subobject, auto-registered with the ASC.
+	 *  Defaults set in the ctor (infected are 2-punch kills at the spine's 25 default). */
+	UPROPERTY()
+	TObjectPtr<class UAZ_VitalsAttributeSet> VitalsAttributeSet;
+
 	// ========================================
 	// Mover stack
 	// ========================================

@@ -118,6 +118,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "AZ|AbilitySystem")
 	TObjectPtr<UAZ_WeaponAttributeSet> WeaponAttributeSet;
 
+	/** Shared combat vitals (S1 damage spine) — the set all damage flows through. */
+	UPROPERTY(VisibleAnywhere, Category = "AZ|AbilitySystem")
+	TObjectPtr<class UAZ_VitalsAttributeSet> VitalsAttributeSet;
+
 private:
 	// ========================================
 	// REPLICATED PLAYER STATS

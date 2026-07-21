@@ -41,9 +41,15 @@ protected:
 	UFUNCTION()
 	void OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData);
 
-	// Hit-window (and later combo-window) GameplayEvents from notifies. Stub for now.
+	// Hit-window (and later combo-window) GameplayEvents from notifies. On the hit window: forward
+	// sphere sweep from the avatar, team-filtered to hostiles, GE_Damage w/ SetByCaller.Damage applied
+	// to each — authority only.
 	UFUNCTION()
 	void OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData);
+
+	// --- Avatar access, pawn-class-agnostic (hero AND infected run this same ability) ---
+	USkeletalMeshComponent* GetAvatarMesh() const;
+	bool ResolveAvatarIsMoving() const;
 
 	// --- Tunables: assign the 4 fist montages in a BP child (like GA_Shoot's FireMontage*) ---
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchIdle_L = nullptr;
@@ -51,8 +57,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_L = nullptr;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_R = nullptr;
 
-	// The tag the hit-window notify will send (matched in OnMontageEvent). Wire later.
+	// The tag the hit-window notify sends (matched in OnMontageEvent). Left unset = defaults to
+	// Event.Montage.Melee.Hit at activation (can't read the native tag registry in the CDO ctor).
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee") FGameplayTag HitWindowEventTag;
+
+	// --- Damage (S1 spine) ---
+	/** GE applied to each swept hostile; magnitude rides SetByCaller.Damage. Default = UAZ_GE_Damage. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") TSubclassOf<UGameplayEffect> DamageEffect;
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0")) float DamageAmount = 25.f;
+	/** Sweep reach forward from the avatar's center (cm) and the sphere radius swept along it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 160.f;
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 60.f;
 
 	// GEs applied to the owner on each activation — e.g. GE_CombatReady to REFRESH the fists-up stance every punch.
 	// The GE owns its own duration + refresh-on-reapply stacking; this just re-applies it. Set in the BP ability.

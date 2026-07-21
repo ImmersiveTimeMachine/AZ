@@ -257,6 +257,11 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag State_Infected_Alerted;
     FGameplayTag State_Infected_Aggressive;
 
+    // --- Damage spine (S1): montage hit windows, death, SetByCaller magnitudes ---
+    FGameplayTag Event_Montage_Melee_Hit;   // fired by UAZ_AnimNotify_SendGameplayEvent inside attack montages
+    FGameplayTag Event_Death;               // sent to the dying actor's ASC when Vitals Health hits 0
+    FGameplayTag SetByCaller_Damage;        // magnitude channel on GE_Damage specs
+
     // Equipment State Tags
     FGameplayTag State_Equipped_Weapon_Primary;
     FGameplayTag State_Equipped_Weapon_Secondary;

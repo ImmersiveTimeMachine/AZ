@@ -28,6 +28,10 @@ class UAZ_PawnMoverComponent;
 UCLASS()
 class AZ_API UAZ_InfectedAnimInstance : public UAnimInstance
 {
+public:
+	/** Movement latch for GA_MeleeAttack's idle-vs-moving montage pick (mirror of the hero's ChooserContext read). */
+	bool IsMoving() const { return bIsMoving; }
+
 	GENERATED_BODY()
 
 public:
