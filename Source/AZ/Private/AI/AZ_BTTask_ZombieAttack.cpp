@@ -5,8 +5,25 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
+#include "AI/AZ_InfectedAIController.h"   // AZ_ChalkieBBKeys
 #include "AIController.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
+#include "BehaviorTree/BlackboardComponent.h"
+
+namespace
+{
+	// Range gates (constants until the next CLI batch promotes them to UPROPERTYs):
+	// don't START a swing beyond reach; BREAK OFF a swing whose target escaped — either way the
+	// task fails, the Chase sequence restarts, and MoveTo resumes the pursuit.
+	constexpr float AZ_MaxAttackStartDistance = 220.f;
+	constexpr float AZ_BreakOffDistance = 360.f;
+
+	const AActor* AZ_GetChaseTarget(UBehaviorTreeComponent& OwnerComp)
+	{
+		const UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
+		return BB ? Cast<AActor>(BB->GetValueAsObject(AZ_ChalkieBBKeys::TargetActor)) : nullptr;
+	}
+}
 
 UAZ_BTTask_ZombieAttack::UAZ_BTTask_ZombieAttack()
 {
@@ -22,6 +39,13 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 	APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
 	UAbilitySystemComponent* ASC = Pawn ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn) : nullptr;
 	if (!ASC || !*AbilityClass)
+	{
+		return EBTNodeResult::Failed;
+	}
+
+	// Range gate: no swinging at air. Out of reach -> fail -> the Chase sequence loops back to MoveTo.
+	const AActor* Target = AZ_GetChaseTarget(OwnerComp);
+	if (Target && FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation()) > AZ_MaxAttackStartDistance)
 	{
 		return EBTNodeResult::Failed;
 	}
@@ -57,6 +81,26 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 {
 	Super::TickTask(OwnerComp, NodeMemory, DeltaSeconds);
 	ElapsedSeconds += DeltaSeconds;
+
+	// Break-off: the target escaped mid-swing — cancel the whiff and resume the chase immediately
+	// instead of clawing the air where they used to be.
+	const AAIController* Controller = OwnerComp.GetAIOwner();
+	const APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
+	const AActor* Target = AZ_GetChaseTarget(OwnerComp);
+	if (Pawn && Target && FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation()) > AZ_BreakOffDistance)
+	{
+		if (UAbilitySystemComponent* ASC = BoundASC.Get())
+		{
+			if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass))
+			{
+				ASC->CancelAbilityHandle(Spec->Handle);
+			}
+		}
+		Cleanup();
+		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+		return;
+	}
+
 	if (ElapsedSeconds >= TimeoutSeconds)
 	{
 		Cleanup();

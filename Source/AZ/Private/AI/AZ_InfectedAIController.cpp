@@ -340,6 +340,24 @@ void AAZ_InfectedAIController::UpdatePerception()
 		PerceivedTarget = nullptr;
 	}
 
+	// Proximity retention (TLOU close-range rule): a target we're ALREADY on can't be "lost" at arm's
+	// length by slipping out of the sight cone — within InstantDetectRange the Chalkie hears/feels them.
+	// Without this, a player strafing around an attacking zombie exits the 70-degree cone, the grace
+	// expires mid-approach, and the brain absurdly drops to Investigate AT the player's own location.
+	// Only refreshes an existing engagement (never acquires) and only while still within grace.
+	if (!Best)
+	{
+		if (const APawn* Retained = PerceivedTarget.Get())
+		{
+			const float RetainDistSq = FVector::DistSquared2D(InfectedCharacter->GetActorLocation(), Retained->GetActorLocation());
+			if (RetainDistSq <= FMath::Square(InstantDetectRange))
+			{
+				LastKnownTargetLocation = Retained->GetActorLocation();
+				LastStimulusTimeSeconds = NowSeconds;
+			}
+		}
+	}
+
 	if (Best)
 	{
 		if (PerceivedTarget.Get() == Best)

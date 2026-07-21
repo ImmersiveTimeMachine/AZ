@@ -125,44 +125,38 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 
 void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
 {
-	// Lifespan doubles as the death latch.
-	if (GetLifeSpan() > 0.f)
+	// Death latch: only death deactivates the Mover (corpses are PERMANENT now — no lifespan to latch on).
+	if (MoverComponent && !MoverComponent->IsActive())
 	{
 		return;
 	}
 
-	// Ragdoll at the fall's impact beat (delay from UAZ_GA_Death = montage length x fraction); the
-	// authored clip sells the hit, physics settles the body against geometry it would clip through.
-	if (RagdollDelay > 0.f)
-	{
-		FTimerHandle RagdollTimer;
-		GetWorldTimerManager().SetTimer(RagdollTimer,
-			FTimerDelegate::CreateUObject(this, &AAZ_PawnMoverInfectedCharacter::RagdollCorpse), RagdollDelay, false);
-	}
-	else
-	{
-		RagdollCorpse();
-	}
+	// MINIMAL anim-only death (user decision 2026-07-21): the montage holds its last frame and that IS
+	// the corpse. No ragdoll, capsule collision UNTOUCHED, mesh stays attached and Mover-managed (the
+	// visual-component null + collision changes were ragdoll-era plumbing — nulling the visual comp
+	// mid-game can leave a stale smoothing offset baked into the mesh transform). RagdollCorpse() stays
+	// unused for the day corpse physics is wanted (explosions).
+	// NEVER DestroyComponent a live Mover: the NetworkPrediction backend keeps ticking the registered
+	// simulation -> use-after-free crash in WalkingMode::SimulationTick (learned 2026-07-21).
+	(void)RagdollDelay;
 
-	// Brain off (controller detaches + BT stops), no more blocking/perception, no movement sim.
+	// Brain off (controller detaches + BT stops); movement sim off. NO despawn — corpses stay as set
+	// dressing (user decision 2026-07-21). Freeze the anim once the death clip has fully played out
+	// (longest death clip is ~2.2s) so a field of corpses costs zero anim evaluation.
 	DetachFromControllerPendingDestroy();
-	if (Capsule)
-	{
-		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	}
-	// Cut the MESH loose from the Mover's smoothing, keep the sim ALIVE: the smoothing pass stamps
-	// PrimaryVisualComponent (the mesh) every frame — that was both the "fully simulated skeletal
-	// mesh" warning spam and what kept teleporting the ragdoll into/through geometry. Nulling the
-	// visual component stops the stamping; the (deactivated) sim then idles harmlessly on the frozen
-	// capsule. NEVER DestroyComponent a live Mover: the NetworkPrediction backend keeps ticking the
-	// registered simulation -> use-after-free crash in WalkingMode::SimulationTick (learned 2026-07-21).
 	if (MoverComponent)
 	{
-		MoverComponent->SetPrimaryVisualComponent(nullptr);
 		MoverComponent->Deactivate();
 	}
+	FTimerHandle FreezeTimer;
+	GetWorldTimerManager().SetTimer(FreezeTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		if (Mesh)
+		{
+			Mesh->bPauseAnims = true;
+		}
+	}), 4.f, false);
 	UE_LOG(LogTemp, Display, TEXT("[Vitals] %s DIED"), *GetName());
-	SetLifeSpan(10.f);
 }
 
 void AAZ_PawnMoverInfectedCharacter::RagdollCorpse()
