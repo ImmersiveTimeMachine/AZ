@@ -134,6 +134,10 @@ protected:
 	void InitAbilitySystem();
 
 public:
+	/** Vitals Health decreased but not to zero -> variant flinch (anim-set HitReactMontage, played as a
+	 *  ~1.1s window of the long KnockBack clip). Cosmetic SP glue — becomes a GameplayCue in the batch. */
+	void HandleHealthChanged(const struct FOnAttributeChangeData& Data);
+
 	/** Corpse-ification, called by UAZ_GA_Death after it starts the (replicated) death montage:
 	 *  brain off, collision off, mover off, ragdoll at RagdollDelay (0 = instantly), despawn.
 	 *  Idempotent — lifespan doubles as the death latch. */

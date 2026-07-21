@@ -60,6 +60,15 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		Cleanup();
 		return EBTNodeResult::Failed;
 	}
+	// Sync-end guard: the ability can activate AND end within TryActivate (missing montage, instant
+	// fail). Our delegate fired before the task was latent — FinishLatentTask was ignored — so without
+	// this check the node hangs until the timeout. If it's already over, report it directly.
+	const FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass);
+	if (!Spec || !Spec->IsActive())
+	{
+		Cleanup();
+		return EBTNodeResult::Succeeded;
+	}
 	return EBTNodeResult::InProgress;
 }
 
@@ -89,14 +98,17 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 	const AActor* Target = AZ_GetChaseTarget(OwnerComp);
 	if (Pawn && Target && FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation()) > AZ_BreakOffDistance)
 	{
-		if (UAbilitySystemComponent* ASC = BoundASC.Get())
+		// UNBIND BEFORE CANCELLING: CancelAbilityHandle fires OnAbilityEnded synchronously — with the
+		// delegate still bound it would re-enter and FinishLatentTask(Succeeded) out from under us.
+		UAbilitySystemComponent* ASC = BoundASC.Get();
+		Cleanup();
+		if (ASC)
 		{
 			if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass))
 			{
 				ASC->CancelAbilityHandle(Spec->Handle);
 			}
 		}
-		Cleanup();
 		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		return;
 	}
@@ -111,14 +123,18 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 EBTNodeResult::Type UAZ_BTTask_ZombieAttack::AbortTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	// Higher-priority branch preempted the swing (target lost mid-attack, death) — cancel the ability.
-	if (UAbilitySystemComponent* ASC = BoundASC.Get())
+	// UNBIND FIRST: the cancel fires OnAbilityEnded synchronously; with the delegate still bound it
+	// would call FinishLatentTask(Succeeded) in the middle of the abort and wedge the tree on this
+	// node (the "doesn't escape from attack" symptom with multiple NPCs).
+	UAbilitySystemComponent* ASC = BoundASC.Get();
+	Cleanup();
+	if (ASC)
 	{
 		if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass))
 		{
 			ASC->CancelAbilityHandle(Spec->Handle);
 		}
 	}
-	Cleanup();
 	return EBTNodeResult::Aborted;
 }
 

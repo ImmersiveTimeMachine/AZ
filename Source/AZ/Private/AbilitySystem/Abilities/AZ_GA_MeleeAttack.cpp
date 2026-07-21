@@ -231,6 +231,9 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 	Avatar->GetWorld()->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
 		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(MeleeRadius), Params);
 
+	// SINGLE-TARGET: a punch is not a cleave — only the nearest hostile along the sweep takes the hit
+	// (SweepMulti returns hits ordered by distance; we stop after the first successful application).
+	// Multi-hit weapons later = a bool/count on the ability, per-weapon data.
 	TArray<AActor*> AlreadyHit;
 	for (const FHitResult& Hit : Hits)
 	{
@@ -261,6 +264,7 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 			{
 				SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
 			}
+			break;   // single-target: nearest hostile only
 		}
 	}
 }

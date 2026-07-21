@@ -397,6 +397,33 @@ void AAZ_InfectedAIController::UpdatePerception()
 		AlertCandidate = nullptr;
 	}
 
+	// TEMP DIAGNOSTIC (blindness hunt 2026-07-21, remove after): every decision input, ~1.5Hz per zombie.
+	// Throttle is PER INSTANCE (a shared static let the first-ticking zombie hog the log and hid the
+	// broken one entirely — the diag bug that delayed the diagnosis).
+	{
+		static TMap<const void*, double> LastDiagTimes;
+		double& LastDiagTime = LastDiagTimes.FindOrAdd(this, 0.0);
+		if (NowSeconds - LastDiagTime > 0.7)
+		{
+			LastDiagTime = NowSeconds;
+			const APawn* Hero = GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr;
+			float HeroDist = -1.f; bool bHeroCrouchTag = false; ETeamAttitude::Type HeroAttitude = ETeamAttitude::Neutral;
+			if (Hero)
+			{
+				HeroDist = FVector::Dist2D(InfectedCharacter->GetActorLocation(), Hero->GetActorLocation());
+				if (const IGameplayTagAssetInterface* HeroTags = Cast<IGameplayTagAssetInterface>(Hero))
+				{
+					bHeroCrouchTag = HeroTags->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Movement_Crouching);
+				}
+				HeroAttitude = GetTeamAttitudeTowards(*Hero);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f heroCrouchTag=%d heroAttitude=%d"),
+				*GetNameSafe(InfectedCharacter), Seen.Num(), *GetNameSafe(Best), *GetNameSafe(PerceivedTarget.Get()),
+				GetFreshPerceivedTarget() != nullptr, *GetNameSafe(AlertCandidate.Get()), static_cast<int32>(CurrentPhase),
+				HeroDist, bHeroCrouchTag, static_cast<int32>(HeroAttitude));
+		}
+	}
+
 	// Resolve + publish the phase: aggressive = committed target; alerted = reaction beat OR an armed
 	// investigation (LastKnownLocation pending); dormant = nothing going on. SetPhase mirrors to BB + ASC.
 	EAZ_InfectedPhase Phase = EAZ_InfectedPhase::Dormant;

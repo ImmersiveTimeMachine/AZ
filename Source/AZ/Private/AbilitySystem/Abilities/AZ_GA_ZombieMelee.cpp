@@ -3,7 +3,10 @@
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
 
 #include "Animation/AnimMontage.h"
+#include "Character/AZ_PawnMoverComponent.h"
+#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "Engine/World.h"
+#include "MoverTypes.h"
 #include "TimerManager.h"
 
 UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
@@ -22,6 +25,25 @@ void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	Hand = FMath::RandBool() ? EAZ_MeleeHand::Left : EAZ_MeleeHand::Right;
 
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	// The base queued its RM override for the FULL montage length (8-10s clawing cycles) — re-queue at
+	// the bite length so a missed cancel can never root a zombie for seconds (replace-don't-stack).
+	if (IsActive())
+	{
+		if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+		{
+			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+			{
+				if (Avatar->GetLocalRole() != ROLE_SimulatedProxy)
+				{
+					Mover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+					const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+					RMMove->DurationMs = BiteSeconds * 1000.f;
+					Mover->QueueLayeredMove(RMMove);
+				}
+			}
+		}
+	}
 
 	// Timed bite of the long clawing cycle: end the ability (the montage task stops the montage with a
 	// blend-out) after BiteSeconds. Super may already have ended us on a missing montage — IsActive guards.

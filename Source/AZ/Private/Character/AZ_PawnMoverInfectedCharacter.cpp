@@ -6,6 +6,7 @@
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "Abilities/GameplayAbilityTypes.h"
 #include "AbilitySystem/Abilities/AZ_GA_Death.h"
+#include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetMontage (flinch)
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
 #include "Animation/AnimMontage.h"
 #include "AZ_GameplayTags.h"
@@ -121,6 +122,47 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 
 	// Bind ASC actor info now that the pawn (owner + avatar) exists. Idempotent — safe alongside PossessedBy.
 	InitAbilitySystem();
+
+	// Flinch listener: Vitals Health drops (but survives) -> variant hit-react. BeginPlay runs once
+	// per instance, so this binds exactly once.
+	if (AbilitySystemComponent && VitalsAttributeSet)
+	{
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(VitalsAttributeSet->GetHealthAttribute())
+			.AddUObject(this, &AAZ_PawnMoverInfectedCharacter::HandleHealthChanged);
+	}
+}
+
+void AAZ_PawnMoverInfectedCharacter::HandleHealthChanged(const FOnAttributeChangeData& Data)
+{
+	if (Data.NewValue >= Data.OldValue || Data.NewValue <= 0.f)
+	{
+		return;   // heals and killing blows don't flinch (death owns the killing blow)
+	}
+	if (MoverComponent && !MoverComponent->IsActive())
+	{
+		return;   // already a corpse
+	}
+	UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(this, TEXT("HitReactMontage"));
+	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	if (!Flinch || !AnimInstance || AnimInstance->Montage_IsPlaying(Flinch))
+	{
+		return;   // no double-flinch: a landed hit during a flinch just deals damage
+	}
+	// A flinch on the shared slot also interrupts a mid-swing attack montage — punching a Chalkie
+	// out of its claw is deliberate (player defense). The KnockBack source clips run 3-7s with a full
+	// recovery tail, so play only a WINDOW: stop with a blend after ~1.1s.
+	AnimInstance->Montage_Play(Flinch);
+	FTimerHandle FlinchTimer;
+	GetWorldTimerManager().SetTimer(FlinchTimer, FTimerDelegate::CreateWeakLambda(this, [this, Flinch]()
+	{
+		if (UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr)
+		{
+			if (Anim->Montage_IsPlaying(Flinch))
+			{
+				Anim->Montage_Stop(0.3f, Flinch);
+			}
+		}
+	}), 1.1f, false);
 }
 
 void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)

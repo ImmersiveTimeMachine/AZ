@@ -7,6 +7,8 @@
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimMontage.h"
 #include "AZ_GameplayTags.h"
+#include "AI/AZ_HordeSubsystem.h"
+#include "AI/AZ_InfectedAIController.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 
 UAZ_GA_Death::UAZ_GA_Death()
@@ -78,9 +80,18 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		}
 	}
 
-	// Corpse-ification is the pawn's job (collision, mover, controller, ragdoll timing, lifespan).
+	// PACK ALERT: a pack-mate going down is a stimulus — every registered Chalkie within the horde
+	// subsystem's AlertRadius converges (urgent investigation) on the KILLER's position, making a kill
+	// near the pack a real decision. Must fire BEFORE BeginCorpse (which detaches the controller).
 	if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar))
 	{
+		if (AAZ_InfectedAIController* DyingController = Cast<AAZ_InfectedAIController>(Infected->GetController()))
+		{
+			if (UAZ_HordeSubsystem* Horde = Avatar->GetWorld()->GetSubsystem<UAZ_HordeSubsystem>())
+			{
+				Horde->NotifyAggro(DyingController, Killer ? Killer->GetActorLocation() : Avatar->GetActorLocation());
+			}
+		}
 		Infected->BeginCorpse(RagdollDelay);
 	}
 

@@ -73,7 +73,8 @@ protected:
 	// --- Damage (S1 spine) ---
 	/** GE applied to each swept hostile; magnitude rides SetByCaller.Damage. Default = UAZ_GE_Damage. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") TSubclassOf<UGameplayEffect> DamageEffect;
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0")) float DamageAmount = 25.f;
+	/** Fists = 10: five punches down a standard 50 HP Chalkie. Weapons override per-ability (BP data). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0")) float DamageAmount = 10.f;
 	/** Sweep reach forward from the avatar's center (cm) and the sphere radius swept along it. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 160.f;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 60.f;
