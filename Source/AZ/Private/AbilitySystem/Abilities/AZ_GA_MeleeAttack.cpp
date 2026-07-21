@@ -3,6 +3,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
+#include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "AbilitySystem/GameplayEffects/AZ_GE_Damage.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -12,7 +13,9 @@
 #include "AZ_GameplayTags.h"
 #include "Engine/World.h"
 #include "GameplayEffect.h"
+#include "DrawDebugHelpers.h"
 #include "GenericTeamAgentInterface.h"
+#include "Perception/AISense_Hearing.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Character/AZ_PawnMoverComponent.h"
@@ -185,6 +188,25 @@ UAnimMontage* UAZ_GA_MeleeAttack::SelectMontage() const
 	return (Hand == EAZ_MeleeHand::Left) ? PunchIdle_L : PunchIdle_R;
 }
 
+float UAZ_GA_MeleeAttack::ReadConfigFloat(const UObject* Object, FName PropertyName, float Default)
+{
+	if (Object)
+	{
+		if (const FProperty* Property = Object->GetClass()->FindPropertyByName(PropertyName))
+		{
+			if (const FFloatProperty* AsFloat = CastField<FFloatProperty>(Property))
+			{
+				return AsFloat->GetPropertyValue_InContainer(Object);
+			}
+			if (const FDoubleProperty* AsDouble = CastField<FDoubleProperty>(Property))
+			{
+				return static_cast<float>(AsDouble->GetPropertyValue_InContainer(Object));
+			}
+		}
+	}
+	return Default;
+}
+
 UAnimMontage* UAZ_GA_MeleeAttack::FindAnimSetMontage(const AActor* Avatar, FName MontageProperty)
 {
 	if (!Avatar)
@@ -220,10 +242,12 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 		return;
 	}
 
-	// Forward sphere sweep from the avatar's center — a fat capsule-height cone-substitute. Socket-accurate
-	// per-hand sweeps are a P3 refinement; range/radius are generous on purpose (zombie-arm reach).
-	const FVector Forward = Avatar->GetActorForwardVector();
-	const FVector Start = Avatar->GetActorLocation();
+	// Forward sphere sweep, PRECISION form: start pushed a body-width AHEAD of center (a sphere swept
+	// from the center hits anything touching the attacker regardless of facing — rotated punches were
+	// landing), plus a per-hit angular cone filter below. Socket-accurate per-hand sweeps migrate to
+	// UAZ_AT_MeleeSweep at the batch (shared with weapons).
+	const FVector Forward = Avatar->GetActorForwardVector().GetSafeNormal2D();
+	const FVector Start = Avatar->GetActorLocation() + Forward * (MeleeRadius * 0.8f);
 	const FVector End = Start + Forward * MeleeRange;
 
 	TArray<FHitResult> Hits;
@@ -244,6 +268,14 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 		}
 		AlreadyHit.Add(Target);
 
+		// Angular precision: the hit must actually be IN FRONT (within ~55 deg of facing). This is what
+		// makes a rotated-away punch whiff — the swept volume alone is too forgiving at point-blank.
+		const FVector DirToHit = (Target->GetActorLocation() - Avatar->GetActorLocation()).GetSafeNormal2D();
+		if (FVector::DotProduct(Forward, DirToHit) < 0.574f)   // cos(55 deg)
+		{
+			continue;
+		}
+
 		// Team filter: only hostiles take the hit (no horde friendly-fire, no smacking your co-op partner).
 		if (FGenericTeamId::GetAttitude(Avatar, Target) != ETeamAttitude::Hostile)
 		{
@@ -251,6 +283,15 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 		}
 		UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 		if (!TargetASC)
+		{
+			continue;
+		}
+		// CORPSES DON'T EAT PUNCHES (audit rules-finding #2): permanent corpses keep hostile team +
+		// live ASC — without this, the single-target break spent the hit on a dead body in front of a
+		// live attacker AND emitted pack-summoning noise at the corpse. Dead = 0 vitals -> next hit.
+		bool bHasVitals = false;
+		const float TargetHealth = TargetASC->GetGameplayAttributeValue(UAZ_VitalsAttributeSet::GetHealthAttribute(), bHasVitals);
+		if (bHasVitals && TargetHealth <= 0.f)
 		{
 			continue;
 		}
@@ -264,6 +305,21 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 			{
 				SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
 			}
+			// FIGHT NOISE: a landed hit is loud — pack hearing (direction-agnostic) pulls nearby
+			// Chalkies into a wary investigation of the brawl, and every hit re-pins its CURRENT
+			// location. Instigator must be the hero-side party (attacker when the hero punches,
+			// victim when a zombie claws) — zombie hearing filters out friendly sources.
+			AActor* NoiseInstigator = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar) ? Target : Avatar;
+			// Loudness MULTIPLIES the listener's HearingRange: tunable per-ATTACK (BP vars on the
+			// ability — a knife stays quiet, a bat is loud; per-weapon noise = weapon parity data).
+			UAISense_Hearing::ReportNoiseEvent(Avatar->GetWorld(), Target->GetActorLocation(),
+				ReadConfigFloat(this, TEXT("ImpactNoiseLoudness"), 1.4f), NoiseInstigator,
+				ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f), FName("Combat"));
+			// TEMP noise debug (remove with [ChalkieDiag]): the sphere shows the ACTUAL carry radius
+			// (listener HearingRange 700 x loudness 1.4, capped 1000) — any zombie inside it hears.
+			DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), 980.f, 24, FColor::Yellow, false, 2.f);
+			UE_LOG(LogTemp, Display, TEXT("[Noise] punch impact reported at %s instigator=%s"),
+				*Target->GetActorLocation().ToCompactString(), *GetNameSafe(NoiseInstigator));
 			break;   // single-target: nearest hostile only
 		}
 	}

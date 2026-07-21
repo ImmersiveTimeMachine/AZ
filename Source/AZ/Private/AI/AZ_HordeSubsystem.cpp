@@ -5,6 +5,49 @@
 #include "AI/AZ_InfectedAIController.h"
 #include "Engine/World.h"
 
+namespace
+{
+	// Attack-token ledger: prey -> current attackers. File-static glue (LC can't add members to a live
+	// UObject); a Live-Coding patch of this TU resets it — harmless, tokens re-acquire next swing.
+	constexpr int32 AZ_MaxAttackersPerPrey = 2;
+	TMap<TWeakObjectPtr<const AActor>, TArray<TWeakObjectPtr<AAZ_InfectedAIController>>> GAttackTokens;
+}
+
+bool UAZ_HordeSubsystem::RequestAttackToken(AAZ_InfectedAIController* Attacker, const AActor* Prey)
+{
+	if (!Attacker || !Prey)
+	{
+		return false;
+	}
+	TArray<TWeakObjectPtr<AAZ_InfectedAIController>>& Holders = GAttackTokens.FindOrAdd(Prey);
+	Holders.RemoveAll([](const TWeakObjectPtr<AAZ_InfectedAIController>& H) { return !H.IsValid(); });
+	if (Holders.Contains(Attacker))
+	{
+		return true;   // already holds one (re-entrant swings)
+	}
+	if (Holders.Num() >= AZ_MaxAttackersPerPrey)
+	{
+		return false;  // slots full — hold the ring, MoveTo keeps you close, retry next loop
+	}
+	Holders.Add(Attacker);
+	return true;
+}
+
+void UAZ_HordeSubsystem::ReleaseAttackToken(AAZ_InfectedAIController* Attacker)
+{
+	if (!Attacker)
+	{
+		return;
+	}
+	for (auto& Pair : GAttackTokens)
+	{
+		Pair.Value.RemoveAll([Attacker](const TWeakObjectPtr<AAZ_InfectedAIController>& H)
+		{
+			return !H.IsValid() || H.Get() == Attacker;
+		});
+	}
+}
+
 bool UAZ_HordeSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
 	if (!Super::ShouldCreateSubsystem(Outer))

@@ -94,6 +94,22 @@ FString UAZ_AT_PlayMontageAndWaitForEvent::GetDebugString() const
 
 void UAZ_AT_PlayMontageAndWaitForEvent::OnDestroy(bool AbilityEnded)
 {
+	// Stock GASShooter cleanup, RESTORED (audit finding #1, 2026-07-21): this was a bare Super
+	// pass-through, which made bStopWhenAbilityEnds dead code — montages OUTLIVED every natural
+	// EndAbility (the zombie's 8-10s claw cycle kept playing over locomotion after the 2.2s bite
+	// ended itself) — and leaked one gameplay-event delegate per activation.
+	if (Ability)
+	{
+		Ability->OnGameplayAbilityCancelled.Remove(CancelledHandle);
+		if (AbilityEnded && bStopWhenAbilityEnds)
+		{
+			StopPlayingMontage();
+		}
+	}
+	if (UAZ_AbilitySystemComponent* TargetASC = GetTargetASC())
+	{
+		TargetASC->RemoveGameplayEventTagContainerDelegate(EventTags, EventHandle);
+	}
 	Super::OnDestroy(AbilityEnded);
 }
 

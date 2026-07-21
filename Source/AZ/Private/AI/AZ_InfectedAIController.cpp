@@ -6,6 +6,7 @@
 #include "Animation/AZ_LocomotionTypes.h"   // EAZ_Gait
 #include "AZ_GameplayTags.h"                 // Movement.Crouching (crouch-sneak detection range)
 #include "BehaviorTree/BehaviorTree.h"
+#include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BrainComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"    // TEMP: speed probe reads GetVelocity
@@ -184,8 +185,13 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 
 void AAZ_InfectedAIController::OnUnPossess()
 {
+	// Audit #6/#12: release any held attack token HERE (the BT abort during unpossession runs after
+	// the pawn is nulled — its release path can't reach the subsystem, leaking a max-2 slot), and
+	// drop the phase to Dormant so no stale Aggressive/Alerted tag outlives possession.
+	SetPhase(EAZ_InfectedPhase::Dormant);
 	if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
 	{
+		Horde->ReleaseAttackToken(this);
 		Horde->UnregisterInfected(this);
 	}
 	if (AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get())
@@ -236,16 +242,36 @@ void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimu
 	// directly — sprint footsteps, gunshots, thrown objects (whatever reports to UAISense_Hearing) pull the
 	// Chalkie to the SOUND location. Sight handles its own promotion; hearing only ever points, never locks.
 	// Heard-only = CALM arm (wary Walk-gait investigation) — escalation memory promotes repeats to urgent.
+	if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
+	{
+		// TEMP noise debug (remove with [ChalkieDiag]): the receiving end.
+		UE_LOG(LogTemp, Display, TEXT("[Noise] %s HEARD %s at %s (sensed=%d, engaged=%d)"),
+			*GetNameSafe(GetPawn()), *GetNameSafe(Actor), *Stimulus.StimulusLocation.ToCompactString(),
+			Stimulus.WasSuccessfullySensed(), GetFreshPerceivedTarget() != nullptr);
+	}
 	if (Stimulus.WasSuccessfullySensed()
 		&& Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
 		&& GetFreshPerceivedTarget() == nullptr)
 	{
-		ArmInvestigation(Stimulus.StimulusLocation, /*bUrgent*/ false);
+		// Noise SEMANTICS via the report tag: footsteps = calm wary walk-over (TLOU); COMBAT sounds
+		// (punch impacts, stagger screams) = urgent — a brawl in earshot gets the run gait, not an amble.
+		const bool bCombatNoise = (Stimulus.Tag == FName("Combat")) || (Stimulus.Tag == FName("Scream"));
+		ArmInvestigation(Stimulus.StimulusLocation, /*bUrgent*/ bCombatNoise);
 	}
 }
 
 void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bUrgent)
 {
+	// An ACTIVELY ENGAGED Chalkie ignores investigation prompts — it already has the best possible
+	// information (a live target). Without this, the pack alert from a dying pack-mate armed
+	// LastKnownLocation on its still-FIGHTING neighbors; the next chase hiccup dropped them into the
+	// long search routine mid-combat ("I kill one and the other goes exploring"). The service's own
+	// fresh->lost edge still arms normally — by then the target is genuinely gone.
+	if (GetFreshPerceivedTarget() != nullptr)
+	{
+		return;
+	}
+
 	const double NowSeconds = FPlatformTime::Seconds();
 
 	// Episode counting: a burst of stimuli (running footsteps re-arm every noise interval) is ONE
@@ -267,9 +293,32 @@ void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bU
 	LastKnownTargetLocation = Location;
 	if (UBlackboardComponent* BB = GetBlackboardComponent())
 	{
+		// RE-PIN FIX (audit rules-finding #6, seen on screen 2026-07-21): a running Investigate has its
+		// MoveTo destination LATCHED — set->set is not a blackboard edge, so mid-search zombies kept
+		// marching to where a fight USED to be while every new punch updated a vector nobody re-read.
+		// A meaningfully MOVED location clears first: clear->set IS an edge -> the decorator's abort
+		// restarts the branch at the fresh spot. Same-spot updates (<150cm) stay quiet (no restart spam).
+		const bool bHadLocation = BB->IsVectorValueSet(AZ_ChalkieBBKeys::LastKnownLocation);
+		const FVector CurrentPin = BB->GetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation);
+		if (bHadLocation && FVector::DistSquared2D(CurrentPin, Location) > FMath::Square(150.f))
+		{
+			BB->ClearValue(AZ_ChalkieBBKeys::LastKnownLocation);
+		}
 		BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Location);
 		BB->SetValueAsBool(AZ_ChalkieBBKeys::bInvestigateUrgent, bUrgent || IsInvestigationEscalated());
 	}
+}
+
+void AAZ_InfectedAIController::NotifyDamagedBy(APawn* Attacker)
+{
+	if (!Attacker || GetTeamAttitudeTowards(*Attacker) != ETeamAttitude::Hostile)
+	{
+		return;
+	}
+	PerceivedTarget = Attacker;
+	LastKnownTargetLocation = Attacker->GetActorLocation();
+	LastStimulusTimeSeconds = FPlatformTime::Seconds();
+	AlertCandidate = nullptr;   // no reaction beat — pain IS the commit
 }
 
 bool AAZ_InfectedAIController::IsInvestigationEscalated() const
@@ -417,10 +466,18 @@ void AAZ_InfectedAIController::UpdatePerception()
 				}
 				HeroAttitude = GetTeamAttitudeTowards(*Hero);
 			}
-			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f heroCrouchTag=%d heroAttitude=%d"),
+			// BRAIN layer (the perception-only first version couldn't distinguish "doesn't see" from
+			// "sees but the tree is stuck" — the exact gap that produced a premature all-clear):
+			const UBehaviorTreeComponent* BTComp = Cast<UBehaviorTreeComponent>(BrainComponent);
+			const UBTNode* ActiveNode = BTComp ? BTComp->GetActiveNode() : nullptr;
+			const bool bBBTargetSet = GetBlackboardComponent()
+				&& GetBlackboardComponent()->GetValueAsObject(AZ_ChalkieBBKeys::TargetActor) != nullptr;
+			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f crouch=%d att=%d | bbTgt=%d btNode=%s move=%d"),
 				*GetNameSafe(InfectedCharacter), Seen.Num(), *GetNameSafe(Best), *GetNameSafe(PerceivedTarget.Get()),
 				GetFreshPerceivedTarget() != nullptr, *GetNameSafe(AlertCandidate.Get()), static_cast<int32>(CurrentPhase),
-				HeroDist, bHeroCrouchTag, static_cast<int32>(HeroAttitude));
+				HeroDist, bHeroCrouchTag, static_cast<int32>(HeroAttitude),
+				bBBTargetSet, ActiveNode ? *ActiveNode->GetNodeName() : TEXT("NONE"),
+				static_cast<int32>(GetMoveStatus()));
 		}
 	}
 

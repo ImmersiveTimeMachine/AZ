@@ -15,8 +15,8 @@ UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
 	// to clients through the ASC.
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
 	DamageAmount = 10.f;
-	MeleeRange = 170.f;
-	MeleeRadius = 70.f;
+	MeleeRange = 110.f;   // claw contact ~2.0m total — longer than a fist, shorter than a spear
+	MeleeRadius = 50.f;
 }
 
 void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -46,13 +46,19 @@ void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	// Timed bite of the long clawing cycle: end the ability (the montage task stops the montage with a
-	// blend-out) after BiteSeconds. Super may already have ended us on a missing montage — IsActive guards.
+	// blend-out) after BiteSeconds. GENERATION-GUARDED (audit finding #2): the ability is
+	// InstancedPerActor, so a stale timer from an INTERRUPTED bite would otherwise see the NEXT
+	// activation as "active" and end it early — every interrupted bite poisoned its successor.
+	// (Static map = LC glue; becomes a member FTimerHandle cleared in EndAbility at the batch.)
 	if (IsActive())
 	{
+		static TMap<TWeakObjectPtr<const UAZ_GA_ZombieMelee>, uint64> GBiteGenerations;
+		const uint64 ThisGeneration = ++GBiteGenerations.FindOrAdd(this, 0);
 		FTimerHandle BiteTimer;
-		GetWorld()->GetTimerManager().SetTimer(BiteTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		GetWorld()->GetTimerManager().SetTimer(BiteTimer, FTimerDelegate::CreateWeakLambda(this, [this, ThisGeneration]()
 		{
-			if (IsActive())
+			const uint64* Current = GBiteGenerations.Find(this);
+			if (Current && *Current == ThisGeneration && IsActive())
 			{
 				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 			}

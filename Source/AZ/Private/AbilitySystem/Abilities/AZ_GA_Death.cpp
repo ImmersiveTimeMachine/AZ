@@ -9,7 +9,10 @@
 #include "AZ_GameplayTags.h"
 #include "AI/AZ_HordeSubsystem.h"
 #include "AI/AZ_InfectedAIController.h"
+#include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
+#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
+#include "MoverTypes.h"
 
 UAZ_GA_Death::UAZ_GA_Death()
 {
@@ -22,11 +25,15 @@ UAZ_GA_Death::UAZ_GA_Death()
 
 void UAZ_GA_Death::ConfigureTriggerOnCDO()
 {
+	// Guard by the SPECIFIC tag, not Num()==0 (audit #10): a future second trigger added here would
+	// otherwise silently never apply on a CDO already patched by an earlier session.
 	UAZ_GA_Death* CDO = UAZ_GA_Death::StaticClass()->GetDefaultObject<UAZ_GA_Death>();
-	if (CDO && CDO->AbilityTriggers.Num() == 0)
+	const FGameplayTag& DeathTag = FAZ_GameplayTags::Get().Event_Death;
+	if (CDO && !CDO->AbilityTriggers.ContainsByPredicate(
+		[&DeathTag](const FAbilityTriggerData& T) { return T.TriggerTag == DeathTag; }))
 	{
 		FAbilityTriggerData Trigger;
-		Trigger.TriggerTag = FAZ_GameplayTags::Get().Event_Death;
+		Trigger.TriggerTag = DeathTag;
 		Trigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
 		CDO->AbilityTriggers.Add(Trigger);
 	}
@@ -77,6 +84,16 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		{
 			MontageTask->ReadyForActivation();
 			RagdollDelay = DeathMontage->GetPlayLength() * RagdollAtMontageFraction;
+
+			// Root-motion death: the montage now sources the ROOT clip (real collapse trajectory) — the
+			// layered move makes the CAPSULE follow it, so the body falls WHERE the anim says, not in place.
+			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+			{
+				Mover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+				const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+				RMMove->DurationMs = DeathMontage->GetPlayLength() * 1000.f;
+				Mover->QueueLayeredMove(RMMove);
+			}
 		}
 	}
 

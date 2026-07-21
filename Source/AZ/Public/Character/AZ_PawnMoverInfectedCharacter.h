@@ -138,6 +138,11 @@ public:
 	 *  ~1.1s window of the long KnockBack clip). Cosmetic SP glue — becomes a GameplayCue in the batch. */
 	void HandleHealthChanged(const struct FOnAttributeChangeData& Data);
 
+	/** THE on-hit entry point (survivable hits), called by UAZ_VitalsAttributeSet::PostGameplayEffectExecute
+	 *  with the REAL effect causer (the attribute-change delegate loses it — GEModData is null for direct
+	 *  attribute sets). Fires the damage-lock rule, the stagger scream, and the full-stagger flinch. */
+	void HandleDamaged(AActor* Causer, float Damage);
+
 	/** Corpse-ification, called by UAZ_GA_Death after it starts the (replicated) death montage:
 	 *  brain off, collision off, mover off, ragdoll at RagdollDelay (0 = instantly), despawn.
 	 *  Idempotent — lifespan doubles as the death latch. */

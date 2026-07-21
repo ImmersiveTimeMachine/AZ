@@ -111,6 +111,11 @@ public:
 	 *  investigations inside EscalationWindowSeconds mean the Chalkie is "onto you". */
 	void ArmInvestigation(const FVector& Location, bool bUrgent);
 
+	/** Rule: BEING HIT is the strongest stimulus — instant, unconditional lock on a hostile attacker
+	 *  (no cone, no range, no alert beat). Called by the pawn's damage path; keeps a punched Chalkie
+	 *  glued to its puncher even when a stagger throws it out of sight-cone/retention range. */
+	void NotifyDamagedBy(APawn* Attacker);
+
 	/** True while escalated (recent repeated investigations) — FindPointNear widens its search radius on this. */
 	bool IsInvestigationEscalated() const;
 

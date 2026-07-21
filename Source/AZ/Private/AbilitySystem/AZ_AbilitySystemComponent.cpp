@@ -294,6 +294,9 @@ void UAZ_AbilitySystemComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 void UAZ_AbilitySystemComponent::AbilityActorInfoSet()
 {
+	// Idempotent (audit): this is called from BeginPlay AND PossessedBy — an unconditional Add
+	// stacked duplicate binds, so the first real logic in EffectApplied would have run N times per GE.
+	OnGameplayEffectAppliedDelegateToSelf.RemoveAll(this);
 	OnGameplayEffectAppliedDelegateToSelf.AddUObject(this, &UAZ_AbilitySystemComponent::EffectApplied);
 }
 

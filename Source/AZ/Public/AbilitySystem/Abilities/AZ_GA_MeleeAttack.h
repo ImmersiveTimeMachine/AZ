@@ -44,6 +44,11 @@ public:
 	 *  the zombie melee + death abilities; goes native with UAZ_ChalkieAnimSet in the batch. */
 	static UAnimMontage* FindAnimSetMontage(const AActor* Avatar, FName MontageProperty);
 
+	/** Reflection read of a float config off any object (BP-variable-tunable under Live Coding — new
+	 *  UPROPERTYs need a restart). Falls back to Default when the property doesn't exist. Every call
+	 *  site of this is a batch item: promote to a real UPROPERTY / DA_ChalkieConfig field. */
+	static float ReadConfigFloat(const UObject* Object, FName PropertyName, float Default);
+
 protected:
 
 	// Montage finished / interrupted / cancelled -> end the ability.
@@ -75,9 +80,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") TSubclassOf<UGameplayEffect> DamageEffect;
 	/** Fists = 10: five punches down a standard 50 HP Chalkie. Weapons override per-ability (BP data). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0")) float DamageAmount = 10.f;
-	/** Sweep reach forward from the avatar's center (cm) and the sphere radius swept along it. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 160.f;
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 60.f;
+	/** Sweep reach forward from the avatar's center (cm) and the sphere radius swept along it.
+	 *  Effective max contact ~= 0.8*Radius (start offset) + Range + Radius — fist 90/40 ≈ 1.6m total. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 90.f;
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 40.f;
 
 	// GEs applied to the owner on each activation — e.g. GE_CombatReady to REFRESH the fists-up stance every punch.
 	// The GE owns its own duration + refresh-on-reapply stacking; this just re-applies it. Set in the BP ability.

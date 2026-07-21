@@ -46,6 +46,14 @@ public:
 	 *  TeamAlertRadius intent; lives here because the scream is a PACK event, not a per-listener sense. */
 	float AlertRadius = 2000.f;
 
+	// ---- Engagement tokens (layer 2): cap simultaneous attackers per prey so a crowd reads as a
+	// coordinated pack, not a blender. Token storage is file-static in the cpp until the batch
+	// promotes it to a member (Live-Coding can't add fields to a live UObject class). ----
+	/** True if the attacker holds (or is granted) one of the per-prey attack slots (max 2). */
+	bool RequestAttackToken(AAZ_InfectedAIController* Attacker, const AActor* Prey);
+	/** Release the attacker's slot (no-op if it holds none). Call from every attack-task exit path. */
+	void ReleaseAttackToken(AAZ_InfectedAIController* Attacker);
+
 private:
 	/** Weak on purpose — controllers die with their pawns/world; the registry owns nothing. Dead entries
 	 *  are compacted during NotifyAggro sweeps. */

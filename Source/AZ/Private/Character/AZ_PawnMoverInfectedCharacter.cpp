@@ -12,6 +12,11 @@
 #include "AZ_GameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "AI/AZ_InfectedAIController.h"
+#include "AIController.h"
+#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
+#include "GameplayEffectExtension.h"   // FGameplayEffectModCallbackData (scream causer)
+#include "MoverTypes.h"   // Mover_AnimRootMotion
+#include "Perception/AISense_Hearing.h"
 #include "Animation/AnimInstance.h"          // mid-turn commitment read (temp reflection glue)
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait, EAZ_RotationMode
 #include "Character/AZ_MovementDirectionCapabilityComponent.h"
@@ -134,35 +139,71 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 
 void AAZ_PawnMoverInfectedCharacter::HandleHealthChanged(const FOnAttributeChangeData& Data)
 {
-	if (Data.NewValue >= Data.OldValue || Data.NewValue <= 0.f)
-	{
-		return;   // heals and killing blows don't flinch (death owns the killing blow)
-	}
+	// RETIRED as the reaction path (2026-07-21): direct attribute sets (the vitals set's SetHealth in
+	// PostGameplayEffectExecute) fire this delegate with GEModData = NULL, so the effect CAUSER is
+	// unavailable here — the damage lock and scream silently no-op'd every hit. All on-hit reaction
+	// now runs through HandleDamaged(), called by the vitals set WITH the causer. Kept bound for UI.
+}
+
+void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
+{
 	if (MoverComponent && !MoverComponent->IsActive())
 	{
 		return;   // already a corpse
 	}
+	UE_LOG(LogTemp, Display, TEXT("[Vitals] %s HandleDamaged by %s (lock+scream+stagger path)"),
+		*GetName(), *GetNameSafe(Causer));
+
+	// RULE 2 (fight rulebook): being hit = instant unconditional lock on a hostile attacker —
+	// strongest stimulus, no cone, no range, no alert beat; fires on EVERY damaging hit.
+	if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(GetController()))
+	{
+		Chalkie->NotifyDamagedBy(Cast<APawn>(Causer));
+	}
+
+	// Being hit ALWAYS interrupts the zombie's own attack + halts pathing + SCREAMS — independent of
+	// whether a flinch asset exists (audit rules-finding #10: three rules were gated behind one
+	// optional DA field).
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		if (FGameplayAbilitySpec* MeleeSpec = ASC->FindAbilitySpecFromClass(UAZ_GA_ZombieMelee::StaticClass()))
+		{
+			ASC->CancelAbilityHandle(MeleeSpec->Handle);
+		}
+	}
+	if (AAIController* AIController = Cast<AAIController>(GetController()))
+	{
+		AIController->StopMovement();
+	}
+	// STAGGER SCREAM — the loudest beacon in the alley: pack hearing converges on a screaming
+	// pack-mate. Attributed to the ATTACKER (pack hearing filters friendly sources) at THIS location.
+	if (Causer)
+	{
+		// Loudness MULTIPLIES the listener's HearingRange: tunable per-PAWN (BP vars on BP_AZ_Chalkie,
+		// per-variant later via DA_ChalkieConfig — a Screamer variant carries across the block).
+		UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(),
+			UAZ_GA_MeleeAttack::ReadConfigFloat(this, TEXT("ScreamLoudness"), 2.f), Causer,
+			UAZ_GA_MeleeAttack::ReadConfigFloat(this, TEXT("ScreamMaxRange"), 1400.f), FName("Scream"));
+	}
+
+	// FULL STAGGER, EVERY HIT (user direction 2026-07-21): each landed punch (re)plays the ENTIRE
+	// variant KnockBack clip from the top — the ROOT clip's motion (backward stumble + recovery)
+	// drives the CAPSULE via the layered move. Stun-lock on a single zombie is accepted: difficulty
+	// comes from the PACK. A cooldown knob returns via the config DA if playtests want it.
 	UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(this, TEXT("HitReactMontage"));
 	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	if (!Flinch || !AnimInstance || AnimInstance->Montage_IsPlaying(Flinch))
+	if (!Flinch || !AnimInstance)
 	{
-		return;   // no double-flinch: a landed hit during a flinch just deals damage
+		return;
 	}
-	// A flinch on the shared slot also interrupts a mid-swing attack montage — punching a Chalkie
-	// out of its claw is deliberate (player defense). The KnockBack source clips run 3-7s with a full
-	// recovery tail, so play only a WINDOW: stop with a blend after ~1.1s.
 	AnimInstance->Montage_Play(Flinch);
-	FTimerHandle FlinchTimer;
-	GetWorldTimerManager().SetTimer(FlinchTimer, FTimerDelegate::CreateWeakLambda(this, [this, Flinch]()
+	if (MoverComponent)
 	{
-		if (UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr)
-		{
-			if (Anim->Montage_IsPlaying(Flinch))
-			{
-				Anim->Montage_Stop(0.3f, Flinch);
-			}
-		}
-	}), 1.1f, false);
+		MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+		const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+		RMMove->DurationMs = Flinch->GetPlayLength() * 1000.f;
+		MoverComponent->QueueLayeredMove(RMMove);
+	}
 }
 
 void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
@@ -182,13 +223,39 @@ void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
 	// simulation -> use-after-free crash in WalkingMode::SimulationTick (learned 2026-07-21).
 	(void)RagdollDelay;
 
-	// Brain off (controller detaches + BT stops); movement sim off. NO despawn — corpses stay as set
-	// dressing (user decision 2026-07-21). Freeze the anim once the death clip has fully played out
-	// (longest death clip is ~2.2s) so a field of corpses costs zero anim evaluation.
+	// Publish the corpse's true state BEFORE detaching (audit: the Aggressive tag lived on replicated
+	// state forever): dead things are Dormant.
+	if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(AbilitySystemComponent))
+	{
+		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+		ASC->RemoveStateTag(AZTags.State_Infected_Aggressive);
+		ASC->RemoveStateTag(AZTags.State_Infected_Alerted);
+		ASC->AddStateTag(AZTags.State_Infected_Dormant);
+	}
+
+	// Brain off (controller detaches + BT stops); movement sim off — but DEFERRED (audit finding,
+	// both agents): GA_Death queues the collapse root-motion move in this same call stack; an
+	// immediate Deactivate discards it and the body collapses in place instead of where the clip
+	// says. RagdollDelay = 0.6 x montage length, so /0.6 recovers the full clip duration.
 	DetachFromControllerPendingDestroy();
 	if (MoverComponent)
 	{
-		MoverComponent->Deactivate();
+		const float DeactivateDelay = (RagdollDelay > 0.f) ? (RagdollDelay / 0.6f) + 0.1f : 0.f;
+		if (DeactivateDelay > 0.f)
+		{
+			FTimerHandle DeactivateTimer;
+			GetWorldTimerManager().SetTimer(DeactivateTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				if (MoverComponent)
+				{
+					MoverComponent->Deactivate();
+				}
+			}), DeactivateDelay, false);
+		}
+		else
+		{
+			MoverComponent->Deactivate();
+		}
 	}
 	FTimerHandle FreezeTimer;
 	GetWorldTimerManager().SetTimer(FreezeTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
