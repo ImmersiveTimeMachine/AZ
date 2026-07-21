@@ -133,6 +133,18 @@ protected:
 	/** Bind ASC ActorInfo (owner = avatar = this pawn). Server grants startup content in a later step. */
 	void InitAbilitySystem();
 
+public:
+	/** Corpse-ification, called by UAZ_GA_Death after it starts the (replicated) death montage:
+	 *  brain off, collision off, mover off, ragdoll at RagdollDelay (0 = instantly), despawn.
+	 *  Idempotent — lifespan doubles as the death latch. */
+	void BeginCorpse(float RagdollDelay);
+
+	/** Montage->ragdoll hand-off at the fall's impact beat: the authored clip sells the hit, physics
+	 *  settles the corpse against geometry (an animated fall ignores walls — bodies clipped through). */
+	void RagdollCorpse();
+
+protected:
+
 	// ========================================
 	// GAS — own ASC (NPC pattern; not on a PlayerState).
 	// ========================================
@@ -143,6 +155,9 @@ protected:
 	 *  Defaults set in the ctor (infected are 2-punch kills at the spine's 25 default). */
 	UPROPERTY()
 	TObjectPtr<class UAZ_VitalsAttributeSet> VitalsAttributeSet;
+
+	/** One-shot guard for the native startup grants (InitAbilitySystem is re-entrant). */
+	bool bStartupAbilitiesGranted = false;
 
 	// ========================================
 	// Mover stack

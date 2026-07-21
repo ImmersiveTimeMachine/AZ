@@ -52,6 +52,8 @@ void UAZ_VitalsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModC
 
 		const float NewHealth = FMath::Clamp(GetHealth() - Damage, 0.f, GetMaxHealth());
 		SetHealth(NewHealth);
+		UE_LOG(LogTemp, Display, TEXT("[Vitals] %s took %.0f damage -> %.0f/%.0f HP"),
+			*GetNameSafe(GetOwningActor()), Damage, NewHealth, GetMaxHealth());
 
 		if (NewHealth <= 0.f && !bOutOfHealth)
 		{

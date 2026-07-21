@@ -185,6 +185,22 @@ UAnimMontage* UAZ_GA_MeleeAttack::SelectMontage() const
 	return (Hand == EAZ_MeleeHand::Left) ? PunchIdle_L : PunchIdle_R;
 }
 
+UAnimMontage* UAZ_GA_MeleeAttack::FindAnimSetMontage(const AActor* Avatar, FName MontageProperty)
+{
+	if (!Avatar)
+	{
+		return nullptr;
+	}
+	const FObjectProperty* SetProperty = CastField<FObjectProperty>(Avatar->GetClass()->FindPropertyByName(TEXT("AnimSet")));
+	const UObject* AnimSet = SetProperty ? SetProperty->GetObjectPropertyValue_InContainer(Avatar) : nullptr;
+	if (!AnimSet)
+	{
+		return nullptr;
+	}
+	const FObjectProperty* Field = CastField<FObjectProperty>(AnimSet->GetClass()->FindPropertyByName(MontageProperty));
+	return Field ? Cast<UAnimMontage>(Field->GetObjectPropertyValue_InContainer(AnimSet)) : nullptr;
+}
+
 void UAZ_GA_MeleeAttack::OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData)
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);

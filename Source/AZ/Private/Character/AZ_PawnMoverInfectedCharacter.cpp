@@ -4,6 +4,11 @@
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
+#include "Abilities/GameplayAbilityTypes.h"
+#include "AbilitySystem/Abilities/AZ_GA_Death.h"
+#include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
+#include "Animation/AnimMontage.h"
+#include "AZ_GameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "AI/AZ_InfectedAIController.h"
 #include "Animation/AnimInstance.h"          // mid-turn commitment read (temp reflection glue)
@@ -118,6 +123,57 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 	InitAbilitySystem();
 }
 
+void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
+{
+	// Lifespan doubles as the death latch.
+	if (GetLifeSpan() > 0.f)
+	{
+		return;
+	}
+
+	// Ragdoll at the fall's impact beat (delay from UAZ_GA_Death = montage length x fraction); the
+	// authored clip sells the hit, physics settles the body against geometry it would clip through.
+	if (RagdollDelay > 0.f)
+	{
+		FTimerHandle RagdollTimer;
+		GetWorldTimerManager().SetTimer(RagdollTimer,
+			FTimerDelegate::CreateUObject(this, &AAZ_PawnMoverInfectedCharacter::RagdollCorpse), RagdollDelay, false);
+	}
+	else
+	{
+		RagdollCorpse();
+	}
+
+	// Brain off (controller detaches + BT stops), no more blocking/perception, no movement sim.
+	DetachFromControllerPendingDestroy();
+	if (Capsule)
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	if (MoverComponent)
+	{
+		MoverComponent->Deactivate();
+	}
+	UE_LOG(LogTemp, Display, TEXT("[Vitals] %s DIED"), *GetName());
+	SetLifeSpan(10.f);
+}
+
+void AAZ_PawnMoverInfectedCharacter::RagdollCorpse()
+{
+	if (!Mesh)
+	{
+		return;
+	}
+	if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+	{
+		AnimInstance->StopAllMontages(0.f);
+	}
+	// Ragdoll profile: per-bone collision vs the world (walls/floor), ignores live pawns walking over.
+	Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
+	Mesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	Mesh->SetSimulatePhysics(true);
+}
+
 void AAZ_PawnMoverInfectedCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
@@ -136,8 +192,16 @@ void AAZ_PawnMoverInfectedCharacter::InitAbilitySystem()
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
 	AbilitySystemComponent->AbilityActorInfoSet();
 
-	// Startup attributes / abilities (health, melee, etc.) are granted in the combat/health step — server-only,
-	// guarded by HasAuthority — and intentionally omitted from this foundation.
+	// Native startup grants (S3): the claw swipe (BT-activated) + the death ability (Event.Death-triggered).
+	// Grant-time is the earliest point the native tag registry is guaranteed ready, hence the CDO trigger
+	// patch here rather than in the ability constructor.
+	if (!bStartupAbilitiesGranted && HasAuthority())
+	{
+		bStartupAbilitiesGranted = true;
+		UAZ_GA_Death::ConfigureTriggerOnCDO();
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(UAZ_GA_Death::StaticClass(), 1, INDEX_NONE, this));
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(UAZ_GA_ZombieMelee::StaticClass(), 1, INDEX_NONE, this));
+	}
 }
 
 // ========================================

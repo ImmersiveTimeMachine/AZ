@@ -1,0 +1,88 @@
+// Copyright Artur. AZ project.
+
+#include "AbilitySystem/Abilities/AZ_GA_Death.h"
+
+#include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetMontage
+#include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
+#include "AbilitySystemComponent.h"
+#include "Animation/AnimMontage.h"
+#include "AZ_GameplayTags.h"
+#include "Character/AZ_PawnMoverInfectedCharacter.h"
+
+UAZ_GA_Death::UAZ_GA_Death()
+{
+	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+	// Death originates on the authority (vitals execute server-side); montage replicates via the ASC.
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
+	// Death preempts everything and can never be blocked by combat state.
+	bServerRespectsRemoteAbilityCancellation = false;
+}
+
+void UAZ_GA_Death::ConfigureTriggerOnCDO()
+{
+	UAZ_GA_Death* CDO = UAZ_GA_Death::StaticClass()->GetDefaultObject<UAZ_GA_Death>();
+	if (CDO && CDO->AbilityTriggers.Num() == 0)
+	{
+		FAbilityTriggerData Trigger;
+		Trigger.TriggerTag = FAZ_GameplayTags::Get().Event_Death;
+		Trigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
+		CDO->AbilityTriggers.Add(Trigger);
+	}
+}
+
+void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (!Avatar || !ASC)
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+
+	// Dying interrupts whatever else was running (mid-swing death stops the attack + its montage).
+	ASC->CancelAbilities(nullptr, nullptr, this);
+
+	// Directional pick from where the killing blow came (payload Instigator = effect causer).
+	FName DeathProperty = TEXT("DeathMontage_F");
+	const AActor* Killer = TriggerEventData ? TriggerEventData->Instigator.Get() : nullptr;
+	if (Killer)
+	{
+		const FVector ToKiller = (Killer->GetActorLocation() - Avatar->GetActorLocation()).GetSafeNormal2D();
+		const FVector Fwd = Avatar->GetActorForwardVector().GetSafeNormal2D();
+		const float FwdDot = FVector::DotProduct(Fwd, ToKiller);
+		const float RightDot = FVector::DotProduct(FVector::CrossProduct(FVector::UpVector, Fwd), ToKiller);
+		if (FwdDot > 0.707f)        { DeathProperty = TEXT("DeathMontage_F"); }
+		else if (FwdDot < -0.707f)  { DeathProperty = TEXT("DeathMontage_B"); }
+		else if (RightDot > 0.f)    { DeathProperty = TEXT("DeathMontage_R"); }
+		else                        { DeathProperty = TEXT("DeathMontage_L"); }
+	}
+
+	UAnimMontage* DeathMontage = UAZ_GA_MeleeAttack::FindAnimSetMontage(Avatar, DeathProperty);
+	float RagdollDelay = 0.f;   // no montage (no anim set / hero until his set exists) -> instant ragdoll
+	if (DeathMontage)
+	{
+		// bStopWhenAbilityEnds=false: the ability ends right after setup, the montage plays on and the
+		// corpse holds its last frame (auto-blend-out is disabled on the death montages).
+		MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
+			this, FName("DeathMontage"), DeathMontage, FGameplayTagContainer(),
+			/*Rate*/ 1.f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ false,
+			/*AnimRootMotionTranslationScale*/ 1.f);
+		if (MontageTask)
+		{
+			MontageTask->ReadyForActivation();
+			RagdollDelay = DeathMontage->GetPlayLength() * RagdollAtMontageFraction;
+		}
+	}
+
+	// Corpse-ification is the pawn's job (collision, mover, controller, ragdoll timing, lifespan).
+	if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar))
+	{
+		Infected->BeginCorpse(RagdollDelay);
+	}
+
+	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+}

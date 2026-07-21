@@ -34,8 +34,17 @@ protected:
 	
 	virtual void OnMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 	
-	// The selector. First pass: hardcoded switch over the 4 fist clips. CHT_Melee later.
-	UAnimMontage* SelectMontage() const;
+	// The selector. Hero: the 4 fist-clip UPROPERTYs. Subclasses (zombie) override to read the
+	// avatar's anim-set DA. CHT_Melee replaces both later.
+	virtual UAnimMontage* SelectMontage() const;
+
+public:
+	/** Reflection read of a montage field off the avatar pawn's AnimSet DataAsset (BP_ChalkieAnimSet
+	 *  pattern: pawn has an object property "AnimSet" whose class carries montage fields). Shared by
+	 *  the zombie melee + death abilities; goes native with UAZ_ChalkieAnimSet in the batch. */
+	static UAnimMontage* FindAnimSetMontage(const AActor* Avatar, FName MontageProperty);
+
+protected:
 
 	// Montage finished / interrupted / cancelled -> end the ability.
 	UFUNCTION()
