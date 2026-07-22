@@ -37,6 +37,12 @@ namespace AZ_ChalkieBBKeys
 	static const FName WaitSearchSettle(TEXT("WaitSearchSettle"));
 	static const FName WaitHomeArrive(TEXT("WaitHomeArrive"));
 	static const FName WaitHomeWander(TEXT("WaitHomeWander"));
+
+	// Crowd-brain COMBAT ROLE mirror (rule 7) — UAZ_HordeSubsystem is the SOLE writer of both keys.
+	// The BT Chase branch forks on bActiveFighter: true = press-the-attack sequence, false = ring hold
+	// (MoveTo TargetActor with acceptance bound to RingDistance). Keys must exist in BB_Chalkie.
+	static const FName bActiveFighter(TEXT("bActiveFighter"));
+	static const FName RingDistance(TEXT("RingDistance"));
 }
 
 /** Infected AI phase — mirrored as State.Infected.* tags on the pawn's OWN ASC (replicated; the AnimInstance

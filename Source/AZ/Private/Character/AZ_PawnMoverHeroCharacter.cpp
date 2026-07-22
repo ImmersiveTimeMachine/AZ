@@ -54,6 +54,9 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	Capsule->SetCanEverAffectNavigation(false);
 	Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Capsule->SetGenerateOverlapEvents(false);
+	// Pawns are never floors: Mover's step-up honors this (GroundMovementUtils::CanStepUpOnHitSurface),
+	// so NPCs slide along the hero's capsule instead of mounting it. Blocking is unaffected.
+	Capsule->CanCharacterStepUpOn = ECB_No;
 	SetRootComponent(Capsule);
 
 	// --- Skeletal Mesh ---

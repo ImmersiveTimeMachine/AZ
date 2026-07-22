@@ -257,6 +257,13 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag State_Infected_Alerted;
     FGameplayTag State_Infected_Aggressive;
 
+    // Crowd-brain COMBAT ROLES (rule 7 — published by UAZ_HordeSubsystem, the SOLE writer; replicated
+    // via AddStateTag so client AnimInstances can read the menace posture in co-op. Phase = knowledge
+    // (State.Infected.*), role = permission: at most MaxAttackersPerPrey Chalkies hold Active per prey,
+    // every other engaged Chalkie is Passive and holds the ring.)
+    FGameplayTag State_Combat_Engaged_Active;    // holds an attack slot: press the attack
+    FGameplayTag State_Combat_Engaged_Passive;   // live target, no slot: ring at RingDistance, menace, wait
+
     // --- Damage spine (S1): montage hit windows, death, SetByCaller magnitudes ---
     FGameplayTag Event_Montage_Melee_Hit;   // fired by UAZ_AnimNotify_SendGameplayEvent inside attack montages
     FGameplayTag Event_Death;               // sent to the dying actor's ASC when Vitals Health hits 0

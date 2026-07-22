@@ -295,6 +295,9 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Infected_Alerted,    FName("State.Infected.Alerted"),    TEXT("Infected AI phase: noticed a stimulus — the TLOU reaction beat / investigating"));
     AddTag(GameplayTags.State_Infected_Aggressive, FName("State.Infected.Aggressive"), TEXT("Infected AI phase: committed to a target — chasing/attacking"));
 
+    AddTag(GameplayTags.State_Combat_Engaged_Active,  FName("State.Combat.Engaged.Active"),  TEXT("Crowd combat role (horde subsystem sole writer): holds an attack slot — press the attack"));
+    AddTag(GameplayTags.State_Combat_Engaged_Passive, FName("State.Combat.Engaged.Passive"), TEXT("Crowd combat role (horde subsystem sole writer): engaged without a slot — hold the ring"));
+
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("Hit-window gameplay event from an attack montage notify — GA_MeleeAttack sweeps + applies damage on it"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
     AddTag(GameplayTags.SetByCaller_Damage,      FName("SetByCaller.Damage"),      TEXT("SetByCaller magnitude channel for damage on GE_Damage specs"));

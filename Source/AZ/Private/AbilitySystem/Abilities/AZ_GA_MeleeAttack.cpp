@@ -312,14 +312,19 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 			AActor* NoiseInstigator = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar) ? Target : Avatar;
 			// Loudness MULTIPLIES the listener's HearingRange: tunable per-ATTACK (BP vars on the
 			// ability — a knife stays quiet, a bat is loud; per-weapon noise = weapon parity data).
+			const float ImpactLoudness = ReadConfigFloat(this, TEXT("ImpactNoiseLoudness"), 1.4f);
+			const float ImpactMaxRange = ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f);
 			UAISense_Hearing::ReportNoiseEvent(Avatar->GetWorld(), Target->GetActorLocation(),
-				ReadConfigFloat(this, TEXT("ImpactNoiseLoudness"), 1.4f), NoiseInstigator,
-				ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f), FName("Combat"));
-			// TEMP noise debug (remove with [ChalkieDiag]): the sphere shows the ACTUAL carry radius
-			// (listener HearingRange 700 x loudness 1.4, capped 1000) — any zombie inside it hears.
-			DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), 980.f, 24, FColor::Yellow, false, 2.f);
-			UE_LOG(LogTemp, Display, TEXT("[Noise] punch impact reported at %s instigator=%s"),
-				*Target->GetActorLocation().ToCompactString(), *GetNameSafe(NoiseInstigator));
+				ImpactLoudness, NoiseInstigator, ImpactMaxRange, FName("Combat"));
+			// TEMP noise debug (remove with [ChalkieDiag]): sphere = the engine's ACTUAL carry for a
+			// 700-HearingRange listener — heard iff dist <= min(HearingRange, MaxRange) x Loudness
+			// (AISense_Hearing.cpp:147-152). Logging the LIVE loudness values also proves whether the
+			// BP CDO tuning actually reached this ability instance.
+			const float CarryRadius = FMath::Min(700.f, ImpactMaxRange) * FMath::Max(0.f, ImpactLoudness);
+			DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), CarryRadius, 24, FColor::Yellow, false, 2.f);
+			UE_LOG(LogTemp, Display, TEXT("[Noise] punch impact reported at %s instigator=%s loudness=%.1f maxRange=%.0f carry700=%.0f"),
+				*Target->GetActorLocation().ToCompactString(), *GetNameSafe(NoiseInstigator),
+				ImpactLoudness, ImpactMaxRange, CarryRadius);
 			break;   // single-target: nearest hostile only
 		}
 	}

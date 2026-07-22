@@ -60,6 +60,10 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	Capsule->SetCanEverAffectNavigation(false);
 	Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Capsule->SetGenerateOverlapEvents(false);
+	// Pawns are never floors: Mover's step-up honors this (GroundMovementUtils::CanStepUpOnHitSurface),
+	// so a chasing Chalkie slides along the hero's capsule instead of climbing on top of them (and
+	// nobody stands on corpses' capsules). Blocking is unaffected — they still can't pass through.
+	Capsule->CanCharacterStepUpOn = ECB_No;
 	SetRootComponent(Capsule);
 
 	// --- Skeletal Mesh --- AnimBlueprint mode; the BP assigns the NPC's own ABP (parent UAZ_InfectedAnimInstance).

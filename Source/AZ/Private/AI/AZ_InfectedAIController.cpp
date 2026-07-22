@@ -162,6 +162,10 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitSearchSettle, 1.5f);
 			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitHomeArrive, 5.0f);
 			BB->SetValueAsFloat(AZ_ChalkieBBKeys::WaitHomeWander, 8.0f);
+			// TEMP probe (remove with [ChalkieDiag]): prove what the seeds actually landed as — a
+			// readback of 0.00 means the write silently no-opped (key/type mismatch at runtime).
+			UE_LOG(LogTemp, Display, TEXT("[PacingSeed] %s AttackRange(StopDistance)=%.1f breatherReadback=%.2f"),
+				*GetNameSafe(InPawn), StopDistance, BB->GetValueAsFloat(AZ_ChalkieBBKeys::WaitChaseBreather));
 		}
 	}
 
@@ -232,23 +236,40 @@ void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimu
 	// Event-driven bookkeeping: record WHERE hostiles were last stimulated (sight-lost location, heard-noise
 	// location, damage direction). Target PROMOTION stays in the Tick poll (sight) — noises make a Chalkie
 	// INVESTIGATE, not laser-lock.
+	// TEMP noise debug (remove with [ChalkieDiag]): log the receiving end BEFORE the team filter —
+	// a delivered-but-attitude-filtered noise was previously invisible in the log, indistinguishable
+	// from "never heard". attitude: 0=Friendly 1=Neutral 2=Hostile, -1=null actor.
+	if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Noise] %s HEARD %s tag=%s at %s (sensed=%d, attitude=%d, engaged=%d)"),
+			*GetNameSafe(GetPawn()), *GetNameSafe(Actor), *Stimulus.Tag.ToString(),
+			*Stimulus.StimulusLocation.ToCompactString(), Stimulus.WasSuccessfullySensed(),
+			Actor ? static_cast<int32>(GetTeamAttitudeTowards(*Actor)) : -1,
+			GetFreshPerceivedTarget() != nullptr);
+	}
+
 	if (!Actor || GetTeamAttitudeTowards(*Actor) != ETeamAttitude::Hostile)
 	{
 		return;
 	}
 	LastKnownTargetLocation = Stimulus.StimulusLocation;
 
+	// Rule 9 refinement (log-proven 2026-07-22): NOISE SUSTAINS AN ENGAGEMENT. Memory decay measures
+	// SILENCE, not just invisibility — a chaser beyond sight range whose engaged target is audibly
+	// brawling (screams, punch impacts) or sprinting in earshot is NOT losing it; without this the
+	// 4.5s grace expired mid-pursuit while the hero was screaming-distance away (C_1 dropped chase at
+	// heroDist 793 with scream stimuli arriving every second). Refresh ONLY an already-FRESH
+	// engagement with the SAME actor: hearing still never locks (rule 4) and never resurrects an
+	// already-lost target — a silent, hidden hero decays exactly as before.
+	if (Stimulus.WasSuccessfullySensed() && Actor == GetFreshPerceivedTarget())
+	{
+		LastStimulusTimeSeconds = FPlatformTime::Seconds();
+	}
+
 	// TLOU noise-investigation: a HEARD hostile noise while not already chasing arms the Investigate branch
 	// directly — sprint footsteps, gunshots, thrown objects (whatever reports to UAISense_Hearing) pull the
 	// Chalkie to the SOUND location. Sight handles its own promotion; hearing only ever points, never locks.
 	// Heard-only = CALM arm (wary Walk-gait investigation) — escalation memory promotes repeats to urgent.
-	if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
-	{
-		// TEMP noise debug (remove with [ChalkieDiag]): the receiving end.
-		UE_LOG(LogTemp, Display, TEXT("[Noise] %s HEARD %s at %s (sensed=%d, engaged=%d)"),
-			*GetNameSafe(GetPawn()), *GetNameSafe(Actor), *Stimulus.StimulusLocation.ToCompactString(),
-			Stimulus.WasSuccessfullySensed(), GetFreshPerceivedTarget() != nullptr);
-	}
 	if (Stimulus.WasSuccessfullySensed()
 		&& Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
 		&& GetFreshPerceivedTarget() == nullptr)
@@ -269,6 +290,9 @@ void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bU
 	// fresh->lost edge still arms normally — by then the target is genuinely gone.
 	if (GetFreshPerceivedTarget() != nullptr)
 	{
+		// TEMP noise debug (remove with [ChalkieDiag]).
+		UE_LOG(LogTemp, Display, TEXT("[Noise] %s ARM rejected — engaged on %s"),
+			*GetNameSafe(GetPawn()), *GetNameSafe(GetFreshPerceivedTarget()));
 		return;
 	}
 
@@ -293,19 +317,41 @@ void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bU
 	LastKnownTargetLocation = Location;
 	if (UBlackboardComponent* BB = GetBlackboardComponent())
 	{
-		// RE-PIN FIX (audit rules-finding #6, seen on screen 2026-07-21): a running Investigate has its
-		// MoveTo destination LATCHED — set->set is not a blackboard edge, so mid-search zombies kept
-		// marching to where a fight USED to be while every new punch updated a vector nobody re-read.
-		// A meaningfully MOVED location clears first: clear->set IS an edge -> the decorator's abort
-		// restarts the branch at the fresh spot. Same-spot updates (<150cm) stay quiet (no restart spam).
+		// RE-PIN v3 (BT-dump + log, 2026-07-21): the tree gated Investigate on TargetActor only —
+		// NOTHING observed LastKnownLocation, so v1/v2's clear->set "edge" fired into a void and a
+		// running Investigate only re-read the pin when its whole sequence wrapped (log: C_0 walked
+		// to punch-1's pin and passed 84cm outside sight range of the drifted fight). The pairing:
+		//  - BT (hand-edit): Investigate gains a LastKnownLocation IsSet decorator, observer
+		//    aborts=Both, notify=On Value Change -> any CHANGED write restarts the branch at the
+		//    fresh pin, and Return Home becomes reachable as the true idle branch.
+		//  - Here: write the key ONLY on first arm or when the fight drifted >150cm from the pin
+		//    the BT is actually walking toward — creeping same-spot writes would otherwise restart
+		//    the branch on every punch (stutter-step). No ClearValue: set->set with a NEW value IS
+		//    a value-change event for the decorator.
+		// LC-glue file-static (member in the restart batch); FObjectKey survives object re-use.
+		static TMap<FObjectKey, FVector> GArmedEdgePins;
 		const bool bHadLocation = BB->IsVectorValueSet(AZ_ChalkieBBKeys::LastKnownLocation);
-		const FVector CurrentPin = BB->GetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation);
-		if (bHadLocation && FVector::DistSquared2D(CurrentPin, Location) > FMath::Square(150.f))
-		{
-			BB->ClearValue(AZ_ChalkieBBKeys::LastKnownLocation);
-		}
-		BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Location);
+		const FVector* EdgePin = GArmedEdgePins.Find(FObjectKey(this));
+		// No recorded pin (fresh spawn or LC patch mid-session): fall back to the current BB value.
+		const FVector ReferencePin = (bHadLocation && EdgePin) ? *EdgePin : BB->GetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation);
+		const bool bRepinned = bHadLocation && FVector::DistSquared2D(ReferencePin, Location) > FMath::Square(150.f);
 		BB->SetValueAsBool(AZ_ChalkieBBKeys::bInvestigateUrgent, bUrgent || IsInvestigationEscalated());
+		if (bRepinned || !bHadLocation)
+		{
+			GArmedEdgePins.Add(FObjectKey(this), Location);   // the destination the BT will now walk toward
+			BB->SetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation, Location);
+		}
+		// TEMP noise debug (remove with [ChalkieDiag]): the arm actually LANDED in the blackboard —
+		// if an ARMED line prints for a bystander that still doesn't move, the fault is in the BT.
+		UE_LOG(LogTemp, Display, TEXT("[Noise] %s ARMED investigate at %s urgent=%d pin=%s"),
+			*GetNameSafe(GetPawn()), *Location.ToCompactString(),
+			(bUrgent || IsInvestigationEscalated()) ? 1 : 0,
+			bRepinned ? TEXT("re-pin") : (bHadLocation ? TEXT("held(<150)") : TEXT("first-set")));
+	}
+	else
+	{
+		// TEMP noise debug (remove with [ChalkieDiag]).
+		UE_LOG(LogTemp, Warning, TEXT("[Noise] %s ARM failed — no blackboard component"), *GetNameSafe(GetPawn()));
 	}
 }
 
@@ -472,12 +518,15 @@ void AAZ_InfectedAIController::UpdatePerception()
 			const UBTNode* ActiveNode = BTComp ? BTComp->GetActiveNode() : nullptr;
 			const bool bBBTargetSet = GetBlackboardComponent()
 				&& GetBlackboardComponent()->GetValueAsObject(AZ_ChalkieBBKeys::TargetActor) != nullptr;
-			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f crouch=%d att=%d | bbTgt=%d btNode=%s move=%d"),
+			const UAZ_HordeSubsystem* HordeForDiag = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr;
+			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f crouch=%d att=%d | bbTgt=%d btNode=%s move=%d wcb=%.2f role=%d"),
 				*GetNameSafe(InfectedCharacter), Seen.Num(), *GetNameSafe(Best), *GetNameSafe(PerceivedTarget.Get()),
 				GetFreshPerceivedTarget() != nullptr, *GetNameSafe(AlertCandidate.Get()), static_cast<int32>(CurrentPhase),
 				HeroDist, bHeroCrouchTag, static_cast<int32>(HeroAttitude),
 				bBBTargetSet, ActiveNode ? *ActiveNode->GetNodeName() : TEXT("NONE"),
-				static_cast<int32>(GetMoveStatus()));
+				static_cast<int32>(GetMoveStatus()),
+				GetBlackboardComponent() ? GetBlackboardComponent()->GetValueAsFloat(AZ_ChalkieBBKeys::WaitChaseBreather) : -1.f,
+				HordeForDiag ? static_cast<int32>(HordeForDiag->GetCombatRole(this)) : -1);
 		}
 	}
 
