@@ -15,6 +15,7 @@ public class AZ : ModuleRules
 			"GameplayTasks",
 			"Paper2D",
 			"CinematicCamera",
+			"EngineCameras",   // Perlin/WaveOscillator camera shake patterns (grab struggle shake)
 			"Niagara",
 			"UMG"
 		});

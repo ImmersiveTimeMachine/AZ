@@ -132,6 +132,20 @@ public:
 	 *  (not the clamped Mover input cmd) so a straight-in wall hit still registers after the clamp zeroes the cmd. */
 	FVector GetWorldMoveIntentRaw() const { return CachedWorldMoveIntentRaw; }
 
+	/** GRAB facing: while State.Grabbed, ProduceInput points OrientationIntent at this actor so the
+	 *  body turns to meet the grabber (struggle reads face-to-face, not back-bitten). Set by
+	 *  GA_PlayerGrabbed on catch, cleared (nullptr) on every grab exit. */
+	void SetGrabFacingTarget(const AActor* Target) { GrabFacingTarget = Target; }
+
+	/** The current grabber (null outside a grab). AnimInstance reads this for the grab hand-IK targets. */
+	const AActor* GetGrabFacingTarget() const { return GrabFacingTarget.Get(); }
+
+	/** Grab-victim ability, EDITOR-ASSIGNED (no hardcoded /Game/ paths in C++, user rule 2026-07-24):
+	 *  point at BP_GA_PlayerGrabbed in the hero pawn BP; unset falls back to the native class. Granted
+	 *  natively at possess with the Interact dynamic tag (E-mash routing). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> GrabbedAbilityClass;
+
 	// ========================================
 	// Components
 	// ========================================
@@ -168,6 +182,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
 	FAZ_CameraStanceConfig CameraAiming;
 
+	/** Grabbed (State.Grabbed) — pulled in tight on the struggle. HIGHEST precedence: while a Chalkie
+	 *  holds you nothing else frames the shot. Look input is frozen separately (OnLookTriggered gate). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraStanceConfig CameraGrabbed;
+
+	// Grabbed-camera ROTATION framing (the boom/FOV part lives in CameraGrabbed above): the camera
+	// auto-turns to the grabber while look input is frozen; these shape that look-at.
+
+	/** Yaw offset off the direct look-at line (deg): + swings the camera right for a side/over-shoulder
+	 *  composition, 0 = dead-on at the grabber. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed")
+	float GrabbedCameraYawOffsetDeg = 0.f;
+
+	/** Pitch offset added to the look-at (deg): negative tilts down onto the struggle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed")
+	float GrabbedCameraPitchOffsetDeg = -5.f;
+
+	/** Rotation catch-up speed (per second) — separate from CameraGrabbed.InterpSpeed (boom/FOV glide). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed", meta = (ClampMin = "0.5"))
+	float GrabbedCameraRotationSpeed = 5.f;
+
 protected:
 	// ========================================
 	// Input (Enhanced Input)
@@ -196,6 +231,9 @@ protected:
 	FVector CachedMoveInputIntent = FVector::ZeroVector;
 	bool bIsJumpPressed = false;
 	bool bIsJumpJustPressed = false;
+
+	/** See SetGrabFacingTarget. */
+	TWeakObjectPtr<const AActor> GrabFacingTarget;
 
 	// The RAW world-space move intent produced this sim tick, captured in ProduceInput BEFORE the movement-
 	// capability clamp. Exposed via GetWorldMoveIntentRaw() so the obstacle sensor keeps sensing the wall even

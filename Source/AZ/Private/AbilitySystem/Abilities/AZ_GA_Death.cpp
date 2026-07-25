@@ -23,11 +23,12 @@ UAZ_GA_Death::UAZ_GA_Death()
 	bServerRespectsRemoteAbilityCancellation = false;
 }
 
-void UAZ_GA_Death::ConfigureTriggerOnCDO()
+void UAZ_GA_Death::ConfigureTriggerOnCDO(UClass* GrantClass)
 {
 	// Guard by the SPECIFIC tag, not Num()==0 (audit #10): a future second trigger added here would
 	// otherwise silently never apply on a CDO already patched by an earlier session.
-	UAZ_GA_Death* CDO = UAZ_GA_Death::StaticClass()->GetDefaultObject<UAZ_GA_Death>();
+	UClass* TargetClass = GrantClass ? GrantClass : UAZ_GA_Death::StaticClass();
+	UAZ_GA_Death* CDO = Cast<UAZ_GA_Death>(TargetClass->GetDefaultObject());
 	const FGameplayTag& DeathTag = FAZ_GameplayTags::Get().Event_Death;
 	if (CDO && !CDO->AbilityTriggers.ContainsByPredicate(
 		[&DeathTag](const FAbilityTriggerData& T) { return T.TriggerTag == DeathTag; }))

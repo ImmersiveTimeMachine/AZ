@@ -30,8 +30,10 @@ class AZ_API UAZ_GA_Death : public UAZ_GameplayAbility
 public:
 	UAZ_GA_Death();
 
-	/** Idempotent CDO patch: adds the Event.Death GameplayEvent trigger. Call before GiveAbility. */
-	static void ConfigureTriggerOnCDO();
+	/** Idempotent CDO patch: adds the Event.Death GameplayEvent trigger. Call before GiveAbility with
+	 *  the class you actually grant (a BP child CDO does not inherit runtime patches made to the native
+	 *  CDO). Null = patch the native class. */
+	static void ConfigureTriggerOnCDO(UClass* GrantClass = nullptr);
 
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

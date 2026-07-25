@@ -48,6 +48,67 @@ public:
 	 *  plays as a transition, not something you slide / run through. */
 	bool IsPlayingImpactReaction() const { return LatchedReaction != EAZ_ObstacleReaction::None; }
 
+	// ============ GRAB HAND-IK (idle + hands pinned on the grabber — user design 2026-07-24) ============
+	// The grabbed hold plays NO montage: base idle + two TwoBoneIK nodes in the AnimGraph pin the hero's
+	// hands onto the grabber's arms (contact sells the pairing). These are the nodes' bindings, gathered
+	// on the game thread each tick. World-space effectors: cross-actor, 1-frame-late vs the grabber's
+	// pose — invisible here because both actors are rooted for the whole hold.
+
+	/** 0..1 blend for both grab IK nodes (smoothed in/out around State.Grabbed). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|GrabIK")
+	float GrabIKAlpha = 0.f;
+
+	/** World-space effector for hand_r — the grabber's LEFT upper arm (facing each other = crossed). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|GrabIK")
+	FVector GrabIKTarget_HandR = FVector::ZeroVector;
+
+	/** World-space effector for hand_l — the grabber's RIGHT upper arm. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|GrabIK")
+	FVector GrabIKTarget_HandL = FVector::ZeroVector;
+
+	/** GrabIKAlpha blend speed (per second). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "1"))
+	float GrabIKBlendSpeed = 8.f;
+
+	// ---- Body shake (the camera shake's BODY counterpart, user 2026-07-24) ----
+	// Perlin rotation noise generated here each tick, applied in the AnimGraph by Transform (Modify)
+	// Bone node(s) in ADDITIVE rotation mode — one node per bone you want shaking (spine_02, head, ...),
+	// each with its own scale. Placed BEFORE the grab IK nodes so the hands stay pinned while the body
+	// trembles. Scaled by GrabIKAlpha, so it fades in/out with the hold automatically.
+
+	/** Additive bone-space rotation for the shake node(s). Zero outside a grab. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|GrabIK")
+	FRotator GrabBodyShakeRot = FRotator::ZeroRotator;
+
+	/** Peak shake amplitude in degrees (pitch axis; yaw/roll run at 60%). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0"))
+	float GrabBodyShakeAmplitudeDeg = 4.f;
+
+	/** Shake frequency (noise octave speed, per second). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0.1"))
+	float GrabBodyShakeFrequency = 9.f;
+
+	/** Second, FASTER signal for the HEAD (bite panic) — bind a second Transform (Modify) Bone node
+	 *  (bone = head, same additive setup) to this. Decorrelated from the spine signal; the head gets
+	 *  spine shake through the chain PLUS this on top. Zero outside a grab. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|GrabIK")
+	FRotator GrabHeadShakeRot = FRotator::ZeroRotator;
+
+	/** Head shake peak amplitude in degrees (pitch axis; yaw 70%, roll 50%). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0"))
+	float GrabHeadShakeAmplitudeDeg = 3.f;
+
+	/** Head shake frequency — noticeably faster than the body (panic jitter vs strained tremble). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0.1"))
+	float GrabHeadShakeFrequency = 16.f;
+
+	/** Bone/socket on the GRABBER's mesh each hero hand reaches for (editor-tunable per art). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK")
+	FName GrabIKGrabberBoneForHandR = TEXT("upperarm_l");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK")
+	FName GrabIKGrabberBoneForHandL = TEXT("upperarm_r");
+
 	/** BlendStack inputs — written by SetBlendStackAnimFromChooser, read by the BlendStack
 	 *  node's internal SequencePlayer via property bindings (BlendStackInputs.Anim, .bLoop, etc.). */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|V2|Anim")

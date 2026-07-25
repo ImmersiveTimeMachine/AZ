@@ -4,11 +4,14 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/Abilities/AZ_GA_ChalkieGrab.h"
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
 #include "AI/AZ_HordeSubsystem.h"
 #include "AI/AZ_InfectedAIController.h"   // AZ_ChalkieBBKeys
 #include "AIController.h"
 #include "Animation/AnimInstance.h"
+#include "AZ_ConsoleVariables.h"
+#include "AZ_GameplayTags.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
@@ -49,6 +52,7 @@ UAZ_BTTask_ZombieAttack::UAZ_BTTask_ZombieAttack()
 	bNotifyTick = true;
 	bCreateNodeInstance = true;   // delegate binding + timeout are per-AI state
 	AbilityClass = UAZ_GA_ZombieMelee::StaticClass();
+	GrabAbilityClass = UAZ_GA_ChalkieGrab::StaticClass();
 }
 
 EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -66,6 +70,17 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 	const AActor* Target = AZ_GetChaseTarget(OwnerComp);
 	if (Target)
 	{
+		// PACK HOLD-OFF: while the prey is in a pack-mate's grab, everyone else stands down — no punch
+		// spam into the mash (user feedback 2026-07-24: others kept clawing mid-grab). The grabber
+		// itself never reaches here (it's latent inside this very task for the whole hold).
+		if (const UAbilitySystemComponent* PreyASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
+		{
+			if (PreyASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed))
+			{
+				return EBTNodeResult::Failed;
+			}
+		}
+
 		const FVector ToTarget = Target->GetActorLocation() - Pawn->GetActorLocation();
 		const float Distance = ToTarget.Size2D();
 		const FVector DirToTarget = ToTarget.GetSafeNormal2D();
@@ -114,6 +129,46 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		}
 	}
 
+	// THE GRAB ROLL (rare, mid-engagement, unpredictable — user design 2026-07-24): this swing has
+	// already won its slot; a small chance turns it into the grab instead. Gates: per-Chalkie cooldown
+	// (from the END of the last grab), prey not already in someone's arms (tag + one-grabber token).
+	// az.Grab.ForceNext short-circuits the roll but still runs every REAL gate (seam-trace testability).
+	ChosenAbilityClass = AbilityClass;
+	bGrabRun = false;
+	if (Target && *GrabAbilityClass)
+	{
+		if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(OwnerComp.GetAIOwner()))
+		{
+			const bool bForce = AZCVars::GetGrabForceNext() != 0;
+			const float ChanceOverride = AZCVars::GetGrabChance();
+			const float Chance = ChanceOverride >= 0.f ? ChanceOverride : GrabChance;
+			if (bForce || FMath::FRand() < Chance)
+			{
+				const float CooldownOverride = AZCVars::GetGrabCooldownSeconds();
+				const float Cooldown = CooldownOverride >= 0.f ? CooldownOverride : GrabCooldownSeconds;
+				const double Now = Pawn->GetWorld()->GetTimeSeconds();
+				const bool bOffCooldown = (Now - Chalkie->LastGrabEndTimeSeconds) >= Cooldown;
+
+				const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+				const bool bTargetFree = TargetASC
+					&& !TargetASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed);
+
+				UAZ_HordeSubsystem* Horde = Pawn->GetWorld()->GetSubsystem<UAZ_HordeSubsystem>();
+				if (bOffCooldown && bTargetFree && Horde && Horde->RequestGrabToken(Chalkie, Target))
+				{
+					ChosenAbilityClass = GrabAbilityClass;
+					bGrabRun = true;
+					if (bForce)
+					{
+						AZCVars::GrabForceNext->Set(0, ECVF_SetByConsole);   // consume the one-shot
+					}
+					UE_LOG(LogTemp, Display, TEXT("[Grab] %s rolls a GRAB on %s (force=%d chance=%.2f)"),
+						*GetNameSafe(Pawn), *GetNameSafe(Target), bForce ? 1 : 0, Chance);
+				}
+			}
+		}
+	}
+
 	// Kill any residual path-following before committing to the swing — a swing starts from stillness.
 	if (AAIController* AIOwner = OwnerComp.GetAIOwner())
 	{
@@ -124,10 +179,22 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 	BoundASC = ASC;
 	OwningComp = &OwnerComp;
 
+	// BP-first tolerance: the granted spec may be a BP CHILD of the configured class (tuning children
+	// win at grant time). Resolve to the CONCRETE granted class so every exact-class lookup below
+	// (activate, sync-end guard, cancels) matches what the ASC actually holds.
+	for (const FGameplayAbilitySpec& GrantedSpec : ASC->GetActivatableAbilities())
+	{
+		if (GrantedSpec.Ability && GrantedSpec.Ability->GetClass()->IsChildOf(ChosenAbilityClass))
+		{
+			ChosenAbilityClass = GrantedSpec.Ability->GetClass();
+			break;
+		}
+	}
+
 	// Bind AFTER activation (audit #7): a synchronous activate-and-end inside TryActivate would fire
 	// the delegate while this node isn't latent yet — engine-internal behavior we shouldn't lean on.
 	// The IsActive() recheck below fully covers anything that ended before the bind.
-	if (!ASC->TryActivateAbilityByClass(AbilityClass))
+	if (!ASC->TryActivateAbilityByClass(ChosenAbilityClass))
 	{
 		Cleanup();
 		return EBTNodeResult::Failed;
@@ -136,18 +203,25 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 	// Sync-end guard: the ability can activate AND end within TryActivate (missing montage, instant
 	// fail). Our delegate fired before the task was latent — FinishLatentTask was ignored — so without
 	// this check the node hangs until the timeout. If it's already over, report it directly.
-	const FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass);
+	const FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(ChosenAbilityClass);
 	if (!Spec || !Spec->IsActive())
 	{
 		Cleanup();
 		return EBTNodeResult::Succeeded;
+	}
+	// Latent swing in flight: publish it so the crowd brain's rotation pass never yanks the Press
+	// branch (and thereby cancels the ability) mid-bite. Cleared on every exit path via Cleanup.
+	if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(OwnerComp.GetAIOwner()))
+	{
+		Chalkie->SetMeleeTaskActive(true);
 	}
 	return EBTNodeResult::InProgress;
 }
 
 void UAZ_BTTask_ZombieAttack::OnAbilityEnded(const FAbilityEndedData& EndedData)
 {
-	if (!EndedData.AbilityThatEnded || !EndedData.AbilityThatEnded->GetClass()->IsChildOf(AbilityClass))
+	const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
+	if (!EndedData.AbilityThatEnded || !EndedData.AbilityThatEnded->GetClass()->IsChildOf(RunClass))
 	{
 		return;
 	}
@@ -172,14 +246,17 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 
 	// Mutual exclusion, bite side (user rule: moving and fighting never overlap): something is moving
 	// us — nav restart, push, external force — so the swing yields to movement immediately instead of
-	// playing a claw anim over locomotion.
-	if (Pawn && Pawn->GetVelocity().Size2D() > AZ_MidBiteMoveBreakSpeed)
+	// playing a claw anim over locomotion. NOT for grab runs: the grab's close-in slide is legitimate
+	// fast movement (it cancelled its own grab before this exemption); grabs are protected by the
+	// break-off distance below + the ability's safety timer instead.
+	if (!bGrabRun && Pawn && Pawn->GetVelocity().Size2D() > AZ_MidBiteMoveBreakSpeed)
 	{
+		const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
 		UAbilitySystemComponent* MovingASC = BoundASC.Get();
 		Cleanup();
 		if (MovingASC)
 		{
-			if (FGameplayAbilitySpec* Spec = MovingASC->FindAbilitySpecFromClass(AbilityClass))
+			if (FGameplayAbilitySpec* Spec = MovingASC->FindAbilitySpecFromClass(RunClass))
 			{
 				MovingASC->CancelAbilityHandle(Spec->Handle);
 			}
@@ -204,11 +281,14 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 	{
 		// UNBIND BEFORE CANCELLING: CancelAbilityHandle fires OnAbilityEnded synchronously — with the
 		// delegate still bound it would re-enter and FinishLatentTask(Succeeded) out from under us.
+		// (A grab-run tripping this only happens on a physics shove — the cancel path sends
+		// Event.GrabRelease from the ability's EndAbility, so the player is freed correctly.)
+		const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
 		UAbilitySystemComponent* ASC = BoundASC.Get();
 		Cleanup();
 		if (ASC)
 		{
-			if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass))
+			if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(RunClass))
 			{
 				ASC->CancelAbilityHandle(Spec->Handle);
 			}
@@ -217,16 +297,19 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 		return;
 	}
 
-	if (ElapsedSeconds >= TimeoutSeconds)
+	// A grab legitimately runs far longer than a swing (hold window + exit montage).
+	const float EffectiveTimeout = bGrabRun ? GrabTimeoutSeconds : TimeoutSeconds;
+	if (ElapsedSeconds >= EffectiveTimeout)
 	{
 		// Timeout must CANCEL the ability too (audit #5): finishing without cancelling left an
 		// unobserved melee running — RM override fighting nav, and a token-less zombie still visibly
 		// attacking (silently breaking the max-2 invariant).
+		const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
 		UAbilitySystemComponent* TimedOutASC = BoundASC.Get();
 		Cleanup();
 		if (TimedOutASC)
 		{
-			if (FGameplayAbilitySpec* Spec = TimedOutASC->FindAbilitySpecFromClass(AbilityClass))
+			if (FGameplayAbilitySpec* Spec = TimedOutASC->FindAbilitySpecFromClass(RunClass))
 			{
 				TimedOutASC->CancelAbilityHandle(Spec->Handle);
 			}
@@ -241,11 +324,12 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::AbortTask(UBehaviorTreeComponent& O
 	// UNBIND FIRST: the cancel fires OnAbilityEnded synchronously; with the delegate still bound it
 	// would call FinishLatentTask(Succeeded) in the middle of the abort and wedge the tree on this
 	// node (the "doesn't escape from attack" symptom with multiple NPCs).
+	const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
 	UAbilitySystemComponent* ASC = BoundASC.Get();
 	Cleanup();
 	if (ASC)
 	{
-		if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(AbilityClass))
+		if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromClass(RunClass))
 		{
 			ASC->CancelAbilityHandle(Spec->Handle);
 		}
@@ -266,15 +350,26 @@ void UAZ_BTTask_ZombieAttack::Cleanup()
 		if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(Comp->GetAIOwner()))
 		{
 			Chalkie->ClearFacingOverride();
+			Chalkie->SetMeleeTaskActive(false);   // swing over — rotation may take the turn again
 			if (const APawn* Pawn = Chalkie->GetPawn())
 			{
 				if (UAZ_HordeSubsystem* Horde = Pawn->GetWorld()->GetSubsystem<UAZ_HordeSubsystem>())
 				{
 					Horde->ReleaseAttackToken(Chalkie);
+					if (bGrabRun)
+					{
+						Horde->ReleaseGrabToken(Chalkie);
+					}
+				}
+				// Cooldown counts from the END of the grab (a long hold mustn't eat its own cooldown).
+				if (bGrabRun)
+				{
+					Chalkie->LastGrabEndTimeSeconds = Pawn->GetWorld()->GetTimeSeconds();
 				}
 			}
 		}
 	}
+	bGrabRun = false;
 	AbilityEndedHandle.Reset();
 	BoundASC = nullptr;
 	OwningComp = nullptr;

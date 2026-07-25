@@ -103,6 +103,13 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "AZ|Ability")
 	bool bActivateAbilityOnGranted;
 
+	// GRAB LOCKOUT (one owner for "the only action while grabbed is the struggle mash"): while the
+	// owner ASC carries State.Grabbed, every ability is blocked from ACTIVATING unless it opts in.
+	// GA_PlayerGrabbed sets this true (it IS the grab); everything else — punches, jump, interact
+	// pickups, weapon fire — stays false and simply cannot start until the grab resolves.
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "AZ|Ability")
+	bool bActivatableWhileGrabbed = false;
+
 	UFUNCTION(BlueprintCallable, Category = "AZ|Ability")
 	AAZ_HeroCharacter* GetHeroCharacterFromActorInfo() const;
 	

@@ -65,9 +65,12 @@ void UAZ_AT_WaitInputPressWithTags::OnPressCallback()
 	}
 
 	//TODO extend tag query to support this and move this into it
-	// Hardcoded for GA_InteractPassive to ignore input while already interacting
-	if (AbilitySystemComponent->GetTagCount(FGameplayTag::RequestGameplayTag("State.Interacting"))
-		> AbilitySystemComponent->GetTagCount(FGameplayTag::RequestGameplayTag("State.InteractingRemoval")))
+	// Hardcoded for GA_InteractPassive to ignore input while already interacting.
+	// ErrorIfNotFound=false: these two tags are NOT registered in AZ (GASShooter heritage) — the
+	// default erroring lookup would ensure-spam on every press of the grab mash. Missing tag ->
+	// invalid tag -> GetTagCount 0 -> check is inert, which is exactly the old behavior minus the spam.
+	if (AbilitySystemComponent->GetTagCount(FGameplayTag::RequestGameplayTag("State.Interacting", /*ErrorIfNotFound*/ false))
+		> AbilitySystemComponent->GetTagCount(FGameplayTag::RequestGameplayTag("State.InteractingRemoval", /*ErrorIfNotFound*/ false)))
 	{
 		Reset();
 		return;

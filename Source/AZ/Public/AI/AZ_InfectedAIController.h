@@ -38,11 +38,13 @@ namespace AZ_ChalkieBBKeys
 	static const FName WaitHomeArrive(TEXT("WaitHomeArrive"));
 	static const FName WaitHomeWander(TEXT("WaitHomeWander"));
 
-	// Crowd-brain COMBAT ROLE mirror (rule 7) — UAZ_HordeSubsystem is the SOLE writer of both keys.
-	// The BT Chase branch forks on bActiveFighter: true = press-the-attack sequence, false = ring hold
-	// (MoveTo TargetActor with acceptance bound to RingDistance). Keys must exist in BB_Chalkie.
+	// Crowd-brain COMBAT ROLE mirror (rule 7) — UAZ_HordeSubsystem is the SOLE writer of these keys.
+	// The BT Chase branch forks on bActiveFighter: true = press-the-attack sequence, false = ring hold.
+	// v3: the Ring MoveTo targets SlotLocation (this Chalkie's assigned kung-fu-circle slot, maintained
+	// per beat by the subsystem) — NOT the prey — so observers surround instead of stacking in a queue.
 	static const FName bActiveFighter(TEXT("bActiveFighter"));
-	static const FName RingDistance(TEXT("RingDistance"));
+	static const FName RingDistance(TEXT("RingDistance"));     // legacy accept binding; unused after SlotLocation re-key
+	static const FName SlotLocation(TEXT("SlotLocation"));
 }
 
 /** Infected AI phase — mirrored as State.Infected.* tags on the pawn's OWN ASC (replicated; the AnimInstance
@@ -111,6 +113,12 @@ public:
 	float GetStopDistance() const { return StopDistance; }
 	AAZ_PawnMoverInfectedCharacter* GetInfectedPawn() const { return InfectedPawn.Get(); }
 
+	/** This Chalkie's coordination group, read from the possessed pawn ("Default" if unpossessed).
+	 *  The horde brain keys per-crowd attacker budgets / rings / cadence on this. */
+	FName GetCrowdId() const;
+	/** The pawn's authored starting intensity (1..5) — used only to SEED a crowd's level at register. */
+	int32 GetInitialCrowdIntensity() const;
+
 	/** SINGLE entry point for arming the Investigate branch (BB LastKnownLocation + bInvestigateUrgent).
 	 *  bUrgent semantics: false = wary/curious (heard a noise, glimpsed something) -> Walk gait; true = it KNOWS
 	 *  (lost a target it was chasing) -> Run gait. Escalation memory can PROMOTE a calm arm to urgent: repeated
@@ -130,6 +138,21 @@ public:
 	 *  Zero vector = no override (Tick resumes its arrived-stare / alert-snap / face-the-path logic). */
 	void SetFacingOverrideWorld(const FVector& WorldFacing) { FacingOverrideWorld = WorldFacing; }
 	void ClearFacingOverride() { FacingOverrideWorld = FVector::ZeroVector; }
+	/** Current override (zero = none). Lets a manager (the crowd brain) verify it still owns the override
+	 *  before clearing it — several tasks share this single slot, so "I set it once" isn't proof I still do. */
+	FVector GetFacingOverrideWorld() const { return FacingOverrideWorld; }
+
+	/** Set by AZ_BTTask_ZombieAttack while its swing is latent. The crowd brain's rotation pass reads it:
+	 *  a mid-bite Active is NEVER rotated out (aborting the Press branch mid-swing cancels the ability —
+	 *  visually a whiffed bite). Cleared on every task exit path. */
+	void SetMeleeTaskActive(bool bActive) { bMeleeTaskActive = bActive; }
+	bool IsMeleeTaskActive() const { return bMeleeTaskActive; }
+
+	/** World seconds when this Chalkie's last GRAB ended — the BT roll's per-Chalkie cooldown anchor
+	 *  (cooldown counts from the END of the grab, so a long hold doesn't eat its own cooldown).
+	 *  Stamped by UAZ_BTTask_ZombieAttack::Cleanup on every grab-run exit. Far-past default = first
+	 *  grab is never cooldown-blocked. (Upgrade path: a GAS Cooldown GE granting Cooldown.Grab.) */
+	double LastGrabEndTimeSeconds = -1.0e9;
 
 protected:
 	/** Central perception event: every sense funnels through here; updates the target/last-known state. */
@@ -250,6 +273,9 @@ protected:
 
 	/** BT-task facing override (zero = none). See SetFacingOverrideWorld. */
 	FVector FacingOverrideWorld = FVector::ZeroVector;
+
+	/** True while the zombie-melee BT task is latent (swing in flight). See SetMeleeTaskActive. */
+	bool bMeleeTaskActive = false;
 
 	/** Current phase — the tag on the pawn's ASC is the published truth, this just avoids re-publishing. */
 	EAZ_InfectedPhase CurrentPhase = EAZ_InfectedPhase::Dormant;

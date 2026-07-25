@@ -67,6 +67,7 @@ Script/
 /Content/AZ/*
 !/Content/AZ/Blueprints/
 !/Content/AZ/AI/
+!/Content/AZ/Camera/
 
 # Claude Code — keep shared skills + mcp config, ignore personal/runtime state
 .claude/settings.local.json

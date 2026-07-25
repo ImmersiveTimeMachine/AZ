@@ -5,6 +5,7 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "Abilities/GameplayAbilityTypes.h"
+#include "AbilitySystem/Abilities/AZ_GA_ChalkieGrab.h"
 #include "AbilitySystem/Abilities/AZ_GA_Death.h"
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetMontage (flinch)
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
@@ -170,9 +171,19 @@ void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
 	// optional DA field).
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
-		if (FGameplayAbilitySpec* MeleeSpec = ASC->FindAbilitySpecFromClass(UAZ_GA_ZombieMelee::StaticClass()))
+		// Child-safe cancel (BP-first grants): match the melee by IsChildOf, not exact class — the
+		// granted spec may be BP_GA_ZombieMelee. Collect first, cancel after (cancel mutates the list).
+		TArray<FGameplayAbilitySpecHandle> MeleeHandles;
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
 		{
-			ASC->CancelAbilityHandle(MeleeSpec->Handle);
+			if (Spec.Ability && Spec.Ability->GetClass()->IsChildOf(UAZ_GA_ZombieMelee::StaticClass()))
+			{
+				MeleeHandles.Add(Spec.Handle);
+			}
+		}
+		for (const FGameplayAbilitySpecHandle& Handle : MeleeHandles)
+		{
+			ASC->CancelAbilityHandle(Handle);
 		}
 	}
 	if (AAIController* AIController = Cast<AAIController>(GetController()))
@@ -188,6 +199,17 @@ void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
 		UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(),
 			UAZ_GA_MeleeAttack::ReadConfigFloat(this, TEXT("ScreamLoudness"), 2.f), Causer,
 			UAZ_GA_MeleeAttack::ReadConfigFloat(this, TEXT("ScreamMaxRange"), 1400.f), FName("Scream"));
+	}
+
+	// GRAB CARVE-OUT (rule 8, design 2026-07-24): a Chalkie MID-GRAB is armored against the flinch —
+	// the stagger montage would preempt the grab loop on the slot and visually break the hold while
+	// the player stays locked. Damage still lands; freeing a grabbed partner by force = future co-op.
+	if (UAbilitySystemComponent* GrabASC = GetAbilitySystemComponent())
+	{
+		if (GrabASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing))
+		{
+			return;
+		}
 	}
 
 	// FULL STAGGER, EVERY HIT (user direction 2026-07-21): each landed punch (re)plays the ENTIRE
@@ -322,9 +344,18 @@ void AAZ_PawnMoverInfectedCharacter::InitAbilitySystem()
 	if (!bStartupAbilitiesGranted && HasAuthority())
 	{
 		bStartupAbilitiesGranted = true;
-		UAZ_GA_Death::ConfigureTriggerOnCDO();
-		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(UAZ_GA_Death::StaticClass(), 1, INDEX_NONE, this));
-		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(UAZ_GA_ZombieMelee::StaticClass(), 1, INDEX_NONE, this));
+		// EDITOR-ASSIGNED grants (user rule 2026-07-24: no hardcoded asset paths in C++): the pawn BP
+		// points these at the BP tuning children; unset falls back to the native class. The CDO patches
+		// (triggers / activation tags) go to the ASSIGNED class — a BP child's CDO does NOT inherit
+		// runtime patches made to the native CDO.
+		UClass* DeathClass = *DeathAbilityClass ? *DeathAbilityClass : UAZ_GA_Death::StaticClass();
+		UClass* MeleeClass = *MeleeAbilityClass ? *MeleeAbilityClass : UAZ_GA_ZombieMelee::StaticClass();
+		UClass* GrabClass  = *GrabAbilityClass  ? *GrabAbilityClass  : UAZ_GA_ChalkieGrab::StaticClass();
+		UAZ_GA_Death::ConfigureTriggerOnCDO(DeathClass);
+		UAZ_GA_ChalkieGrab::ConfigureCDO(GrabClass);
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DeathClass, 1, INDEX_NONE, this));
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(MeleeClass, 1, INDEX_NONE, this));
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(GrabClass, 1, INDEX_NONE, this));
 	}
 }
 

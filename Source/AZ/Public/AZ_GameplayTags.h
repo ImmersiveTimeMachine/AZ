@@ -264,9 +264,19 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag State_Combat_Engaged_Active;    // holds an attack slot: press the attack
     FGameplayTag State_Combat_Engaged_Passive;   // live target, no slot: ring at RingDistance, menace, wait
 
+    // --- GRAB / grapple (TLOU-style "caught") ---
+    FGameplayTag State_Combat_Grabbing;   // Chalkie: mid-grab commit — holds its Active slot, plays the grab
+                                          //  pose, and is exempt from the rule-8 flinch-cancel while grabbing
+    FGameplayTag State_Grabbed;           // Player: caught — movement + camera frozen (checked in ProduceInput
+                                          //  and OnLookTriggered); struggle-mash the only available action
+
     // --- Damage spine (S1): montage hit windows, death, SetByCaller magnitudes ---
     FGameplayTag Event_Montage_Melee_Hit;   // fired by UAZ_AnimNotify_SendGameplayEvent inside attack montages
     FGameplayTag Event_Death;               // sent to the dying actor's ASC when Vitals Health hits 0
+    FGameplayTag Event_Grabbed;             // sent to the PLAYER's ASC to trigger GA_PlayerGrabbed (like Event_Death->GA_Death)
+    FGameplayTag Event_GrabEscaped;         // player -> grabber ASC: mash won, shove me off (GA_ChalkieGrab plays GrabEscapeMontage)
+    FGameplayTag Event_GrabTimeout;         // player -> grabber ASC: window elapsed, attack lands (GrabEndMontage + damage chunk)
+    FGameplayTag Event_GrabRelease;         // grabber -> player ASC: grab died for another reason (cancel/death) — free the player
     FGameplayTag SetByCaller_Damage;        // magnitude channel on GE_Damage specs
 
     // Equipment State Tags

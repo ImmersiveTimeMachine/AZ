@@ -601,6 +601,18 @@ APawn* AAZ_InfectedAIController::GetFreshPerceivedTarget() const
 	return bFresh ? Target : nullptr;
 }
 
+FName AAZ_InfectedAIController::GetCrowdId() const
+{
+	const AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get();
+	return P ? P->CrowdId : FName(TEXT("Default"));
+}
+
+int32 AAZ_InfectedAIController::GetInitialCrowdIntensity() const
+{
+	const AAZ_PawnMoverInfectedCharacter* P = InfectedPawn.Get();
+	return P ? P->CrowdIntensity : 3;
+}
+
 void AAZ_InfectedAIController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);

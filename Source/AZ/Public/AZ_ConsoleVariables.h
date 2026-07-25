@@ -18,6 +18,12 @@ namespace AZCVars
 	extern IConsoleVariable* DDStrafeStyle;              // int32  "DDCvar.StrafeStyle"
 	extern IConsoleVariable* DDAnalogInputStyle;         // int32  "DDCvar.AnalogInputStyle"
 	extern IConsoleVariable* ReplayMontageErrorThreshold; // float  "GS.replay.MontageErrorThreshold"
+	extern IConsoleVariable* CrowdIntensity;             // int32  "az.Crowd.Intensity" (1..5)
+	extern IConsoleVariable* GrabForceNext;              // int32  "az.Grab.ForceNext" (1 = next attack becomes a grab, self-clears)
+	extern IConsoleVariable* GrabChance;                 // float  "az.Grab.Chance" (<0 = use BT node default)
+	extern IConsoleVariable* GrabCooldownSeconds;        // float  "az.Grab.CooldownSeconds" (<0 = node default)
+	extern IConsoleVariable* GrabPressesToEscape;        // int32  "az.Grab.PressesToEscape" (<=0 = ability default)
+	extern IConsoleVariable* GrabWindowSeconds;          // float  "az.Grab.WindowSeconds" (<=0 = ability default)
 
 	void RegisterAll();
 	void UnregisterAll();
@@ -27,4 +33,10 @@ namespace AZCVars
 	int32 GetStrafeStyle();
 	int32 GetAnalogInputStyle();
 	float GetReplayMontageErrorThreshold();
+	int32 GetCrowdIntensity();
+	int32 GetGrabForceNext();
+	float GetGrabChance();
+	float GetGrabCooldownSeconds();
+	int32 GetGrabPressesToEscape();
+	float GetGrabWindowSeconds();
 }

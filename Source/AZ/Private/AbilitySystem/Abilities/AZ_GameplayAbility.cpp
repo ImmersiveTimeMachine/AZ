@@ -32,6 +32,19 @@ bool UAZ_GameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Ha
 		}
 	}
 
+	// Grab lockout: State.Grabbed freezes the whole ability surface except opted-in abilities
+	// (the struggle mash). Runtime check — the native tag registry is ready here, unlike in ctors.
+	if (!bActivatableWhileGrabbed)
+	{
+		if (const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
+		{
+			if (ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed))
+			{
+				return false;
+			}
+		}
+	}
+
 	if (bSourceObjectMustEqualCurrentWeaponToActivate)
 	{
 		auto* Hero = Cast<AAZ_HeroCharacter>(ActorInfo->AvatarActor);

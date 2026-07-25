@@ -5,8 +5,10 @@
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AZ_LocomotionStateMachine.h"
+#include "AbilitySystemComponent.h"
 #include "AZ_GameplayTags.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Character/AZ_ObstacleSensorComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
@@ -67,6 +69,51 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (!Cached_Pawn || !Cached_MoverComponent)
 	{
 		return;
+	}
+
+	// ============================== GRAB HAND-IK GATHER ==============================
+	// Grabbed hold = base IDLE + hands pinned onto the grabber (two TwoBoneIK nodes near the AnimGraph
+	// output bind to these). Cross-actor targets → world space, gathered here on the game thread.
+	{
+		float TargetAlpha = 0.f;
+		if (const AActor* Grabber = Cached_Pawn->GetGrabFacingTarget())
+		{
+			const UAbilitySystemComponent* HeroASC = Cached_Pawn->GetAbilitySystemComponent();
+			if (HeroASC && HeroASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed))
+			{
+				if (const USkeletalMeshComponent* GrabberMesh = Grabber->FindComponentByClass<USkeletalMeshComponent>())
+				{
+					TargetAlpha = 1.f;
+					GrabIKTarget_HandR = GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandR);
+					GrabIKTarget_HandL = GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandL);
+				}
+			}
+		}
+		GrabIKAlpha = FMath::FInterpTo(GrabIKAlpha, TargetAlpha, DeltaSeconds, GrabIKBlendSpeed);
+
+		// Body + head shake: perlin rotation noise, faded by the same alpha (the AnimGraph's Transform
+		// Modify Bone nodes add these in bone space). Distinct offsets per axis and per signal = two
+		// decorrelated organic trembles — slow body strain, fast head panic — never a synchronized wobble.
+		if (GrabIKAlpha > KINDA_SMALL_NUMBER)
+		{
+			const UWorld* ShakeWorld = GetWorld();
+			const float Now = ShakeWorld ? static_cast<float>(ShakeWorld->GetTimeSeconds()) : 0.f;
+			const float TBody = Now * GrabBodyShakeFrequency;
+			GrabBodyShakeRot = FRotator(
+				FMath::PerlinNoise1D(TBody) * GrabBodyShakeAmplitudeDeg,
+				FMath::PerlinNoise1D(TBody + 49.3f) * GrabBodyShakeAmplitudeDeg * 0.6f,
+				FMath::PerlinNoise1D(TBody + 151.7f) * GrabBodyShakeAmplitudeDeg * 0.6f) * GrabIKAlpha;
+			const float THead = Now * GrabHeadShakeFrequency;
+			GrabHeadShakeRot = FRotator(
+				FMath::PerlinNoise1D(THead + 293.1f) * GrabHeadShakeAmplitudeDeg,
+				FMath::PerlinNoise1D(THead + 397.7f) * GrabHeadShakeAmplitudeDeg * 0.7f,
+				FMath::PerlinNoise1D(THead + 509.3f) * GrabHeadShakeAmplitudeDeg * 0.5f) * GrabIKAlpha;
+		}
+		else
+		{
+			GrabBodyShakeRot = FRotator::ZeroRotator;
+			GrabHeadShakeRot = FRotator::ZeroRotator;
+		}
 	}
 
 	// ============================== ROOT-MOTION BRIDGE ==============================

@@ -205,4 +205,36 @@ protected:
 
 	/** Live team id, overridable at runtime via SetGenericTeamId. */
 	FGenericTeamId TeamId = FGenericTeamId::NoTeam;
+
+public:
+	// ========================================
+	// Crowd (coordination group — distinct from Team, which is friend/foe for perception)
+	// ========================================
+	/** Which crowd this Chalkie coordinates with. Chalkies sharing a CrowdId form ONE crowd: the horde
+	 *  brain gives each crowd its own attacker budget, ring circle and turn cadence. Set this per PLACED
+	 *  instance to split a level into distinct packs; the default "Default" keeps everyone in one crowd
+	 *  (identical to the pre-crowd behavior). EditAnywhere so it is authorable on each level actor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Crowd")
+	FName CrowdId = TEXT("Default");
+
+	/** Starting aggression for THIS Chalkie's crowd, 1 (wary) .. 5 (frenzy). The FIRST member of a crowd
+	 *  to spawn seeds the crowd's level; thereafter change it live via UAZ_HordeSubsystem::SetCrowdIntensity
+	 *  (or the az.Crowd.Intensity test override). Members of the same crowd should share this value. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Crowd", meta = (ClampMin = "1", ClampMax = "5"))
+	int32 CrowdIntensity = 3;
+
+	// ========================================
+	// Startup abilities — EDITOR-ASSIGNED (no hardcoded /Game/ paths in C++, user rule 2026-07-24).
+	// Point these at the BP tuning children (BP_GA_Death / BP_GA_ZombieMelee / BP_GA_ChalkieGrab) in
+	// the pawn BP; native classes are only the ctor fallback. The grant site patches the CDO of the
+	// ASSIGNED class (triggers/tags), and the BT attack task resolves to the granted concrete class.
+	// ========================================
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> DeathAbilityClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> MeleeAbilityClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> GrabAbilityClass;
 };

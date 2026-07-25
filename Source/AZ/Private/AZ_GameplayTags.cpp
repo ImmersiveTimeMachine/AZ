@@ -298,8 +298,15 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Combat_Engaged_Active,  FName("State.Combat.Engaged.Active"),  TEXT("Crowd combat role (horde subsystem sole writer): holds an attack slot — press the attack"));
     AddTag(GameplayTags.State_Combat_Engaged_Passive, FName("State.Combat.Engaged.Passive"), TEXT("Crowd combat role (horde subsystem sole writer): engaged without a slot — hold the ring"));
 
+    AddTag(GameplayTags.State_Combat_Grabbing, FName("State.Combat.Grabbing"), TEXT("Chalkie is mid-grab: holds its Active slot, plays the grab pose, exempt from flinch-cancel while grabbing"));
+    AddTag(GameplayTags.State_Grabbed,         FName("State.Grabbed"),         TEXT("Player is caught: movement + camera frozen (ProduceInput / OnLookTriggered gate); struggle-mash to escape"));
+
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("Hit-window gameplay event from an attack montage notify — GA_MeleeAttack sweeps + applies damage on it"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
+    AddTag(GameplayTags.Event_Grabbed,           FName("Event.Grabbed"),           TEXT("Sent to the player's ASC by a Chalkie's grab — triggers GA_PlayerGrabbed (mirrors Event.Death -> GA_Death)"));
+    AddTag(GameplayTags.Event_GrabEscaped,       FName("Event.GrabEscaped"),       TEXT("Player -> grabber ASC: the mash won — GA_ChalkieGrab plays the GrabEscapeMontage stagger"));
+    AddTag(GameplayTags.Event_GrabTimeout,       FName("Event.GrabTimeout"),       TEXT("Player -> grabber ASC: escape window elapsed — GA_ChalkieGrab lands the attack (GrabEndMontage + damage)"));
+    AddTag(GameplayTags.Event_GrabRelease,       FName("Event.GrabRelease"),       TEXT("Grabber -> player ASC: the grab ended abnormally (cancel/death) — GA_PlayerGrabbed frees the player"));
     AddTag(GameplayTags.SetByCaller_Damage,      FName("SetByCaller.Damage"),      TEXT("SetByCaller magnitude channel for damage on GE_Damage specs"));
 
     AddTag(GameplayTags.Combat_Aiming,          FName("Combat.Aiming"),          TEXT("Character is aiming"));

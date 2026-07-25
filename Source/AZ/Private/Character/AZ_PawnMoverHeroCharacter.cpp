@@ -4,6 +4,7 @@
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
+#include "AbilitySystem/Abilities/AZ_GA_PlayerGrabbed.h"
 #include "AbilitySystemComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -106,6 +107,13 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	CameraAiming.SocketOffset  = FVector(0.f, 55.f, 5.f);
 	CameraAiming.FOV           = 55.f;
 	CameraAiming.InterpSpeed   = 8.f;
+	// Grabbed: tight over-the-shoulder on the struggle (TLOU hold framing). Normal FOV — the
+	// closeness IS the drama; the grab camera shake supplies the violence. Slightly slower interp
+	// so the pull-in reads as a deliberate move, not a snap.
+	CameraGrabbed.BoomLength   = 130.f;
+	CameraGrabbed.SocketOffset = FVector(0.f, 60.f, 15.f);
+	CameraGrabbed.FOV          = 85.f;
+	CameraGrabbed.InterpSpeed  = 5.f;
 
 	// --- Mover ---
 	MoverComponent = CreateDefaultSubobject<UAZ_PawnMoverComponent>(TEXT("MoverComponent"));
@@ -202,16 +210,41 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	// Resolve the framing by rotation mode from replicated GAS state, same precedence as ProduceInput's
 	// RotationMode pick: Aiming (zoom) > Strafe (combat-ready) > Explore (default).
 	const FAZ_CameraStanceConfig* Target = &CameraExplore;
+	bool bGrabbedFraming = false;
 	if (const UAbilitySystemComponent* AbilityComp = GetAbilitySystemComponent())
 	{
 		const FAZ_GameplayTags& GPTags = FAZ_GameplayTags::Get();
-		if (AbilityComp->HasMatchingGameplayTag(GPTags.Ability_State_Aiming))
+		if (AbilityComp->HasMatchingGameplayTag(GPTags.State_Grabbed))
+		{
+			Target = &CameraGrabbed;   // caught: nothing outranks the struggle framing
+			bGrabbedFraming = true;
+		}
+		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Ability_State_Aiming))
 		{
 			Target = &CameraAiming;
 		}
 		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Movement_Strafe))
 		{
 			Target = &CameraStrafe;
+		}
+	}
+
+	// Grabbed: the CAMERA also turns to frame the grabber (user rule 2026-07-24) — look input is
+	// frozen (OnLookTriggered gate), so control rotation is ours to drive. Same interp knob as the
+	// boom pull-in, so one editor value tunes the whole grabbed-camera move.
+	if (bGrabbedFraming && GrabFacingTarget.IsValid())
+	{
+		if (AController* PawnController = GetController())
+		{
+			const FVector ToGrabber = GrabFacingTarget->GetActorLocation() - GetActorLocation();
+			if (!ToGrabber.IsNearlyZero())
+			{
+				FRotator LookAt = ToGrabber.Rotation();
+				LookAt.Yaw += GrabbedCameraYawOffsetDeg;      // side/over-shoulder composition
+				LookAt.Pitch += GrabbedCameraPitchOffsetDeg;  // tilt onto the struggle
+				PawnController->SetControlRotation(
+					FMath::RInterpTo(PawnController->GetControlRotation(), LookAt, DeltaTime, GrabbedCameraRotationSpeed));
+			}
 		}
 	}
 
@@ -272,6 +305,21 @@ void AAZ_PawnMoverHeroCharacter::InitAbilitySystem()
 	if (HasAuthority())
 	{
 		ASC->GrantAbilitiesWithInputTag(StartupAbilities);
+
+		// Grant (idempotent by spec lookup): the grab-victim ability, EDITOR-ASSIGNED (user rule
+		// 2026-07-24: no hardcoded asset paths in C++ — the hero pawn BP points GrabbedAbilityClass at
+		// BP_GA_PlayerGrabbed; unset = native fallback; CDO patch goes to the ASSIGNED class).
+		// Event-triggered by Event.Grabbed; the Interact dynamic tag routes E-presses to it WHILE
+		// ACTIVE (the mash) — AbilityInputTagPressed only invokes InputPressed on active specs.
+		UClass* GrabbedClass = *GrabbedAbilityClass ? *GrabbedAbilityClass : UAZ_GA_PlayerGrabbed::StaticClass();
+		if (!ASC->FindAbilitySpecFromClass(GrabbedClass))
+		{
+			UAZ_GA_PlayerGrabbed::ConfigureCDO(GrabbedClass);
+			FGameplayAbilitySpec GrabbedSpec(GrabbedClass, 1, INDEX_NONE, this);
+			GrabbedSpec.GetDynamicSpecSourceTags().AddTag(FAZ_GameplayTags::Get().Input_Action_Interact);
+			ASC->GiveAbility(GrabbedSpec);
+			UE_LOG(LogTemp, Display, TEXT("[Grab] %s granted to hero ASC"), *GrabbedClass->GetName());
+		}
 	}
 }
 
@@ -343,6 +391,16 @@ void AAZ_PawnMoverHeroCharacter::OnMoveCompleted(const FInputActionValue& Value)
 
 void AAZ_PawnMoverHeroCharacter::OnLookTriggered(const FInputActionValue& Value)
 {
+	// Grabbed = camera locked too (TLOU-style hold). The IMC stays pushed — removing it would also
+	// kill the E-mash IA — so the freeze lives here, not in the input stack.
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		if (ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed))
+		{
+			return;
+		}
+	}
+
 	const FVector2D LookVector = Value.Get<FVector2D>();
 	AddControllerYawInput(LookVector.X * LookRateYaw);
 	AddControllerPitchInput(-LookVector.Y * LookRatePitch);
@@ -488,10 +546,12 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// doesn't glide under the full-body punch. Strafe (combat-ready, set on equip of a strafe
 	// profile): the body must face the camera/target, NOT the movement direction.
 	bool bStrafe = false;
+	bool bGrabbed = false;
 	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // we implement IAbilitySystemInterface
 	{
 		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
-		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking))
+		bGrabbed = ASC->HasMatchingGameplayTag(AZTags.State_Grabbed);   // caught: fully rooted until the mash resolves
+		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking) || bGrabbed)
 			WorldMove = FVector::ZeroVector;
 		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
 	}
@@ -546,6 +606,19 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	{
 		bStrafeAligning = false;
 		CharacterDefaultInputs.OrientationIntent = WorldMove;
+	}
+
+	// GRABBED: face the grabber — the struggle must read face-to-face, never back-bitten (user rule
+	// 2026-07-24). Overrides BOTH modes' facing pick above; movement is already zeroed, so the walking
+	// mode's rotation spring just turns the rooted body toward the target (same machinery the strafe
+	// align-latch uses on an idle body).
+	if (bGrabbed && GrabFacingTarget.IsValid())
+	{
+		const FVector ToGrabber = (GrabFacingTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		if (!ToGrabber.IsNearlyZero())
+		{
+			CharacterDefaultInputs.OrientationIntent = ToGrabber;
+		}
 	}
 
 	// ---- Gait → Mover (v2: movement-domain GAS tags bridge to the Mover sim) ----
