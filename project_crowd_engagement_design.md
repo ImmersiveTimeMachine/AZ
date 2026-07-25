@@ -5,11 +5,21 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-07-22T03:42:36.220Z
+  modified: 2026-07-22T23:14:07.848Z
 ---
 
 # Crowd Engagement v3 — Ring Slots + Rotation
 > STATUS UPDATE: user green-lit immediate implementation same session ("start now"); C++ written 2026-07-22, see rulebook for state.
+> STATUS 2026-07-22 (late): v3 PIE-working after fixing 5 BT×C++ SEAM bugs (Press gait Walk-default, turn clock burning travel time, Press accept 200 vs attack-gate 180, both Waits at 5s node default, ring drift 10°/s uncatchable→3°/s). See [[feedback_seam_trace_before_pie]]. Rules re-keyed: Ring MoveTo→SlotLocation(accept 75, observe on), Press MoveTo→TargetActor(AttackRange), Press gait Sprint, Ring gait Walk.
+> STATUS 2026-07-22 (later): PER-CROWD INTENSITY shipped (editor-closed build green). Model below.
+
+## Per-crowd intensity (2026-07-22) — the "named crowds" feature
+- **Pawn** (`AAZ_PawnMoverInfectedCharacter`, cat "AZ|Crowd"): `FName CrowdId="Default"` + `int32 CrowdIntensity=3` (1..5), both EditAnywhere (author per PLACED instance). Chalkies sharing CrowdId = one crowd.
+- **Controller**: `GetCrowdId()` / `GetInitialCrowdIntensity()` read the possessed pawn.
+- **Subsystem**: `TMap<FName,int32> CrowdLevels` (level only); knobs resolved on demand from file-static `GIntensityTable[5]` (rows: AlertRadius, MaxAttackers, Hold min/max, MinPassive, RingDistance, Shuffle min/max — row 3 == the v3 hand-tuned baseline). Removed the flat per-crowd knob fields; kept structural ones (ActiveStickinessCm, RoleRecompute, NumRingSlots, RingDrift=3, hysteresis, arrived-tol). API: `SetCrowdIntensity(FName,int32)` + `GetCrowdIntensity(FName)` (BlueprintCallable/Pure; default 3 for unseen crowd). First member seeds level at RegisterInfected; runtime setter overrides.
+- **Rings keyed by `FCrowdPreyKey{CrowdId,Prey}`** (not prey alone) → two crowds on the same prey form independent concentric circles at their own radius; `FCombatRoleState.CrowdId` carries the crowd a role joined under (ReleaseSlot/compaction/CountActiveOnPreyInCrowd all crowd-filtered). AssignCombatRoles groups by (crowd,prey), each contests its OWN MaxAttackers.
+- **NotifyAggro**: radius = screamer's crowd row; propagates to SAME-crowd members only (no cross-crowd cascade yet — deliberate).
+- **CVar `az.Crowd.Intensity`** = TEST override: 0=off (per-crowd stands), 1..5 force ALL known crowds; re-applies only on CVar change (won't stomp scripted per-crowd sets). AZCVars, module-lifetime registered.
 
 ## The two problems this solves (user-reported 2026-07-22 after roles v2 PIE)
 1. **NPCs block each other**: pawn capsules block (correct — bodies matter) but everyone paths AT THE PREY, so

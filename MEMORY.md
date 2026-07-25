@@ -21,6 +21,9 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [feedback_chooser_column_reorder.md](feedback_chooser_column_reorder.md) — chooser scripted-edit gotchas (columns reorder, rows re-sort, verify set_cell).
 - [feedback_chooser_autoremap_fuzzy_unsafe.md](feedback_chooser_autoremap_fuzzy_unsafe.md) — AutoRemap fuzzy tier unsafe for bulk swaps; explicit RemapChooserAssets map.
 - [feedback_parallel_editor_edits.md](feedback_parallel_editor_edits.md) — user-in-editor races: check mtimes/dirty before bulk ops; open tabs re-save stale state.
+- [feedback_seam_trace_before_pie.md](feedback_seam_trace_before_pie.md) — ★ before ANY PIE request: trace one full loop with real numbers across BT-values × C++-constants; dump actual node values (defaults sneak in). 5 seam bugs in one evening prove it.
+- [feedback_editor_close_build_open_loop.md](feedback_editor_close_build_open_loop.md) — RETIRED: user drives editor close/open (auto-quit crashes on exit w/ open tabs); mechanics kept for reference.
+- [feedback_no_hardcoded_asset_paths.md](feedback_no_hardcoded_asset_paths.md) — ★ USER RULE: no /Game/ paths in C++; all content refs = editor-assigned UPROPERTYs w/ native fallbacks; grep Source for "/Game/" to verify.
 - Covered by skills: check-memory-first, agent-teams, validate-findings, no-read-approval, file-paths, port checklist, deep-pin-inspection, animgraph wiring, post-event-vs-threadsafe, blendstack-input-ref, python-gc-crash, retarget-root-motion, chooser-utils API, SM transition access, transition-rule tools.
 
 ## GASP reference (standing rule: GASP imported at /Game/Blueprints/ — query via unrealclaude MCP; NEVER C:\UnrealEngine\Games\GameAnimationSample or gassample MCP)
@@ -54,6 +57,7 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [project_chalkie_territory_combat_plan.md](project_chalkie_territory_combat_plan.md) — ★ combat build log §F-H (S1-S3 done, lessons) + anim census; territory postponed. Read before NPC combat work.
 - [project_chalkie_fight_rules.md](project_chalkie_fight_rules.md) — ★ THE 9-rule combat/engagement RULEBOOK, each rule = one code owner. Read before touching NPC combat/perception.
 - [project_crowd_engagement_design.md](project_crowd_engagement_design.md) — ★ NEXT SESSION: ring-slot + rotation design (fixes NPC stacking; observers/rotating engagement). Crowd brain v2 live at `bfaa7bc`.
+- [project_grab_grapple_design.md](project_grab_grapple_design.md) — ★ TLOU-style GRAB: Chalkie catches player, player mashes to escape 5-10s. Grounded 3-agent research: file:line reuse map + build list + open decisions. Read before implementing grab.
 - [project_multipawn_class_design.md](project_multipawn_class_design.md) — multi-pawn scaling rules (input split, two-ASC, seats).
 - [project_sp_first_coop_extensible.md](project_sp_first_coop_extensible.md) — SP-first scope rule + ALWAYS/AVOID/DEFER lists.
 - [project_mover_5_7_to_5_8_diff.md](project_mover_5_7_to_5_8_diff.md) — Mover 5.7→5.8 API diff.
