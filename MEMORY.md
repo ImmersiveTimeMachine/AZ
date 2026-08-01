@@ -57,7 +57,7 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [project_chalkie_territory_combat_plan.md](project_chalkie_territory_combat_plan.md) — ★ combat build log §F-H (S1-S3 done, lessons) + anim census; territory postponed. Read before NPC combat work.
 - [project_chalkie_fight_rules.md](project_chalkie_fight_rules.md) — ★ THE 9-rule combat/engagement RULEBOOK, each rule = one code owner. Read before touching NPC combat/perception.
 - [project_crowd_engagement_design.md](project_crowd_engagement_design.md) — ★ NEXT SESSION: ring-slot + rotation design (fixes NPC stacking; observers/rotating engagement). Crowd brain v2 live at `bfaa7bc`.
-- [project_grab_grapple_design.md](project_grab_grapple_design.md) — ★ TLOU-style GRAB: Chalkie catches player, player mashes to escape 5-10s. Grounded 3-agent research: file:line reuse map + build list + open decisions. Read before implementing grab.
+- [project_grab_grapple_design.md](project_grab_grapple_design.md) — ★ TLOU-style GRAB. **PIVOTED 2026-08-01 to NAAT shared-origin PAIRED montages + engine `MontageSync_Follow`** (read the pivot block at top first; v1 socket-anchor/IK notes below it are superseded). Read before any grab work.
 - [project_multipawn_class_design.md](project_multipawn_class_design.md) — multi-pawn scaling rules (input split, two-ASC, seats).
 - [project_sp_first_coop_extensible.md](project_sp_first_coop_extensible.md) — SP-first scope rule + ALWAYS/AVOID/DEFER lists.
 - [project_mover_5_7_to_5_8_diff.md](project_mover_5_7_to_5_8_diff.md) — Mover 5.7→5.8 API diff.

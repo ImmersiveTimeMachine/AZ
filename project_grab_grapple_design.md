@@ -5,12 +5,145 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-07-25T03:11:56.096Z
+  modified: 2026-08-01T21:50:30.461Z
 ---
 
 # Grab / Grapple ("caught") — design, grounded 2026-07-22
 
-## ★ NEXT SESSION (state saved 2026-07-25 end-of-session)
+## ★★ PIVOT 2026-08-01 — NAAT PAIRED MONTAGES (supersedes the socket-anchor approach below)
+User rejected the socket-anchor/IK route ("we will not achieve cinematic grab fight") and retargeted the
+**NAAT interactive pack** (`/Game/BSP_ZombieAnims/Animations/Interactive`) to BOTH skeletons:
+- HERO (SKEL_SurvivalMan, 173 bones): `/Game/AZ/NoWeapons/RT/RTG_RM_AS_NAAT_Human_*`
+- CHALKIE (UE4_Mannequin_Skeleton, 71 bones): `/Game/AZ/SurvivalRetargetingAnimations/Zombie/RTX_RT_AS_NAAT_Zombie_*`
+(each folder also holds the OTHER role's clips + the pack's 18.5s showcase reel montages `*_AM_NAAT_*` — IGNORE the reels.)
+
+**How the pack works (verified by bone sampling, not assumed):** SHARED-ORIGIN paired animation.
+Root motion OFF on every clip, `root` bone stays at (0,0,0) at every sample, both bodies' placement baked
+into bones around ONE common origin ⇒ **put both actors at the SAME world transform and play each side's
+clip; the animation does all positioning.** No attach, no IK, no root motion, no mesh lift.
+Retarget preserved it: hero pelvis @hold (-0.2,-15.5,88.3)→(-0.2,-15.4,87.5); Chalkie (-2.0,14.1,90.9)→
+(-1.9,13.3,91.2); pair separation 29.6cm→28.7cm. Clip lengths preserved exactly.
+
+**THE SYNC MECHANISM = engine built-in.** `UAnimInstance::MontageSync_Follow(Follower, OtherAnimInst, Leader)`
+— `AnimInstance.h:739`, UFUNCTION(BlueprintCallable). Per frame (`AnimMontage.cpp:2012-2035`) it copies
+leader position, copies leader play rate, and — **if both montages are in a section of the SAME NAME** —
+mirrors the leader's `SetNextSectionName`. So section jumps/loops/exits propagate for free.
+⇒ HARD REQUIREMENT: identical section names on both montages. Both must already be PLAYING before Follow.
+Jump sections on the LEADER ONLY (leader = Chalkie/attacker). Follower gets `SetPosition` every frame, so
+it can skip notifies — put gameplay notifies on the LEADER side.
+
+**Clip inventory (7 pairs, human/zombie, lengths identical):** Idle_To_Grab .600 · Grab_To_Wrestle 1.233 ·
+Grab_To_Push/Pushed 2.300 · Grab_To_Kick/Kicked 2.300 · Grab_To_TakeDown 2.200 · Grab_To_Munching 2.333 ·
+TakeDown_To_Munching **2.267 vs 2.233 — the ONE mismatch**, and it's the clip meant to loop; trim or
+rate-scale or the follower clamps early. Every `Grab_To_*` departs from one identical hold pose ⇒ they are
+branchable sections of a single montage.
+
+**Two findings that change the build:**
+1. `Idle_To_Grab` starts ALREADY IN CONTACT (pelvises 12cm apart at t=0, 28cm at hold) — it is the catch,
+   NOT an approach. Alignment must be complete on frame 1. Current `GrabHoldDistance = 110` is ~4x too far.
+2. Place the shared transform so the HERO doesn't teleport: offset it by the hero's own authored t=0 pelvis
+   (-0.4,-10.1,90.4) so the hero's body stays put and the Chalkie does all the travel.
+
+**API BLOCKER (probed 2026-08-01):** montage SECTIONS cannot be authored from Python —
+`CompositeSection.next_section_name` is READ-ONLY and `AnimMontage.composite_sections` is NOT EXPOSED at all.
+`AnimSegment` fields (anim_reference/start_pos/anim_start_time/anim_end_time/anim_play_rate/looping_count)
+ARE readable/writable, so slot tracks are scriptable but section tables are not. C++ has what's needed —
+`UAnimMontage::AddAnimCompositeSection(FName, float)` at `AnimMontage.h:906`, ENGINE_API. Do NOT reach for
+the cpp execute_script harness (creating/saving assets from a static init = the 4 documented editor crashes,
+[[feedback_cpp_executescript_harness]]). ⇒ ROUTE: add a `UAZ_MontageUtils` UFUNCTION in the SAME
+editor-closed CLI build as the grab C++ changes (Live Coding cannot add UFUNCTIONs), then script both
+montages from one shared name/order list.
+
+**★ BUILT + ASSIGNED 2026-08-01 (green CLI build, awaiting first PIE).** Shipped in one batch:
+- `UAZ_MontageUtils` (`Public/Animation/AZ_MontageUtils.h`): `BuildSectionedMontage` (rebuilds IN PLACE so
+  assigned refs survive regeneration), `SetSectionNext`, `SetMontageBlendTimes`, `DumpMontageSections`,
+  `VerifyPairedMontages`. Uses `UAnimMontage::AddAnimCompositeSection` + `SetCompositeLength`; links
+  sections BY NAME after adding (AddAnimCompositeSection sorts by start pos). NOTE `UpdateCommonTargetFrameRate`
+  is private+editor-only — reach it via `PostEditChange()`.
+- Assets: `/Game/AZ/Blueprints/Animation/Montage/AM_Grab_Hero` (slot FullBody, SKEL_SurvivalMan) and
+  `AM_Grab_Chalkie` (slot DefaultSlot, UE4_Mannequin_Skeleton), both 13.200s, 7 sections, VerifyPaired=MATCH:
+  Catch 0.000/0.600→Wrestle · Wrestle 0.600/1.233→Wrestle · Push 1.833/2.300→stop · Kick 4.133/2.300→stop ·
+  TakeDown 6.433/2.200→GroundMunch · GroundMunch 8.633/2.233→GroundMunch · Munch 10.867/2.333→stop.
+  GroundMunch mismatch fixed by hero segment play rate 1.014925 (2.267→2.233).
+- Assigned to BP tuning children: `BP_GA_PlayerGrabbed.PairedGrabbedMontage`, `BP_GA_ChalkieGrab.PairedGrabMontage`.
+- Tags `State.Grab.Catching/Wrestling/Resolving` (leader publishes; Catching→Wrestling on a timer sized from
+  the catch section length).
+- LEADER = GA_ChalkieGrab: aligns FIRST (collision carve-out + close-in at `GrabHoldDistance = 0`), starts its
+  montage BEFORE firing Event.Grabbed (the follower needs a live montage to bind to), resolves by
+  `Montage_SetNextSection(Wrestle, outcome)` — random Push/Kick on escape, Munch on timeout. Re-asserts
+  Wrestle→Wrestle on every start (a replay would otherwise inherit a queued outcome and skip the hold).
+- FOLLOWER = GA_PlayerGrabbed: `StartPairedFollow()` plays its half then `MontageSync_Follow`; NEVER steers
+  its own sections; NO anchor/mesh-lift on this route (user 2026-08-01: "we don't need any previous attach").
+- ★ FLOW FIX: the victim used to end at mash-resolve and would have been cut out of its own escape clip.
+  It now stays grabbed+synced through the outcome section; the leader sends Event.GrabRelease on RESOLVED
+  exits too (was: only abnormal), with `PairedOutcomeMaxSeconds` (6s) as backstop. `OnGrabberReleased` ends
+  directly when already bResolved (FinishGrab would early-out and strand it).
+- ★ FACING — SHARED-ORIGIN APPLIES TO POSITION, **NOT ROTATION** (proven in PIE 2026-08-01). Tried making
+  the hero MATCH the grabber's yaw (one shared transform); user saw the pair "in the same line, not face to
+  face" — two actors on the same yaw put the bodies side by side along their shared right-axis, because the
+  clips' baked offsets separate them along Y. REVERTED to look-at: the actors must OPPOSE each other and the
+  baked offsets do the rest. Grabbed camera keeps a fallback to the grabber's forward for near-zero separation.
+- ★ BP CHILDREN DO NOT INHERIT CHANGED C++ DEFAULTS: `GrabHoldDistance` read back as 60 from
+  BP_GA_ChalkieGrab even though the C++ default had been changed to 0 — the BP serializes its own copy
+  (same class of trap as the ActivationOwnedTags CDO-patch failure). Verify by reading the BP CDO, never
+  by reading the C++ default. Face-to-face clinch distance = 60 (tune here, it is the one dial).
+- Both v1 routes (loop/exit montages + socket anchor) survive untouched as fallbacks when the paired
+  montages are unassigned.
+- OPEN/UNVERIFIED: Chalkie ABP must have a `DefaultSlot` node (hero's FullBody is proven) — StartPairedFollow
+  logs "would not play (slot missing...)" if not; escape latency is up to one 1.233s wrestle cycle by design.
+
+## ★ SESSION END 2026-08-01 — paired grab PLAYING; IK half-built. RESUME HERE.
+WORKING IN PIE: paired montages sync, mirrored clinch, escape/timeout outcomes, hero-side hand IK.
+UNCOMMITTED: 30 files on feature/NPC (whole paired-grab + montage utils + socket utils). COMMIT FIRST.
+
+**Tuning values found by the user in PIE:** `GrabHoldDistance` 90-92 looked best visually (BP_GA_ChalkieGrab
+· AZ|Grab). Measured CONTACT optimum is 55-60 (avg hand->partner 18.8cm vs 31 at 90) — the two disagree
+because the retarget spread the pair; expect to split the difference ~65-70 + partial IK alpha.
+
+**IK state:**
+- HERO: fully wired and WORKING. Layer `AdiativeCombatGrabbed` (after Slot 'FullBody'), TwoBoneIK hand_l/r
+  bound to GrabIKTarget_HandL/R + GrabIKAlpha. ★ BUG FOUND, NOT FIXED: the two ModifyBone shake nodes are
+  ORPHANED (spine_02 ComponentPose in=0, head Pose out=0 and Alpha=0) → GrabBodyShakeRot/GrabHeadShakeRot
+  have NEVER reached the skeleton. Splice them between TwoBoneIK(hand_r) and ComponentToLocal.
+- CHALKIE: C++ DONE (GrabIKAlpha/Targets/BlendSpeed/PreySocketForHandL/R on UAZ_InfectedAnimInstance,
+  gather in NativeUpdateAnimation before the Mover early-out; GA_ChalkieGrab publishes prey via
+  pawn SetGrabTarget/GetGrabTarget). ABP: layer node exists but was MIS-PLACED between Locomotion SM and
+  LocoCache (must be LAST, after Slot 'DefaultSlot', or the montage overwrites IK) AND the layer graph
+  itself was never created → still a pass-through. No TwoBoneIK nodes yet.
+- User reports IK "starts to stretch" — expected: Chalkie hands are 17-19cm off (its arms took the worse
+  retarget hit; hero hands are 4.7/14.6cm). Mitigations: lower GrabHoldDistance, multiply GrabIKAlpha
+  (~0.5-0.7) before the IK Alpha pins, or move sockets toward the hands.
+- HAND ROTATION not implemented: anim instances only call GetSocketLocation. User has already authored a
+  rotation on hero GrabIK_HandL (20.2 yaw) which does NOTHING today. To use it: add GrabIKRot_HandL/R
+  (GetSocketTransform) + a Transform(Modify)Bone on the hand AFTER the IK, Translation Mode = Ignore.
+
+**GRIP SOCKETS (created via new UAZ_SkeletonUtils::AddSocket/RemoveSocket/ListSockets — Python CANNOT
+author sockets: Skeleton.Sockets is protected and SocketName is read-only):**
+- HERO SKEL_SurvivalMan: `GrabIK_HandL` on upperarm_r (USER MOVED it off my lowerarm_r), `GrabIK_HandR` on head.
+- CHALKIE UE4_Mannequin_Skeleton: `GrabIK_HandL` on spine_02, `GrabIK_HandR` on upperarm_l.
+- Convention: the socket name says WHOSE hand takes that grip (GrabIK_HandL = partner's LEFT hand).
+  Hero's GrabIKGrabberBoneForHandL/R were CROSSED in C++ and are now uncrossed on both C++ and the ABP.
+
+**NPC "type" wiring (asked 2026-08-01):** `AnimSet` property per LEVEL INSTANCE on BP_AZ_Chalkie (class
+default DA_ChalkieAnims_C_Rotter; instances 2/3/4 = B_Runner). Speeds are on the walking movement mode
+(`AZ|Walking|Speeds` Walk165/Run375/Sprint585 — GASP hero defaults) and are SHARED by every Chalkie (one BP,
+no variant subclasses). Gait chosen by AZ_InfectedAIController.cpp:674-685 + UAZ_BTTask_ChalkieSetGait.
+⇒ AnimSet is COSMETIC ONLY today — a "Runner" moves at Rotter speed. Fix = speed fields on the DA applied
+at spawn (fits task #9 native-class batch).
+
+**Build plan (original):** (1) script BOTH montages so section names match by construction — `Catch`→`Wrestle`(self-loop)
+→`Push`|`Kick`|`TakeDown`→`GroundMunch`, plus `Munch`; hero slot `FullBody`, Chalkie slot `DefaultSlot`.
+(2) fix the 33ms mismatch. (3) repoint `FLayeredMove_AZ_GrabAnchor` from hand-socket-chasing to holding both
+pawns at the shared transform; turn `bAnchorMatchHeight` + the mesh-lift channel OFF (anim owns height now).
+(4) wire `MontageSync_Follow`. (5) map outcomes to sections: mash success → random `Push`/`Kick`; timeout →
+`Munch` + existing damage chunk (v1 keeps locked decision 2); `TakeDown`→`GroundMunch` shelved for a real
+death sequence. Pack stand-down + grab token are UNCHANGED and already working.
+
+**Made redundant by this pivot:** hand-socket anchoring, `bAnchorMatchHeight`/mesh-lift, hand IK targets,
+body/head shake (the paired clip carries the struggle). Facing changes meaning too — both actors need the
+SAME yaw (one shared transform), not "hero looks at grabber".
+
+## ★ PREVIOUS SESSION (state saved 2026-07-25 end-of-session)
 GRAB V1 IS PLAYING IN-GAME (catch→close-in clinch→hold→mash→escape/timeout all verified in PIE).
 Resume points, in order:
 1. **PENDING BUILD**: head-shake signal (`GrabHeadShakeRot` 16/s + tunables in AZ_MoverAnimInstance.h/cpp)
