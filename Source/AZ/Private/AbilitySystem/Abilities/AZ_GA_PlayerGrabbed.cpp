@@ -12,6 +12,8 @@
 #include "AZ_ConsoleVariables.h"
 #include "AZ_GameplayTags.h"
 #include "Camera/AZ_GrabCameraShakes.h"
+#include "Character/AZ_GrabAnchorLayeredMove.h"
+#include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Curves/CurveFloat.h"
@@ -111,6 +113,15 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 		Hero->SetGrabFacingTarget(Grabber.Get());
 	}
 
+	// PAIRED route: our half of the shared-origin montage, bound to the grabber's as the follower. The
+	// animation owns placement completely, so there is nothing to anchor — no socket lock, no mesh lift.
+	// Fall back to the v1 socket anchor only when no paired montage is assigned.
+	const bool bPaired = StartPairedFollow();
+	if (!bPaired)
+	{
+		StartGrabAnchor();
+	}
+
 	// Tunables with test overrides (az.Grab.*).
 	const int32 PressesOverride = AZCVars::GetGrabPressesToEscape();
 	const float WindowOverride = AZCVars::GetGrabWindowSeconds();
@@ -120,7 +131,7 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	// The struggle pose: ONE pick from the pool per grab (random or fixed index), self-looped for the
 	// whole hold. Replay-on-end keeps the hold unbreakable: no locomotion/flinch shows through mid-grab.
 	CachedStruggleMontage = nullptr;
-	if (StruggleMontages.Num() > 0)
+	if (!bPaired && StruggleMontages.Num() > 0)
 	{
 		const int32 Pick = bRandomStruggleMontage
 			? FMath::RandRange(0, StruggleMontages.Num() - 1)
@@ -198,6 +209,141 @@ void UAZ_GA_PlayerGrabbed::OnStruggleMontageEnded(FGameplayTag EventTag, FGamepl
 	}
 }
 
+bool UAZ_GA_PlayerGrabbed::StartPairedFollow()
+{
+	CachedPairedMontage = PairedGrabbedMontage.LoadSynchronous();
+	if (!CachedPairedMontage)
+	{
+		return false;
+	}
+
+	const AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo();
+	UAnimInstance* OwnAnim = Hero && Hero->GetMesh() ? Hero->GetMesh()->GetAnimInstance() : nullptr;
+	const AActor* GrabberActor = Grabber.Get();
+	const USkeletalMeshComponent* GrabberMesh = GrabberActor
+		? GrabberActor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+	UAnimInstance* LeaderAnim = GrabberMesh ? GrabberMesh->GetAnimInstance() : nullptr;
+
+	// The leader's montage must ALREADY be playing — GA_ChalkieGrab starts it before firing Event.Grabbed
+	// precisely so this call has something to bind to (AnimInstance.h:735 "both montages must be playing").
+	UAnimMontage* LeaderMontage = LeaderAnim ? LeaderAnim->GetCurrentActiveMontage() : nullptr;
+	if (!OwnAnim || !LeaderAnim || !LeaderMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Grab] paired follow SKIPPED: ownAnim=%d leaderAnim=%d leaderMontage=%s"),
+			OwnAnim != nullptr, LeaderAnim != nullptr, *GetNameSafe(LeaderMontage));
+		CachedPairedMontage = nullptr;
+		return false;
+	}
+
+	const float Started = OwnAnim->Montage_Play(CachedPairedMontage, 1.f);
+	if (Started <= 0.f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Grab] paired follow FAILED: %s would not play (slot missing from the hero ABP?)"),
+			*GetNameSafe(CachedPairedMontage));
+		CachedPairedMontage = nullptr;
+		return false;
+	}
+	if (CachedPairedMontage->GetSectionIndex(CatchSection) != INDEX_NONE)
+	{
+		OwnAnim->Montage_JumpToSection(CatchSection, CachedPairedMontage);
+	}
+
+	// From here the leader owns position, play rate and every section jump. We never steer.
+	OwnAnim->MontageSync_Follow(CachedPairedMontage, LeaderAnim, LeaderMontage);
+
+	UE_LOG(LogTemp, Display, TEXT("[Grab] paired follow ARMED: %s follows %s on %s"),
+		*GetNameSafe(CachedPairedMontage), *GetNameSafe(LeaderMontage), *GetNameSafe(GrabberActor));
+	return true;
+}
+
+void UAZ_GA_PlayerGrabbed::StopPairedFollow()
+{
+	if (!CachedPairedMontage)
+	{
+		return;
+	}
+	const AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo();
+	if (UAnimInstance* OwnAnim = Hero && Hero->GetMesh() ? Hero->GetMesh()->GetAnimInstance() : nullptr)
+	{
+		OwnAnim->MontageSync_StopFollowing(CachedPairedMontage);
+		// Do NOT stop the montage here: on a normal resolve the leader has already jumped us into an
+		// outcome section and we want it to play out. An abnormal end blends it out through the ASC.
+	}
+	CachedPairedMontage = nullptr;
+}
+
+void UAZ_GA_PlayerGrabbed::StartGrabAnchor()
+{
+	if (!bAnchorToGrabber)
+	{
+		return;
+	}
+	AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo();
+	AActor* GrabberActor = const_cast<AActor*>(Grabber.Get());
+	if (!Hero || !GrabberActor)
+	{
+		return;
+	}
+	UAZ_PawnMoverComponent* Mover = Hero->GetMoverComponent();
+	USkeletalMeshComponent* HeroMesh = Hero->GetMesh();
+	USkeletalMeshComponent* GrabberMesh = GrabberActor->FindComponentByClass<USkeletalMeshComponent>();
+	if (!Mover || !HeroMesh || !GrabberMesh)
+	{
+		return;
+	}
+
+	// Fail LOUD on a bad socket name. GetSocketTransform silently falls back to the component transform
+	// when the socket is missing — that would drag the hero to the Chalkie's feet and look like a physics
+	// bug rather than a typo. Refuse the lock instead and say why.
+	if (!GrabberMesh->DoesSocketExist(GrabberAnchorSocket) || !HeroMesh->DoesSocketExist(GrabbedAnchorSocket))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Grab] anchor SKIPPED: grabber '%s' socket=%s(%d), hero socket=%s(%d)"),
+			*GetNameSafe(GrabberActor), *GrabberAnchorSocket.ToString(),
+			GrabberMesh->DoesSocketExist(GrabberAnchorSocket),
+			*GrabbedAnchorSocket.ToString(), HeroMesh->DoesSocketExist(GrabbedAnchorSocket));
+		return;
+	}
+
+	const TSharedPtr<FLayeredMove_AZ_GrabAnchor> Anchor = MakeShared<FLayeredMove_AZ_GrabAnchor>();
+	Anchor->AnchorMesh = GrabberMesh;
+	Anchor->AnchorSocket = GrabberAnchorSocket;
+	Anchor->GrabbedMesh = HeroMesh;
+	Anchor->GrabbedSocket = GrabbedAnchorSocket;
+	Anchor->AnchorSpaceOffset = AnchorSocketOffset;
+	Anchor->MaxCorrectionSpeed = AnchorMaxCorrectionSpeed;
+	Mover->QueueLayeredMove(Anchor);
+	bAnchorQueued = true;
+
+	// HEIGHT is a separate channel: the layered move above is XY-only because the capsule is floor-snapped
+	// every tick. The lift rides the mesh instead, so the hero can hang off the ground in the hold.
+	if (bAnchorMatchHeight)
+	{
+		Hero->SetGrabMeshAnchor(GrabberMesh, GrabberAnchorSocket, GrabbedAnchorSocket, AnchorSocketOffset);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("[Grab] anchored: hero %s -> %s %s (offset %s, max %.0f cm/s, height match %d)"),
+		*GrabbedAnchorSocket.ToString(), *GetNameSafe(GrabberActor), *GrabberAnchorSocket.ToString(),
+		*AnchorSocketOffset.ToCompactString(), AnchorMaxCorrectionSpeed, bAnchorMatchHeight);
+}
+
+void UAZ_GA_PlayerGrabbed::StopGrabAnchor()
+{
+	if (!bAnchorQueued)
+	{
+		return;
+	}
+	bAnchorQueued = false;
+	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
+	{
+		if (UAZ_PawnMoverComponent* Mover = Hero->GetMoverComponent())
+		{
+			Mover->CancelFeaturesWithTag(FAZ_GameplayTags::Get().Mover_GrabAnchor, /*bRequireExactMatch*/ false);
+		}
+		// Both channels release together — the mesh eases back down to its authored offset from here.
+		Hero->ClearGrabMeshAnchor();
+	}
+}
+
 void UAZ_GA_PlayerGrabbed::StartMashTask()
 {
 	// The task ends itself after ONE press (replicated-event rebind constraint — see its header), so
@@ -248,7 +394,18 @@ void UAZ_GA_PlayerGrabbed::OnMashPress(float TimeWaited)
 
 void UAZ_GA_PlayerGrabbed::OnGrabberReleased(FGameplayEventData Payload)
 {
-	// The grab died on the other side — free ourselves quietly (no verdict to send).
+	// Already resolved = we were riding out the outcome section on the paired route, and this is the
+	// leader telling us the scene is done. (FinishGrab would early-out on bResolved and strand us until
+	// the safety timer.)
+	if (bResolved)
+	{
+		if (IsActive())
+		{
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		}
+		return;
+	}
+	// The grab died on the other side mid-hold — free ourselves quietly (no verdict to send).
 	FinishGrab(/*bEscaped*/ true, /*bNotifyGrabber*/ false);
 }
 
@@ -281,6 +438,26 @@ void UAZ_GA_PlayerGrabbed::FinishGrab(bool bEscaped, bool bNotifyGrabber)
 	{
 		GEngine->AddOnScreenDebugMessage(0x6A17, 2.f, bEscaped ? FColor::Green : FColor::Red,
 			bEscaped ? TEXT("STRUGGLE: ESCAPED!") : TEXT("STRUGGLE: OVERPOWERED..."));
+	}
+
+	// PAIRED: the mash is over but the SCENE is not. Our half of the escape/bite clip is a section of the
+	// montage we are following, and the leader only jumps to it now — ending here would cut the hero out
+	// of their own escape animation. Stay grabbed and synced; the grabber's Event.GrabRelease (sent from
+	// its EndAbility once the outcome section finishes) hands control back.
+	if (CachedPairedMontage && bNotifyGrabber)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(WindowTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Grab] outcome tail timed out — releasing the player without a grabber signal"));
+				if (IsActive())
+				{
+					EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+				}
+			}), PairedOutcomeMaxSeconds, false);
+		}
+		return;
 	}
 
 	// EndAbility drops State.Grabbed (ActivationOwnedTags) -> movement/camera/abilities unfreeze.
@@ -330,6 +507,11 @@ void UAZ_GA_PlayerGrabbed::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 			ASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Grabbed);
 		}
 	}
+	// Release the sync and the socket lock BEFORE the facing target: all of these must go on every exit
+	// path (escape, timeout, grabber death, external cancel) or the hero keeps being driven by a grab
+	// that is over. Both are no-ops on the route that didn't use them.
+	StopPairedFollow();
+	StopGrabAnchor();
 	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
 	{
 		Hero->SetGrabFacingTarget(nullptr);

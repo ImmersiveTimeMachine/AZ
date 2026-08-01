@@ -143,6 +143,24 @@ public:
 	 *  attribute sets). Fires the damage-lock rule, the stagger scream, and the full-stagger flinch. */
 	void HandleDamaged(AActor* Causer, float Damage);
 
+	/** PACK STEP-BACK: the recoil beat when a packmate seizes the prey (horde subsystem calls this on
+	 *  every OTHER Chalkie engaged on that prey). Plays Montage AND bridges its root motion to the
+	 *  capsule — that bridge is the whole point: on a Mover pawn a bare Montage_Play animates the mesh
+	 *  in place, and the BT's next move order would walk straight through the recoil anyway. The layered
+	 *  move is OverrideAll, so for its lifetime the clip owns the capsule and pathing cannot fight it.
+	 *  HoldSeconds cuts the beat short (the KnockBack clips run 5.5-7.5s); <= 0 plays the clip out. */
+	void PlayStepBackReaction(UAnimMontage* Montage, float HoldSeconds);
+
+	/** True while a stagger-class reaction owns the body — hit-react flinch OR the pack step-back. The
+	 *  attack BT task refuses to swing on this, so a new claw can't cancel the recoil's root motion. */
+	bool IsStaggerReactionPlaying() const;
+
+	/** The prey we are currently grabbing, or null. Set by GA_ChalkieGrab at the catch and cleared on
+	 *  every exit; UAZ_InfectedAnimInstance reads it to aim the grab hand-IK at the victim's grip sockets.
+	 *  Mirror of the hero's GetGrabFacingTarget — the anim layer must not reach into GAS or the AI tree. */
+	void SetGrabTarget(AActor* InTarget) { GrabTarget = InTarget; }
+	AActor* GetGrabTarget() const { return GrabTarget.Get(); }
+
 	/** Corpse-ification, called by UAZ_GA_Death after it starts the (replicated) death montage:
 	 *  brain off, collision off, mover off, ragdoll at RagdollDelay (0 = instantly), despawn.
 	 *  Idempotent — lifespan doubles as the death latch. */
@@ -167,6 +185,20 @@ protected:
 
 	/** One-shot guard for the native startup grants (InitAbilitySystem is re-entrant). */
 	bool bStartupAbilitiesGranted = false;
+
+	// --- Pack step-back reaction (see PlayStepBackReaction) ---
+
+	/** The recoil clip currently running. Weak, and only ever compared against what the anim instance is
+	 *  actually playing — so a stale pointer can never make IsStaggerReactionPlaying lie. */
+	TWeakObjectPtr<UAnimMontage> ActiveStepBackMontage;
+
+	/** Cuts the recoil at the beat. A member (not a throwaway) so a second grab landing during the beat
+	 *  RESETS the cut instead of stacking a second timer that would stop the fresh montage early. */
+	FTimerHandle StepBackCutTimer;
+
+	/** Prey held by the current grab (see SetGrabTarget). Weak: the victim can die or be destroyed
+	 *  mid-hold, and the anim layer must simply stop reaching rather than chase a dangling pointer. */
+	TWeakObjectPtr<AActor> GrabTarget;
 
 	// ========================================
 	// Mover stack

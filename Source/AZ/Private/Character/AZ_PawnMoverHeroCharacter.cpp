@@ -141,6 +141,13 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Baseline for the grab mesh-lift: read the AUTHORED offset (a BP archetype may have moved the mesh off
+	// the ctor's -92), so the lift is always measured from and restored to whatever this pawn actually uses.
+	if (Mesh)
+	{
+		DefaultMeshRelativeZ = Mesh->GetRelativeLocation().Z;
+	}
+
 	// Physics-driven jump: the engine Walking mode (bHandleJump) consumes bIsJumpJustPressed (packed by the GA
 	// jump via IAZ_JumpRequester), applies the launch impulse, and transitions Walking -> Falling; the engine
 	// Falling mode does gravity / air-control and plants back into Walking on real floor contact — so the jump
@@ -195,6 +202,54 @@ void AAZ_PawnMoverHeroCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	UpdateCameraForMode(DeltaTime);
+	UpdateGrabMeshAnchor(DeltaTime);
+}
+
+void AAZ_PawnMoverHeroCharacter::SetGrabMeshAnchor(const USkeletalMeshComponent* InAnchorMesh, FName InAnchorSocket,
+	FName InOwnSocket, const FVector& InAnchorSpaceOffset)
+{
+	GrabAnchorMesh = InAnchorMesh;
+	GrabAnchorSocket = InAnchorSocket;
+	GrabOwnSocket = InOwnSocket;
+	GrabAnchorSpaceOffset = InAnchorSpaceOffset;
+}
+
+void AAZ_PawnMoverHeroCharacter::ClearGrabMeshAnchor()
+{
+	GrabAnchorMesh = nullptr;   // UpdateGrabMeshAnchor eases the mesh back to DefaultMeshRelativeZ from here
+}
+
+void AAZ_PawnMoverHeroCharacter::UpdateGrabMeshAnchor(float DeltaTime)
+{
+	if (!Mesh)
+	{
+		return;
+	}
+
+	FVector Relative = Mesh->GetRelativeLocation();
+	float TargetZ = DefaultMeshRelativeZ;
+
+	if (GrabAnchorMesh.IsValid())
+	{
+		// Where the holding hand is vs. where our held socket currently is. The mesh transform moves the
+		// socket rigidly with it, so "shift relative Z by the gap" puts the socket exactly on the hand —
+		// re-measured every frame, which makes this a converging correction rather than a one-shot guess
+		// (the socket keeps moving: it rides spine_05 through the whole struggle animation).
+		const FTransform AnchorXf = GrabAnchorMesh->GetSocketTransform(GrabAnchorSocket, RTS_World);
+		const FVector DesiredWorld = AnchorXf.TransformPosition(GrabAnchorSpaceOffset);
+		const FVector CurrentWorld = Mesh->GetSocketTransform(GrabOwnSocket, RTS_World).GetLocation();
+
+		// Capsule has no pitch/roll, so relative Z is world Z — no basis conversion needed.
+		TargetZ = FMath::Clamp(Relative.Z + (DesiredWorld.Z - CurrentWorld.Z),
+			DefaultMeshRelativeZ + GrabMeshLiftMin, DefaultMeshRelativeZ + GrabMeshLiftMax);
+	}
+	else if (FMath::IsNearlyEqual(Relative.Z, DefaultMeshRelativeZ, 0.05f))
+	{
+		return;   // settled and no anchor — the common case, costs nothing
+	}
+
+	Relative.Z = FMath::FInterpTo(Relative.Z, TargetZ, DeltaTime, GrabMeshLiftSpeed);
+	Mesh->SetRelativeLocation(Relative);
 }
 
 void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
@@ -206,6 +261,8 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	{
 		return;
 	}
+
+	// (SetGrabFacingTarget / ComputeGrabCameraSweepAlpha are defined below this function.)
 
 	// Resolve the framing by rotation mode from replicated GAS state, same precedence as ProduceInput's
 	// RotationMode pick: Aiming (zoom) > Strafe (combat-ready) > Explore (default).
@@ -236,14 +293,57 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	{
 		if (AController* PawnController = GetController())
 		{
-			const FVector ToGrabber = GrabFacingTarget->GetActorLocation() - GetActorLocation();
+			// Once the grabber has closed onto us (paired clips put both capsules at one transform) the
+			// separation vector is degenerate and .Rotation() would snap the camera to garbage. Frame the
+			// clinch along the grabber's facing in that case — the yaw/pitch offsets below still compose it.
+			FVector ToGrabber = GrabFacingTarget->GetActorLocation() - GetActorLocation();
+			if (ToGrabber.IsNearlyZero(1.f))
+			{
+				ToGrabber = GrabFacingTarget->GetActorForwardVector();
+			}
 			if (!ToGrabber.IsNearlyZero())
 			{
 				FRotator LookAt = ToGrabber.Rotation();
-				LookAt.Yaw += GrabbedCameraYawOffsetDeg;      // side/over-shoulder composition
+				// CINEMATIC SWEEP: arc the yaw across the hold instead of parking at one offset. The
+				// easing is the point — a constant-rate orbit reads mechanical, while ease-in-out gives
+				// the move weight (caught, then dragged around, then settling) for the price of one curve.
+				// CINEMATIC SWEEP: the yaw travels between the two offsets, shaped entirely by
+				// GrabbedCameraSweepCurve. An oscillating curve gives left/right lurching; packing its
+				// keys tighter toward the end makes those lurches accelerate.
+				LookAt.Yaw += FMath::Lerp(GrabbedCameraYawOffsetDeg, GrabbedCameraYawEndDeg, ComputeGrabCameraSweepAlpha());
 				LookAt.Pitch += GrabbedCameraPitchOffsetDeg;  // tilt onto the struggle
 				PawnController->SetControlRotation(
 					FMath::RInterpTo(PawnController->GetControlRotation(), LookAt, DeltaTime, GrabbedCameraRotationSpeed));
+			}
+		}
+	}
+	else if (bRestoringGrabCamera)
+	{
+		// RELEASE: glide back to the view the player had before the catch, so the fight doesn't leave
+		// them facing a wall. Eased from a FIXED start rotation (see GrabCameraRestoreFrom) and abandoned
+		// the moment they touch the stick — see OnLookTriggered.
+		AController* PawnController = GetController();
+		const UWorld* CameraWorld = GetWorld();
+		if (!PawnController || !CameraWorld)
+		{
+			bRestoringGrabCamera = false;
+		}
+		else
+		{
+			const float Alpha = (GrabbedCameraRestoreSeconds > KINDA_SMALL_NUMBER)
+				? FMath::Clamp(static_cast<float>(CameraWorld->GetTimeSeconds() - GrabCameraRestoreStartTime)
+					/ GrabbedCameraRestoreSeconds, 0.f, 1.f)
+				: 1.f;
+			// Ease OUT only: the return decelerates into place. Easing in as well would read as a second
+			// deliberate camera move, when this should feel like control simply coming back.
+			const float Eased = FMath::InterpEaseOut(0.f, 1.f, Alpha, 2.f);
+			// Slerp, not FRotator lerp: component-wise interpolation takes the long way round whenever the
+			// sweep crossed the +/-180 seam, which is exactly when a big grab arc ends.
+			PawnController->SetControlRotation(
+				FQuat::Slerp(GrabCameraRestoreFrom.Quaternion(), PreGrabControlRotation.Quaternion(), Eased).Rotator());
+			if (Alpha >= 1.f)
+			{
+				bRestoringGrabCamera = false;
 			}
 		}
 	}
@@ -254,6 +354,63 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, Target->BoomLength, DeltaTime, Speed);
 	CameraBoom->SocketOffset    = FMath::VInterpTo(CameraBoom->SocketOffset, Target->SocketOffset, DeltaTime, Speed);
 	Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, Target->FOV, DeltaTime, Speed));
+}
+
+void AAZ_PawnMoverHeroCharacter::SetGrabFacingTarget(const AActor* Target)
+{
+	const bool bWasGrabbed = GrabFacingTarget.IsValid();
+	GrabFacingTarget = Target;
+
+	const UWorld* World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+
+	if (Target && !bWasGrabbed)
+	{
+		// CAUGHT: remember the view the player chose, so we can hand it back afterwards, and start the arc.
+		if (const AController* PawnController = GetController())
+		{
+			PreGrabControlRotation = PawnController->GetControlRotation();
+		}
+		GrabCameraSweepStartTime = Now;
+		// A fresh grab outranks a restore still gliding from the previous one.
+		bRestoringGrabCamera = false;
+	}
+	else if (!Target && bWasGrabbed)
+	{
+		// RELEASED: glide back from wherever the struggle left us. Stamping the start here (rather than
+		// reading it per-frame) is what lets the restore follow an actual easing curve.
+		if (const AController* PawnController = GetController())
+		{
+			GrabCameraRestoreFrom = PawnController->GetControlRotation();
+			bRestoringGrabCamera = (GrabbedCameraRestoreSeconds > KINDA_SMALL_NUMBER);
+		}
+		GrabCameraRestoreStartTime = Now;
+	}
+}
+
+float AAZ_PawnMoverHeroCharacter::ComputeGrabCameraSweepAlpha() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || GrabbedCameraSweepSeconds <= KINDA_SMALL_NUMBER)
+	{
+		return 1.f;
+	}
+	const float Raw = FMath::Clamp(
+		static_cast<float>(World->GetTimeSeconds() - GrabCameraSweepStartTime) / GrabbedCameraSweepSeconds, 0.f, 1.f);
+
+	// An authored curve wins: it can express a hitch or an overshoot that no single exponent can.
+	// LoadSynchronous is cheap once resolved (it returns the cached pointer), and the soft ref keeps the
+	// curve out of the pawn's hard reference set.
+	if (!GrabbedCameraSweepCurve.IsNull())
+	{
+		if (const UCurveFloat* Curve = GrabbedCameraSweepCurve.LoadSynchronous())
+		{
+			return Curve->GetFloatValue(Raw);
+		}
+	}
+	// Fallback: ease in AND out. Leaning into the move and settling out of it is what separates a
+	// deliberate camera move from a turntable; the exponent decides how long it hangs before committing.
+	return FMath::InterpEaseInOut(0.f, 1.f, Raw, GrabbedCameraSweepExponent);
 }
 
 // ========================================
@@ -400,6 +557,11 @@ void AAZ_PawnMoverHeroCharacter::OnLookTriggered(const FInputActionValue& Value)
 			return;
 		}
 	}
+
+	// The post-grab restore is a courtesy, not a cutscene: the first frame the player moves the camera,
+	// it stops fighting them. Without this the glide keeps dragging the view back for its full duration
+	// and reads as broken input rather than a considerate return.
+	bRestoringGrabCamera = false;
 
 	const FVector2D LookVector = Value.Get<FVector2D>();
 	AddControllerYawInput(LookVector.X * LookRateYaw);
@@ -614,6 +776,10 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// align-latch uses on an idle body).
 	if (bGrabbed && GrabFacingTarget.IsValid())
 	{
+		// FACE the grabber. (Tried matching its yaw instead, on the theory that shared-origin paired
+		// clips want both actors on one transform: wrong. Same yaw puts the two bodies side by side
+		// along their shared right-axis — "in the same line" — instead of mirrored. The clips' baked
+		// offsets separate the bodies; the ACTORS still have to oppose each other.)
 		const FVector ToGrabber = (GrabFacingTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
 		if (!ToGrabber.IsNearlyZero())
 		{

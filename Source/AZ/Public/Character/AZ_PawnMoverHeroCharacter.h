@@ -134,11 +134,21 @@ public:
 
 	/** GRAB facing: while State.Grabbed, ProduceInput points OrientationIntent at this actor so the
 	 *  body turns to meet the grabber (struggle reads face-to-face, not back-bitten). Set by
-	 *  GA_PlayerGrabbed on catch, cleared (nullptr) on every grab exit. */
-	void SetGrabFacingTarget(const AActor* Target) { GrabFacingTarget = Target; }
+	 *  GA_PlayerGrabbed on catch, cleared (nullptr) on every grab exit.
+	 *  Also drives the cinematic camera: a non-null target STAMPS the pre-grab control rotation and
+	 *  starts the yaw sweep; clearing it starts the restore back to that stamped rotation. */
+	void SetGrabFacingTarget(const AActor* Target);
 
 	/** The current grabber (null outside a grab). AnimInstance reads this for the grab hand-IK targets. */
 	const AActor* GetGrabFacingTarget() const { return GrabFacingTarget.Get(); }
+
+	/** GRAB HEIGHT MATCH: lift the MESH inside the capsule until our socket meets the grabber's hand.
+	 *  The capsule cannot carry this — Walking mode floor-snaps it every tick — so the "held off the
+	 *  ground" read is a mesh offset, leaving the capsule grounded and collidable. Called by
+	 *  GA_PlayerGrabbed on catch; ClearGrabMeshAnchor eases the mesh back on every exit. */
+	void SetGrabMeshAnchor(const USkeletalMeshComponent* InAnchorMesh, FName InAnchorSocket,
+		FName InOwnSocket, const FVector& InAnchorSpaceOffset);
+	void ClearGrabMeshAnchor();
 
 	/** Grab-victim ability, EDITOR-ASSIGNED (no hardcoded /Game/ paths in C++, user rule 2026-07-24):
 	 *  point at BP_GA_PlayerGrabbed in the hero pawn BP; unset falls back to the native class. Granted
@@ -203,6 +213,58 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed", meta = (ClampMin = "0.5"))
 	float GrabbedCameraRotationSpeed = 5.f;
 
+	// --- CINEMATIC SWEEP: the camera arcs around the clinch for the length of the hold, then returns ---
+	// GrabbedCameraYawOffsetDeg above is the sweep's START; this is where it ends. The arc is deliberately
+	// NOT linear — a constant-rate orbit reads as a machine. Easing gives it weight: heavy to start (you
+	// are caught), committed through the middle, settling rather than stopping at the end.
+	// Set End == Offset to disable the sweep and keep the old fixed framing.
+
+	/** Yaw the sweep arrives at, in degrees, relative to the look-at basis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed")
+	float GrabbedCameraYawEndDeg = 55.f;
+
+	/** Seconds the arc takes. Pair with the escape window so it lands as the struggle resolves; a sweep
+	 *  shorter than the hold finishes early and sits still, longer and it is cut off mid-arc. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed", meta = (ClampMin = "0.1"))
+	float GrabbedCameraSweepSeconds = 6.f;
+
+	/** Ease exponent for the built-in curve. 1 = linear, 2 = gentle, 3 = the dramatic default, higher =
+	 *  the move hangs then lunges. Ignored when GrabbedCameraSweepCurve is set. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed", meta = (ClampMin = "1.0"))
+	float GrabbedCameraSweepExponent = 3.f;
+
+	/** Optional authored easing: X = sweep progress 0..1, Y = eased 0..1. Overrides the exponent when set,
+	 *  so a curve asset can give the arc a hitch or an overshoot that no single exponent can express. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed")
+	TSoftObjectPtr<class UCurveFloat> GrabbedCameraSweepCurve;
+
+	/** Seconds to glide the camera back to where it was before the catch, once the grab releases. 0 =
+	 *  hand control back instantly. Any look input from the player cancels the restore immediately —
+	 *  the camera returning is a courtesy, not something to wrestle away from them. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Grabbed", meta = (ClampMin = "0"))
+	float GrabbedCameraRestoreSeconds = 0.8f;
+
+	// AUTHORING NOTE — left/right lurching comes from the CURVE, not from extra code. Treat the two yaw
+	// values as the arc's extremes (e.g. Offset -40, End +40) and let GrabbedCameraSweepCurve oscillate
+	// 0 -> 1 -> 0 -> 1 between them; packing its keys tighter toward the end makes the swings accelerate.
+	// Curve values outside 0..1 extrapolate past the extremes, which is how you get an overshoot.
+
+	// ========================================
+	// Grab — MESH height match (see SetGrabMeshAnchor)
+	// ========================================
+
+	/** How fast the mesh rises to / settles back from the hold (per second). Low = a heave, high = a snatch. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Grab|MeshLift", meta = (ClampMin = "0.5"))
+	float GrabMeshLiftSpeed = 8.f;
+
+	/** Sanity clamp on the lift, cm, relative to the mesh's authored offset. Min guards a socket authored
+	 *  too high (mesh sinking into the floor); Max stops a bad socket from hoisting the hero into orbit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Grab|MeshLift", meta = (ForceUnits = "cm"))
+	float GrabMeshLiftMin = -30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Grab|MeshLift", meta = (ForceUnits = "cm"))
+	float GrabMeshLiftMax = 150.f;
+
 protected:
 	// ========================================
 	// Input (Enhanced Input)
@@ -234,6 +296,43 @@ protected:
 
 	/** See SetGrabFacingTarget. */
 	TWeakObjectPtr<const AActor> GrabFacingTarget;
+
+	// --- Cinematic grab camera (see SetGrabFacingTarget / UpdateCameraForMode) ---
+
+	/** Where the camera was looking the instant before the catch. Stamped on grab start, restored on
+	 *  release — so the player is handed back the view they chose, not wherever the struggle ended. */
+	FRotator PreGrabControlRotation = FRotator::ZeroRotator;
+
+	/** World time the sweep began; sweep progress is (now - this) / GrabbedCameraSweepSeconds. */
+	double GrabCameraSweepStartTime = 0.0;
+
+	/** World time the restore began, and the rotation it started from. Easing must run from a FIXED
+	 *  start — lerping from "wherever the camera is now" every frame turns any curve into an
+	 *  exponential approach and throws the authored shape away. */
+	double GrabCameraRestoreStartTime = 0.0;
+	FRotator GrabCameraRestoreFrom = FRotator::ZeroRotator;
+
+	/** Restore in flight. Cleared by a new grab, by completion, or by any look input (see OnLookTriggered). */
+	bool bRestoringGrabCamera = false;
+
+	/** Eased 0..1 sweep progress — the authored curve when set, otherwise an ease-in-out of
+	 *  GrabbedCameraSweepExponent. Split out so the easing choice is testable in one place. */
+	float ComputeGrabCameraSweepAlpha() const;
+
+	// --- Grab MESH height match (see SetGrabMeshAnchor). Weak: a grabber destroyed mid-hold must not
+	// keep the mesh hoisted — the lift eases back the moment the anchor goes stale. ---
+	TWeakObjectPtr<const USkeletalMeshComponent> GrabAnchorMesh;
+	FName GrabAnchorSocket = NAME_None;
+	FName GrabOwnSocket = NAME_None;
+	FVector GrabAnchorSpaceOffset = FVector::ZeroVector;
+
+	/** The mesh's authored relative Z, captured on BeginPlay so BP overrides of the mesh transform are
+	 *  respected — the lift is always measured from (and restored to) THIS, never a hardcoded -92. */
+	float DefaultMeshRelativeZ = 0.f;
+
+	/** Eases the mesh toward the height that puts GrabOwnSocket on the grabber's hand, and back to the
+	 *  authored offset once the anchor clears. Called every Tick; early-outs when nothing is pending. */
+	void UpdateGrabMeshAnchor(float DeltaTime);
 
 	// The RAW world-space move intent produced this sim tick, captured in ProduceInput BEFORE the movement-
 	// capability clamp. Exposed via GetWorldMoveIntentRaw() so the obstacle sensor keeps sensing the wall even

@@ -102,12 +102,15 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0.1"))
 	float GrabHeadShakeFrequency = 16.f;
 
-	/** Bone/socket on the GRABBER's mesh each hero hand reaches for (editor-tunable per art). */
+	/** Socket on the GRABBER's mesh each hero hand reaches for (editor-tunable per art). Straight
+	 *  mapping (L->L, R->R): a socket name states WHOSE hand takes that grip, so GrabIK_HandL is the
+	 *  grip for the partner's LEFT hand. NOTE AZ_ABP_MoverAnimInstance serialises its own copy of both
+	 *  — editing these defaults does NOT reach it; verify in the ABP's Class Defaults panel. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK")
-	FName GrabIKGrabberBoneForHandR = TEXT("upperarm_l");
+	FName GrabIKGrabberBoneForHandR = TEXT("GrabIK_HandR");
 
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK")
-	FName GrabIKGrabberBoneForHandL = TEXT("upperarm_r");
+	FName GrabIKGrabberBoneForHandL = TEXT("GrabIK_HandL");
 
 	/** BlendStack inputs — written by SetBlendStackAnimFromChooser, read by the BlendStack
 	 *  node's internal SequencePlayer via property bindings (BlendStackInputs.Anim, .bLoop, etc.). */

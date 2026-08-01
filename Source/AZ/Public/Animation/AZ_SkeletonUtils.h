@@ -49,4 +49,24 @@ public:
 	/** Get all bone names from a skeleton. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton")
 	static TArray<FName> GetBoneNames(USkeleton* Skeleton);
+
+	// --- Sockets ---
+	// Python cannot touch these at all: USkeleton::Sockets is protected to the reflection layer and
+	// USkeletalMeshSocket::SocketName is read-only, so a socket can otherwise only be authored by hand
+	// in the Skeleton editor. In C++ both are public, hence this bridge.
+
+	/** Create (or update) a socket on a bone. Does NOT save — save the skeleton from the caller.
+	 *  @param bReplaceExisting  false = leave an existing socket of that name untouched and return false.
+	 *  @return true if the socket was created or updated. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton")
+	static bool AddSocket(USkeleton* Skeleton, FName SocketName, FName BoneName,
+		FVector RelativeLocation, FRotator RelativeRotation, bool bReplaceExisting = true);
+
+	/** Remove a socket by name. @return true if one was found and removed. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton")
+	static bool RemoveSocket(USkeleton* Skeleton, FName SocketName);
+
+	/** One line per socket: "name bone=.. loc=.. rot=..". The only way to read them back from script. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton")
+	static TArray<FString> ListSockets(USkeleton* Skeleton);
 };

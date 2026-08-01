@@ -300,6 +300,10 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
 
     AddTag(GameplayTags.State_Combat_Grabbing, FName("State.Combat.Grabbing"), TEXT("Chalkie is mid-grab: holds its Active slot, plays the grab pose, exempt from flinch-cancel while grabbing"));
     AddTag(GameplayTags.State_Grabbed,         FName("State.Grabbed"),         TEXT("Player is caught: movement + camera frozen (ProduceInput / OnLookTriggered gate); struggle-mash to escape"));
+    AddTag(GameplayTags.Mover_GrabAnchor,      FName("Mover.AZ.GrabAnchor"),   TEXT("Mover feature tag on the grab socket-lock layered move — CancelFeaturesWithTag ends the hold's attachment"));
+    AddTag(GameplayTags.State_Grab_Catching,   FName("State.Grab.Catching"),   TEXT("Paired grab stage: the catch clip is playing"));
+    AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
+    AddTag(GameplayTags.State_Grab_Resolving,  FName("State.Grab.Resolving"),  TEXT("Paired grab stage: outcome section queued/running — no longer interruptible"));
 
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("Hit-window gameplay event from an attack montage notify — GA_MeleeAttack sweeps + applies damage on it"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));

@@ -183,6 +183,15 @@ private:
 	 *  manage posted-observer facing. Runs after AssignCombatRoles each beat. */
 	void UpdateFightRings(float BeatDeltaSeconds);
 
+	/** GRAB STAND-DOWN gate: true while a DIFFERENT Chalkie holds the grab on this prey. While it is true
+	 *  the whole pack stops contending — no attack tokens, no ring circling, hold position and watch —
+	 *  and normal (randomly rotating) engagement resumes by itself on the first beat after the grab token
+	 *  frees. Crowd-agnostic on purpose: a second crowd watching the same victim stands down too. */
+	bool IsGrabHeldByOther(const AAZ_InfectedAIController* Who, const AActor* Prey) const;
+
+	/** The Chalkie currently holding this prey, or null (also null for a stale/dead holder). */
+	AAZ_InfectedAIController* FindGrabHolder(const AActor* Prey) const;
+
 	/** Active holders on a prey WITHIN one crowd (crowds don't consume each other's attacker slots). */
 	int32 CountActiveOnPrey(const AActor* Prey, FName CrowdId) const;
 	void ReleaseSlot(FCombatRoleState& State);

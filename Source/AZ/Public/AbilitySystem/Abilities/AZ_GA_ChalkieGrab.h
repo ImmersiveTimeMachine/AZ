@@ -56,12 +56,38 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab")
 	TSubclassOf<UGameplayEffect> DamageEffect;
 
-	/** Contact distance the grabber CLOSES TO at the catch (cm, center-to-center) — the "attachment
-	 *  point" distance, tunable here instead of a physical attach (a live Mover pawn cannot be attached:
-	 *  the movement sim stamps its transform every tick). Both actors are rooted + mutually facing for
-	 *  the whole hold, so the contact pose keeps itself; nothing to detach on release. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "50"))
-	float GrabHoldDistance = 110.f;
+	// --- PAIRED MONTAGE (the shared-origin NAAT grab). When PairedGrabMontage is assigned this ability
+	// runs one sectioned montage for the whole grab and drives the outcome by SECTION, and the player's
+	// ability follows it through UAnimInstance::MontageSync_Follow. Leave it unset to fall back to the
+	// v1 loop/exit montage pair. Section names must match the hero montage character-for-character —
+	// that is the sole condition under which the engine mirrors section jumps to the follower.
+
+	/** Chalkie-side sectioned grab montage. Editor-assigned (no /Game/ paths in C++); unset = v1 path. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	TSoftObjectPtr<UAnimMontage> PairedGrabMontage;
+
+	/** Entry section — the catch. Its montage link should lead to WrestleSection. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	FName CatchSection = FName("Catch");
+
+	/** The hold. Self-linked in the montage so it loops until an outcome is queued onto it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	FName WrestleSection = FName("Wrestle");
+
+	/** Player-wins sections, one picked at random (the human shoves or kicks the Chalkie off). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	TArray<FName> EscapeSections = { FName("Push"), FName("Kick") };
+
+	/** Player-loses section (the window elapsed and the bite lands). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	FName FailSection = FName("Munch");
+
+	/** Contact distance the grabber CLOSES TO at the catch (cm, center-to-center). The paired clips are
+	 *  SHARED-ORIGIN — both bodies are authored around one point and their separation is baked into the
+	 *  bones — so the paired path wants 0 (both actors at one transform) and the v1 path wants ~110.
+	 *  Raising this on the paired path pulls the two halves of the clinch apart. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0"))
+	float GrabHoldDistance = 0.f;
 
 	/** Seconds for the close-in slide at the catch (short = a snatch/lunge feel). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0.05"))
@@ -86,9 +112,23 @@ private:
 	/** Plays CachedLoopMontage self-looped and arms the replay-on-end binding. */
 	void StartLoopMontage();
 
+	/** True once the paired montage resolved and loaded — selects section-driven flow over the v1 pair. */
+	bool IsPaired() const { return CachedPairedMontage != nullptr; }
+	/** Our own anim instance, or null (both sides' montage control funnels through here). */
+	class UAnimInstance* GetOwnAnimInstance() const;
+	/** Publishes exactly one State.Grab.* stage tag, removing whichever was there before. */
+	void SetGrabStage(const FGameplayTag& NewStage);
+
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* LoopMontageTask = nullptr;
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* ExitMontageTask = nullptr;
 	UPROPERTY() UAnimMontage* CachedLoopMontage = nullptr;
+	UPROPERTY() UAnimMontage* CachedPairedMontage = nullptr;
+
+	/** The stage tag currently on our ASC (paired removal — see SetGrabStage). */
+	FGameplayTag ActiveStageTag;
+
+	/** Fires when the catch section ends, flipping the stage tag Catching -> Wrestling. */
+	FTimerHandle StageTimer;
 	UPROPERTY() UAbilityTask_WaitGameplayEvent* WaitEscapedTask = nullptr;
 	UPROPERTY() UAbilityTask_WaitGameplayEvent* WaitTimeoutTask = nullptr;
 

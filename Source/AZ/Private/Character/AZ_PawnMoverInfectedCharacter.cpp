@@ -232,6 +232,66 @@ void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
 	}
 }
 
+void AAZ_PawnMoverInfectedCharacter::PlayStepBackReaction(UAnimMontage* Montage, float HoldSeconds)
+{
+	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	if (!Montage || !AnimInstance)
+	{
+		return;
+	}
+	AnimInstance->Montage_Play(Montage);
+	ActiveStepBackMontage = Montage;
+
+	// The bit a bare Montage_Play misses on a Mover pawn: root motion only reaches the CAPSULE while an
+	// FLayeredMove_RootMotionAttribute is live (same bridge the punch flinch uses above). Without it the
+	// Chalkie mimes the recoil on the spot. Drive it only as long as the beat actually lasts — an RM move
+	// outliving its montage proposes zero velocity under OverrideAll and would freeze the pawn in place.
+	const float ClipSeconds = Montage->GetPlayLength();
+	const float DriveSeconds = (HoldSeconds > 0.f) ? FMath::Min(HoldSeconds, ClipSeconds) : ClipSeconds;
+	if (MoverComponent)
+	{
+		MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+		const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+		RMMove->DurationMs = DriveSeconds * 1000.f;
+		MoverComponent->QueueLayeredMove(RMMove);
+	}
+
+	// Cut the recoil at the beat: blend out instead of playing the full 5.5-7.5s knockback+recover.
+	// Weak-captured — a Chalkie dying mid-beat just no-ops the stop.
+	if (HoldSeconds > 0.f && HoldSeconds < ClipSeconds)
+	{
+		TWeakObjectPtr<UAnimInstance> WeakAnim = AnimInstance;
+		TWeakObjectPtr<UAnimMontage> WeakMontage = Montage;
+		GetWorld()->GetTimerManager().SetTimer(StepBackCutTimer, FTimerDelegate::CreateLambda([WeakAnim, WeakMontage]()
+		{
+			UAnimInstance* Anim = WeakAnim.Get();
+			UAnimMontage* Clip = WeakMontage.Get();
+			if (Anim && Clip && Anim->Montage_IsPlaying(Clip))
+			{
+				Anim->Montage_Stop(0.4f, Clip);
+			}
+		}), HoldSeconds, false);
+	}
+}
+
+bool AAZ_PawnMoverInfectedCharacter::IsStaggerReactionPlaying() const
+{
+	const UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	if (!AnimInstance)
+	{
+		return false;
+	}
+	if (const UAnimMontage* StepBack = ActiveStepBackMontage.Get())
+	{
+		if (AnimInstance->Montage_IsPlaying(StepBack))
+		{
+			return true;
+		}
+	}
+	const UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(this, TEXT("HitReactMontage"));
+	return Flinch && AnimInstance->Montage_IsPlaying(Flinch);
+}
+
 void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
 {
 	// Death latch: only death deactivates the Mover (corpses are PERMANENT now — no lifespan to latch on).

@@ -109,9 +109,10 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		// player's earned stagger window. (Proper State.Staggered tag lands with the batch.)
 		if (const AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Pawn))
 		{
-			UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(Infected, TEXT("HitReactMontage"));
-			const UAnimInstance* AnimInstance = Infected->GetMesh() ? Infected->GetMesh()->GetAnimInstance() : nullptr;
-			if (Flinch && AnimInstance && AnimInstance->Montage_IsPlaying(Flinch))
+			// Covers BOTH stagger-class reactions now (hit-react flinch and the pack step-back off a
+			// grab) — a bystander that swings mid-recoil would cancel its own root motion and step
+			// straight back into the clinch it just recoiled from.
+			if (Infected->IsStaggerReactionPlaying())
 			{
 				return EBTNodeResult::Failed;   // staggering — no swings until the stumble finishes
 			}

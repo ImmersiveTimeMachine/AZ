@@ -269,6 +269,17 @@ struct AZ_API FAZ_GameplayTags
                                           //  pose, and is exempt from the rule-8 flinch-cancel while grabbing
     FGameplayTag State_Grabbed;           // Player: caught — movement + camera frozen (checked in ProduceInput
                                           //  and OnLookTriggered); struggle-mash the only available action
+    FGameplayTag Mover_GrabAnchor;        // MOVER FEATURE tag (not an ASC tag): reported by
+                                          //  FLayeredMove_AZ_GrabAnchor so GA_PlayerGrabbed can end the
+                                          //  socket lock with CancelFeaturesWithTag on every exit path
+
+    // Grab STAGE (paired-montage grab). Published by the LEADER (GA_ChalkieGrab) on its own ASC as it
+    // moves the shared montage between sections — stages inside a paired grab are montage sections, not
+    // separate abilities, so this is how the BT / crowd brain / damage rules see which stage is running
+    // without any extra ability plumbing. Exactly one is present at a time while the grab is live.
+    FGameplayTag State_Grab_Catching;     // the catch clip is playing (contact already made)
+    FGameplayTag State_Grab_Wrestling;    // the hold loop: mash window is open, outcome undecided
+    FGameplayTag State_Grab_Resolving;    // outcome section queued/running — no longer interruptible
 
     // --- Damage spine (S1): montage hit windows, death, SetByCaller magnitudes ---
     FGameplayTag Event_Montage_Melee_Hit;   // fired by UAZ_AnimNotify_SendGameplayEvent inside attack montages

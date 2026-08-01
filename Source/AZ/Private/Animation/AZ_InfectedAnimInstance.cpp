@@ -7,6 +7,7 @@
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Character/AZ_PawnMovementMode_Walking.h"
+#include "Components/SkeletalMeshComponent.h"   // grab hand-IK reads the prey's grip sockets
 #include "MoverDataModelTypes.h"
 
 void UAZ_InfectedAnimInstance::NativeInitializeAnimation()
@@ -32,6 +33,25 @@ void UAZ_InfectedAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (Cached_Pawn && !Cached_MoverComponent)
 	{
 		Cached_MoverComponent = Cached_Pawn->GetMoverComponent();
+	}
+
+	// ============================== GRAB HAND-IK GATHER ==============================
+	// Mirror of the hero's block in UAZ_MoverAnimInstance. Runs BEFORE the Mover early-out below: a grab
+	// pins the body anyway, and the hands must keep their grip even if the movement component is missing.
+	// Cross-actor socket reads are game-thread only, which is why this is here and not in a thread-safe update.
+	{
+		float TargetAlpha = 0.f;
+		if (const AActor* Prey = Cached_Pawn ? Cached_Pawn->GetGrabTarget() : nullptr)
+		{
+			if (const USkeletalMeshComponent* PreyMesh = Prey->FindComponentByClass<USkeletalMeshComponent>())
+			{
+				TargetAlpha = 1.f;
+				GrabIKTarget_HandL = PreyMesh->GetSocketLocation(GrabIKPreySocketForHandL);
+				GrabIKTarget_HandR = PreyMesh->GetSocketLocation(GrabIKPreySocketForHandR);
+			}
+		}
+		// Ramp rather than snap: a hard 0->1 on the catch frame reads as the hands teleporting onto the prey.
+		GrabIKAlpha = FMath::FInterpTo(GrabIKAlpha, TargetAlpha, DeltaSeconds, GrabIKBlendSpeed);
 	}
 
 	if (!Cached_MoverComponent)

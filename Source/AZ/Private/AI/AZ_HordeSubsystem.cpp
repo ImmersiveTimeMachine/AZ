@@ -206,6 +206,16 @@ bool UAZ_HordeSubsystem::RequestAttackToken(AAZ_InfectedAIController* Attacker, 
 	{
 		return false;
 	}
+	// GRAB STAND-DOWN (user 2026-07-31): while a pack-mate has the prey in its arms, nobody else presses.
+	// The beat is the player fighting ONE grip — a grab plus two claws reads as noise, and the swing would
+	// cancel the bystander's own step-back root motion anyway. Published Passive so the BT forks onto the
+	// hold branch this very tick. Checked BEFORE the re-entrancy shortcut below: an attacker that was
+	// Active when the grab landed must stand down too, not keep its slot on a technicality.
+	if (IsGrabHeldByOther(Attacker, Prey))
+	{
+		ApplyRole(Attacker, EAZ_CombatRole::Passive, Prey);
+		return false;
+	}
 	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 	if (const FCombatRoleState* State = Roles.Find(Attacker))
 	{
@@ -290,6 +300,7 @@ void UAZ_HordeSubsystem::NotifyGrabStarted(AAZ_InfectedAIController* Grabber, co
 	{
 		return;
 	}
+	int32 StepBacks = 0;
 	for (auto& Pair : Roles)
 	{
 		AAZ_InfectedAIController* Other = Pair.Key.Get();
@@ -297,37 +308,53 @@ void UAZ_HordeSubsystem::NotifyGrabStarted(AAZ_InfectedAIController* Grabber, co
 		{
 			continue;
 		}
-		const AAZ_PawnMoverInfectedCharacter* InfectedCharacter = Cast<AAZ_PawnMoverInfectedCharacter>(Other->GetPawn());
+		AAZ_PawnMoverInfectedCharacter* InfectedCharacter = Cast<AAZ_PawnMoverInfectedCharacter>(Other->GetPawn());
 		if (!InfectedCharacter)
 		{
 			continue;
 		}
-		UAnimMontage* StepBack = UAZ_GA_MeleeAttack::FindAnimSetMontage(InfectedCharacter, TEXT("GrabEscapeMontage"));
-		UAnimInstance* AnimInstance = InfectedCharacter->GetMesh() ? InfectedCharacter->GetMesh()->GetAnimInstance() : nullptr;
-		if (!StepBack || !AnimInstance)
+		// The recoil clip: a dedicated GrabStepBackMontage when the anim-set variant declares one, else
+		// the variant KnockBack (HitReactMontage) — a backward stumble + recovery, already the right
+		// shape. NOT GrabEscapeMontage: that clip belongs to the GRABBER's own escape stagger, and using
+		// it here made every bystander play the wrong Chalkie's reaction.
+		UAnimMontage* StepBack = UAZ_GA_MeleeAttack::FindAnimSetMontage(InfectedCharacter, TEXT("GrabStepBackMontage"));
+		if (!StepBack)
 		{
+			StepBack = UAZ_GA_MeleeAttack::FindAnimSetMontage(InfectedCharacter, TEXT("HitReactMontage"));
+		}
+		if (!StepBack)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Grab] step-back SKIPPED for %s: anim set has neither GrabStepBackMontage nor HitReactMontage"),
+				*GetNameSafe(InfectedCharacter));
 			continue;
 		}
+		// Drop the in-flight path order first, then hand the body to the clip. The layered move inside
+		// PlayStepBackReaction is OverrideAll, so even if the BT re-issues a move during the beat it
+		// cannot drag the Chalkie forward through its own recoil.
 		Other->StopMovement();
-		AnimInstance->Montage_Play(StepBack);
-		if (StepBackSeconds > 0.f)
-		{
-			// Cut the recoil at the beat: blend the montage back out instead of playing the full 5.5s
-			// knockback+recover. Weak-captured — a Chalkie dying mid-beat just no-ops the stop.
-			TWeakObjectPtr<UAnimInstance> WeakAnim = AnimInstance;
-			TWeakObjectPtr<UAnimMontage> WeakMontage = StepBack;
-			FTimerHandle ThrowawayHandle;
-			GetWorld()->GetTimerManager().SetTimer(ThrowawayHandle, FTimerDelegate::CreateLambda([WeakAnim, WeakMontage]()
-			{
-				UAnimInstance* Anim = WeakAnim.Get();
-				UAnimMontage* Montage = WeakMontage.Get();
-				if (Anim && Montage && Anim->Montage_IsPlaying(Montage))
-				{
-					Anim->Montage_Stop(0.4f, Montage);
-				}
-			}), StepBackSeconds, false);
-		}
+		InfectedCharacter->PlayStepBackReaction(StepBack, StepBackSeconds);
+		++StepBacks;
 	}
+	UE_LOG(LogTemp, Display, TEXT("[Grab] pack step-back: %d Chalkie(s) recoiled off %s for %.2fs"),
+		StepBacks, *GetNameSafe(Prey), StepBackSeconds);
+}
+
+AAZ_InfectedAIController* UAZ_HordeSubsystem::FindGrabHolder(const AActor* Prey) const
+{
+	if (!Prey)
+	{
+		return nullptr;
+	}
+	const TWeakObjectPtr<AAZ_InfectedAIController>* Holder = GrabTokenByPrey.Find(FObjectKey(Prey));
+	// Stale holders (grabber died still holding) read as "not held" — the pack must never be frozen by a
+	// token nobody owns. RequestGrabToken/ReleaseGrabToken sweep the entry itself.
+	return (Holder && Holder->IsValid()) ? Holder->Get() : nullptr;
+}
+
+bool UAZ_HordeSubsystem::IsGrabHeldByOther(const AAZ_InfectedAIController* Who, const AActor* Prey) const
+{
+	const AAZ_InfectedAIController* Holder = FindGrabHolder(Prey);
+	return Holder && Holder != Who;
 }
 
 int32 UAZ_HordeSubsystem::CountActiveOnPrey(const AActor* Prey, FName CrowdId) const
@@ -544,6 +571,23 @@ void UAZ_HordeSubsystem::AssignCombatRoles()
 	// keeps fighting; a benched challenger enters only when nobody better can fill the slot.
 	for (auto& Pair : ByCrowdPrey)
 	{
+		// GRAB STAND-DOWN: a live grab collapses the contest — the grabber is the only fighter, everyone
+		// else is Passive (and UpdateFightRings then parks them where they stand instead of circling).
+		// Skipping the ranking sort entirely is deliberate: no turn clocks advance, no expiries fire, so
+		// when the grab frees, the pack resumes from the state it stood down in and re-rolls turns
+		// normally on the next beat. Note the Locked class is NOT consulted here — a bystander mid-swing
+		// when the grab lands is demoted; its own melee task still owns its exit, exactly as when a
+		// target goes stale.
+		if (AAZ_InfectedAIController* Grabber = FindGrabHolder(Pair.Key.Prey.Get()))
+		{
+			for (const FCandidate& Candidate : Pair.Value)
+			{
+				ApplyRole(Candidate.Controller,
+					Candidate.Controller == Grabber ? EAZ_CombatRole::Active : EAZ_CombatRole::Passive,
+					Pair.Key.Prey.Get());
+			}
+			continue;
+		}
 		const int32 MaxAttackers = GIntensityTable[GetCrowdIntensity(Pair.Key.CrowdId) - 1].MaxAttackers;
 		Pair.Value.Sort([](const FCandidate& A, const FCandidate& B)
 		{
@@ -646,6 +690,22 @@ void UAZ_HordeSubsystem::UpdateFightRings(float BeatDeltaSeconds)
 		if (!Prey || !ChalkiePawn)
 		{
 			continue;   // next AssignCombatRoles beat retires this state
+		}
+
+		// GRAB STAND-DOWN: the pack does not circle while a mate has the prey — it stops and watches.
+		// Hand the ring slot back (so the circle re-forms cleanly, from where everyone actually stands,
+		// once the grab frees) and post HERE. Publishing our own ground position is the same "hold" the
+		// ring-saturated branch below uses, so the BT needs no new branch: its MoveTo is already at the
+		// destination, which reads as posted -> stand still and stare the struggle down.
+		if (IsGrabHeldByOther(Chalkie, Prey))
+		{
+			ReleaseSlot(State);   // also clears bWroteSlot, so the hold position publishes immediately
+			PublishSlotLocation(Chalkie, ChalkiePawn->GetActorLocation(), State);
+			const FVector WatchFacing = (Prey->GetActorLocation() - ChalkiePawn->GetActorLocation()).GetSafeNormal2D();
+			Chalkie->SetFacingOverrideWorld(WatchFacing);
+			State.LastFacingSet = WatchFacing;
+			State.bFacingOverridden = true;
+			continue;
 		}
 
 		// This Passive's own crowd owns the ring it stands in (State.CrowdId was stamped at grant).

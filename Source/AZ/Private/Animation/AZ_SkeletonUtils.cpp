@@ -1,6 +1,7 @@
 #include "Animation/AZ_SkeletonUtils.h"
 #include "Animation/Skeleton.h"
 #include "Animation/BlendProfile.h"
+#include "Engine/SkeletalMeshSocket.h"
 
 TArray<FName> UAZ_SkeletonUtils::GetBlendProfileNames(USkeleton* Skeleton)
 {
@@ -137,4 +138,86 @@ TArray<FName> UAZ_SkeletonUtils::GetBoneNames(USkeleton* Skeleton)
 		Names.Add(RefSkel.GetBoneName(i));
 	}
 	return Names;
+}
+
+bool UAZ_SkeletonUtils::AddSocket(USkeleton* Skeleton, FName SocketName, FName BoneName,
+	FVector RelativeLocation, FRotator RelativeRotation, bool bReplaceExisting)
+{
+	if (!Skeleton || SocketName.IsNone() || BoneName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] AddSocket: null skeleton or empty name."));
+		return false;
+	}
+	// A socket on a bone the skeleton doesn't have attaches to nothing and reports no error at runtime.
+	if (Skeleton->GetReferenceSkeleton().FindBoneIndex(BoneName) == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] AddSocket: '%s' has no bone '%s'."),
+			*Skeleton->GetName(), *BoneName.ToString());
+		return false;
+	}
+
+	USkeletalMeshSocket* Socket = Skeleton->FindSocket(SocketName);
+	const bool bExisted = (Socket != nullptr);
+	if (bExisted && !bReplaceExisting)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] AddSocket: '%s' already exists on '%s' (kept)."),
+			*SocketName.ToString(), *Skeleton->GetName());
+		return false;
+	}
+
+	Skeleton->Modify();
+	if (!bExisted)
+	{
+		Socket = NewObject<USkeletalMeshSocket>(Skeleton);
+		Socket->SocketName = SocketName;
+		Skeleton->Sockets.Add(Socket);
+	}
+	Socket->BoneName = BoneName;
+	Socket->RelativeLocation = RelativeLocation;
+	Socket->RelativeRotation = RelativeRotation;
+	Skeleton->MarkPackageDirty();
+
+	UE_LOG(LogTemp, Log, TEXT("[SkeletonUtils] %s socket '%s' on %s.%s at (%.2f,%.2f,%.2f)."),
+		bExisted ? TEXT("updated") : TEXT("created"), *SocketName.ToString(),
+		*Skeleton->GetName(), *BoneName.ToString(),
+		RelativeLocation.X, RelativeLocation.Y, RelativeLocation.Z);
+	return true;
+}
+
+bool UAZ_SkeletonUtils::RemoveSocket(USkeleton* Skeleton, FName SocketName)
+{
+	if (!Skeleton)
+	{
+		return false;
+	}
+	USkeletalMeshSocket* Socket = Skeleton->FindSocket(SocketName);
+	if (!Socket)
+	{
+		return false;
+	}
+	Skeleton->Modify();
+	Skeleton->Sockets.Remove(Socket);
+	Skeleton->MarkPackageDirty();
+	return true;
+}
+
+TArray<FString> UAZ_SkeletonUtils::ListSockets(USkeleton* Skeleton)
+{
+	TArray<FString> Lines;
+	if (!Skeleton)
+	{
+		return Lines;
+	}
+	for (const TObjectPtr<USkeletalMeshSocket>& Socket : Skeleton->Sockets)
+	{
+		if (!Socket)
+		{
+			continue;
+		}
+		Lines.Add(FString::Printf(TEXT("%s bone=%s loc=(%.2f,%.2f,%.2f) rot=(%.1f,%.1f,%.1f)"),
+			*Socket->SocketName.ToString(), *Socket->BoneName.ToString(),
+			Socket->RelativeLocation.X, Socket->RelativeLocation.Y, Socket->RelativeLocation.Z,
+			Socket->RelativeRotation.Pitch, Socket->RelativeRotation.Yaw, Socket->RelativeRotation.Roll));
+	}
+	return Lines;
 }

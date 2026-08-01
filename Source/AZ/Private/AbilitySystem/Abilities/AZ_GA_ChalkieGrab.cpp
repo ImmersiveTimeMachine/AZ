@@ -63,13 +63,36 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	UAbilitySystemComponent* TargetASC = Target ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target) : nullptr;
 
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
-	UAnimMontage* Loop = UAZ_GA_MeleeAttack::FindAnimSetMontage(Avatar, TEXT("GrabLoopMontage"));
+
+	// PAIRED route first: one sectioned montage drives the whole grab and the player's montage follows
+	// it. Reject a montage missing the sections we steer by — driving a section that doesn't exist fails
+	// silently (the montage just runs to its end), which reads in PIE as "the grab ignored my mash".
+	CachedPairedMontage = PairedGrabMontage.LoadSynchronous();
+	if (CachedPairedMontage)
+	{
+		const bool bHasCatch = CachedPairedMontage->GetSectionIndex(CatchSection) != INDEX_NONE;
+		const bool bHasWrestle = CachedPairedMontage->GetSectionIndex(WrestleSection) != INDEX_NONE;
+		const bool bHasFail = CachedPairedMontage->GetSectionIndex(FailSection) != INDEX_NONE;
+		if (!bHasCatch || !bHasWrestle || !bHasFail)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Grab] paired montage '%s' REJECTED: Catch(%s)=%d Wrestle(%s)=%d Fail(%s)=%d — falling back to the v1 loop/exit pair"),
+				*GetNameSafe(CachedPairedMontage), *CatchSection.ToString(), bHasCatch,
+				*WrestleSection.ToString(), bHasWrestle, *FailSection.ToString(), bHasFail);
+			CachedPairedMontage = nullptr;
+		}
+	}
+
+	UAnimMontage* Loop = CachedPairedMontage
+		? nullptr
+		: UAZ_GA_MeleeAttack::FindAnimSetMontage(Avatar, TEXT("GrabLoopMontage"));
+
 	// Pre-check BEFORE firing the event: a prey already in another Chalkie's grab must not double-grab.
 	// (The grab token upstream makes this near-impossible; this is the belt to that suspender.)
-	if (!Avatar || !TargetASC || !Loop || TargetASC->HasMatchingGameplayTag(Tags.State_Grabbed))
+	if (!Avatar || !TargetASC || (!CachedPairedMontage && !Loop) || TargetASC->HasMatchingGameplayTag(Tags.State_Grabbed))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Grab] %s ABORT pre-check: Avatar=%d Target=%s TargetASC=%d Loop=%d AlreadyGrabbed=%d"),
-			*GetNameSafe(Avatar), Avatar != nullptr, *GetNameSafe(Target), TargetASC != nullptr, Loop != nullptr,
+		UE_LOG(LogTemp, Warning, TEXT("[Grab] %s ABORT pre-check: Avatar=%d Target=%s TargetASC=%d Paired=%d Loop=%d AlreadyGrabbed=%d"),
+			*GetNameSafe(Avatar), Avatar != nullptr, *GetNameSafe(Target), TargetASC != nullptr,
+			CachedPairedMontage != nullptr, Loop != nullptr,
 			TargetASC ? TargetASC->HasMatchingGameplayTag(Tags.State_Grabbed) : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
@@ -77,6 +100,14 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	GrabTarget = Target;
 	bResolved = false;
+
+	// Publish the prey to the pawn so the anim layer can aim the grab hand-IK at the victim's grip
+	// sockets. The anim instance must not reach into GAS or the AI tree for this — same reason the hero
+	// reads its grabber off SetGrabFacingTarget rather than off the ability. Cleared in EndAbility.
+	if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar))
+	{
+		Infected->SetGrabTarget(Target);
+	}
 
 	// Explicit loose tag (removed in EndAbility): the flinch carve-out keys on this — a Chalkie
 	// mid-grab is armored against the stagger montage that would break the hold on the slot.
@@ -93,6 +124,53 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	WaitTimeoutTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, Tags.Event_GrabTimeout);
 	WaitTimeoutTask->EventReceived.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnTimeout);
 	WaitTimeoutTask->ReadyForActivation();
+
+	// COLLISION CARVE-OUT (user 2026-07-24: "closer"): the PAIR ignores each other's movement collision
+	// for the hold. On the paired route this is not optional — shared-origin clips put both capsules at
+	// ONE transform, i.e. fully interpenetrating, which solid collision would fight every tick.
+	if (UPrimitiveComponent* ChalkieRoot = Cast<UPrimitiveComponent>(Avatar->GetRootComponent()))
+	{
+		ChalkieRoot->IgnoreActorWhenMoving(Target, true);
+	}
+	if (UPrimitiveComponent* HeroRoot = Cast<UPrimitiveComponent>(Target->GetRootComponent()))
+	{
+		HeroRoot->IgnoreActorWhenMoving(Avatar, true);
+	}
+	bAppliedMoveIgnore = true;
+
+	// CLOSE-IN: slide the grabber onto the prey THROUGH the Mover sim (a short layered velocity move,
+	// the same mechanism the knockback uses). On the paired route GrabHoldDistance is 0, so this puts
+	// the Chalkie ON the hero — that IS the shared origin, and the clip's baked bone offsets separate
+	// the two bodies from there. The ATTACKER travels; the player keeps their position.
+	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+	{
+		const FVector HeroLoc = Target->GetActorLocation();
+		const FVector DirToChalkie = (Avatar->GetActorLocation() - HeroLoc).GetSafeNormal2D();
+		const FVector ContactPoint = HeroLoc + DirToChalkie * GrabHoldDistance;
+		const FVector Displacement = (ContactPoint - Avatar->GetActorLocation()) * FVector(1.f, 1.f, 0.f);
+		if (!Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
+		{
+			const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
+			CloseMove->Velocity = Displacement / GrabCloseSeconds;
+			CloseMove->DurationMs = GrabCloseSeconds * 1000.f;
+			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
+			Mover->QueueLayeredMove(CloseMove);
+		}
+	}
+
+	// PAIRED: our montage must ALREADY BE PLAYING before the player's ability activates, because that
+	// ability calls MontageSync_Follow against it and the engine requires both montages to be live
+	// (AnimInstance.h:735). SendGameplayEventToActor below is synchronous, so this ordering is the whole
+	// handshake. A failed catch ends the ability, which stops this montage (bStopWhenAbilityEnds).
+	if (CachedPairedMontage)
+	{
+		StartLoopMontage();
+		if (!LoopMontageTask)
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
+		}
+	}
 
 	// Catch the player: the event triggers GA_PlayerGrabbed on the PLAYER's own avatar.
 	FGameplayEventData Payload;
@@ -111,8 +189,12 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	UE_LOG(LogTemp, Display, TEXT("[Grab] %s HOLD started on %s (loop %s, %.1fs)"),
-		*GetNameSafe(Avatar), *GetNameSafe(Target), *GetNameSafe(Loop), Loop->GetPlayLength());
+	// Loop is deliberately null on the paired route — report whichever montage is actually driving.
+	const UAnimMontage* HoldMontage = CachedPairedMontage ? CachedPairedMontage : Loop;
+	UE_LOG(LogTemp, Display, TEXT("[Grab] %s HOLD started on %s (%s %s, %.1fs)"),
+		*GetNameSafe(Avatar), *GetNameSafe(Target),
+		CachedPairedMontage ? TEXT("paired") : TEXT("loop"), *GetNameSafe(HoldMontage),
+		HoldMontage ? HoldMontage->GetPlayLength() : 0.f);
 
 	// PACK STEP-BACK (user 2026-07-24): the rest of the pack recoils off the seized prey — the moment
 	// reads as THE grab, not another day in the mosh pit. Subsystem plays each engaged Chalkie's own
@@ -123,46 +205,16 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		Horde->NotifyGrabStarted(Cast<AAZ_InfectedAIController>(SelfAI), Target, PackStepBackSeconds);
 	}
 
-	// The hold: the loop montage, self-looped until a verdict stops it. Replay-on-end binding makes the
-	// hold UNBREAKABLE — during a grab, nothing but the two grab anims may show (user rule).
-	CachedLoopMontage = Loop;
-	StartLoopMontage();
-	if (!LoopMontageTask)
+	// V1 route only: the loop montage, self-looped until a verdict stops it. (The paired montage was
+	// already started above, before the catch event, so the follower had something to sync to.)
+	if (!CachedPairedMontage)
 	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
-
-	// COLLISION CARVE-OUT (user 2026-07-24: "closer"): the PAIR ignores each other's movement collision
-	// for the hold, so the close-in can reach a GrabHoldDistance INSIDE capsule contact (~70cm) for a
-	// TLOU-tight clinch. Mutual + paired-restored in EndAbility on every exit.
-	if (UPrimitiveComponent* ChalkieRoot = Cast<UPrimitiveComponent>(Avatar->GetRootComponent()))
-	{
-		ChalkieRoot->IgnoreActorWhenMoving(Target, true);
-	}
-	if (UPrimitiveComponent* HeroRoot = Cast<UPrimitiveComponent>(Target->GetRootComponent()))
-	{
-		HeroRoot->IgnoreActorWhenMoving(Avatar, true);
-	}
-	bAppliedMoveIgnore = true;
-
-	// CLOSE-IN (user 2026-07-24: distant grabs look fake): slide the grabber to GrabHoldDistance from
-	// the prey THROUGH the Mover sim — a short layered velocity move, the same mechanism the knockback
-	// uses. Attachment intent without attachment: once in contact both actors are rooted and mutually
-	// facing, so the pose holds itself and the move simply expires (nothing to detach on release).
-	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
-	{
-		const FVector HeroLoc = Target->GetActorLocation();
-		const FVector DirToChalkie = (Avatar->GetActorLocation() - HeroLoc).GetSafeNormal2D();
-		const FVector ContactPoint = HeroLoc + DirToChalkie * GrabHoldDistance;
-		const FVector Displacement = (ContactPoint - Avatar->GetActorLocation()) * FVector(1.f, 1.f, 0.f);
-		if (!DirToChalkie.IsNearlyZero() && !Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
+		CachedLoopMontage = Loop;
+		StartLoopMontage();
+		if (!LoopMontageTask)
 		{
-			const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
-			CloseMove->Velocity = Displacement / GrabCloseSeconds;
-			CloseMove->DurationMs = GrabCloseSeconds * 1000.f;
-			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
-			Mover->QueueLayeredMove(CloseMove);
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
 		}
 	}
 
@@ -176,16 +228,48 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}), MaxHoldSeconds, false);
 }
 
-void UAZ_GA_ChalkieGrab::StartLoopMontage()
+UAnimInstance* UAZ_GA_ChalkieGrab::GetOwnAnimInstance() const
 {
-	LoopMontageTask = nullptr;
-	if (!CachedLoopMontage)
+	const AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo());
+	const USkeletalMeshComponent* Mesh = Infected ? Infected->GetMesh() : nullptr;
+	return Mesh ? Mesh->GetAnimInstance() : nullptr;
+}
+
+void UAZ_GA_ChalkieGrab::SetGrabStage(const FGameplayTag& NewStage)
+{
+	if (ActiveStageTag == NewStage)
 	{
 		return;
 	}
+	UAbilitySystemComponent* SelfASC = GetAbilitySystemComponentFromActorInfo();
+	if (!SelfASC)
+	{
+		return;
+	}
+	if (ActiveStageTag.IsValid())
+	{
+		SelfASC->RemoveLooseGameplayTag(ActiveStageTag);
+	}
+	ActiveStageTag = NewStage;
+	if (ActiveStageTag.IsValid())
+	{
+		SelfASC->AddLooseGameplayTag(ActiveStageTag);
+	}
+}
+
+void UAZ_GA_ChalkieGrab::StartLoopMontage()
+{
+	LoopMontageTask = nullptr;
+	UAnimMontage* Montage = CachedPairedMontage ? CachedPairedMontage : CachedLoopMontage;
+	if (!Montage)
+	{
+		return;
+	}
+	// Paired starts at the catch section; v1 starts wherever the clip starts.
+	const FName StartSection = CachedPairedMontage ? CatchSection : NAME_None;
 	LoopMontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
-		this, FName("GrabLoop"), CachedLoopMontage, FGameplayTagContainer(),
-		/*Rate*/ 1.f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ true,
+		this, FName("GrabLoop"), Montage, FGameplayTagContainer(),
+		/*Rate*/ 1.f, StartSection, /*bStopWhenAbilityEnds*/ true,
 		/*AnimRootMotionTranslationScale*/ 1.f);
 	if (!LoopMontageTask)
 	{
@@ -196,20 +280,63 @@ void UAZ_GA_ChalkieGrab::StartLoopMontage()
 	LoopMontageTask->OnBlendOut.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnLoopMontageEnded);
 	LoopMontageTask->ReadyForActivation();
 
-	// Section self-loop (primary loop mechanism; the replay binding is the belt to this suspender).
-	if (const AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo()))
+	UAnimInstance* AnimInstance = GetOwnAnimInstance();
+	if (!AnimInstance)
 	{
-		if (UAnimInstance* AnimInstance = Infected->GetMesh() ? Infected->GetMesh()->GetAnimInstance() : nullptr)
+		return;
+	}
+	if (CachedPairedMontage)
+	{
+		// The hold loop is authored INTO the montage (Wrestle links to itself), so nothing to force here.
+		// Re-assert it anyway: a resolve queues an outcome onto that link, and a replay after an
+		// interruption would otherwise inherit the queued outcome and skip the hold entirely.
+		AnimInstance->Montage_SetNextSection(WrestleSection, WrestleSection, CachedPairedMontage);
+		SetGrabStage(FAZ_GameplayTags::Get().State_Grab_Catching);
+
+		// Catching -> Wrestling when the catch clip runs out. A timer rather than a notify: the stage tag
+		// is bookkeeping for other systems, so it must not depend on notify authoring inside the montage.
+		const int32 CatchIndex = CachedPairedMontage->GetSectionIndex(CatchSection);
+		const float CatchLength = (CatchIndex != INDEX_NONE) ? CachedPairedMontage->GetSectionLength(CatchIndex) : 0.f;
+		if (UWorld* World = GetWorld())
 		{
-			const FName LoopSection = CachedLoopMontage->GetSectionName(0);
-			AnimInstance->Montage_SetNextSection(LoopSection, LoopSection, CachedLoopMontage);
+			World->GetTimerManager().ClearTimer(StageTimer);
+			if (CatchLength > KINDA_SMALL_NUMBER)
+			{
+				World->GetTimerManager().SetTimer(StageTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+				{
+					if (!bResolved && IsActive())
+					{
+						SetGrabStage(FAZ_GameplayTags::Get().State_Grab_Wrestling);
+					}
+				}), CatchLength, false);
+			}
+			else
+			{
+				SetGrabStage(FAZ_GameplayTags::Get().State_Grab_Wrestling);
+			}
 		}
+	}
+	else
+	{
+		// Section self-loop (primary loop mechanism; the replay binding is the belt to this suspender).
+		const FName LoopSection = CachedLoopMontage->GetSectionName(0);
+		AnimInstance->Montage_SetNextSection(LoopSection, LoopSection, CachedLoopMontage);
 	}
 }
 
 void UAZ_GA_ChalkieGrab::OnLoopMontageEnded(FGameplayTag EventTag, FGameplayEventData EventData)
 {
-	if (!bResolved && IsActive())
+	if (bResolved)
+	{
+		// PAIRED: the outcome section just finished (it links to nothing), so the grab is over — the whole
+		// thing lived in one montage and there is no separate exit clip to wait on.
+		if (CachedPairedMontage && IsActive())
+		{
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		}
+		return;
+	}
+	if (IsActive())
 	{
 		StartLoopMontage();
 	}
@@ -261,6 +388,40 @@ void UAZ_GA_ChalkieGrab::Resolve(bool bPlayerEscaped)
 		}
 	}
 
+	// PAIRED: the outcome is a SECTION of the montage already running, not a new montage. We are the
+	// LEADER — we are the only side that may steer, and the player's montage mirrors this jump through
+	// MontageSync_Follow (which only mirrors while both sit in a same-named section, hence identical
+	// section tables on the two assets).
+	//
+	// QUEUED, not immediate: Grab_To_Wrestle both starts and ends on the hold pose but passes ~9cm away
+	// at its midpoint, so cutting mid-clip pops on both bodies while switching at the loop boundary is
+	// seamless. Costs up to one wrestle cycle of latency; the press-time camera jolt covers it.
+	if (CachedPairedMontage)
+	{
+		FName Outcome = FailSection;
+		if (bPlayerEscaped && EscapeSections.Num() > 0)
+		{
+			Outcome = EscapeSections[FMath::RandRange(0, EscapeSections.Num() - 1)];
+		}
+		if (CachedPairedMontage->GetSectionIndex(Outcome) == INDEX_NONE)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Grab] outcome section '%s' missing from '%s' — ending the hold instead"),
+				*Outcome.ToString(), *GetNameSafe(CachedPairedMontage));
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+			return;
+		}
+		if (UAnimInstance* AnimInstance = GetOwnAnimInstance())
+		{
+			AnimInstance->Montage_SetNextSection(WrestleSection, Outcome, CachedPairedMontage);
+			SetGrabStage(FAZ_GameplayTags::Get().State_Grab_Resolving);
+			UE_LOG(LogTemp, Display, TEXT("[Grab] outcome queued: %s -> %s"),
+				*WrestleSection.ToString(), *Outcome.ToString());
+			return;   // OnLoopMontageEnded ends the ability once that section plays out
+		}
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return;
+	}
+
 	PlayExitMontage(bPlayerEscaped ? TEXT("GrabEscapeMontage") : TEXT("GrabEndMontage"));
 }
 
@@ -299,6 +460,17 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(SafetyTimer);
+		World->GetTimerManager().ClearTimer(StageTimer);
+	}
+	// Stage tag off before the grabbing tag — both are loose tags we own, and leaving a stage behind
+	// would tell the crowd brain a grab is still running on this Chalkie.
+	SetGrabStage(FGameplayTag());
+
+	// Release the anim layer's grip target on EVERY exit path, or the hands keep reaching for prey that
+	// has already been freed (the IK alpha would stay pinned at 1 forever).
+	if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Infected->SetGrabTarget(nullptr);
 	}
 	if (bAppliedGrabbingTag)
 	{
@@ -308,10 +480,14 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 			SelfASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing);
 		}
 	}
+	CachedPairedMontage = nullptr;
 
-	// Abnormal end mid-hold (BT abort, death, external cancel): the player must NEVER stay frozen —
-	// tell their ability the grab is gone. Resolved exits already freed them (they sent the verdict).
-	if (!bResolved && GrabTarget.IsValid())
+	// The scene is over — tell the player, on EVERY exit path. Abnormal ends (BT abort, death, external
+	// cancel) must not leave them frozen; RESOLVED ends matter just as much on the paired route, where
+	// the player stays grabbed and synced through the outcome section and is waiting for exactly this
+	// signal to hand control back. Harmless if they already ended: the tag check below fails and nothing
+	// is sent.
+	if (GrabTarget.IsValid())
 	{
 		const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GrabTarget.Get()))

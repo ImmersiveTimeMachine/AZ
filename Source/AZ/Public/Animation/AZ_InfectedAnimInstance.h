@@ -63,6 +63,39 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|Phase")
 	bool bIsAggressive = false;
 
+	// ========================================
+	// Grab hand-IK — mirror of the hero's block in UAZ_MoverAnimInstance
+	// ========================================
+	// While this Chalkie holds prey, its hands are pinned onto grip sockets authored on the VICTIM's
+	// skeleton. Two TwoBoneIK nodes near the AnimGraph output (after the DefaultSlot node, or the montage
+	// overwrites them) bind to the targets below, with GrabIKAlpha as their alpha. Gathered on the game
+	// thread because reading another actor's socket transform is not thread-safe-update legal.
+
+	/** 0..1 ramp, driven to 1 while a grab is live. Alpha for both TwoBoneIK nodes. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|GrabIK")
+	float GrabIKAlpha = 0.f;
+
+	/** World-space goal for hand_l — the victim's GrabIKPreySocketForHandL socket. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|GrabIK")
+	FVector GrabIKTarget_HandL = FVector::ZeroVector;
+
+	/** World-space goal for hand_r. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|GrabIK")
+	FVector GrabIKTarget_HandR = FVector::ZeroVector;
+
+	/** Alpha blend speed (per second) — how fast the hands commit to / release the grip. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK", meta = (ClampMin = "0.1"))
+	float GrabIKBlendSpeed = 8.f;
+
+	/** Socket on the PREY's mesh each hand reaches for. Straight mapping (L->L, R->R) to match the
+	 *  socket naming, where GrabIK_HandL means "the grip the partner's LEFT hand takes".
+	 *  NOTE the hero's equivalent pair is CROSSED and needs reconciling with this convention. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK")
+	FName GrabIKPreySocketForHandL = TEXT("GrabIK_HandL");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK")
+	FName GrabIKPreySocketForHandR = TEXT("GrabIK_HandR");
+
 	/** Cached on init — the owning infected pawn (saves a per-tick TryGetPawnOwner cast). */
 	UPROPERTY(Transient)
 	TObjectPtr<AAZ_PawnMoverInfectedCharacter> Cached_Pawn;
