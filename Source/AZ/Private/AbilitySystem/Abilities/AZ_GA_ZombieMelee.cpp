@@ -2,7 +2,9 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
 
+#include "AbilitySystemComponent.h"
 #include "Animation/AnimMontage.h"
+#include "AZ_GameplayTags.h"   // State.Combat.Staggered (no swinging mid-reaction)
 
 UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
 {
@@ -20,6 +22,23 @@ UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
 	// publish a second, differently-named target ("MeleeTarget") that nothing reads, and run a forward
 	// search sweep every swing to produce it.
 	bUseMotionWarping = false;
+}
+
+bool UAZ_GA_ZombieMelee::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+	// No swinging while a reaction owns the body — see the header for why this is not ActivationBlockedTags.
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Staggered))
+	{
+		return false;
+	}
+	return true;
 }
 
 void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

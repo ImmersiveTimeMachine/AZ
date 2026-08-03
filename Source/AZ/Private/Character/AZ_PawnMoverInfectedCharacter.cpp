@@ -16,9 +16,7 @@
 #include "AbilitySystemComponent.h"
 #include "AI/AZ_InfectedAIController.h"
 #include "AIController.h"
-#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "GameplayEffectExtension.h"   // FGameplayEffectModCallbackData (scream causer)
-#include "MoverTypes.h"   // Mover_AnimRootMotion
 #include "Perception/AISense_Hearing.h"
 #include "Animation/AnimInstance.h"          // mid-turn commitment read (temp reflection glue)
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait, EAZ_RotationMode
@@ -378,6 +376,9 @@ void AAZ_PawnMoverInfectedCharacter::InitAbilitySystem()
 		UAZ_GA_Death::ConfigureTriggerOnCDO(DeathClass);
 		UAZ_GA_ChalkieGrab::ConfigureCDO(GrabClass);
 		UAZ_GA_HitReact::ConfigureOnCDO(HitReactClass);
+		// (No melee CDO patch: "can't swing while Staggered" is a CanActivateAbility override on
+		//  UAZ_GA_ZombieMelee — ActivationBlockedTags is read off the ability INSTANCE, which does not
+		//  inherit a CDO patched at runtime. Same trap that silently disabled the Staggered gate itself.)
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DeathClass, 1, INDEX_NONE, this));
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(MeleeClass, 1, INDEX_NONE, this));
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(GrabClass, 1, INDEX_NONE, this));

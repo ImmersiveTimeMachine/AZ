@@ -254,10 +254,16 @@ void AAZ_InfectedAIController::OnStaggerTagChanged(const FGameplayTag Tag, int32
 {
 	// The tag is the fact (UAZ_GA_HitReact's ActivationOwnedTags + its recover hold); this key is only a
 	// mirror the tree can observe. Loose/owned tag counts are COUNTS — > 0, never == 1.
-	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	UBlackboardComponent* BB = GetBlackboardComponent();
+	if (BB)
 	{
 		BB->SetValueAsBool(AZ_ChalkieBBKeys::bStaggered, NewCount > 0);
 	}
+	// TEMP ([ChalkieDiag]): proves the tag event fires AND that the write reached a live blackboard.
+	// Silence here while [HitReact] prints means the delegate never bound (or bound to another ASC).
+	UE_LOG(LogTemp, Display, TEXT("[Stagger] %s tag=%s count=%d -> bStaggered=%d%s"),
+		*GetNameSafe(GetPawn()), *Tag.ToString(), NewCount, NewCount > 0 ? 1 : 0,
+		BB ? TEXT("") : TEXT("  (NO BLACKBOARD — write dropped)"));
 }
 
 ETeamAttitude::Type AAZ_InfectedAIController::GetTeamAttitudeTowards(const AActor& Other) const
@@ -568,14 +574,25 @@ void AAZ_InfectedAIController::UpdatePerception()
 			const bool bBBTargetSet = GetBlackboardComponent()
 				&& GetBlackboardComponent()->GetValueAsObject(AZ_ChalkieBBKeys::TargetActor) != nullptr;
 			const UAZ_HordeSubsystem* HordeForDiag = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr;
-			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f crouch=%d att=%d | bbTgt=%d btNode=%s move=%d wcb=%.2f role=%d"),
+			// STAGGER SEAM (temp, [ChalkieDiag]): the ASC tag COUNT and the blackboard mirror, side by
+			// side. They answer the three-way question in one line — tag 0 means the reaction ability
+			// never owned it, tag>0 with bb=0 means the mirror isn't firing, both set while btNode is an
+			// attack means the decorator isn't aborting.
+			const UAbilitySystemComponent* DiagASC =
+				UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetPawn());
+			const int32 StaggerCount = DiagASC
+				? DiagASC->GetTagCount(FAZ_GameplayTags::Get().State_Combat_Staggered) : -1;
+			const int32 StaggerBB = GetBlackboardComponent()
+				? static_cast<int32>(GetBlackboardComponent()->GetValueAsBool(AZ_ChalkieBBKeys::bStaggered)) : -1;
+			UE_LOG(LogTemp, Display, TEXT("[ChalkieDiag] %s seen=%d best=%s tgt=%s fresh=%d cand=%s phase=%d heroDist=%.0f crouch=%d att=%d | bbTgt=%d btNode=%s move=%d wcb=%.2f role=%d | stagTag=%d stagBB=%d"),
 				*GetNameSafe(InfectedCharacter), Seen.Num(), *GetNameSafe(Best), *GetNameSafe(PerceivedTarget.Get()),
 				GetFreshPerceivedTarget() != nullptr, *GetNameSafe(AlertCandidate.Get()), static_cast<int32>(CurrentPhase),
 				HeroDist, bHeroCrouchTag, static_cast<int32>(HeroAttitude),
 				bBBTargetSet, ActiveNode ? *ActiveNode->GetNodeName() : TEXT("NONE"),
 				static_cast<int32>(GetMoveStatus()),
 				GetBlackboardComponent() ? GetBlackboardComponent()->GetValueAsFloat(AZ_ChalkieBBKeys::WaitChaseBreather) : -1.f,
-				HordeForDiag ? static_cast<int32>(HordeForDiag->GetCombatRole(this)) : -1);
+				HordeForDiag ? static_cast<int32>(HordeForDiag->GetCombatRole(this)) : -1,
+				StaggerCount, StaggerBB);
 		}
 	}
 

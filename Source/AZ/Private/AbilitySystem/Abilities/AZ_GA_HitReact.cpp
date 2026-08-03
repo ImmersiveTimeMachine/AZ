@@ -3,6 +3,7 @@
 #include "AbilitySystem/Abilities/AZ_GA_HitReact.h"
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetCombatMontage / FindAnimSetMontage / ReadConfigFloat / FindBeatEndNotifyTime
+#include "AbilitySystemComponent.h"   // SetLooseGameplayTagCount (the stagger gate is applied explicitly)
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -47,7 +48,14 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 		}
 	}
 
-	// The Staggered gate IS this ability being active — set/cleared by GAS, no timers to desync.
+	// Kept so the tag is visible on the CDO (editor inspection, and anything evaluated against
+	// Spec.Ability sees it) — but do NOT rely on it to actually apply the tag. PreActivate reads
+	// ActivationOwnedTags off the ABILITY INSTANCE, and an instance does not inherit a CDO patched at
+	// runtime: measured, CDO = {State.Combat.Staggered} while a fresh instance = {}. The tag therefore
+	// never reached the ASC, no BT gate ever saw it, and the Chalkie swung again 0.5s into its own
+	// knockback. ApplyStaggerTag/ClearStaggerTag below are the real owners.
+	// (ActivationBlockedTags escapes this because CanActivateAbility is evaluated on Spec.Ability, which
+	// IS the CDO — the same patch works there and only there.)
 	if (!CDO->ActivationOwnedTags.HasTagExact(Tags.State_Combat_Staggered))
 	{
 		CDO->ActivationOwnedTags.AddTag(Tags.State_Combat_Staggered);
@@ -58,6 +66,23 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	{
 		CDO->ActivationBlockedTags.AddTag(Tags.State_Combat_Grabbing);
 	}
+}
+
+bool UAZ_GA_HitReact::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+	// Grab armor — see the header. Only the flinch MOTION is suppressed.
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing))
+	{
+		return false;
+	}
+	return true;
 }
 
 void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -130,6 +155,15 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	// anim instance in RootMotionFromEverything, the clip's bEnableRootMotion, a live RM layered move and
 	// a slot that reaches the output pose. Report the inputs here and the travelled distance at EndAbility
 	// so "the knockback doesn't move him" is answered with a number instead of a theory.
+	// THE STAGGER GATE, applied explicitly. SetLooseGameplayTagCount, not Add/Remove: loose tags are
+	// COUNTED, and a retrigger (punched again mid-reaction) would otherwise leave the count at 2 and the
+	// gate stuck on permanently after the first clear. Set to an absolute 1 — idempotent under any
+	// activation order.
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		ASC->SetLooseGameplayTagCount(Tags.State_Combat_Staggered, 1);
+	}
+
 	ReactStartLocation = Avatar->GetActorLocation();
 	UE_LOG(LogTemp, Display, TEXT("[HitReact] %s clip=%s beat=%.2f rm=%.2f gen=%llu mover=%s"),
 		*GetNameSafe(Avatar), *GetNameSafe(Desc.Montage), Desc.ResolveBeat(), Desc.ResolveRootMotion(),
@@ -207,6 +241,14 @@ void UAZ_GA_HitReact::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 		World->GetTimerManager().ClearTimer(RecoverTimer);
 	}
 	bRecovering = false;
+	// Drop the gate. Absolute 0 for the same counted-tag reason as the set — and it must happen on EVERY
+	// exit (completed, interrupted, cancelled, death), which is why it lives here rather than on any one
+	// callback. A retrigger re-sets it to 1 immediately afterwards, so the gate never flickers off.
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Staggered, 0);
+	}
+
 	if (const AActor* Avatar = GetAvatarActorFromActorInfo())
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
