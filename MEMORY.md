@@ -24,6 +24,7 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [feedback_seam_trace_before_pie.md](feedback_seam_trace_before_pie.md) — ★ before ANY PIE request: trace one full loop with real numbers across BT-values × C++-constants; dump actual node values (defaults sneak in). 5 seam bugs in one evening prove it.
 - [feedback_editor_close_build_open_loop.md](feedback_editor_close_build_open_loop.md) — RETIRED: user drives editor close/open (auto-quit crashes on exit w/ open tabs); mechanics kept for reference.
 - [feedback_no_hardcoded_asset_paths.md](feedback_no_hardcoded_asset_paths.md) — ★ USER RULE: no /Game/ paths in C++; all content refs = editor-assigned UPROPERTYs w/ native fallbacks; grep Source for "/Game/" to verify.
+- [feedback_aaa_design_first.md](feedback_aaa_design_first.md) — ★ USER RULE: AAA approach on EVERY task — propose design + anticipate failure axes BEFORE coding, wait for go; events drive timers guard; one owner per fact; measure & instrument.
 - Covered by skills: check-memory-first, agent-teams, validate-findings, no-read-approval, file-paths, port checklist, deep-pin-inspection, animgraph wiring, post-event-vs-threadsafe, blendstack-input-ref, python-gc-crash, retarget-root-motion, chooser-utils API, SM transition access, transition-rule tools.
 
 ## GASP reference (standing rule: GASP imported at /Game/Blueprints/ — query via unrealclaude MCP; NEVER C:\UnrealEngine\Games\GameAnimationSample or gassample MCP)
@@ -49,6 +50,8 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [project_physics_jump_plan.md](project_physics_jump_plan.md) — physics-jump pivot decision record.
 - [project_combat_system_plan.md](project_combat_system_plan.md) — ★ melee/combat design (equip axes, tiers, GA_MeleeAttack).
 - [project_combat_fist_build_plan.md](project_combat_fist_build_plan.md) — ★ LIVE fist-first build doc + RAIL DOCTRINE (montage vs SM). Read first for combat.
+- [project_motion_warping.md](project_motion_warping.md) — ★ motion warping on Mover: the bDidAttrHaveRootMotion gate, the RootMotionMode bug, SkewWarp's clip-dependent branches, notify traps, ABP_Chalkie routing hazards. Read before any warp/montage-reaction work.
+- [project_combat_arch_refactor.md](project_combat_arch_refactor.md) — ★ LIVE combat stability refactor: C→A′ done (DriveRootMotion generations, State.Combat.Staggered), B (FAZ_CombatMontage descriptor) next, then A (GA_HitReact). Fable backlog inside. Read before combat/reaction work.
 - [project_traversal_system.md](project_traversal_system.md) — trace→chooser→RM-action|physics pattern (base for contextual movement).
 - [project_obstacle_reaction_system.md](project_obstacle_reaction_system.md) — obstacle reactions (sensor, bands, Brace/Stumble). Read for impact work.
 - [project_movement_clearance_plan.md](project_movement_clearance_plan.md) — ★ intent-pure clearance clamp plan. Read for blocking/movement.
