@@ -10,8 +10,9 @@
  * The Chalkie's claw swipe — the SAME melee rail as the hero's punch (weapon parity by construction):
  * identical hit window, sweep, GE_Damage flow. Differences are pure data/selection:
  *  - montages come from the pawn's anim-set DA (AttackMontage_L/R fields — per-variant swings),
- *  - the pack's attack clips are LONG sustained-clawing cycles, so the ability plays a timed BITE
- *    (BiteSeconds) and ends itself; blend-out smooths the exit, the BT re-triggers for the next swing,
+ *  - the pack's attack clips are LONG sustained-clawing cycles, so one activation plays a BITE of the
+ *    cycle, ended by the Event.Combat.BeatEnd notify authored on the montage (the timeline is the
+ *    clock — arch step A); blend-out smooths the exit, the BT re-triggers for the next swing,
  *  - hand is randomized per activation (visual variety, no input to derive it from).
  * Granted natively on the infected ASC at possess; activated by UAZ_BTTask_ZombieAttack.
  */
@@ -28,7 +29,6 @@ protected:
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual UAnimMontage* SelectMontage() const override;
 
-	/** How much of the long clawing cycle one activation plays before self-ending (one swing-ish). */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee", meta = (ClampMin = "0.5"))
-	float BiteSeconds = 2.2f;
+	// (BiteSeconds deleted, arch step A: the bite beat is the Event.Combat.BeatEnd notify authored on
+	//  each attack montage — per-clip, timeline-anchored. Tune it by moving the notify.)
 };

@@ -7,6 +7,8 @@
 #include "Abilities/GameplayAbilityTypes.h"
 #include "AbilitySystem/Abilities/AZ_GA_ChalkieGrab.h"
 #include "AbilitySystem/Abilities/AZ_GA_Death.h"
+#include "AbilitySystem/Abilities/AZ_GA_HitReact.h"
+#include "AbilitySystemBlueprintLibrary.h"   // SendGameplayEventToActor (HitReact / StepBack triggers)
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetMontage (flinch)
 #include "AbilitySystem/Abilities/AZ_GA_ZombieMelee.h"
 #include "Animation/AnimMontage.h"
@@ -28,6 +30,7 @@
 #include "Engine/CollisionProfile.h"
 #include "GameplayTagContainer.h"
 #include "MoverDataModelTypes.h"            // FCharacterDefaultInputs, EMoveInputType
+#include "MotionWarpingComponent.h"
 #include "NetworkPredictionComponent.h"
 
 AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInitializer& ObjectInitializer)
@@ -97,6 +100,12 @@ AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInit
 	NavMoverComponent = CreateDefaultSubobject<UNavMoverComponent>(TEXT("NavMoverComponent"));
 	NavMoverComponent->NavAgentProps.AgentRadius = 25.f;
 	NavMoverComponent->NavAgentProps.AgentHeight = 180.f;
+
+	// Motion warping. Self-wiring: UMoverComponent::BeginPlay does FindComponentByClass on this and creates a
+	// UMotionWarpingMoverAdapter for it — nothing here or in the Mover config needs to reference the other.
+	// Idle unless a montage carries a MotionWarping notify AND gameplay has registered a matching named
+	// target, so simply owning it costs nothing per frame.
+	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 
 	// --- Own ASC (NPC pattern). Minimal replication: AI is server-authoritative. ---
 	AbilitySystemComponent = CreateDefaultSubobject<UAZ_AbilitySystemComponent>(TEXT("AbilitySystemComponent"));
@@ -201,95 +210,49 @@ void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
 			UAZ_GA_MeleeAttack::ReadConfigFloat(this, TEXT("ScreamMaxRange"), 1400.f), FName("Scream"));
 	}
 
-	// GRAB CARVE-OUT (rule 8, design 2026-07-24): a Chalkie MID-GRAB is armored against the flinch —
-	// the stagger montage would preempt the grab loop on the slot and visually break the hold while
-	// the player stays locked. Damage still lands; freeing a grabbed partner by force = future co-op.
-	if (UAbilitySystemComponent* GrabASC = GetAbilitySystemComponent())
-	{
-		if (GrabASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing))
-		{
-			return;
-		}
-	}
-
-	// FULL STAGGER, EVERY HIT (user direction 2026-07-21): each landed punch (re)plays the ENTIRE
-	// variant KnockBack clip from the top — the ROOT clip's motion (backward stumble + recovery)
-	// drives the CAPSULE via the layered move. Stun-lock on a single zombie is accepted: difficulty
-	// comes from the PACK. A cooldown knob returns via the config DA if playtests want it.
-	UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(this, TEXT("HitReactMontage"));
-	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	if (!Flinch || !AnimInstance)
-	{
-		return;
-	}
-	AnimInstance->Montage_Play(Flinch);
-	if (MoverComponent)
-	{
-		MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
-		const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
-		RMMove->DurationMs = Flinch->GetPlayLength() * 1000.f;
-		MoverComponent->QueueLayeredMove(RMMove);
-	}
+	// FULL STAGGER, EVERY HIT (user direction 2026-07-21) — arch step A: one event, and GA_HitReact owns
+	// the whole reaction (montage via task, capsule via generation-scoped RM, Staggered gate via
+	// ActivationOwnedTags, beat ended by the montage's own BeatEnd notify). The GRAB CARVE-OUT (rule 8)
+	// that used to be an early return here is now the ability's ActivationBlockedTags=Grabbing — the
+	// event is sent regardless and simply doesn't activate, which is exactly the design: everything
+	// ABOVE this line (lock, melee-cancel, scream) fires for a grabbing Chalkie too; only the flinch
+	// MOTION is armored away. Payload Instigator = causer (directional variants later).
+	FGameplayEventData Payload;
+	Payload.Instigator = Causer;
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+		this, FAZ_GameplayTags::Get().Event_Combat_HitReact, Payload);
 }
 
 void AAZ_PawnMoverInfectedCharacter::PlayStepBackReaction(UAnimMontage* Montage, float HoldSeconds)
 {
-	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	if (!Montage || !AnimInstance)
+	if (MoverComponent && !MoverComponent->IsActive())
+	{
+		return;   // already a corpse (same guard as HandleDamaged — don't animate recoils on the dead)
+	}
+	if (!Montage)
 	{
 		return;
 	}
-	AnimInstance->Montage_Play(Montage);
-	ActiveStepBackMontage = Montage;
-
-	// The bit a bare Montage_Play misses on a Mover pawn: root motion only reaches the CAPSULE while an
-	// FLayeredMove_RootMotionAttribute is live (same bridge the punch flinch uses above). Without it the
-	// Chalkie mimes the recoil on the spot. Drive it only as long as the beat actually lasts — an RM move
-	// outliving its montage proposes zero velocity under OverrideAll and would freeze the pawn in place.
-	const float ClipSeconds = Montage->GetPlayLength();
-	const float DriveSeconds = (HoldSeconds > 0.f) ? FMath::Min(HoldSeconds, ClipSeconds) : ClipSeconds;
-	if (MoverComponent)
-	{
-		MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
-		const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
-		RMMove->DurationMs = DriveSeconds * 1000.f;
-		MoverComponent->QueueLayeredMove(RMMove);
-	}
-
-	// Cut the recoil at the beat: blend out instead of playing the full 5.5-7.5s knockback+recover.
-	// Weak-captured — a Chalkie dying mid-beat just no-ops the stop.
-	if (HoldSeconds > 0.f && HoldSeconds < ClipSeconds)
-	{
-		TWeakObjectPtr<UAnimInstance> WeakAnim = AnimInstance;
-		TWeakObjectPtr<UAnimMontage> WeakMontage = Montage;
-		GetWorld()->GetTimerManager().SetTimer(StepBackCutTimer, FTimerDelegate::CreateLambda([WeakAnim, WeakMontage]()
-		{
-			UAnimInstance* Anim = WeakAnim.Get();
-			UAnimMontage* Clip = WeakMontage.Get();
-			if (Anim && Clip && Anim->Montage_IsPlaying(Clip))
-			{
-				Anim->Montage_Stop(0.4f, Clip);
-			}
-		}), HoldSeconds, false);
-	}
+	// Arch step A: thin shim — the horde call site stays put, GA_HitReact owns the reaction. Payload
+	// carries the clip and the crowd's beat (EventMagnitude; 0 = the clip's own beat/BeatEnd notify —
+	// the caller may SHORTEN the beat, never lengthen it past the authored notify). Two triggers into
+	// one ability keep flinch and step-back on the same Staggered gate with last-writer-wins preemption
+	// (retrigger), matching how they already preempted each other on the montage slot.
+	FGameplayEventData Payload;
+	Payload.OptionalObject = Montage;
+	Payload.EventMagnitude = HoldSeconds;
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+		this, FAZ_GameplayTags::Get().Event_Combat_StepBack, Payload);
 }
 
 bool AAZ_PawnMoverInfectedCharacter::IsStaggerReactionPlaying() const
 {
-	const UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	if (!AnimInstance)
-	{
-		return false;
-	}
-	if (const UAnimMontage* StepBack = ActiveStepBackMontage.Get())
-	{
-		if (AnimInstance->Montage_IsPlaying(StepBack))
-		{
-			return true;
-		}
-	}
-	const UAnimMontage* Flinch = UAZ_GA_MeleeAttack::FindAnimSetMontage(this, TEXT("HitReactMontage"));
-	return Flinch && AnimInstance->Montage_IsPlaying(Flinch);
+	// A tag query, nothing else. The old form asked the ANIM SYSTEM (Montage_IsPlaying on the flinch
+	// resolved by reflection + the last step-back pointer), which made AI pacing a side effect of blend
+	// timing — cutting a montage 0.4s earlier silently made the whole pack swing sooner. The tag is
+	// GA_HitReact's ActivationOwnedTags: set and cleared by the ability's lifecycle, no timer to desync.
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	return ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Staggered);
 }
 
 void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
@@ -408,14 +371,17 @@ void AAZ_PawnMoverInfectedCharacter::InitAbilitySystem()
 		// points these at the BP tuning children; unset falls back to the native class. The CDO patches
 		// (triggers / activation tags) go to the ASSIGNED class — a BP child's CDO does NOT inherit
 		// runtime patches made to the native CDO.
-		UClass* DeathClass = *DeathAbilityClass ? *DeathAbilityClass : UAZ_GA_Death::StaticClass();
-		UClass* MeleeClass = *MeleeAbilityClass ? *MeleeAbilityClass : UAZ_GA_ZombieMelee::StaticClass();
-		UClass* GrabClass  = *GrabAbilityClass  ? *GrabAbilityClass  : UAZ_GA_ChalkieGrab::StaticClass();
+		UClass* DeathClass    = *DeathAbilityClass    ? *DeathAbilityClass    : UAZ_GA_Death::StaticClass();
+		UClass* MeleeClass    = *MeleeAbilityClass    ? *MeleeAbilityClass    : UAZ_GA_ZombieMelee::StaticClass();
+		UClass* GrabClass     = *GrabAbilityClass     ? *GrabAbilityClass     : UAZ_GA_ChalkieGrab::StaticClass();
+		UClass* HitReactClass = *HitReactAbilityClass ? *HitReactAbilityClass : UAZ_GA_HitReact::StaticClass();
 		UAZ_GA_Death::ConfigureTriggerOnCDO(DeathClass);
 		UAZ_GA_ChalkieGrab::ConfigureCDO(GrabClass);
+		UAZ_GA_HitReact::ConfigureOnCDO(HitReactClass);
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DeathClass, 1, INDEX_NONE, this));
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(MeleeClass, 1, INDEX_NONE, this));
 		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(GrabClass, 1, INDEX_NONE, this));
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(HitReactClass, 1, INDEX_NONE, this));
 	}
 }
 

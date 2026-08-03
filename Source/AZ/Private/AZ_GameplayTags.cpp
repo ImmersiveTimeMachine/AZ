@@ -298,6 +298,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Combat_Engaged_Active,  FName("State.Combat.Engaged.Active"),  TEXT("Crowd combat role (horde subsystem sole writer): holds an attack slot — press the attack"));
     AddTag(GameplayTags.State_Combat_Engaged_Passive, FName("State.Combat.Engaged.Passive"), TEXT("Crowd combat role (horde subsystem sole writer): engaged without a slot — hold the ring"));
 
+    AddTag(GameplayTags.State_Combat_Staggered, FName("State.Combat.Staggered"), TEXT("A stagger-class reaction owns the body (hit-react flinch or pack step-back) — gates BT attacks; explicit duration set where the reaction starts"));
     AddTag(GameplayTags.State_Combat_Grabbing, FName("State.Combat.Grabbing"), TEXT("Chalkie is mid-grab: holds its Active slot, plays the grab pose, exempt from flinch-cancel while grabbing"));
     AddTag(GameplayTags.State_Grabbed,         FName("State.Grabbed"),         TEXT("Player is caught: movement + camera frozen (ProduceInput / OnLookTriggered gate); struggle-mash to escape"));
     AddTag(GameplayTags.Mover_GrabAnchor,      FName("Mover.AZ.GrabAnchor"),   TEXT("Mover feature tag on the grab socket-lock layered move — CancelFeaturesWithTag ends the hold's attachment"));
@@ -305,7 +306,12 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
     AddTag(GameplayTags.State_Grab_Resolving,  FName("State.Grab.Resolving"),  TEXT("Paired grab stage: outcome section queued/running — no longer interruptible"));
 
-    AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("Hit-window gameplay event from an attack montage notify — GA_MeleeAttack sweeps + applies damage on it"));
+    AddTag(GameplayTags.Event_Combat_HitReact, FName("Event.Combat.HitReact"), TEXT("Survivable hit taken -> triggers GA_HitReact (payload Instigator = causer)"));
+    AddTag(GameplayTags.Event_Combat_StepBack, FName("Event.Combat.StepBack"), TEXT("Pack recoil beat -> triggers GA_HitReact (payload OptionalObject = montage, EventMagnitude = caller beat, 0 = clip default)"));
+    AddTag(GameplayTags.Event_Combat_BeatEnd, FName("Event.Combat.BeatEnd"), TEXT("Authored montage notify marking the end of the clip's gameplay beat — ends reactions and the zombie bite from the animation timeline itself"));
+    AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("RETIRED single-frame contact event (socket-sweep windows replaced it); registered so old data still resolves"));
+    AddTag(GameplayTags.Event_Montage_Melee_WindowBegin, FName("Event.Montage.Melee.WindowBegin"), TEXT("Strike window opens — melee ability starts the fist socket sweep"));
+    AddTag(GameplayTags.Event_Montage_Melee_WindowEnd, FName("Event.Montage.Melee.WindowEnd"), TEXT("Strike window closes — socket sweep stops; untouched targets = whiff"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
     AddTag(GameplayTags.Event_Grabbed,           FName("Event.Grabbed"),           TEXT("Sent to the player's ASC by a Chalkie's grab — triggers GA_PlayerGrabbed (mirrors Event.Death -> GA_Death)"));
     AddTag(GameplayTags.Event_GrabEscaped,       FName("Event.GrabEscaped"),       TEXT("Player -> grabber ASC: the mash won — GA_ChalkieGrab plays the GrabEscapeMontage stagger"));

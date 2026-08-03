@@ -44,6 +44,17 @@ public:
 	 *  the zombie melee + death abilities; goes native with UAZ_ChalkieAnimSet in the batch. */
 	static UAnimMontage* FindAnimSetMontage(const AActor* Avatar, FName MontageProperty);
 
+	/** Reflection read of an FAZ_CombatMontage struct variable off the anim set (arch step B: per-clip
+	 *  timing authored NEXT TO the clip). Returns false when the variable is absent, wrongly typed, or
+	 *  has no montage assigned — callers fall back to the legacy bare-montage field + pawn knob, so
+	 *  un-authored variants keep working. Goes native with UAZ_ChalkieAnimSet in the batch. */
+	static bool FindAnimSetCombatMontage(const AActor* Avatar, FName StructPropertyName, struct FAZ_CombatMontage& Out);
+
+	/** Trigger time of the Event.Combat.BeatEnd notify authored on this montage, or 0 when absent
+	 *  (arch step A: the montage timeline is the beat clock — "events drive, timers guard"). Used by
+	 *  GA_HitReact and by the melee bite; 0 means the caller falls back to its own beat source. */
+	static float FindBeatEndNotifyTime(const UAnimMontage* Montage);
+
 	/** Reflection read of a float config off any object (BP-variable-tunable under Live Coding — new
 	 *  UPROPERTYs need a restart). Falls back to Default when the property doesn't exist. Every call
 	 *  site of this is a batch item: promote to a real UPROPERTY / DA_ChalkieConfig field. */
@@ -55,11 +66,19 @@ protected:
 	UFUNCTION()
 	void OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData);
 
-	// Hit-window (and later combo-window) GameplayEvents from notifies. On the hit window: forward
-	// sphere sweep from the avatar, team-filtered to hostiles, GE_Damage w/ SetByCaller.Damage applied
-	// to each — authority only.
+	// Montage GameplayEvents: WindowBegin/WindowEnd bound the strike phase (socket sweep runs between
+	// them), BeatEnd ends the attack from the clip's own timeline.
 	UFUNCTION()
 	void OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData);
+
+	/** Start/stop the fist socket sweep (authority only; idempotent). Stop also runs on EndAbility so an
+	 *  interrupted swing can't leave a detector ticking. */
+	void StartHitWindow();
+	void StopHitWindow();
+
+	/** A physically-touched, pre-filtered victim from the sweep task — apply damage + fight noise. */
+	UFUNCTION()
+	void OnSweepHit(const FHitResult& Hit);
 
 	// --- Avatar access, pawn-class-agnostic (hero AND infected run this same ability) ---
 	USkeletalMeshComponent* GetAvatarMesh() const;
@@ -71,19 +90,77 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_L = nullptr;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_R = nullptr;
 
-	// The tag the hit-window notify sends (matched in OnMontageEvent). Left unset = defaults to
-	// Event.Montage.Melee.Hit at activation (can't read the native tag registry in the CDO ctor).
+	// RETIRED (socket-sweep windows replaced the single-frame hit event). Kept so BP children with a
+	// serialized value still load clean; nothing reads it. Delete at the native-class batch.
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee") FGameplayTag HitWindowEventTag;
+
+	// --- Socket-swept hit detection (see UAZ_AT_MeleeSweep) ---
+	/** Sphere swept along the strike socket's path each tick. Fist ~12; claws slightly bigger. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "1", ForceUnits = "cm"))
+	float SweepSphereRadius = 12.f;
+	/** Strike sockets per hand (bone FNames, not asset paths — fine per project rules). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_L = TEXT("hand_l");
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_R = TEXT("hand_r");
 
 	// --- Damage (S1 spine) ---
 	/** GE applied to each swept hostile; magnitude rides SetByCaller.Damage. Default = UAZ_GE_Damage. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") TSubclassOf<UGameplayEffect> DamageEffect;
 	/** Fists = 10: five punches down a standard 50 HP Chalkie. Weapons override per-ability (BP data). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0")) float DamageAmount = 10.f;
-	/** Sweep reach forward from the avatar's center (cm) and the sphere radius swept along it.
-	 *  Effective max contact ~= 0.8*Radius (start offset) + Range + Radius — fist 90/40 ≈ 1.6m total. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 90.f;
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 40.f;
+	/** NO LONGER the damage shape (the socket sweep is): these only size FindWarpTarget's search sweep —
+	 *  what's worth lunging at. Damage = the fist's actual path (SweepSphereRadius). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRange = 90.f;
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (ClampMin = "0", ForceUnits = "cm")) float MeleeRadius = 40.f;
+
+	/** How long the montage's root motion is allowed to drive the CAPSULE, in seconds. 0 = the whole
+	 *  montage (the original behaviour, and correct for in-place punches).
+	 *
+	 *  Set this on lunge clips whose recovery tail keeps travelling. RTG_RM_Fists_Punch_Heavy2Idle moves
+	 *  202cm total but only 131cm of that lands before contact — the remaining 71cm plays out over the
+	 *  1.7s recovery at ~42 cm/s. A struck Chalkie only stumbles back at 8-14 cm/s, so that tail walks the
+	 *  hero straight through the knockback and makes it look like the reaction never fired. Ending the RM
+	 *  bridge at the hit keeps the recovery animating while the capsule stays put, so the victim's stumble
+	 *  is the only movement on screen.
+	 *
+	 *  Only the capsule stops — the montage plays to completion either way. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation", meta = (ClampMin = "0", ForceUnits = "s"))
+	float RootMotionSeconds = 0.f;
+
+	// --- MOTION WARPING ---
+	// A lunging punch clip covers whatever distance the animator authored (RTG_RM_Fists_Punch_Heavy2Idle
+	// travels 202cm). Without warping that distance is a constant, so the same punch overshoots a target
+	// at 90cm and falls short of one at 250cm. Warping rescales the clip's own root motion to land on the
+	// real target. Unlike the Chalkie (whose claw clips are in-place), these clips carry real translation,
+	// so SkewWarp takes its scale-and-shear branch — which is where MaxSpeedClampRatio is live.
+	//
+	// No BT task on the player side, so the ability picks its own target: same forward sweep + cone + team
+	// filter as the damage window below, just at a longer reach.
+
+	/** Register a warp target on activation so a montage warp window has something to resolve. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp")
+	bool bUseMotionWarping = true;
+
+	/** Must match WarpTargetName on the montage's MotionWarping notify — they rendezvous by FName, and a
+	 *  mismatch is a silent no-op rather than an error. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping"))
+	FName WarpTargetName = TEXT("MeleeTarget");
+
+	/** How far to look for something worth lunging at. Beyond this we register nothing and the clip plays
+	 *  its authored distance — deliberately: warping the player across a room at an unrelated enemy is
+	 *  worse than a whiff. Keep it near the clip's own travel (202cm) so the warp scales rather than
+	 *  invents distance. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
+	float WarpSearchDistance = 280.f;
+
+	/** Where the warp point sits relative to the target, measured back along the target->attacker vector.
+	 *  Aiming at their centre would park us inside their capsule; this stops us at punching range.
+	 *  Contact reaches ~MeleeRange + MeleeRadius (90+40), so 100 lands comfortably inside it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
+	float WarpApproachDistance = 100.f;
+
+	/** Nearest hostile in front within WarpSearchDistance, or null. Mirrors the hit sweep's filters so the
+	 *  thing we lunge at is the thing the damage window would hit. */
+	AActor* FindWarpTarget() const;
 
 	// GEs applied to the owner on each activation — e.g. GE_CombatReady to REFRESH the fists-up stance every punch.
 	// The GE owns its own duration + refresh-on-reapply stacking; this just re-applies it. Set in the BP ability.
@@ -91,6 +168,14 @@ protected:
 
 	// --- Runtime state, latched at activation ---
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* MontageTask = nullptr;
+	/** Live socket sweep between WindowBegin/WindowEnd; null outside the strike phase. */
+	UPROPERTY() class UAZ_AT_MeleeSweep* SweepTask = nullptr;
+	/** Generation of THIS activation's DriveRootMotion — EndAbility releases via ReleaseRootMotion so an
+	 *  end firing after a reaction (flinch/step-back) has taken over cannot kill the newer move. */
+	uint64 RootMotionGen = 0;
+	/** Guard for the notify-driven beat (BeatEnd + margin): ends the ability if the event never arrived.
+	 *  Member so a retriggered attack RESETS it. Cleared in EndAbility. */
+	FTimerHandle BeatWatchdog;
 	UPROPERTY(EditDefaultsOnly) EAZ_MeleeHand Hand = EAZ_MeleeHand::Left;
 	bool bIsMovingLatched = false;
 	FGameplayTag ProfileTag;          // current Weapon.* — used by SelectMontage when CHT lands

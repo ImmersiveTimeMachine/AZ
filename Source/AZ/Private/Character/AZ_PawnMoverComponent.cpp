@@ -5,7 +5,9 @@
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Character/AZ_PawnMovementMode_RMAction.h"
 #include "DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.h"   // FJumpImpulseEffect
+#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "MoverDataModelTypes.h"   // FMoverDefaultSyncState (patch probe below)
+#include "MoverTypes.h"            // Mover_AnimRootMotion
 
 // ---- COMPILE-TIME PROBE for the local Mover engine patch (project_local_plugin_patches #5,
 // docs/engine-patches/mover-crouch-skipinterp.patch). ----
@@ -96,6 +98,36 @@ bool UAZ_PawnMoverComponent::Jump()
 	JumpMove->UpwardsSpeed = UpwardsSpeed;
 	QueueInstantMovementEffect(JumpMove);
 	return true;
+}
+
+uint64 UAZ_PawnMoverComponent::DriveRootMotion(float Seconds)
+{
+	if (Seconds <= 0.f)
+	{
+		return 0;
+	}
+	if (GetOwnerRole() == ROLE_SimulatedProxy)
+	{
+		return 0;   // proxies follow the replicated transform
+	}
+
+	// Replace, don't stack: the move is OverrideAll — a second live one (or one outliving its montage)
+	// would apply the ~zero root delta the loco clips keep writing and freeze the pawn.
+	CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+
+	const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
+	RMMove->DurationMs = Seconds * 1000.f;
+	QueueLayeredMove(RMMove);
+	return ++RootMotionGeneration;
+}
+
+void UAZ_PawnMoverComponent::ReleaseRootMotion(uint64 Generation)
+{
+	if (Generation == 0 || Generation != RootMotionGeneration)
+	{
+		return;   // superseded (or never queued): the live move belongs to a newer owner — leave it alone
+	}
+	CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 }
 
 void UAZ_PawnMoverComponent::OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd)

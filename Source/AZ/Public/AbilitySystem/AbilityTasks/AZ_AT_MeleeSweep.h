@@ -6,17 +6,32 @@
 #include "Abilities/Tasks/AbilityTask.h"
 #include "AZ_AT_MeleeSweep.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZMeleeSweepDelegate, const TArray<FHitResult>&, Hits);
+class USkeletalMeshComponent;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZMeleeHitDelegate, const FHitResult&, Hit);
 
 /**
- * THE shared melee targeting primitive (batch item, wired in after the next restart): one configurable
- * forward sweep + angular cone + team filter, packaged as an ability task so EVERY melee ability —
- * fists, zombie claws, knife/bat later — resolves its hit window through the same node with per-weapon
- * numbers. Server-authoritative by convention: call it only on the authority path of the hit window.
+ * SOCKET-SWEPT hit detection — the well-known AAA melee shape, replacing the old actor-forward volume
+ * at a hand-placed contact frame (the source of every melee timing bug this project has had: the
+ * contact moment had to be GUESSED per clip, and the guess was wrong twice on one clip).
  *
- * v1 resolves synchronously on Activate (melee is an instant test at the notify frame); it is still a
- * task (not a static) so BP weapon abilities get a latent-style node with a delegate, and so a future
- * multi-frame sweep window (sweeping the hand socket across several frames) keeps the same call shape.
+ * Runs between the montage's WindowBegin/WindowEnd events (GA_MeleeAttack starts/stops it): each tick,
+ * sweeps a small sphere from the strike socket's PREVIOUS world position to its current one.
+ *  - The frame the fist/claw actually touches a pawn IS the hit — contact timing is physics, not data.
+ *  - Prev→current segment sweep: a fast swing cannot tunnel through a capsule between frames.
+ *  - GetSocketLocation is WORLD space — accurate under motion warping (reads where the hand really is,
+ *    not where the clip authored it), and immune to the mesh-space/actor-space confusion that produced
+ *    garbage measurements before.
+ *  - No facing cone: the fist's actual path IS the filter. The cone was a patch for an actor-space
+ *    volume that could "hit" things the hand never approached.
+ *
+ * Filters (all in here so the ability just applies damage): self, once-per-target-per-swing, hostiles
+ * only, and corpses (permanent corpses keep a hostile team + live ASC — audit rules-finding #2: a dead
+ * body must not eat a single-target punch meant for the live attacker behind it). bSingleTarget: the
+ * first CONSUMED hit ends detection — a punch is not a cleave; multi-hit weapons flip the flag.
+ *
+ * State lives HERE, on the ability task instance — deliberately not on a notify state, whose objects
+ * are shared between all concurrent players of the montage (the classic engine trap).
  */
 UCLASS()
 class AZ_API UAZ_AT_MeleeSweep : public UAbilityTask
@@ -24,24 +39,31 @@ class AZ_API UAZ_AT_MeleeSweep : public UAbilityTask
 	GENERATED_BODY()
 
 public:
-	/** SweepRange/Radius in cm from the avatar; ConeHalfAngleDegrees rejects hits off the facing;
-	 *  bHostilesOnly applies the team-attitude filter; bSingleTarget keeps only the nearest hit. */
+	UAZ_AT_MeleeSweep(const FObjectInitializer& ObjectInitializer);
+
+	/** Start sweeping SocketName every tick until EndTask (the ability calls that on WindowEnd/end). */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Ability|Tasks",
 		meta = (HidePin = "OwningAbility", DefaultToSelf = "OwningAbility", BlueprintInternalUseOnly = "TRUE"))
-	static UAZ_AT_MeleeSweep* MeleeSweep(UGameplayAbility* OwningAbility, float SweepRange = 160.f,
-		float SweepRadius = 60.f, float ConeHalfAngleDegrees = 55.f, bool bHostilesOnly = true,
-		bool bSingleTarget = true);
+	static UAZ_AT_MeleeSweep* MeleeSweepWindow(UGameplayAbility* OwningAbility, FName SocketName,
+		float SphereRadius = 12.f, bool bHostilesOnly = true, bool bSingleTarget = true);
 
 	virtual void Activate() override;
+	virtual void TickTask(float DeltaTime) override;
 
-	/** Filtered hits, nearest-first. Broadcast exactly once (empty array = whiff). */
+	/** One broadcast per valid target, at the actual moment of contact. */
 	UPROPERTY(BlueprintAssignable)
-	FAZMeleeSweepDelegate OnCompleted;
+	FAZMeleeHitDelegate OnHit;
 
-protected:
-	float SweepRange = 160.f;
-	float SweepRadius = 60.f;
-	float ConeHalfAngleDegrees = 55.f;
+private:
+	FName SocketName;
+	float SphereRadius = 12.f;
 	bool bHostilesOnly = true;
 	bool bSingleTarget = true;
+
+	TWeakObjectPtr<USkeletalMeshComponent> Mesh;
+	FVector PrevLocation = FVector::ZeroVector;
+	bool bHasPrevious = false;
+	/** Single-target punch landed — keep ticking cheaply but detect nothing further. */
+	bool bConsumed = false;
+	TSet<TWeakObjectPtr<AActor>> AlreadyHit;
 };

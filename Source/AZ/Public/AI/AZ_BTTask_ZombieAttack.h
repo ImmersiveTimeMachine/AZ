@@ -56,7 +56,45 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AZ|Grab", meta = (ClampMin = "5"))
 	float GrabTimeoutSeconds = 30.f;
 
+	// ---- MOTION WARPING (replaces the per-tick facing override) ----
+	// The old soft-track steered the ORIENTATION system for the whole task, so the zombie kept turning
+	// after the claw had already committed (reads as aimbot) and it fought the "moving and fighting never
+	// overlap" rule on the same channel movement uses. Warping instead deforms the montage's own
+	// root-motion delta, inside a window the animator authors — the zombie tracks during wind-up and
+	// legitimately MISSES a late dodge.
+
+	/** Use motion warping for mid-swing tracking. False = fall back to the legacy facing override
+	 *  (kept so the two can be A/B'd in PIE without a rebuild). */
+	UPROPERTY(EditAnywhere, Category = "AZ|Warp")
+	bool bUseMotionWarping = true;
+
+	/** Rendezvous name between the warp target we register here and the WarpTargetName on the montage's
+	 *  MotionWarping notify. Must match the notify exactly or the window is a no-op. */
+	UPROPERTY(EditAnywhere, Category = "AZ|Warp", meta = (EditCondition = "bUseMotionWarping"))
+	FName WarpTargetName = TEXT("AttackTarget");
+
+	/** How far IN FRONT of the target the warp point sits, measured back along the target->zombie vector
+	 *  (so it tracks a strafing player automatically). This is where translation warping parks the body.
+	 *
+	 *  It matters because the claw clips are IN-PLACE: with no root translation of their own, SkewWarp
+	 *  takes its "add translation" branch and eases the zombie from where it stood at window-open all the
+	 *  way ONTO the warp point. Aim that point at the target's centre and the zombie ends up standing
+	 *  inside them, so it is offset back to claw range instead.
+	 *
+	 *  Sanity band: capsules are 25cm radius each (50cm hard floor) and the zombie's damage sweep reaches
+	 *  ~200cm (MeleeRange 110 + MeleeRadius 50 + start offset). 120 sits comfortably between the two.
+	 *  Since swings only start within AZ_MaxAttackStartDistance (180cm), the most this can ever move a
+	 *  zombie is ~60cm across the whole window — a lean-in, not a slide. */
+	UPROPERTY(EditAnywhere, Category = "AZ|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "50", ForceUnits = "cm"))
+	float WarpApproachDistance = 120.f;
+
 private:
+	/** Point the pawn's warping component at the chase target's root, in follow mode so a strafing target
+	 *  is re-read every frame rather than aimed at once. No-op when warping is off or either side is
+	 *  missing. Called before the ability activates — the montage can start synchronously. */
+	void RegisterWarpTarget(UBehaviorTreeComponent& OwnerComp);
+	void ClearWarpTarget();
+
 	void OnAbilityEnded(const struct FAbilityEndedData& EndedData);
 	void Cleanup();
 

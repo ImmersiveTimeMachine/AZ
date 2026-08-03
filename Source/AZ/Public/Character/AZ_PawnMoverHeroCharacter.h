@@ -427,6 +427,14 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Movement")
 	TObjectPtr<UAZ_MovementDirectionCapabilityComponent> MovementCapability;
 
+	/** Motion warping — deforms the root-motion delta of an attack montage so a lunge lands on its target
+	 *  instead of covering the clip's authored distance. Self-wiring: UMoverComponent::BeginPlay finds it
+	 *  by class and builds a UMotionWarpingMoverAdapter. Idle unless a montage carries a MotionWarping
+	 *  notify AND gameplay registered a matching named target, so owning it costs nothing per frame.
+	 *  Mirrors the Chalkie side (AAZ_PawnMoverInfectedCharacter). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Movement")
+	TObjectPtr<class UMotionWarpingComponent> MotionWarpingComponent;
+
 	/** Default team id for this pawn class. Player pawns default to 0; AI subclasses
 	 *  set their team in the constructor or at spawn. Read by AI perception. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|AI")

@@ -76,4 +76,121 @@ public:
 	 *  Mismatches are logged to LogAZ. Run this on every paired build before trusting it in PIE. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
 	static bool VerifyPairedMontages(UAnimMontage* MontageA, UAnimMontage* MontageB, float ToleranceSeconds = 0.01f);
+
+	// ---- MOTION WARPING ----
+	// UAnimNotifyState_MotionWarping carries an Instanced URootMotionModifier. Python can add a notify
+	// state but cannot construct and populate the instanced modifier sub-object, so the window it makes
+	// is inert. This bridge creates both halves together.
+
+	/**
+	 * Add (or replace) a MotionWarping notify window on a montage, with a SkewWarp modifier configured
+	 * for target tracking. The window is what bounds the warp in TIME: outside it the clip's root motion
+	 * is untouched, which is how a swing can commit and legitimately miss a late dodge.
+	 *
+	 * Rotation-only is the default (bWarpTranslation=false) and is the safe starting point — it can
+	 * re-aim a swing but can never displace the pawn. Turn translation on once the rotation half reads
+	 * correctly in PIE.
+	 *
+	 * WarpTargetName must match the name gameplay registers via
+	 * UMotionWarpingComponent::AddOrUpdateWarpTarget* — they rendezvous by FName, and a mismatch is a
+	 * silent no-op rather than an error.
+	 *
+	 * @param SectionName   Section to place the window in. NAME_None = whole montage.
+	 * @param StartFraction Window start as a fraction (0-1) of that section's length.
+	 * @param EndFraction   Window end as a fraction of the section's length. Must exceed StartFraction.
+	 * @param RotationType  0 = Default (match target's rotation), 1 = Facing (turn to face it).
+	 * @param RotationMethod 0 = Slerp, 1 = SlerpWithClampedRate, 2 = ConstantRate, 3 = Scale.
+	 *                       NOTE: Scale is a no-op on a clip whose own root yaw is zero (its scale factor
+	 *                       collapses to 0). For in-place clips use Slerp or SlerpWithClampedRate.
+	 * @param MaxRotationRate Degrees/sec ceiling. Only read by ClampedRate/ConstantRate. 0 = uncapped.
+	 * @param AddTranslationEasingFunc EAlphaBlendOption. ONLY used when the clip has no translation of its
+	 *                       own — SkewWarp then eases the actor from where it stood at window-open to the
+	 *                       warp target across the window. 0=Linear, 2=HermiteCubic, 9=CircularOut
+	 *                       (fast early, settled by contact — the lunge shape).
+	 * @param MaxSpeedClampRatio Caps warped speed at this multiple of the clip's authored speed. ONLY
+	 *                       applies on the branch where the clip HAS translation; it is dead on in-place
+	 *                       clips (their authored speed is 0, so the clamp would be 0). 0 = no clamp.
+	 * @return true if the window was added (reason logged to LogAZ on failure). Does NOT save.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static bool AddMotionWarpingNotify(
+		UAnimMontage* Montage,
+		FName SectionName,
+		float StartFraction,
+		float EndFraction,
+		FName WarpTargetName,
+		bool bWarpTranslation = false,
+		bool bWarpRotation = true,
+		uint8 RotationType = 1,
+		uint8 RotationMethod = 1,
+		float MaxRotationRate = 360.f,
+		float WarpRotationTimeMultiplier = 1.f,
+		uint8 AddTranslationEasingFunc = 2,
+		float MaxSpeedClampRatio = 0.f);
+
+	/** Remove every MotionWarping notify window from a montage. Returns how many were removed. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static int32 RemoveMotionWarpingNotifies(UAnimMontage* Montage);
+
+	/** Remove every SendGameplayEvent notify carrying EventTagName (e.g. retiring the old single-frame
+	 *  "Event.Montage.Melee.Hit" contact markers after the socket-sweep windows replaced them). Returns
+	 *  how many were removed. Does NOT save. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static int32 RemoveGameplayEventNotifies(UAnimMontage* Montage, FName EventTagName);
+
+	/**
+	 * Add a hit window / anim-led gameplay beat: a UAZ_AnimNotify_SendGameplayEvent carrying EventTag,
+	 * which fires that GameplayEvent on the owning actor's ASC at exactly that frame. This is what
+	 * UAZ_AT_PlayMontageAndWaitForEvent is listening for — it subscribes to gameplay event TAGS
+	 * (AddGameplayEventTagContainerDelegate), NOT to montage notify names.
+	 *
+	 * Use this for Event.Montage.Melee.Hit and friends. AddNamedNotify below will NOT work for that: a
+	 * bare named notify sends no event and is silently inert.
+	 *
+	 * Python cannot build this (UAnimSequenceBase::Notifies is protected AND the notify object has to be
+	 * constructed and have its tag set), so a montage made from a raw sequence has no other way to carry
+	 * a hit window.
+	 *
+	 * Takes the tag as an FName and resolves it through FGameplayTag::RequestGameplayTag, which both
+	 * validates against the tag registry (a typo fails loudly instead of authoring a dead notify) and
+	 * makes this callable from Python — FGameplayTag::TagName is read-only there, so script has no way to
+	 * build a tag struct from a string.
+	 *
+	 * @param TrackName Notify track to place it on; created if absent.
+	 * @param bReplaceExisting Remove any existing SendGameplayEvent notify carrying the same tag first,
+	 *                         so re-running a build script cannot stack duplicate hit windows.
+	 * @return true on success. Does NOT save.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static bool AddGameplayEventNotify(
+		UAnimMontage* Montage,
+		FName EventTagName,
+		float TriggerTime,
+		FName TrackName = TEXT("1"),
+		bool bReplaceExisting = true);
+
+	/**
+	 * Add a plain NAMED notify — no notify object, no state.
+	 *
+	 * WARNING: this does NOT reach GAS. Our montage task listens for gameplay event tags, so a bare named
+	 * notify fires nothing no matter what you name it (naming it "Event.Montage.Melee.Hit" is especially
+	 * misleading — it LOOKS right in a notify dump and does nothing). For hit windows use
+	 * AddGameplayEventNotify above. This one is only for AnimBP-side `AnimNotify_<Name>` handlers.
+	 *
+	 * @param TrackName Notify track to place it on; created if absent.
+	 * @param bReplaceExisting Remove any existing notify with the same NotifyName first.
+	 * @return true on success. Does NOT save.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static bool AddNamedNotify(
+		UAnimMontage* Montage,
+		FName NotifyName,
+		float TriggerTime,
+		FName TrackName = TEXT("Notifies"),
+		bool bReplaceExisting = true);
+
+	/** One line per notify/notify-state: "idx name track=.. start=.. dur=.. [warp target=.. rot=.. trans=..]".
+	 *  The read-back for AddMotionWarpingNotify — verify placement before trusting it in PIE. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static TArray<FString> DumpMontageNotifies(UAnimMontage* Montage);
 };

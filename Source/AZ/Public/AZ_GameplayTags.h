@@ -264,6 +264,13 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag State_Combat_Engaged_Active;    // holds an attack slot: press the attack
     FGameplayTag State_Combat_Engaged_Passive;   // live target, no slot: ring at RingDistance, menace, wait
 
+    FGameplayTag State_Combat_Staggered;  // a stagger-class reaction owns the body (hit-react flinch OR the
+                                          //  pack step-back). EXPLICIT gate with an explicit duration, set
+                                          //  where the reaction starts — replaces inferring "staggered" from
+                                          //  Montage_IsPlaying, where blend timing silently set AI pacing.
+                                          //  (A′ loose-tag form today; becomes GA_HitReact's
+                                          //  ActivationOwnedTags at arch step A.)
+
     // --- GRAB / grapple (TLOU-style "caught") ---
     FGameplayTag State_Combat_Grabbing;   // Chalkie: mid-grab commit — holds its Active slot, plays the grab
                                           //  pose, and is exempt from the rule-8 flinch-cancel while grabbing
@@ -281,8 +288,20 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag State_Grab_Wrestling;    // the hold loop: mash window is open, outcome undecided
     FGameplayTag State_Grab_Resolving;    // outcome section queued/running — no longer interruptible
 
+    // --- Reactions (arch step A: event-driven, "events drive, timers guard") ---
+    FGameplayTag Event_Combat_HitReact;     // HandleDamaged -> GA_HitReact: survivable hit, play the variant flinch
+    FGameplayTag Event_Combat_StepBack;     // horde -> GA_HitReact: pack recoil beat (payload: montage + optional shorter beat)
+    FGameplayTag Event_Combat_BeatEnd;      // AUTHORED ON THE MONTAGE at the measured beat — the timeline itself
+                                            //  ends the reaction/bite (rate-scale/interrupt-safe); timers only guard
+
     // --- Damage spine (S1): montage hit windows, death, SetByCaller magnitudes ---
-    FGameplayTag Event_Montage_Melee_Hit;   // fired by UAZ_AnimNotify_SendGameplayEvent inside attack montages
+    FGameplayTag Event_Montage_Melee_Hit;   // RETIRED as the damage trigger (kept for old data): the single
+                                            //  hand-placed contact frame was the source of every timing bug
+    FGameplayTag Event_Montage_Melee_WindowBegin;   // strike phase opens: GA_MeleeAttack starts the SOCKET
+                                                    //  SWEEP — the frame the fist actually touches a pawn IS
+                                                    //  the hit; contact timing is physics, not authored data
+    FGameplayTag Event_Montage_Melee_WindowEnd;     // strike phase closes: sweep stops; anything not touched
+                                                    //  was a legitimate whiff
     FGameplayTag Event_Death;               // sent to the dying actor's ASC when Vitals Health hits 0
     FGameplayTag Event_Grabbed;             // sent to the PLAYER's ASC to trigger GA_PlayerGrabbed (like Event_Death->GA_Death)
     FGameplayTag Event_GrabEscaped;         // player -> grabber ASC: mash won, shove me off (GA_ChalkieGrab plays GrabEscapeMontage)

@@ -58,6 +58,39 @@ public:
 	 *  this override applies the per-gait speed above. Reached via the bHandleJump p`re-sim path
 	 *  (OnMoverPreSimulationTick → CanActorJump → Jump). */
 	virtual bool Jump() override;
+
+	/**
+	 * THE root-motion bridge. On a Mover pawn a bare Montage_Play animates the mesh in place — the clip's
+	 * root delta only reaches the CAPSULE while an FLayeredMove_RootMotionAttribute is live. Every montage
+	 * that is supposed to move the body (attacks, hit-reacts, step-backs, death slides) needs this.
+	 *
+	 * Cancel-and-replace, never stack: a second call supersedes the first. That matters because the move
+	 * is OverrideAll — while one is live past its montage, RootMotionFromEverything keeps writing a ~zero
+	 * root delta from whatever in-place loco clips are playing, and the override faithfully applies it:
+	 * the pawn freezes. (Intermittent by nature — it depends on what else is playing — which is exactly
+	 * why it must not be left to call sites to get right.)
+	 *
+	 * Seconds is the GAMEPLAY BEAT, not the clip length. They are frequently different: the Chalkie's
+	 * KnockBack_Chase clips recoil for ~45% of their length and then walk back in, and a lunging punch
+	 * keeps travelling through its recovery tail. Pass how long the capsule should follow the animation,
+	 * and cut the montage at the same moment.
+	 *
+	 * Returns a GENERATION id (0 = nothing queued: no-op seconds or sim proxy). Hold onto it and end the
+	 * drive with ReleaseRootMotion(Gen) — never with a raw CancelFeaturesWithTag, which kills WHOEVER'S
+	 * move is live, including a successor's. (Concretely: a punch's EndAbility firing after a flinch has
+	 * started must not cancel the flinch's knockback. Generation matching makes that ordering-proof.)
+	 *
+	 * Simulated proxies are skipped — they follow the replicated transform instead.
+	 *
+	 * NOTE: deliberately does NOT cover three special cases that are not this pattern —
+	 * AZ_HeroPawn's permanent (DurationMs = -1) bridge, AZ_MoverAnimInstance's per-frame recomputed
+	 * transition remainder, and FLayeredMove_AZ_GrabAnchor (a different layered move entirely).
+	 */
+	uint64 DriveRootMotion(float Seconds);
+
+	/** End a drive started by DriveRootMotion — no-ops if that drive has already been superseded (or
+	 *  Generation is 0), so a stale caller can never cancel a newer owner's move. */
+	void ReleaseRootMotion(uint64 Generation);
 	
 protected:
 	// Override OnRegister so we can populate SharedSettings BEFORE the parent calls
@@ -66,4 +99,9 @@ protected:
 	virtual void OnRegister() override;
 	
 	virtual void OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd) override;
+
+private:
+	/** Monotonic id of the most recent DriveRootMotion call — ReleaseRootMotion only cancels if it still
+	 *  holds the latest. Never reset (a uint64 will not wrap in a play session). */
+	uint64 RootMotionGeneration = 0;
 };

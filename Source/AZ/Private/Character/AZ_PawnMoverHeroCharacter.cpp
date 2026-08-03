@@ -22,7 +22,7 @@
 #include "GameplayTagContainer.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
-#include "InputMappingContext.h"
+#include "MotionWarpingComponent.h"
 #include "MoverDataModelTypes.h"
 #include "MoverPoseSearchTrajectoryPredictor.h"
 #include "NetworkPredictionComponent.h"
@@ -135,6 +135,10 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 
 	// --- "Where can I move" clearance query (no tick — ProduceInput calls it to clamp the move intent) ---
 	MovementCapability = CreateDefaultSubobject<UAZ_MovementDirectionCapabilityComponent>(TEXT("MovementCapability"));
+
+	// Motion warping. The Mover component discovers this by class in BeginPlay and adapts it; nothing else
+	// needs wiring. Inert until an attack montage carries a warp window and the ability registers a target.
+	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 }
 
 void AAZ_PawnMoverHeroCharacter::BeginPlay()

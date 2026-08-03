@@ -14,6 +14,19 @@ void UAZ_InfectedAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
 
+	// RM bridge (anim side) — MUST be set here. This class derives from the ENGINE UAnimInstance, not from
+	// UAZ_AnimInstance, so it never inherited that class's identical line and was sitting on the engine
+	// default of RootMotionFromMontagesOnly. UAnimInstance::ShouldExtractRootMotion() is true ONLY for
+	// RootMotionFromEverything / IgnoreRootMotion, so on the default the "RootMotionDelta" attribute is
+	// never written at all. Everything downstream is gated on that attribute existing:
+	//   - FLayeredMove_RootMotionAttribute checks bDidAttrHaveRootMotion and bails, so NO montage could
+	//     ever move the Chalkie's capsule (knockback stumble, step-back, death slide).
+	//   - Motion warping hooks ConvertLocalRootMotionToWorld, which is called INSIDE that same check —
+	//     so every warp window on a Chalkie montage was silently inert too.
+	// It hid for so long because the Rotter's old hit-react (AM_Zombie_KB_Chase_1) has 0.0cm of root
+	// travel: there was nothing to see missing. Swapping to a clip with real travel exposed it.
+	RootMotionMode = ERootMotionMode::RootMotionFromEverything;
+
 	Cached_Pawn = Cast<AAZ_PawnMoverInfectedCharacter>(TryGetPawnOwner());
 	if (Cached_Pawn)
 	{

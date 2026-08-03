@@ -2,26 +2,28 @@
 
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"
+#include "AbilitySystem/AbilityTasks/AZ_AT_MeleeSweep.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "AbilitySystem/GameplayEffects/AZ_GE_Damage.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"   // BeatEnd notify scan
+#include "Animation/AZ_CombatMontage.h"
 #include "Animation/AZ_InfectedAnimInstance.h"
 #include "Animation/AZ_MoverAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "AZ_GameplayTags.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"   // TActorIterator (nearest-hostile distance in the hit-window diagnostic)
 #include "GameplayEffect.h"
 #include "DrawDebugHelpers.h"
 #include "GenericTeamAgentInterface.h"
+#include "MotionWarpingComponent.h"
 #include "Perception/AISense_Hearing.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Character/AZ_PawnMoverComponent.h"
-#include "MoverComponent.h"
-#include "MoverTypes.h"   // Mover_AnimRootMotion
-#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 
 UAZ_GA_MeleeAttack::UAZ_GA_MeleeAttack()
 {
@@ -100,21 +102,57 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	bIsMovingLatched = ResolveAvatarIsMoving();
 
-	// CDO ctors run before native-tag registration — resolve the default hit-window tag lazily.
-	if (!HitWindowEventTag.IsValid())
-	{
-		HitWindowEventTag = FAZ_GameplayTags::Get().Event_Montage_Melee_Hit;
-	}
-
 	UAnimMontage* Montage = SelectMontage();
 	if (!Montage)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	
+
+	// Warp target BEFORE the montage starts: a warp window opening on frame 0 resolves its target the
+	// moment it becomes relevant, so registering after would race the first frame of the lunge.
+	// Finding nothing is a legitimate outcome — the clip then plays its authored distance unwarped.
+	if (bUseMotionWarping && !WarpTargetName.IsNone())
+	{
+		if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+		{
+			if (UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
+			{
+				if (const AActor* WarpTarget = FindWarpTarget())
+				{
+					if (USceneComponent* TargetRoot = WarpTarget->GetRootComponent())
+					{
+						// VectorFromTargetToOwner keeps the warp point on OUR side of them however they
+						// turn; bFollowComponent re-reads it each frame so a target that backs off mid-
+						// punch is still tracked. All six trailing args spelled out because the two
+						// overloads differ only in the 5th and both default it (ambiguous otherwise).
+						Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None,
+							/*bFollowComponent*/ true,
+							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
+							FVector(WarpApproachDistance, 0.f, 0.f), FRotator::ZeroRotator);
+					}
+				}
+				else
+				{
+					// Nothing to lunge at — clear any stale target from a previous swing so this punch
+					// cannot warp toward whoever the LAST one was aimed at.
+					Warping->RemoveWarpTarget(WarpTargetName);
+				}
+			}
+		}
+	}
+
+	// BEAT CLOCK (arch step A, "events drive, timers guard"): if the montage carries an authored
+	// Event.Combat.BeatEnd notify, THAT ends this attack — the animation timeline is the clock, so rate
+	// scale and interrupts propagate for free. This is how the zombie bite ends now (notify at the bite
+	// beat on the 8-10s clawing cycles — replaces GA_ZombieMelee's timer + generation-map hack). Hero
+	// punch clips carry no notify → BeatSeconds = clip length → behaviour unchanged.
+	const float BeatSeconds = FindBeatEndNotifyTime(Montage);
+
 	FGameplayTagContainer EventTags;
-	if (HitWindowEventTag.IsValid()) EventTags.AddTag(HitWindowEventTag);
+	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Montage_Melee_WindowBegin);
+	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Montage_Melee_WindowEnd);
+	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Combat_BeatEnd);
 
 	MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
 		this, FName("MeleeMontage"), Montage, EventTags,
@@ -142,20 +180,43 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
-			if (Avatar->GetLocalRole() != ROLE_SimulatedProxy)   // proxy follows the replicated transform
-			{
-				Mover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);  // replace, don't stack
-				const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
-				RMMove->DurationMs = Montage->GetPlayLength() * 1000.f;   // Rate is 1.0
-				Mover->QueueLayeredMove(RMMove);
-			}
+			// RootMotionSeconds 0 = the attack's beat (the BeatEnd notify when authored, else the whole
+			// montage — in-place punches). A positive value cuts the capsule loose even earlier so a
+			// lunge clip's travelling recovery tail cannot walk the attacker through the victim's
+			// knockback — see the property comment for the measured numbers.
+			const float RMDefault = (BeatSeconds > 0.f) ? BeatSeconds : Montage->GetPlayLength();
+			RootMotionGen = Mover->DriveRootMotion((RootMotionSeconds > 0.f)
+				? FMath::Min(RootMotionSeconds, Montage->GetPlayLength())
+				: RMDefault);
 		}
+	}
+
+	// WATCHDOG for the notify-driven beat: if the BeatEnd event never arrives (montage killed the same
+	// frame it would fire), end anyway — a zombie must not claw for the full 8-10s cycle on a missed
+	// notify. Guard, never the mechanism.
+	if (BeatSeconds > 0.f)
+	{
+		GetWorld()->GetTimerManager().SetTimer(BeatWatchdog,
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				if (IsActive())
+				{
+					EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+				}
+			}), BeatSeconds + 0.5f, false);
 	}
 }
 
 void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
+	if (const UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(BeatWatchdog);
+	}
+	// An interrupted swing must not leave a hit detector ticking past the ability.
+	StopHitWindow();
+
 	// Stop driving the capsule with the punch RM. No-op if none was queued; on an interrupted
 	// punch this cancels the layered move so it doesn't overrun its DurationMs. Self-heals for
 	// locomotion (the AnimInstance re-queues transition RM moves each frame as needed).
@@ -163,7 +224,20 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
-			Mover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+			// Generation-scoped: only cancels if OUR drive is still the live one. A raw
+			// CancelFeaturesWithTag here killed whoever's move was live — including a flinch that had
+			// already taken over when this end fired late (correct before only by call-ordering luck).
+			Mover->ReleaseRootMotion(RootMotionGen);
+			RootMotionGen = 0;
+		}
+		// Drop the warp target on EVERY exit, cancelled or not. A stale one would silently steer the next
+		// punch toward this swing's victim.
+		if (!WarpTargetName.IsNone())
+		{
+			if (UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
+			{
+				Warping->RemoveWarpTarget(WarpTargetName);
+			}
 		}
 	}
 
@@ -179,6 +253,64 @@ void UAZ_GA_MeleeAttack::CancelAbility(const FGameplayAbilitySpecHandle Handle, 
 
 void UAZ_GA_MeleeAttack::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
+}
+
+AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
+{
+	const AActor* Avatar = GetAvatarActorFromActorInfo();
+	if (!Avatar || WarpSearchDistance <= 0.f)
+	{
+		return nullptr;
+	}
+
+	// Same shape as the hit window's sweep (OnMontageEvent) so the thing we lunge at is the thing the
+	// damage sweep would hit — just reaching further, because closing the gap is the point.
+	const FVector Forward = Avatar->GetActorForwardVector().GetSafeNormal2D();
+	const FVector Start = Avatar->GetActorLocation();
+	const FVector End = Start + Forward * WarpSearchDistance;
+
+	TArray<FHitResult> Hits;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(AZMeleeWarpSearch), /*bTraceComplex*/ false, Avatar);
+	Avatar->GetWorld()->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
+		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(MeleeRadius), Params);
+
+	// SweepMulti returns hits ordered by distance, so the first survivor is the nearest.
+	for (const FHitResult& Hit : Hits)
+	{
+		AActor* Candidate = Hit.GetActor();
+		if (!Candidate || Candidate == Avatar)
+		{
+			continue;
+		}
+		// Must be genuinely in front — same cos(55 deg) cone the damage filter uses. Without this we
+		// would lunge at something beside us that the punch could never reach.
+		const FVector DirTo = (Candidate->GetActorLocation() - Avatar->GetActorLocation()).GetSafeNormal2D();
+		if (FVector::DotProduct(Forward, DirTo) < 0.574f)
+		{
+			continue;
+		}
+		if (FGenericTeamId::GetAttitude(Avatar, Candidate) != ETeamAttitude::Hostile)
+		{
+			continue;
+		}
+		// Don't lunge at corpses (mirrors the hit window's rule): permanent corpses keep a hostile team
+		// and a live ASC, so without a vitals check the punch would commit to a body on the floor.
+		UAbilitySystemComponent* TargetASC =
+			UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Candidate);
+		if (!TargetASC)
+		{
+			continue;
+		}
+		bool bHasVitals = false;
+		const float TargetHealth =
+			TargetASC->GetGameplayAttributeValue(UAZ_VitalsAttributeSet::GetHealthAttribute(), bHasVitals);
+		if (bHasVitals && TargetHealth <= 0.f)
+		{
+			continue;
+		}
+		return Candidate;
+	}
+	return nullptr;
 }
 
 UAnimMontage* UAZ_GA_MeleeAttack::SelectMontage() const
@@ -223,6 +355,49 @@ UAnimMontage* UAZ_GA_MeleeAttack::FindAnimSetMontage(const AActor* Avatar, FName
 	return Field ? Cast<UAnimMontage>(Field->GetObjectPropertyValue_InContainer(AnimSet)) : nullptr;
 }
 
+bool UAZ_GA_MeleeAttack::FindAnimSetCombatMontage(const AActor* Avatar, FName StructPropertyName, FAZ_CombatMontage& Out)
+{
+	Out = FAZ_CombatMontage();
+	if (!Avatar)
+	{
+		return false;
+	}
+	const FObjectProperty* SetProperty = CastField<FObjectProperty>(Avatar->GetClass()->FindPropertyByName(TEXT("AnimSet")));
+	const UObject* AnimSet = SetProperty ? SetProperty->GetObjectPropertyValue_InContainer(Avatar) : nullptr;
+	if (!AnimSet)
+	{
+		return false;
+	}
+	// Struct-typed BP variable on the anim set (e.g. "HitReact"). The exact-struct check matters: a BP
+	// variable with the right NAME but a different type must read as "not authored", not garbage.
+	const FStructProperty* Field = CastField<FStructProperty>(AnimSet->GetClass()->FindPropertyByName(StructPropertyName));
+	if (!Field || Field->Struct != FAZ_CombatMontage::StaticStruct())
+	{
+		return false;
+	}
+	Out = *Field->ContainerPtrToValuePtr<FAZ_CombatMontage>(AnimSet);
+	// An authored row with no montage assigned is still "not set" — callers fall back to the legacy field.
+	return Out.IsSet();
+}
+
+float UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(const UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return 0.f;
+	}
+	const FGameplayTag& BeatEnd = FAZ_GameplayTags::Get().Event_Combat_BeatEnd;
+	for (const FAnimNotifyEvent& Event : Montage->Notifies)
+	{
+		const UAZ_AnimNotify_SendGameplayEvent* Sender = Cast<UAZ_AnimNotify_SendGameplayEvent>(Event.Notify);
+		if (Sender && Sender->EventTag == BeatEnd)
+		{
+			return Event.GetTriggerTime();
+		}
+	}
+	return 0.f;
+}
+
 void UAZ_GA_MeleeAttack::OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData)
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
@@ -230,102 +405,98 @@ void UAZ_GA_MeleeAttack::OnMontageFinished(FGameplayTag EventTag, FGameplayEvent
 
 void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData)
 {
-	// THE HIT WINDOW (S1 damage spine). Server-authoritative: the predicted client plays the montage
-	// but only the authority deals damage (results replicate back via attributes/tags).
-	if (EventTag != HitWindowEventTag || !DamageEffect)
+	// THE BITE END: the montage's authored BeatEnd notify says this attack's beat is over — end the
+	// ability (the task stops the montage with its blend). This is the event-driven replacement for
+	// GA_ZombieMelee's BiteSeconds timer; hero clips carry no BeatEnd and never reach this branch.
+	if (EventTag == FAZ_GameplayTags::Get().Event_Combat_BeatEnd)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return;
+	}
+
+	// THE HIT WINDOW (socket-swept): the montage's WindowBegin/WindowEnd notifies bound the strike
+	// phase; between them UAZ_AT_MeleeSweep traces the fist socket every tick, and the frame the fist
+	// actually touches a pawn is the hit. Contact timing is physics now — the old single-frame notify
+	// (a per-clip GUESS that was wrong twice on one clip) and its cone/range/radius patches are gone.
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	if (EventTag == Tags.Event_Montage_Melee_WindowBegin)
+	{
+		StartHitWindow();
+		return;
+	}
+	if (EventTag == Tags.Event_Montage_Melee_WindowEnd)
+	{
+		StopHitWindow();
+	}
+}
+
+void UAZ_GA_MeleeAttack::StartHitWindow()
+{
+	// Server-authoritative: the predicted client plays the montage but only the authority detects and
+	// deals damage (results replicate back via attributes/tags).
+	const AActor* Avatar = GetAvatarActorFromActorInfo();
+	if (!Avatar || !Avatar->HasAuthority() || SweepTask)
 	{
 		return;
 	}
+	const FName Socket = (Hand == EAZ_MeleeHand::Left) ? StrikeSocket_L : StrikeSocket_R;
+	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this, Socket, SweepSphereRadius,
+		/*bHostilesOnly*/ true, /*bSingleTarget*/ true);
+	if (SweepTask)
+	{
+		SweepTask->OnHit.AddDynamic(this, &UAZ_GA_MeleeAttack::OnSweepHit);
+		SweepTask->ReadyForActivation();
+	}
+}
+
+void UAZ_GA_MeleeAttack::StopHitWindow()
+{
+	if (SweepTask)
+	{
+		SweepTask->EndTask();
+		SweepTask = nullptr;
+	}
+}
+
+void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
+{
+	// The task already filtered self / team / corpses / repeats — everything here is a legitimate,
+	// physically-touched victim. Apply damage + fight noise.
 	AActor* Avatar = GetAvatarActorFromActorInfo();
-	if (!Avatar || !Avatar->HasAuthority())
+	AActor* Target = Hit.GetActor();
+	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+	if (!Avatar || !Target || !TargetASC || !DamageEffect)
 	{
 		return;
 	}
 
-	// Forward sphere sweep, PRECISION form: start pushed a body-width AHEAD of center (a sphere swept
-	// from the center hits anything touching the attacker regardless of facing — rotated punches were
-	// landing), plus a per-hit angular cone filter below. Socket-accurate per-hand sweeps migrate to
-	// UAZ_AT_MeleeSweep at the batch (shared with weapons).
-	const FVector Forward = Avatar->GetActorForwardVector().GetSafeNormal2D();
-	const FVector Start = Avatar->GetActorLocation() + Forward * (MeleeRadius * 0.8f);
-	const FVector End = Start + Forward * MeleeRange;
-
-	TArray<FHitResult> Hits;
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(AZMeleeSweep), /*bTraceComplex*/ false, Avatar);
-	Avatar->GetWorld()->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(MeleeRadius), Params);
-
-	// SINGLE-TARGET: a punch is not a cleave — only the nearest hostile along the sweep takes the hit
-	// (SweepMulti returns hits ordered by distance; we stop after the first successful application).
-	// Multi-hit weapons later = a bool/count on the ability, per-weapon data.
-	TArray<AActor*> AlreadyHit;
-	for (const FHitResult& Hit : Hits)
+	FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(DamageEffect, GetAbilityLevel());
+	if (!Spec.IsValid())
 	{
-		AActor* Target = Hit.GetActor();
-		if (!Target || Target == Avatar || AlreadyHit.Contains(Target))
-		{
-			continue;
-		}
-		AlreadyHit.Add(Target);
-
-		// Angular precision: the hit must actually be IN FRONT (within ~55 deg of facing). This is what
-		// makes a rotated-away punch whiff — the swept volume alone is too forgiving at point-blank.
-		const FVector DirToHit = (Target->GetActorLocation() - Avatar->GetActorLocation()).GetSafeNormal2D();
-		if (FVector::DotProduct(Forward, DirToHit) < 0.574f)   // cos(55 deg)
-		{
-			continue;
-		}
-
-		// Team filter: only hostiles take the hit (no horde friendly-fire, no smacking your co-op partner).
-		if (FGenericTeamId::GetAttitude(Avatar, Target) != ETeamAttitude::Hostile)
-		{
-			continue;
-		}
-		UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
-		if (!TargetASC)
-		{
-			continue;
-		}
-		// CORPSES DON'T EAT PUNCHES (audit rules-finding #2): permanent corpses keep hostile team +
-		// live ASC — without this, the single-target break spent the hit on a dead body in front of a
-		// live attacker AND emitted pack-summoning noise at the corpse. Dead = 0 vitals -> next hit.
-		bool bHasVitals = false;
-		const float TargetHealth = TargetASC->GetGameplayAttributeValue(UAZ_VitalsAttributeSet::GetHealthAttribute(), bHasVitals);
-		if (bHasVitals && TargetHealth <= 0.f)
-		{
-			continue;
-		}
-
-		FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(DamageEffect, GetAbilityLevel());
-		if (Spec.IsValid())
-		{
-			Spec.Data->SetSetByCallerMagnitude(FAZ_GameplayTags::Get().SetByCaller_Damage, DamageAmount);
-			Spec.Data->GetContext().AddHitResult(Hit);   // death/hit-react abilities read direction from this
-			if (UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo())
-			{
-				SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
-			}
-			// FIGHT NOISE: a landed hit is loud — pack hearing (direction-agnostic) pulls nearby
-			// Chalkies into a wary investigation of the brawl, and every hit re-pins its CURRENT
-			// location. Instigator must be the hero-side party (attacker when the hero punches,
-			// victim when a zombie claws) — zombie hearing filters out friendly sources.
-			AActor* NoiseInstigator = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar) ? Target : Avatar;
-			// Loudness MULTIPLIES the listener's HearingRange: tunable per-ATTACK (BP vars on the
-			// ability — a knife stays quiet, a bat is loud; per-weapon noise = weapon parity data).
-			const float ImpactLoudness = ReadConfigFloat(this, TEXT("ImpactNoiseLoudness"), 1.4f);
-			const float ImpactMaxRange = ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f);
-			UAISense_Hearing::ReportNoiseEvent(Avatar->GetWorld(), Target->GetActorLocation(),
-				ImpactLoudness, NoiseInstigator, ImpactMaxRange, FName("Combat"));
-			// TEMP noise debug (remove with [ChalkieDiag]): sphere = the engine's ACTUAL carry for a
-			// 700-HearingRange listener — heard iff dist <= min(HearingRange, MaxRange) x Loudness
-			// (AISense_Hearing.cpp:147-152). Logging the LIVE loudness values also proves whether the
-			// BP CDO tuning actually reached this ability instance.
-			const float CarryRadius = FMath::Min(700.f, ImpactMaxRange) * FMath::Max(0.f, ImpactLoudness);
-			DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), CarryRadius, 24, FColor::Yellow, false, 2.f);
-			UE_LOG(LogTemp, Display, TEXT("[Noise] punch impact reported at %s instigator=%s loudness=%.1f maxRange=%.0f carry700=%.0f"),
-				*Target->GetActorLocation().ToCompactString(), *GetNameSafe(NoiseInstigator),
-				ImpactLoudness, ImpactMaxRange, CarryRadius);
-			break;   // single-target: nearest hostile only
-		}
+		return;
 	}
+	Spec.Data->SetSetByCallerMagnitude(FAZ_GameplayTags::Get().SetByCaller_Damage, DamageAmount);
+	Spec.Data->GetContext().AddHitResult(Hit);   // death/hit-react abilities read direction from this
+	if (UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
+	}
+	UE_LOG(LogTemp, Display, TEXT("[MeleeHit] %s -> %s contact at %s (socket sweep)"),
+		*GetName(), *GetNameSafe(Target), *Hit.ImpactPoint.ToCompactString());
+
+	// FIGHT NOISE: a landed hit is loud — pack hearing (direction-agnostic) pulls nearby Chalkies into
+	// a wary investigation of the brawl, and every hit re-pins its CURRENT location. Instigator must be
+	// the hero-side party (attacker when the hero punches, victim when a zombie claws) — zombie hearing
+	// filters out friendly sources.
+	AActor* NoiseInstigator = Cast<AAZ_PawnMoverInfectedCharacter>(Avatar) ? Target : Avatar;
+	// Loudness MULTIPLIES the listener's HearingRange: tunable per-ATTACK (BP vars on the ability — a
+	// knife stays quiet, a bat is loud; per-weapon noise = weapon parity data).
+	const float ImpactLoudness = ReadConfigFloat(this, TEXT("ImpactNoiseLoudness"), 1.4f);
+	const float ImpactMaxRange = ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f);
+	UAISense_Hearing::ReportNoiseEvent(Avatar->GetWorld(), Target->GetActorLocation(),
+		ImpactLoudness, NoiseInstigator, ImpactMaxRange, FName("Combat"));
+	// TEMP noise debug (remove with [ChalkieDiag]): sphere = the engine's ACTUAL carry for a
+	// 700-HearingRange listener (AISense_Hearing.cpp:147-152).
+	const float CarryRadius = FMath::Min(700.f, ImpactMaxRange) * FMath::Max(0.f, ImpactLoudness);
+	DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), CarryRadius, 24, FColor::Yellow, false, 2.f);
 }

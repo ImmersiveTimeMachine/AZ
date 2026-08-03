@@ -19,6 +19,7 @@ class UNavMoverComponent;
 class UNetworkPredictionComponent;
 class UCapsuleComponent;
 class USkeletalMeshComponent;
+class UMotionWarpingComponent;
 
 /**
  * AAZ_PawnMoverInfectedCharacter — the "Chalkie" infected enemy (v2 Mover NPC pawn).
@@ -120,6 +121,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	UNavMoverComponent* GetNavMoverComponent() const { return NavMoverComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
+	UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
+
 	// ========================================
 	// Components (public like the hero so the BP details panel exposes them)
 	// ========================================
@@ -144,16 +148,42 @@ public:
 	void HandleDamaged(AActor* Causer, float Damage);
 
 	/** PACK STEP-BACK: the recoil beat when a packmate seizes the prey (horde subsystem calls this on
-	 *  every OTHER Chalkie engaged on that prey). Plays Montage AND bridges its root motion to the
-	 *  capsule — that bridge is the whole point: on a Mover pawn a bare Montage_Play animates the mesh
-	 *  in place, and the BT's next move order would walk straight through the recoil anyway. The layered
-	 *  move is OverrideAll, so for its lifetime the clip owns the capsule and pathing cannot fight it.
-	 *  HoldSeconds cuts the beat short (the KnockBack clips run 5.5-7.5s); <= 0 plays the clip out. */
+	 *  every OTHER Chalkie engaged on that prey). Arch step A: a thin shim — sends Event.Combat.StepBack
+	 *  (payload: Montage + HoldSeconds as the crowd's beat; <= 0 = the clip's own beat) and GA_HitReact
+	 *  does the rest: montage task, generation-scoped capsule RM, the Staggered gate. */
 	void PlayStepBackReaction(UAnimMontage* Montage, float HoldSeconds);
 
 	/** True while a stagger-class reaction owns the body — hit-react flinch OR the pack step-back. The
-	 *  attack BT task refuses to swing on this, so a new claw can't cancel the recoil's root motion. */
+	 *  attack BT task refuses to swing on this, so a new claw can't cancel the recoil's root motion.
+	 *  A State.Combat.Staggered tag query — the tag is GA_HitReact's ActivationOwnedTags, set/cleared by
+	 *  the ability lifecycle (beat ended by the montage's BeatEnd notify) — NOT Montage_IsPlaying, whose
+	 *  blend timing used to set AI pacing by accident. Wrapper kept so the BT call site never changes. */
 	bool IsStaggerReactionPlaying() const;
+
+	/** How long the hit-react clip is allowed to drive the CAPSULE, in seconds. 0 = the whole montage.
+	 *
+	 *  The Zombie_*_KnockBack_Chase clips are ROUND TRIPS, not knockbacks: they recoil, hold, then walk
+	 *  back in — the re-approach is authored into the animation. Measured root paths:
+	 *      Zombie_Chase_2_KnockBack_Chase (3.10s): out to 118cm by 1.39s (peak 150 cm/s), hold to 1.86s,
+	 *                                              then returns, ending 25cm from where it started.
+	 *      Zombie_Chase_5_KnockBack_Chase (4.03s): out to  85cm by 1.81s, hold to 2.02s, then returns.
+	 *  Both peak at ~45% of clip length. Driving the capsule for the FULL clip makes a punched Chalkie
+	 *  stumble back and then stroll straight back at you ~1.5s later, which reads as a delayed reaction
+	 *  rather than a knockback.
+	 *
+	 *  Cutting the bridge at the top of the recoil keeps the whole 118cm and stops there. The MONTAGE is
+	 *  cut at the same beat (0.4s blend), and the stagger gate is the State.Combat.Staggered tag held for
+	 *  beat + blend — so how long a punched Chalkie stays unable to attack is an EXPLICIT number set here,
+	 *  not a side effect of clip length. Default 1.5 ⇒ ~1.9s gate (was 3.1-4.0s when the gate was
+	 *  Montage_IsPlaying on the full clip — that pacing change is deliberate: stun-lock is per-hit
+	 *  re-triggered anyway, and pack pressure is the difficulty, per the fight rulebook).
+	 *
+	 *  FALLBACK ONLY since arch step B: when the anim set carries a "HitReact" FAZ_CombatMontage
+	 *  descriptor, per-clip timing from THAT wins and this knob is ignored. This one per-pawn number
+	 *  survives solely for variants whose descriptor isn't authored yet (1.5 cuts Chase_5 slightly
+	 *  before its 1.81s peak — the exact mismatch the descriptor exists to fix). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Combat", meta = (ClampMin = "0", ForceUnits = "s"))
+	float FlinchRootMotionSeconds = 1.5f;
 
 	/** The prey we are currently grabbing, or null. Set by GA_ChalkieGrab at the catch and cleared on
 	 *  every exit; UAZ_InfectedAnimInstance reads it to aim the grab hand-IK at the victim's grip sockets.
@@ -186,15 +216,10 @@ protected:
 	/** One-shot guard for the native startup grants (InitAbilitySystem is re-entrant). */
 	bool bStartupAbilitiesGranted = false;
 
-	// --- Pack step-back reaction (see PlayStepBackReaction) ---
-
-	/** The recoil clip currently running. Weak, and only ever compared against what the anim instance is
-	 *  actually playing — so a stale pointer can never make IsStaggerReactionPlaying lie. */
-	TWeakObjectPtr<UAnimMontage> ActiveStepBackMontage;
-
-	/** Cuts the recoil at the beat. A member (not a throwaway) so a second grab landing during the beat
-	 *  RESETS the cut instead of stacking a second timer that would stop the fresh montage early. */
-	FTimerHandle StepBackCutTimer;
+	// (Arch step A: the reaction timers that lived here — StepBackCutTimer, FlinchCutTimer,
+	//  StaggerTagTimer/SetStaggeredFor — are GONE. GA_HitReact owns the whole reaction lifecycle; the
+	//  beat is ended by the montage's own Event.Combat.BeatEnd notify, and the Staggered gate is the
+	//  ability's ActivationOwnedTags. Events drive, timers guard — and the guards live in the ability.)
 
 	/** Prey held by the current grab (see SetGrabTarget). Weak: the victim can die or be destroyed
 	 *  mid-hold, and the anim layer must simply stop reaching rather than chase a dangling pointer. */
@@ -220,6 +245,14 @@ protected:
 	 *  Also carries the RVO avoidance surface for Phase-5 hordes (Detour Crowd / avoidance masks). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Mover")
 	TObjectPtr<UNavMoverComponent> NavMoverComponent;
+
+	/** Motion warping (engine): deforms the root-motion delta of an attack montage so the swing lands on a
+	 *  moving target. Its ONLY wiring cost is existing — UMoverComponent::BeginPlay finds it by class and
+	 *  builds a UMotionWarpingMoverAdapter, which binds ProcessLocalRootMotionDelegate. From then on our
+	 *  existing RM route (FLayeredMove_RootMotionAttribute -> ConvertLocalRootMotionToWorld) routes every
+	 *  root-motion montage through the warp modifiers. No component = delegate unbound = zero cost. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Mover")
+	TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
 
 	// ========================================
 	// AI intent cache (server-written by the controller/BT; read by ProduceInput each sim tick)
@@ -269,4 +302,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
 	TSubclassOf<class UGameplayAbility> GrabAbilityClass;
+
+	/** The stagger-class reaction (flinch + pack step-back). BP child overrides for tuning; native
+	 *  UAZ_GA_HitReact when unset. Event-triggered — see its ConfigureOnCDO. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> HitReactAbilityClass;
 };

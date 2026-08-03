@@ -11,8 +11,6 @@
 #include "AI/AZ_InfectedAIController.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
-#include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
-#include "MoverTypes.h"
 
 UAZ_GA_Death::UAZ_GA_Death()
 {
@@ -90,10 +88,7 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 			// layered move makes the CAPSULE follow it, so the body falls WHERE the anim says, not in place.
 			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 			{
-				Mover->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
-				const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
-				RMMove->DurationMs = DeathMontage->GetPlayLength() * 1000.f;
-				Mover->QueueLayeredMove(RMMove);
+				Mover->DriveRootMotion(DeathMontage->GetPlayLength());
 			}
 		}
 	}

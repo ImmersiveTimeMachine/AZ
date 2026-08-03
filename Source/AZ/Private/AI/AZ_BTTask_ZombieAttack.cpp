@@ -14,6 +14,7 @@
 #include "AZ_GameplayTags.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "MotionWarpingComponent.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 
@@ -106,7 +107,8 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		}
 		// Stagger gate (audit rules-finding #3): mid-KnockBack the BT loop retries attacks the moment
 		// stumble velocity dips — without this, a new claw cancels the flinch's RM and steals the
-		// player's earned stagger window. (Proper State.Staggered tag lands with the batch.)
+		// player's earned stagger window. Backed by State.Combat.Staggered (explicit duration, set where
+		// each reaction starts) — no longer inferred from montage playback.
 		if (const AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Pawn))
 		{
 			// Covers BOTH stagger-class reactions now (hit-react flinch and the pack step-back off a
@@ -192,6 +194,11 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		}
 	}
 
+	// BEFORE activation: TryActivate can play the montage synchronously, and a MotionWarping notify that
+	// opens on frame 0 resolves its target the moment the window becomes relevant. Registering after would
+	// race the first frame of the swing.
+	RegisterWarpTarget(OwnerComp);
+
 	// Bind AFTER activation (audit #7): a synchronous activate-and-end inside TryActivate would fire
 	// the delegate while this node isn't latent yet — engine-internal behavior we shouldn't lean on.
 	// The IsActive() recheck below fully covers anything that ended before the bind.
@@ -266,11 +273,15 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 		return;
 	}
 
-	// Soft tracking (MotionWarping's stand-in until the warp primitive lands): keep the body turning
-	// toward the target through the swing so the forward damage sweep lands honestly on a strafing
-	// target. The override API takes a DIRECTION (unit vector, like ScanAround) — passing the raw
-	// location rotated zombies toward a world-origin artifact (audit rules-finding #1).
-	if (Target && Pawn)
+	// Mid-swing tracking. Motion warping does this from inside the montage now (RegisterWarpTarget put the
+	// target under WarpTargetName in follow mode, and the notify window on the clip decides WHEN tracking is
+	// allowed), so this per-tick override only runs on the legacy path.
+	//
+	// Legacy soft-track: keep the body turning toward the target through the swing so the forward damage
+	// sweep lands honestly on a strafing target. The override API takes a DIRECTION (unit vector, like
+	// ScanAround) — passing the raw location rotated zombies toward a world-origin artifact (audit
+	// rules-finding #1).
+	if (!bUseMotionWarping && Target && Pawn)
 	{
 		if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(Controller))
 		{
@@ -338,12 +349,67 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::AbortTask(UBehaviorTreeComponent& O
 	return EBTNodeResult::Aborted;
 }
 
+void UAZ_BTTask_ZombieAttack::RegisterWarpTarget(UBehaviorTreeComponent& OwnerComp)
+{
+	if (!bUseMotionWarping || WarpTargetName.IsNone())
+	{
+		return;
+	}
+	const AAIController* Controller = OwnerComp.GetAIOwner();
+	const APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
+	const AActor* Target = AZ_GetChaseTarget(OwnerComp);
+	if (!Pawn || !Target)
+	{
+		return;
+	}
+	UMotionWarpingComponent* Warping = Pawn->FindComponentByClass<UMotionWarpingComponent>();
+	USceneComponent* TargetRoot = Target->GetRootComponent();
+	if (!Warping || !TargetRoot)
+	{
+		return;
+	}
+	// bFollowComponent = true is the whole point: the modifier re-reads the component's transform every
+	// frame, so a target that strafes mid-swing is tracked continuously instead of the swing committing to
+	// wherever they stood at activation. NAME_None bone = the component's own transform (the capsule),
+	// which is what we want to claw at — not a jittering hand/head bone.
+	//
+	// VectorFromTargetToOwner puts the warp point WarpApproachDistance in front of the target, measured
+	// back toward us — so it stays on our side of them however they turn or strafe. Aiming at their centre
+	// instead would park the zombie inside their capsule (see WarpApproachDistance).
+	//
+	// All six trailing args are spelled out on purpose: the two AddOrUpdateWarpTargetFromComponent
+	// overloads differ ONLY in their 5th parameter and both default it, so any shorter call is ambiguous.
+	Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None, /*bFollowComponent*/ true,
+		EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
+		FVector(WarpApproachDistance, 0.f, 0.f), FRotator::ZeroRotator);
+}
+
+void UAZ_BTTask_ZombieAttack::ClearWarpTarget()
+{
+	if (const UBehaviorTreeComponent* Comp = OwningComp.Get())
+	{
+		if (const AAIController* Controller = Comp->GetAIOwner())
+		{
+			if (const APawn* Pawn = Controller->GetPawn())
+			{
+				if (UMotionWarpingComponent* Warping = Pawn->FindComponentByClass<UMotionWarpingComponent>())
+				{
+					Warping->RemoveWarpTarget(WarpTargetName);
+				}
+			}
+		}
+	}
+}
+
 void UAZ_BTTask_ZombieAttack::Cleanup()
 {
 	if (UAbilitySystemComponent* ASC = BoundASC.Get())
 	{
 		ASC->OnAbilityEnded.Remove(AbilityEndedHandle);
 	}
+	// Drop the warp target on EVERY exit alongside the facing override below. A stale target left
+	// registered would silently warp the NEXT swing toward whoever this run was chasing.
+	ClearWarpTarget();
 	// Release the engagement token + drop the soft-tracking facing override — EVERY task exit
 	// (success, break-off, abort, timeout) funnels through here.
 	if (UBehaviorTreeComponent* Comp = OwningComp.Get())
@@ -378,6 +444,9 @@ void UAZ_BTTask_ZombieAttack::Cleanup()
 
 FString UAZ_BTTask_ZombieAttack::GetStaticDescription() const
 {
-	return FString::Printf(TEXT("Activate %s, latent until it ends (timeout %.1fs)"),
-		*GetNameSafe(*AbilityClass), TimeoutSeconds);
+	return FString::Printf(TEXT("Activate %s, latent until it ends (timeout %.1fs)\nTracking: %s"),
+		*GetNameSafe(*AbilityClass), TimeoutSeconds,
+		bUseMotionWarping
+			? *FString::Printf(TEXT("motion warp -> '%s'"), *WarpTargetName.ToString())
+			: TEXT("legacy facing override"));
 }
