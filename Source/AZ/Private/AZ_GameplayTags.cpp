@@ -306,6 +306,15 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
     AddTag(GameplayTags.State_Grab_Resolving,  FName("State.Grab.Resolving"),  TEXT("Paired grab stage: outcome section queued/running — no longer interruptible"));
 
+    // ---- ABILITY IDENTITY (asset tags — what Block/CancelAbilitiesWithTag match against) ----
+    AddTag(GameplayTags.Ability_Combat_Melee, FName("Ability.Combat.Melee"), TEXT("Identity of the shared melee rail (hero punch + Chalkie claw) — cancelled by reactions and grabs"));
+    AddTag(GameplayTags.Ability_Combat_Grab, FName("Ability.Combat.Grab"), TEXT("Identity of the Chalkie grab commit"));
+    AddTag(GameplayTags.Ability_Combat_Grabbed, FName("Ability.Combat.Grabbed"), TEXT("Identity of the victim's caught-in-a-grab ability"));
+    AddTag(GameplayTags.Ability_Combat_HitReact, FName("Ability.Combat.HitReact"), TEXT("Identity of the stagger-class reaction"));
+    AddTag(GameplayTags.Ability_Combat_Death, FName("Ability.Combat.Death"), TEXT("Identity of the terminal death ability — cancels everything, cancelled by nothing"));
+    AddTag(GameplayTags.Ability_Movement_Jump, FName("Ability.Movement.Jump"), TEXT("Identity of the jump ability"));
+    AddTag(GameplayTags.Ability_Movement_Crouch, FName("Ability.Movement.Crouch"), TEXT("Identity of the crouch ability"));
+
     AddTag(GameplayTags.Event_Combat_HitReact, FName("Event.Combat.HitReact"), TEXT("Survivable hit taken -> triggers GA_HitReact (payload Instigator = causer)"));
     AddTag(GameplayTags.Event_Combat_StepBack, FName("Event.Combat.StepBack"), TEXT("Pack recoil beat -> triggers GA_HitReact (payload OptionalObject = montage, EventMagnitude = caller beat, 0 = clip default)"));
     AddTag(GameplayTags.Event_Combat_BeatEnd, FName("Event.Combat.BeatEnd"), TEXT("Authored montage notify marking the end of the clip's gameplay beat — ends reactions and the zombie bite from the animation timeline itself"));

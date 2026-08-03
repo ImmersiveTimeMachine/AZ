@@ -95,6 +95,31 @@ public:
 	
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr, OUT FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
 
+	/**
+	 * ★ THE PLACE TO DECLARE AN ABILITY'S TAG RELATIONSHIPS. Override and ADD to ActivationOwnedTags /
+	 * ActivationBlockedTags / ActivationRequiredTags / CancelAbilitiesWithTag / BlockAbilitiesWithTag.
+	 *
+	 * Why a hook and not the constructor: native gameplay tags are not registered when CDO constructors
+	 * run, so a ctor line would add an INVALID tag (silently doing nothing). Why not a runtime CDO patch
+	 * either: GAS reads these five containers off the ability INSTANCE — PreActivate applies
+	 * ActivationOwnedTags from `this`, and CanActivateAbility runs on InstancedAbility when one exists
+	 * (AbilitySystemComponent_Abilities.cpp:1798) — and an instance does NOT inherit a CDO mutated after
+	 * class construction. That cost us a full evening: GA_HitReact's Staggered gate was patched onto the
+	 * CDO, never reached any instance, and every consumer (BT decorator, blackboard mirror, melee gate)
+	 * was correct while reading a tag that did not exist.
+	 *
+	 * This runs once per INSTANCE, from PostInitProperties, i.e. at GiveAbility time when the tag
+	 * registry is fully populated. It ADDS, so tags authored in a BP tuning child survive.
+	 *
+	 * NOTE the exception: ASSET tags (identity, matched by Block/CancelAbilitiesWithTag) and
+	 * AbilityTriggers are read from the CDO via the spec, not the instance — declare those in a BP
+	 * default or a grant-time ConfigureOnCDO patch, NOT here (SetAssetTags is construction-only and the
+	 * spec would never see an instance-side change).
+	 */
+	virtual void DeclareAbilityTags() {}
+
+	virtual void PostInitProperties() override;
+
 	virtual FString GetDescription(int32 Level);
 	virtual FString GetNextLevelDescription(int32 Level);
 	static FString GetLockedDescription(int32 Level);

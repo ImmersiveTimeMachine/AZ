@@ -51,14 +51,15 @@ public:
 	static void ConfigureOnCDO(UClass* GrantClass = nullptr);
 
 protected:
-	/** GRAB ARMOR (rule 8): a Chalkie in someone's grab plays no flinch MOTION. Explicit rather than
-	 *  ActivationBlockedTags for the same reason the Staggered tag is applied by hand — those containers
-	 *  are read off the ability INSTANCE, and an instance does not inherit a CDO patched at runtime, so
-	 *  the armor was silently inert. Damage-lock, scream and melee-cancel still fire: they live in
-	 *  HandleDamaged and run before this ability is ever triggered. */
-	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-		const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr,
-		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
+	/** GRAB ARMOR (rule 8) + the melee cancel. Damage-lock and scream are NOT here: they live in
+	 *  HandleDamaged and must fire even for a grabbed Chalkie, whose armor only suppresses the flinch
+	 *  MOTION.
+	 *
+	 *  State.Combat.Staggered is deliberately NOT declared as an ActivationOwnedTags entry — this
+	 *  ability applies it by hand (SetLooseGameplayTagCount in Activate/End). Two mechanisms writing one
+	 *  counted tag would fight: the explicit clear sets an absolute 0 while GAS decrements its own +1.
+	 *  One owner, and it is the explicit pair. */
+	virtual void DeclareAbilityTags() override;
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;

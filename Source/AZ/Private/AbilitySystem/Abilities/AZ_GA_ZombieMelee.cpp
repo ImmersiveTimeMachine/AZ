@@ -24,23 +24,6 @@ UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
 	bUseMotionWarping = false;
 }
 
-bool UAZ_GA_ZombieMelee::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
-	FGameplayTagContainer* OptionalRelevantTags) const
-{
-	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
-	{
-		return false;
-	}
-	// No swinging while a reaction owns the body — see the header for why this is not ActivationBlockedTags.
-	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
-	if (ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Staggered))
-	{
-		return false;
-	}
-	return true;
-}
-
 void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {

@@ -25,6 +25,10 @@ public:
 protected:
 	
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr, OUT FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
+
+	/** You cannot swing while a reaction owns the body, while caught, while holding someone, or dead.
+	 *  Shared by the hero punch and the Chalkie claw — same rail, same rules. */
+	virtual void DeclareAbilityTags() override;
 	
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	

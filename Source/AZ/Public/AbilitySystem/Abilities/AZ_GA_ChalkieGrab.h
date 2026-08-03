@@ -39,6 +39,10 @@ public:
 	static void ConfigureCDO(UClass* GrantClass = nullptr);
 
 protected:
+	/** Committing to a grab cancels this Chalkie's own swing, and a corpse cannot grab. State.Combat.
+	 *  Grabbing stays an EXPLICIT loose tag (see bAppliedGrabbingTag) — one owner per fact. */
+	virtual void DeclareAbilityTags() override;
+
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

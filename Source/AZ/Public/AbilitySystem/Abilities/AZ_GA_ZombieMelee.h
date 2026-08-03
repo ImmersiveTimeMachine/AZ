@@ -25,21 +25,12 @@ public:
 	UAZ_GA_ZombieMelee();
 
 protected:
-	/** A reeling Chalkie must not be ABLE to swing, and that is a property of the ATTACK, not of the tree
-	 *  that happens to call it. The BT gate is a decision taken once in ExecuteTask, so every re-entry of
-	 *  the Press branch (the 0.5s chase-breather loop) gets a fresh chance to slip through — and one that
-	 *  does starts an attack montage that takes DefaultSlot away from the knockback mid-recoil. This is
-	 *  checked on EVERY activation attempt, so the loop cannot race it; the tree gate stays as the cheap
-	 *  early-out.
-	 *
-	 *  Written as an explicit check rather than ActivationBlockedTags because those are read off the
-	 *  ability INSTANCE (AbilitySystemComponent_Abilities.cpp:1798 — CanActivateAbility runs on
-	 *  InstancedAbility when there is one), and an instance does NOT inherit a CDO patched at runtime.
-	 *  Native gameplay tags are not registered when CDO constructors run, so the container cannot be
-	 *  filled in the ctor either — which leaves this. */
-	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-		const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr,
-		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
+	// "No swinging while staggered/caught/grabbing/dead" is declared once on the shared rail —
+	// UAZ_GA_MeleeAttack::DeclareAbilityTags. It matters here because the BT gate is a decision taken
+	// once in ExecuteTask, so every re-entry of the Press branch (the 0.5s chase-breather loop) gets a
+	// fresh chance to slip through, and one that does starts an attack montage that takes DefaultSlot
+	// away from the knockback mid-recoil. GAS checks blocked tags on EVERY attempt; the tree gate stays
+	// as the cheap early-out.
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;

@@ -20,6 +20,20 @@ UAZ_GameplayAbility::UAZ_GameplayAbility(const FObjectInitializer& ObjectInitial
 	ActivationGroup = EAZAbilityActivationGroup::Independent;
 }
 
+void UAZ_GameplayAbility::PostInitProperties()
+{
+	Super::PostInitProperties();
+
+	// INSTANCES ONLY. The CDO is constructed during module load, before native gameplay tags are
+	// registered — declaring there would add invalid tags. A real instance is created at GiveAbility,
+	// by which time the registry is complete. This is also the only place the declaration can LAND:
+	// the five activation containers are read off the instance, so a CDO-side patch never arrives.
+	if (!HasAnyFlags(RF_ClassDefaultObject | RF_NeedLoad | RF_NeedPostLoad))
+	{
+		DeclareAbilityTags();
+	}
+}
+
 bool UAZ_GameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags,
 	const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {

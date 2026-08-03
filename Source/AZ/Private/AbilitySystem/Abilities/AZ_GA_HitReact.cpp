@@ -68,21 +68,18 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	}
 }
 
-bool UAZ_GA_HitReact::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
-	FGameplayTagContainer* OptionalRelevantTags) const
+void UAZ_GA_HitReact::DeclareAbilityTags()
 {
-	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
-	{
-		return false;
-	}
-	// Grab armor — see the header. Only the flinch MOTION is suppressed.
-	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
-	if (ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing))
-	{
-		return false;
-	}
-	return true;
+	Super::DeclareAbilityTags();
+
+	const FAZ_GameplayTags& T = FAZ_GameplayTags::Get();
+	ActivationBlockedTags.AddTag(T.State_Combat_Grabbing);   // grab armor (rule 8) — motion only
+	ActivationBlockedTags.AddTag(T.Character_Dead);
+	ActivationBlockedTags.AddTag(T.Character_Dying);
+	// Getting hit interrupts your swing. This replaces HandleDamaged's hand-rolled loop over every spec
+	// of class UAZ_GA_ZombieMelee — declared once, and it covers the hero side and any future attack on
+	// the same rail for free.
+	CancelAbilitiesWithTag.AddTag(T.Ability_Combat_Melee);
 }
 
 void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

@@ -197,6 +197,20 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_State_Throwing;
     FGameplayTag Ability_State_Dashing;
 
+    // ---- ABILITY IDENTITY (asset tags) ----
+    // What an ability IS, so other abilities can address it in Block/CancelAbilitiesWithTag — those
+    // match against the TARGET ability's ASSET tags, so an ability with no asset tag can never be
+    // blocked or cancelled by tag (which is why every cancel in this project used to be hand-rolled by
+    // class). Asset tags are read from the CDO via the spec, so they are authored in the BP tuning child
+    // or patched at grant time — NOT in DeclareAbilityTags (see UAZ_GameplayAbility for the split).
+    FGameplayTag Ability_Combat_Melee;      // hero punch + Chalkie claw (shared UAZ_GA_MeleeAttack rail)
+    FGameplayTag Ability_Combat_Grab;       // Chalkie's grab commit
+    FGameplayTag Ability_Combat_Grabbed;    // the victim's side of a grab
+    FGameplayTag Ability_Combat_HitReact;   // stagger-class reaction
+    FGameplayTag Ability_Combat_Death;      // terminal
+    FGameplayTag Ability_Movement_Jump;
+    FGameplayTag Ability_Movement_Crouch;
+
     // Ability Cooldown Tags (granted by cooldown GEs, checked by ActivationBlockedTags)
     FGameplayTag Ability_Cooldown_Shoot;
     FGameplayTag Ability_Cooldown_Reload;

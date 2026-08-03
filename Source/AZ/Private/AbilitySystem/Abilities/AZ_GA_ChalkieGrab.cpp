@@ -38,10 +38,24 @@ void UAZ_GA_ChalkieGrab::ConfigureCDO(UClass* GrantClass)
 	UClass* TargetClass = GrantClass ? GrantClass : UAZ_GA_ChalkieGrab::StaticClass();
 	UAZ_GA_ChalkieGrab* CDO = Cast<UAZ_GA_ChalkieGrab>(TargetClass->GetDefaultObject());
 	const FGameplayTag& GrabbingTag = FAZ_GameplayTags::Get().State_Combat_Grabbing;
+	// NOTE: this CDO patch is inert for the containers GAS reads off the INSTANCE — kept only so the tag
+	// is visible when inspecting the class. The real application is the explicit loose tag in
+	// ActivateAbility (bAppliedGrabbingTag). See UAZ_GameplayAbility::DeclareAbilityTags.
 	if (CDO && !CDO->ActivationOwnedTags.HasTagExact(GrabbingTag))
 	{
 		CDO->ActivationOwnedTags.AddTag(GrabbingTag);
 	}
+}
+
+void UAZ_GA_ChalkieGrab::DeclareAbilityTags()
+{
+	Super::DeclareAbilityTags();
+
+	const FAZ_GameplayTags& T = FAZ_GameplayTags::Get();
+	CancelAbilitiesWithTag.AddTag(T.Ability_Combat_Melee);   // the grab IS the attack — drop the swing
+	ActivationBlockedTags.AddTag(T.State_Combat_Staggered);
+	ActivationBlockedTags.AddTag(T.Character_Dead);
+	ActivationBlockedTags.AddTag(T.Character_Dying);
 }
 
 void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

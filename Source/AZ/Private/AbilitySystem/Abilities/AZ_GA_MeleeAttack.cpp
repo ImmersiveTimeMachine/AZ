@@ -31,6 +31,20 @@ UAZ_GA_MeleeAttack::UAZ_GA_MeleeAttack()
 	DamageEffect = UAZ_GE_Damage::StaticClass();
 }
 
+void UAZ_GA_MeleeAttack::DeclareAbilityTags()
+{
+	Super::DeclareAbilityTags();
+
+	// Runs per INSTANCE (see UAZ_GameplayAbility::DeclareAbilityTags for why not the ctor or the CDO).
+	// Adds, so a BP tuning child's own entries survive.
+	const FAZ_GameplayTags& T = FAZ_GameplayTags::Get();
+	ActivationBlockedTags.AddTag(T.State_Combat_Staggered);   // reeling — the reaction owns the body
+	ActivationBlockedTags.AddTag(T.State_Grabbed);            // caught: the struggle mash is the only action
+	ActivationBlockedTags.AddTag(T.State_Combat_Grabbing);    // holding someone: the grab is the attack
+	ActivationBlockedTags.AddTag(T.Character_Dead);
+	ActivationBlockedTags.AddTag(T.Character_Dying);
+}
+
 USkeletalMeshComponent* UAZ_GA_MeleeAttack::GetAvatarMesh() const
 {
 	// Explicit casts, not FindComponentByClass — the hero carries extra skeletal meshes (equipment
