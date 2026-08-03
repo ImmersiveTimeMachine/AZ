@@ -46,6 +46,15 @@ struct AZ_API FAZ_CombatMontage
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Combat", meta = (ClampMin = "0", ForceUnits = "s"))
 	float BlendOutTime = 0.4f;
 
+	/** Extra hold AFTER the animation is over, during which the victim is still Staggered — i.e. still
+	 *  barred from attacking and (for AI) from resuming the chase. 0 = the reaction ends with the clip.
+	 *
+	 *  This is the one genuinely clip-LESS duration in the struct, so it is the one honest timer: nothing
+	 *  is playing to anchor it to. Everything else here is read off the montage. Per-variant on purpose —
+	 *  a Runner shaking off a punch faster than a Rotter is characterisation, not a global difficulty knob. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Combat", meta = (ClampMin = "0", ForceUnits = "s"))
+	float StaggerRecoverSeconds = 0.f;
+
 	bool IsSet() const { return Montage != nullptr; }
 
 	/** Montage length; 0 when unset. */
@@ -62,4 +71,7 @@ struct AZ_API FAZ_CombatMontage
 
 	/** The stagger-gate window a viewer perceives: the beat, plus the blend-out when cut early. */
 	float ResolveGate() const;
+
+	/** Total time the victim stays Staggered: the visible gate plus the post-animation recover hold. */
+	float ResolveStaggerHold() const;
 };

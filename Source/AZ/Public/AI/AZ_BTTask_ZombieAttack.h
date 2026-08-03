@@ -81,12 +81,18 @@ public:
 	 *  way ONTO the warp point. Aim that point at the target's centre and the zombie ends up standing
 	 *  inside them, so it is offset back to claw range instead.
 	 *
-	 *  Sanity band: capsules are 25cm radius each (50cm hard floor) and the zombie's damage sweep reaches
-	 *  ~200cm (MeleeRange 110 + MeleeRadius 50 + start offset). 120 sits comfortably between the two.
+	 *  ★ DERIVED FROM MEASURED REACH, not from feel. Contact needs
+	 *      centre-to-centre ≤ claw_forward_extension + sweep_radius + victim_capsule_radius.
+	 *  Sampled off the clips (AnimPoseExtensions, pelvis-relative, mesh yaw -90 so anim +Y is forward):
+	 *  Zombie_Atk_Arm_2_R reaches +93cm inside its window, Arm_1_L only +57cm. With a 15cm claw sweep and
+	 *  the hero's 30cm capsule that is 138cm and 102cm of reach — so the old 120 parked the zombie 18cm
+	 *  BEYOND its own shorter claw and that attack could never land. 100 clears the worst clip with
+	 *  margin. Raise this and you silently un-arm whichever attack has the shortest reach.
+	 *
 	 *  Since swings only start within AZ_MaxAttackStartDistance (180cm), the most this can ever move a
-	 *  zombie is ~60cm across the whole window — a lean-in, not a slide. */
+	 *  zombie is ~80cm across the whole window — a lean-in, not a slide. */
 	UPROPERTY(EditAnywhere, Category = "AZ|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "50", ForceUnits = "cm"))
-	float WarpApproachDistance = 120.f;
+	float WarpApproachDistance = 100.f;
 
 private:
 	/** Point the pawn's warping component at the chase target's root, in follow mode so a strafing target
@@ -107,4 +113,9 @@ private:
 	TSubclassOf<class UGameplayAbility> ChosenAbilityClass;
 	/** True while the current latent run is a grab (longer timeout, cooldown stamp on exit). */
 	bool bGrabRun = false;
+
+	/** Root-motion generation THIS swing queued (0 = none). The mid-swing move-break exempts motion only
+	 *  while this generation is still the live drive — so our own warp lunge doesn't cancel the swing,
+	 *  but a knockback that supersedes it still does. Reset in Cleanup. */
+	uint64 MeleeRootMotionGen = 0;
 };

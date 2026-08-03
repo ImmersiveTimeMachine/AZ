@@ -170,6 +170,35 @@ public:
 		bool bReplaceExisting = true);
 
 	/**
+	 * Add (or replace) the strike window as ONE UAZ_AnimNotifyState_MeleeWindow — a notify STATE with a
+	 * duration, superseding the WindowBegin+WindowEnd notify PAIR that AddGameplayEventNotify authored.
+	 *
+	 * The pair could desync (two objects that must stay paired) and its End notify never fired when the
+	 * montage was interrupted, leaving the detector open. A state is one object whose length IS the
+	 * window, and the engine ends an active state on interruption.
+	 *
+	 * Python cannot build this: UAnimSequenceBase::Notifies is protected AND the notify-state object has
+	 * to be constructed and linked with a duration.
+	 *
+	 * @param StartTime        Window open, seconds.
+	 * @param Duration         Window length, seconds. Must be > 0 and stay inside the clip.
+	 * @param bReplaceExisting Remove existing melee-window states first, so re-running a build script
+	 *                         cannot stack two live windows on one clip.
+	 * @return true on success (reason logged to LogAZ). Does NOT save.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static bool AddMeleeWindowNotifyState(
+		UAnimMontage* Montage,
+		float StartTime,
+		float Duration,
+		FName TrackName = TEXT("1"),
+		bool bReplaceExisting = true);
+
+	/** Remove every melee-window notify state from a montage. Returns how many were removed. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static int32 RemoveMeleeWindowNotifyStates(UAnimMontage* Montage);
+
+	/**
 	 * Add a plain NAMED notify — no notify object, no state.
 	 *
 	 * WARNING: this does NOT reach GAS. Our montage task listens for gameplay event tags, so a bare named

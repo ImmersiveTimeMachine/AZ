@@ -10,9 +10,16 @@ UAZ_GA_ZombieMelee::UAZ_GA_ZombieMelee()
 	// to clients through the ASC.
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
 	DamageAmount = 10.f;
-	MeleeRange = 110.f;   // warp-search shape only now — what's worth lunging at
+	MeleeRange = 110.f;   // unused on this path (see bUseMotionWarping below); kept for the shared base
 	MeleeRadius = 50.f;
 	SweepSphereRadius = 15.f;   // claws rake wider than a fist
+
+	// ONE owner of "what am I lunging at". The BT task registers the warp target (name "AttackTarget",
+	// follow-mode, from the blackboard's chase target) BEFORE activating this ability, which is also the
+	// only name the claw montages' warp windows reference. Leaving the base's own registration on would
+	// publish a second, differently-named target ("MeleeTarget") that nothing reads, and run a forward
+	// search sweep every swing to produce it.
+	bUseMotionWarping = false;
 }
 
 void UAZ_GA_ZombieMelee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

@@ -30,3 +30,8 @@ float FAZ_CombatMontage::ResolveGate() const
 {
 	return ResolveBeat() + (IsCutEarly() ? BlendOutTime : 0.f);
 }
+
+float FAZ_CombatMontage::ResolveStaggerHold() const
+{
+	return ResolveGate() + FMath::Max(0.f, StaggerRecoverSeconds);
+}

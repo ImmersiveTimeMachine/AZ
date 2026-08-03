@@ -4,6 +4,8 @@
 
 #include "AZ/AZ.h"
 #include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"
+#include "AbilitySystem/AZ_AnimNotifyState_MeleeWindow.h"
+#include "AZ_GameplayTags.h"   // legacy WindowBegin/End pair stripped when a window state replaces it
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimNotifies/AnimNotifyState.h"
@@ -558,6 +560,113 @@ bool UAZ_MontageUtils::AddGameplayEventNotify(UAnimMontage* Montage, FName Event
 	UE_LOG(Log_AZ, Log, TEXT("[MontageUtils] AddGameplayEventNotify '%s': %s @ %.3f on track '%s'."),
 		*Montage->GetName(), *EventTag.ToString(), TriggerTime, *TrackName.ToString());
 	return true;
+}
+
+bool UAZ_MontageUtils::AddMeleeWindowNotifyState(UAnimMontage* Montage, float StartTime, float Duration,
+	FName TrackName, bool bReplaceExisting)
+{
+	if (!Montage)
+	{
+		UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] AddMeleeWindowNotifyState: null montage."));
+		return false;
+	}
+	const float ClipLength = Montage->GetPlayLength();
+	if (Duration <= 0.f || StartTime < 0.f || StartTime + Duration > ClipLength + UE_KINDA_SMALL_NUMBER)
+	{
+		UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] AddMeleeWindowNotifyState: window %.3f..%.3f does not "
+			"fit '%s' (0..%.3f)."), StartTime, StartTime + Duration, *Montage->GetName(), ClipLength);
+		return false;
+	}
+
+	Montage->Modify();
+
+#if WITH_EDITORONLY_DATA
+	int32 TrackIndex = INDEX_NONE;
+	for (int32 i = 0; i < Montage->AnimNotifyTracks.Num(); ++i)
+	{
+		if (Montage->AnimNotifyTracks[i].TrackName == TrackName)
+		{
+			TrackIndex = i;
+			break;
+		}
+	}
+	if (TrackIndex == INDEX_NONE)
+	{
+		TrackIndex = Montage->AnimNotifyTracks.Add(FAnimNotifyTrack(TrackName, FLinearColor::White));
+	}
+
+	if (bReplaceExisting)
+	{
+		// Strip BOTH shapes of window: an existing state, and the LEGACY WindowBegin/WindowEnd notify pair
+		// this state supersedes. Leaving the pair behind would double the events — worse, its End would
+		// close the detector partway through the new window, which reads as "the sweep randomly stops".
+		const FGameplayTag BeginTag = FAZ_GameplayTags::Get().Event_Montage_Melee_WindowBegin;
+		const FGameplayTag EndTag = FAZ_GameplayTags::Get().Event_Montage_Melee_WindowEnd;
+		for (int32 i = Montage->Notifies.Num() - 1; i >= 0; --i)
+		{
+			const FAnimNotifyEvent& Existing = Montage->Notifies[i];
+			const UAZ_AnimNotify_SendGameplayEvent* Sender =
+				Cast<UAZ_AnimNotify_SendGameplayEvent>(Existing.Notify);
+			const bool bLegacyPair = Sender && (Sender->EventTag == BeginTag || Sender->EventTag == EndTag);
+			if (bLegacyPair || Cast<UAZ_AnimNotifyState_MeleeWindow>(Existing.NotifyStateClass))
+			{
+				Montage->Notifies.RemoveAt(i);
+			}
+		}
+	}
+
+	UAZ_AnimNotifyState_MeleeWindow* State = NewObject<UAZ_AnimNotifyState_MeleeWindow>(
+		Montage, UAZ_AnimNotifyState_MeleeWindow::StaticClass(), NAME_None, RF_Transactional);
+
+	FAnimNotifyEvent& Event = Montage->Notifies.AddDefaulted_GetRef();
+	Event.Guid = FGuid::NewGuid();
+	Event.TrackIndex = TrackIndex;
+	Event.Notify = nullptr;
+	Event.NotifyStateClass = State;
+	Event.NotifyName = FName(*State->GetNotifyName());
+	Event.Link(Montage, StartTime);
+	// SetDuration alone is not enough: the END of a notify state is its own link, and an unlinked end
+	// silently collapses the window to zero on the next reload.
+	Event.SetDuration(Duration);
+	Event.EndLink.Link(Montage, StartTime + Duration);
+
+	Montage->RefreshCacheData();
+	Montage->PostEditChange();
+#endif   // WITH_EDITORONLY_DATA
+	Montage->MarkPackageDirty();
+
+	UE_LOG(Log_AZ, Log, TEXT("[MontageUtils] AddMeleeWindowNotifyState '%s': %.3f..%.3f on track '%s'."),
+		*Montage->GetName(), StartTime, StartTime + Duration, *TrackName.ToString());
+	return true;
+}
+
+int32 UAZ_MontageUtils::RemoveMeleeWindowNotifyStates(UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return 0;
+	}
+	int32 Removed = 0;
+#if WITH_EDITORONLY_DATA
+	Montage->Modify();
+	for (int32 i = Montage->Notifies.Num() - 1; i >= 0; --i)
+	{
+		if (Cast<UAZ_AnimNotifyState_MeleeWindow>(Montage->Notifies[i].NotifyStateClass))
+		{
+			Montage->Notifies.RemoveAt(i);
+			++Removed;
+		}
+	}
+	if (Removed > 0)
+	{
+		Montage->RefreshCacheData();
+		Montage->PostEditChange();
+		Montage->MarkPackageDirty();
+	}
+#endif
+	UE_LOG(Log_AZ, Log, TEXT("[MontageUtils] RemoveMeleeWindowNotifyStates '%s': removed %d."),
+		*Montage->GetName(), Removed);
+	return Removed;
 }
 
 bool UAZ_MontageUtils::AddNamedNotify(UAnimMontage* Montage, FName NotifyName, float TriggerTime,

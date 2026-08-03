@@ -15,7 +15,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "AZ_GameplayTags.h"
 #include "Engine/World.h"
-#include "EngineUtils.h"   // TActorIterator (nearest-hostile distance in the hit-window diagnostic)
 #include "GameplayEffect.h"
 #include "DrawDebugHelpers.h"
 #include "GenericTeamAgentInterface.h"
@@ -439,8 +438,11 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 	{
 		return;
 	}
-	const FName Socket = (Hand == EAZ_MeleeHand::Left) ? StrikeSocket_L : StrikeSocket_R;
-	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this, Socket, SweepSphereRadius,
+	// BOTH fists, not the one Hand picked. Hand still selects the MONTAGE; it does not get to claim which
+	// hand the animator actually swings — measured, the clip names lie (AM_Zombie_Atk_L rakes with the
+	// RIGHT claw while its left hand is behind the body; the heavy punch's real strike is a right hook).
+	// Sweeping both and letting geometry decide leaves the animation as the single owner of that fact.
+	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this, { StrikeSocket_L, StrikeSocket_R }, SweepSphereRadius,
 		/*bHostilesOnly*/ true, /*bSingleTarget*/ true);
 	if (SweepTask)
 	{

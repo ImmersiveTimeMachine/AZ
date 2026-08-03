@@ -12,6 +12,7 @@
 #include "Animation/AnimInstance.h"
 #include "AZ_ConsoleVariables.h"
 #include "AZ_GameplayTags.h"
+#include "Character/AZ_PawnMoverComponent.h"   // IsRootMotionDriven (our own warp lunge isn't a shove)
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "MotionWarpingComponent.h"
@@ -208,6 +209,16 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 		return EBTNodeResult::Failed;
 	}
 	AbilityEndedHandle = ASC->OnAbilityEnded.AddUObject(this, &UAZ_BTTask_ZombieAttack::OnAbilityEnded);
+	// Latch WHICH root-motion drive is ours. TryActivate runs the ability synchronously, so the drive the
+	// attack queued is the live generation right now; anything that supersedes it later (a knockback, a
+	// grab) bumps the counter and the mid-swing move-break stops treating the motion as self-inflicted.
+	if (const APawn* MovePawn = Controller ? Controller->GetPawn() : nullptr)
+	{
+		if (const UAZ_PawnMoverComponent* Mover = MovePawn->FindComponentByClass<UAZ_PawnMoverComponent>())
+		{
+			MeleeRootMotionGen = Mover->GetRootMotionGeneration();
+		}
+	}
 	// Sync-end guard: the ability can activate AND end within TryActivate (missing montage, instant
 	// fail). Our delegate fired before the task was latent — FinishLatentTask was ignored — so without
 	// this check the node hangs until the timeout. If it's already over, report it directly.
@@ -257,7 +268,19 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 	// playing a claw anim over locomotion. NOT for grab runs: the grab's close-in slide is legitimate
 	// fast movement (it cancelled its own grab before this exemption); grabs are protected by the
 	// break-off distance below + the ability's safety timer instead.
-	if (!bGrabRun && Pawn && Pawn->GetVelocity().Size2D() > AZ_MidBiteMoveBreakSpeed)
+	//
+	// NOR for our own warp lunge. This guard predates Chalkie montages being able to move the capsule at
+	// all (the RootMotionMode bug); the moment they could, the attack's own 0.85s warp window closed
+	// 110cm in 0.85s ≈ 129 cm/s and tripped this break-off BEFORE the hit window ever opened — the swing
+	// cancelled itself. "Something is moving us" was only ever meant to mean something ELSE.
+	//
+	// Matched by GENERATION, not by a bare "is root motion live": a punch landing mid-bite starts the
+	// KNOCKBACK's own drive, and a liveness-only test would exempt that too — leaving a Chalkie that is
+	// being hurled backwards still swinging, the exact case this break-off exists to catch. Our
+	// generation stops being the live one the moment anything else takes the bridge.
+	const UAZ_PawnMoverComponent* Mover = Pawn ? Pawn->FindComponentByClass<UAZ_PawnMoverComponent>() : nullptr;
+	const bool bOwnLungeDriving = Mover && Mover->IsRootMotionDrivenBy(MeleeRootMotionGen);
+	if (!bGrabRun && !bOwnLungeDriving && Pawn && Pawn->GetVelocity().Size2D() > AZ_MidBiteMoveBreakSpeed)
 	{
 		const TSubclassOf<UGameplayAbility> RunClass = ChosenAbilityClass ? ChosenAbilityClass : AbilityClass;
 		UAbilitySystemComponent* MovingASC = BoundASC.Get();
@@ -437,6 +460,7 @@ void UAZ_BTTask_ZombieAttack::Cleanup()
 		}
 	}
 	bGrabRun = false;
+	MeleeRootMotionGen = 0;
 	AbilityEndedHandle.Reset();
 	BoundASC = nullptr;
 	OwningComp = nullptr;

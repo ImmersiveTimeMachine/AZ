@@ -98,7 +98,9 @@ protected:
 	/** Sphere swept along the strike socket's path each tick. Fist ~12; claws slightly bigger. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "1", ForceUnits = "cm"))
 	float SweepSphereRadius = 12.f;
-	/** Strike sockets per hand (bone FNames, not asset paths — fine per project rules). */
+	/** Strike sockets (bone FNames, not asset paths — fine per project rules). BOTH are swept every
+	 *  window: Hand picks the montage, the animator picks the fist, and only geometry gets to say which
+	 *  one connected. See UAZ_AT_MeleeSweep for the measurements that forced this. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_L = TEXT("hand_l");
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_R = TEXT("hand_r");
 
@@ -154,7 +156,14 @@ protected:
 
 	/** Where the warp point sits relative to the target, measured back along the target->attacker vector.
 	 *  Aiming at their centre would park us inside their capsule; this stops us at punching range.
-	 *  Contact reaches ~MeleeRange + MeleeRadius (90+40), so 100 lands comfortably inside it. */
+	 *
+	 *  ★ MUST stay inside the fist's MEASURED reach, which is
+	 *      hand_forward_extension + SweepSphereRadius + victim_capsule_radius.
+	 *  Sampled per clip (AnimPoseExtensions, pelvis-relative; mesh yaw -90 so anim +Y is forward): the
+	 *  jabs extend +72..+81cm inside their windows, i.e. 114..123cm of reach against a 30cm capsule. This
+	 *  used to be justified against MeleeRange+MeleeRadius, which stopped being the damage shape when the
+	 *  socket sweep landed — and a 105 stand-off in front of a 91cm punch is exactly how the heavy attack
+	 *  came to be un-landable. Re-measure before raising it. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
 	float WarpApproachDistance = 100.f;
 

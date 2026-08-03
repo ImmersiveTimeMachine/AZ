@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "AIController.h"
+#include "GameplayTagContainer.h"           // FGameplayTag (stagger tag-change callback signature)
 #include "Perception/AIPerceptionTypes.h"   // FAIStimulus (UFUNCTION param — needs the full type)
 #include "AZ_InfectedAIController.generated.h"
 
@@ -45,6 +46,14 @@ namespace AZ_ChalkieBBKeys
 	static const FName bActiveFighter(TEXT("bActiveFighter"));
 	static const FName RingDistance(TEXT("RingDistance"));     // legacy accept binding; unused after SlotLocation re-key
 	static const FName SlotLocation(TEXT("SlotLocation"));
+
+	// STAGGER mirror of the pawn ASC's State.Combat.Staggered tag (owned by UAZ_GA_HitReact for the
+	// reaction's beat + its recover hold). A BB key rather than a tag decorator because only BLACKBOARD
+	// decorators observe: an abort=Both blackboard decorator on the Chase branch tears down the running
+	// MoveTo the instant the punch lands, which is what makes the knockback read. A gameplay-tag
+	// decorator has no observer and would not re-evaluate until the branch was re-entered anyway.
+	// The tag stays the fact; this is a mirror, exactly like bActiveFighter.
+	static const FName bStaggered(TEXT("bStaggered"));
 }
 
 /** Infected AI phase — mirrored as State.Infected.* tags on the pawn's OWN ASC (replicated; the AnimInstance
@@ -147,6 +156,11 @@ public:
 	 *  visually a whiffed bite). Cleared on every task exit path. */
 	void SetMeleeTaskActive(bool bActive) { bMeleeTaskActive = bActive; }
 	bool IsMeleeTaskActive() const { return bMeleeTaskActive; }
+
+	/** Bind/unbind the pawn ASC's State.Combat.Staggered tag to the bStaggered blackboard key. Called at
+	 *  possess/unpossess; the callback is the ONLY writer of that key. */
+	void BindStaggerMirror();
+	void UnbindStaggerMirror();
 
 	/** World seconds when this Chalkie's last GRAB ended — the BT roll's per-Chalkie cooldown anchor
 	 *  (cooldown counts from the END of the grab, so a long hold doesn't eat its own cooldown).
@@ -276,6 +290,15 @@ protected:
 
 	/** True while the zombie-melee BT task is latent (swing in flight). See SetMeleeTaskActive. */
 	bool bMeleeTaskActive = false;
+
+	/** Stagger tag -> bStaggered blackboard mirror (see AZ_ChalkieBBKeys::bStaggered). Held so the
+	 *  binding can be dropped on unpossess — the ASC outlives us, and a dangling mirror would write to a
+	 *  blackboard we no longer own. */
+	FDelegateHandle StaggerTagHandle;
+	TWeakObjectPtr<class UAbilitySystemComponent> StaggerBoundASC;
+
+	/** Tag-change callback: writes bStaggered. Sole writer of that key. */
+	void OnStaggerTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	/** Current phase — the tag on the pawn's ASC is the published truth, this just avoids re-publishing. */
 	EAZ_InfectedPhase CurrentPhase = EAZ_InfectedPhase::Dormant;

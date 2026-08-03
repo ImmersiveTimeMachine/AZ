@@ -118,7 +118,23 @@ uint64 UAZ_PawnMoverComponent::DriveRootMotion(float Seconds)
 	const TSharedPtr<FLayeredMove_RootMotionAttribute> RMMove = MakeShared<FLayeredMove_RootMotionAttribute>();
 	RMMove->DurationMs = Seconds * 1000.f;
 	QueueLayeredMove(RMMove);
+	// Stamp the deadline so IsRootMotionDriven can answer "is the animation moving me right now" without
+	// the caller having to tell us when it stopped — the move can also expire on its own DurationMs.
+	if (const UWorld* World = GetWorld())
+	{
+		RootMotionDriveEndTime = World->GetTimeSeconds() + Seconds;
+	}
 	return ++RootMotionGeneration;
+}
+
+bool UAZ_PawnMoverComponent::IsRootMotionDrivenBy(uint64 Generation) const
+{
+	if (Generation == 0 || Generation != RootMotionGeneration)
+	{
+		return false;   // never started, or somebody else's drive replaced it
+	}
+	const UWorld* World = GetWorld();
+	return World && RootMotionDriveEndTime > 0.0 && World->GetTimeSeconds() < RootMotionDriveEndTime;
 }
 
 void UAZ_PawnMoverComponent::ReleaseRootMotion(uint64 Generation)
@@ -128,6 +144,7 @@ void UAZ_PawnMoverComponent::ReleaseRootMotion(uint64 Generation)
 		return;   // superseded (or never queued): the live move belongs to a newer owner — leave it alone
 	}
 	CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
+	RootMotionDriveEndTime = 0.0;   // ours, and it's over — stop reporting the pawn as animation-driven
 }
 
 void UAZ_PawnMoverComponent::OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd)

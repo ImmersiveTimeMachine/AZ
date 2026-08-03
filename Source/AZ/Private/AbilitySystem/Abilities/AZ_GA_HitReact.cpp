@@ -70,6 +70,7 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 
 	// Resolve the clip + timing by trigger. ONE resolve site — HandleDamaged no longer knows montages.
 	Desc = FAZ_CombatMontage();
+	bRecovering = false;   // retrigger: a fresh reaction is not a continuation of the last one's recover
 	const bool bStepBack = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Combat_StepBack;
 	if (bStepBack)
 	{
@@ -119,10 +120,20 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 
 	// Capsule follows the recoil for the descriptor's RM window (KnockBack_Chase clips walk back in
 	// during their second half — driving past the peak turns a knockback into a stroll-back-at-you).
-	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+	UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>();
+	if (Mover)
 	{
 		RootMotionGen = Mover->DriveRootMotion(Desc.ResolveRootMotion());
 	}
+
+	// TEMP diagnostic ([HitReact]): the montage playing is not proof the CAPSULE moves — that needs the
+	// anim instance in RootMotionFromEverything, the clip's bEnableRootMotion, a live RM layered move and
+	// a slot that reaches the output pose. Report the inputs here and the travelled distance at EndAbility
+	// so "the knockback doesn't move him" is answered with a number instead of a theory.
+	ReactStartLocation = Avatar->GetActorLocation();
+	UE_LOG(LogTemp, Display, TEXT("[HitReact] %s clip=%s beat=%.2f rm=%.2f gen=%llu mover=%s"),
+		*GetNameSafe(Avatar), *GetNameSafe(Desc.Montage), Desc.ResolveBeat(), Desc.ResolveRootMotion(),
+		RootMotionGen, Mover ? TEXT("yes") : TEXT("NO MOVER"));
 
 	// CLOCKS. Primary: the BeatEnd notify authored on the montage (the timeline itself). The cut timer
 	// is armed ONLY when that notify doesn't own the beat — un-authored variant, or a caller-shortened
@@ -142,7 +153,7 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 			{
 				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 			}
-		}), Desc.ResolveGate() + 0.5f, false);
+		}), Desc.ResolveStaggerHold() + 0.5f, false);   // must outlast the recover hold, or it would cut it short
 }
 
 void UAZ_GA_HitReact::OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData)
@@ -155,6 +166,24 @@ void UAZ_GA_HitReact::OnMontageEvent(FGameplayTag EventTag, FGameplayEventData E
 
 void UAZ_GA_HitReact::OnMontageFinished(FGameplayTag EventTag, FGameplayEventData EventData)
 {
+	// RECOVER HOLD: the animation is done but the victim is still reeling. Keeping the ABILITY alive is
+	// what keeps State.Combat.Staggered up, which is the one fact the BT reads — so "the Chalkie pauses
+	// before resuming the chase" needs no BT Wait node, no second duration, and nothing to keep in sync.
+	// A timer is correct here precisely because nothing is playing: there is no timeline to anchor to.
+	const float Recover = FMath::Max(0.f, Desc.StaggerRecoverSeconds);
+	if (Recover > 0.f && !bRecovering && IsActive())
+	{
+		bRecovering = true;
+		GetWorld()->GetTimerManager().SetTimer(RecoverTimer,
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				if (IsActive())
+				{
+					EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+				}
+			}), Recover, false);
+		return;
+	}
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 }
 
@@ -175,13 +204,23 @@ void UAZ_GA_HitReact::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 	{
 		World->GetTimerManager().ClearTimer(BeatCutTimer);
 		World->GetTimerManager().ClearTimer(Watchdog);
+		World->GetTimerManager().ClearTimer(RecoverTimer);
 	}
+	bRecovering = false;
 	if (const AActor* Avatar = GetAvatarActorFromActorInfo())
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
 			// Generation-scoped: no-ops if something newer (a fresh reaction, an attack) took the bridge.
 			Mover->ReleaseRootMotion(RootMotionGen);
+		}
+		// TEMP diagnostic ([HitReact]): how far the capsule ACTUALLY travelled. The clips recoil 85-146cm,
+		// so a reading near 0 means the root motion never reached the Mover, not that the clip is wrong.
+		if (!ReactStartLocation.IsZero())
+		{
+			UE_LOG(LogTemp, Display, TEXT("[HitReact] %s reaction over — capsule moved %.1fcm%s"),
+				*GetNameSafe(Avatar), FVector::Dist2D(Avatar->GetActorLocation(), ReactStartLocation),
+				bWasCancelled ? TEXT(" (cancelled)") : TEXT(""));
 		}
 	}
 	RootMotionGen = 0;

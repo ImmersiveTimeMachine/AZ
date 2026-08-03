@@ -3,6 +3,7 @@
 #include "AI/AZ_InfectedAIController.h"
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"   // AddStateTag/RemoveStateTag (replicated phase tags)
+#include "AbilitySystemGlobals.h"            // GetAbilitySystemComponentFromActor (stagger mirror binding)
 #include "Animation/AZ_LocomotionTypes.h"   // EAZ_Gait
 #include "AZ_GameplayTags.h"                 // Movement.Crouching (crouch-sneak detection range)
 #include "BehaviorTree/BehaviorTree.h"
@@ -169,6 +170,11 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 		}
 	}
 
+	// Mirror the reaction tag into the blackboard so the Chase branch can be aborted the frame a punch
+	// lands (BB decorators observe; tag decorators don't). Bound after RunBehaviorTree so the seed write
+	// below lands on a live blackboard.
+	BindStaggerMirror();
+
 	// Join the pack registry (server-only by construction — AI controllers don't exist on clients).
 	if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
 	{
@@ -193,6 +199,7 @@ void AAZ_InfectedAIController::OnUnPossess()
 	// the pawn is nulled — its release path can't reach the subsystem, leaking a max-2 slot), and
 	// drop the phase to Dormant so no stale Aggressive/Alerted tag outlives possession.
 	SetPhase(EAZ_InfectedPhase::Dormant);
+	UnbindStaggerMirror();
 	if (UAZ_HordeSubsystem* Horde = GetWorld() ? GetWorld()->GetSubsystem<UAZ_HordeSubsystem>() : nullptr)
 	{
 		Horde->ReleaseAttackToken(this);
@@ -209,6 +216,48 @@ void AAZ_InfectedAIController::OnUnPossess()
 	AlertCandidate = nullptr;
 	FacingOverrideWorld = FVector::ZeroVector;
 	Super::OnUnPossess();
+}
+
+void AAZ_InfectedAIController::BindStaggerMirror()
+{
+	UnbindStaggerMirror();   // idempotent: re-possession must not stack a second callback
+
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetPawn());
+	if (!ASC)
+	{
+		return;
+	}
+	const FGameplayTag& Staggered = FAZ_GameplayTags::Get().State_Combat_Staggered;
+	StaggerBoundASC = ASC;
+	StaggerTagHandle = ASC->RegisterGameplayTagEvent(Staggered, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &AAZ_InfectedAIController::OnStaggerTagChanged);
+	// Seed from the CURRENT count, not from false: a Chalkie possessed mid-reaction (or re-possessed)
+	// must not read as un-staggered until the next change.
+	OnStaggerTagChanged(Staggered, ASC->GetTagCount(Staggered));
+}
+
+void AAZ_InfectedAIController::UnbindStaggerMirror()
+{
+	if (UAbilitySystemComponent* ASC = StaggerBoundASC.Get())
+	{
+		if (StaggerTagHandle.IsValid())
+		{
+			ASC->RegisterGameplayTagEvent(FAZ_GameplayTags::Get().State_Combat_Staggered,
+				EGameplayTagEventType::NewOrRemoved).Remove(StaggerTagHandle);
+		}
+	}
+	StaggerTagHandle.Reset();
+	StaggerBoundASC = nullptr;
+}
+
+void AAZ_InfectedAIController::OnStaggerTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	// The tag is the fact (UAZ_GA_HitReact's ActivationOwnedTags + its recover hold); this key is only a
+	// mirror the tree can observe. Loose/owned tag counts are COUNTS — > 0, never == 1.
+	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	{
+		BB->SetValueAsBool(AZ_ChalkieBBKeys::bStaggered, NewCount > 0);
+	}
 }
 
 ETeamAttitude::Type AAZ_InfectedAIController::GetTeamAttitudeTowards(const AActor& Other) const

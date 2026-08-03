@@ -75,4 +75,11 @@ protected:
 	uint64 RootMotionGen = 0;
 	FTimerHandle BeatCutTimer;   // fallback cut — armed only when the notify doesn't own the beat
 	FTimerHandle Watchdog;       // gate + margin: ends the ability if every event path failed
+	/** Post-animation hold (descriptor's StaggerRecoverSeconds): the ability — and therefore the
+	 *  Staggered tag, and therefore the AI's chase block — outlives the clip by this much. */
+	FTimerHandle RecoverTimer;
+	bool bRecovering = false;
+	/** TEMP diagnostic ([HitReact], strip with the other combat diags): where the victim stood when the
+	 *  reaction started, so EndAbility can report how far the knockback ACTUALLY moved the capsule. */
+	FVector ReactStartLocation = FVector::ZeroVector;
 };

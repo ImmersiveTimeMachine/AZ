@@ -85,12 +85,34 @@ public:
 	 * NOTE: deliberately does NOT cover three special cases that are not this pattern —
 	 * AZ_HeroPawn's permanent (DurationMs = -1) bridge, AZ_MoverAnimInstance's per-frame recomputed
 	 * transition remainder, and FLayeredMove_AZ_GrabAnchor (a different layered move entirely).
+	 *
+	 * WARNING: Seconds is REAL time, but every caller passes a MONTAGE-TIME beat. They only agree at play rate
+	 * 1.0, which is all we ship today. At 2x the layered move would outlive the clip, at 0.5x it would cut
+	 * the capsule loose halfway through. This is survivable because the duration is a BACKSTOP, not the
+	 * mechanism — the beat ends on the montage's own Event.Combat.BeatEnd notify, which scales with rate
+	 * for free, and EndAbility releases the drive there. Divide by the montage's rate scale here before
+	 * shipping any rate-scaled combat (hitstop, slow-mo finishers).
 	 */
 	uint64 DriveRootMotion(float Seconds);
 
 	/** End a drive started by DriveRootMotion — no-ops if that drive has already been superseded (or
 	 *  Generation is 0), so a stale caller can never cancel a newer owner's move. */
 	void ReleaseRootMotion(uint64 Generation);
+
+	/** Generation of the live drive (0 = none queued yet). Read straight after the call that started a
+	 *  drive to learn which generation you own. */
+	uint64 GetRootMotionGeneration() const { return RootMotionGeneration; }
+
+	/** True while the drive identified by Generation is STILL the live one AND its window is still open.
+	 *
+	 *  Ownership, not just liveness: "something is moving me, abandon what I'm doing" guards have to tell
+	 *  the motion they asked for from everyone else's. The zombie attack task breaks off its swing above
+	 *  120 cm/s — a guard written when Chalkie montages could not move the capsule at all (the
+	 *  RootMotionMode bug), which the instant they could began tripping on the attack's own warp lunge.
+	 *  A bare "is anything driving root motion" would also exempt the KNOCKBACK a punch just started, so a
+	 *  Chalkie hurled backwards mid-bite would keep swinging — precisely the case the break-off exists to
+	 *  catch. Passing a generation makes the exemption mean "my own lunge" and nothing else. */
+	bool IsRootMotionDrivenBy(uint64 Generation) const;
 	
 protected:
 	// Override OnRegister so we can populate SharedSettings BEFORE the parent calls
@@ -104,4 +126,8 @@ private:
 	/** Monotonic id of the most recent DriveRootMotion call — ReleaseRootMotion only cancels if it still
 	 *  holds the latest. Never reset (a uint64 will not wrap in a play session). */
 	uint64 RootMotionGeneration = 0;
+
+	/** World time the live drive is scheduled to end (0 = none). The layered move can also expire on its
+	 *  own DurationMs without anyone calling Release, so liveness is a DEADLINE, not a flag. */
+	double RootMotionDriveEndTime = 0.0;
 };
