@@ -563,7 +563,7 @@ bool UAZ_MontageUtils::AddGameplayEventNotify(UAnimMontage* Montage, FName Event
 }
 
 bool UAZ_MontageUtils::AddMeleeWindowNotifyState(UAnimMontage* Montage, float StartTime, float Duration,
-	FName TrackName, bool bReplaceExisting)
+	FName TrackName, bool bReplaceExisting, FName BeginTagName, FName EndTagName)
 {
 	if (!Montage)
 	{
@@ -595,20 +595,60 @@ bool UAZ_MontageUtils::AddMeleeWindowNotifyState(UAnimMontage* Montage, float St
 		TrackIndex = Montage->AnimNotifyTracks.Add(FAnimNotifyTrack(TrackName, FLinearColor::White));
 	}
 
+	// Resolve the tag pair. Unset = the hit window's defaults, so existing call sites are unchanged; a
+	// caller authoring the RECOVERY window passes Event.Combat.CancelOpen/CancelClose and gets the same
+	// notify-state class carrying different tags.
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	FGameplayTag BeginTag = Tags.Event_Montage_Melee_WindowBegin;
+	FGameplayTag EndTag = Tags.Event_Montage_Melee_WindowEnd;
+	if (!BeginTagName.IsNone())
+	{
+		BeginTag = FGameplayTag::RequestGameplayTag(BeginTagName, /*ErrorIfNotFound*/ false);
+		if (!BeginTag.IsValid())
+		{
+			UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] AddMeleeWindowNotifyState: '%s' is not a registered "
+				"gameplay tag — nothing added."), *BeginTagName.ToString());
+			return false;
+		}
+	}
+	if (!EndTagName.IsNone())
+	{
+		EndTag = FGameplayTag::RequestGameplayTag(EndTagName, /*ErrorIfNotFound*/ false);
+		if (!EndTag.IsValid())
+		{
+			UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] AddMeleeWindowNotifyState: '%s' is not a registered "
+				"gameplay tag — nothing added."), *EndTagName.ToString());
+			return false;
+		}
+	}
+
 	if (bReplaceExisting)
 	{
-		// Strip BOTH shapes of window: an existing state, and the LEGACY WindowBegin/WindowEnd notify pair
-		// this state supersedes. Leaving the pair behind would double the events — worse, its End would
-		// close the detector partway through the new window, which reads as "the sweep randomly stops".
-		const FGameplayTag BeginTag = FAZ_GameplayTags::Get().Event_Montage_Melee_WindowBegin;
-		const FGameplayTag EndTag = FAZ_GameplayTags::Get().Event_Montage_Melee_WindowEnd;
+		// Strip only windows carrying the SAME begin tag (so a cancel window never deletes the hit
+		// window), plus the LEGACY WindowBegin/WindowEnd notify PAIR this state supersedes. Leaving the
+		// pair behind would double the events — worse, its End would close the detector partway through
+		// the new window, which reads as "the sweep randomly stops".
 		for (int32 i = Montage->Notifies.Num() - 1; i >= 0; --i)
 		{
 			const FAnimNotifyEvent& Existing = Montage->Notifies[i];
 			const UAZ_AnimNotify_SendGameplayEvent* Sender =
 				Cast<UAZ_AnimNotify_SendGameplayEvent>(Existing.Notify);
-			const bool bLegacyPair = Sender && (Sender->EventTag == BeginTag || Sender->EventTag == EndTag);
-			if (bLegacyPair || Cast<UAZ_AnimNotifyState_MeleeWindow>(Existing.NotifyStateClass))
+			// Scoped to the HIT-window pass: a cancel-window pass must never delete a clip's hit window,
+			// which is exactly what an unscoped legacy strip would do on any clip still carrying the old
+			// notify pair.
+			const bool bLegacyPair = Sender && BeginTag == Tags.Event_Montage_Melee_WindowBegin
+				&& (Sender->EventTag == Tags.Event_Montage_Melee_WindowBegin
+					|| Sender->EventTag == Tags.Event_Montage_Melee_WindowEnd);
+			const UAZ_AnimNotifyState_MeleeWindow* ExistingWindow =
+				Cast<UAZ_AnimNotifyState_MeleeWindow>(Existing.NotifyStateClass);
+			// Windows authored before this parameter existed carry an UNSET tag and resolve to the hit
+			// window at runtime — resolve the same way here, or re-running the hit-window pass would
+			// fail to match them and quietly stack a second live window on the clip.
+			const FGameplayTag ExistingBegin = (ExistingWindow && ExistingWindow->BeginEventTag.IsValid())
+				? ExistingWindow->BeginEventTag
+				: Tags.Event_Montage_Melee_WindowBegin;
+			const bool bSameWindow = ExistingWindow && ExistingBegin == BeginTag;
+			if (bLegacyPair || bSameWindow)
 			{
 				Montage->Notifies.RemoveAt(i);
 			}
@@ -617,6 +657,11 @@ bool UAZ_MontageUtils::AddMeleeWindowNotifyState(UAnimMontage* Montage, float St
 
 	UAZ_AnimNotifyState_MeleeWindow* State = NewObject<UAZ_AnimNotifyState_MeleeWindow>(
 		Montage, UAZ_AnimNotifyState_MeleeWindow::StaticClass(), NAME_None, RF_Transactional);
+	// Written explicitly even for the defaults: MontageHasCancelWindow and the replace pass above both
+	// compare BeginEventTag, and an unset tag would read as "not a cancel window" while still behaving
+	// as a hit window at runtime.
+	State->BeginEventTag = BeginTag;
+	State->EndEventTag = EndTag;
 
 	FAnimNotifyEvent& Event = Montage->Notifies.AddDefaulted_GetRef();
 	Event.Guid = FGuid::NewGuid();

@@ -7,8 +7,10 @@
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "AbilitySystem/GameplayEffects/AZ_GE_Damage.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystem/AZ_AbilitySystemComponent.h"   // ApplyHitStop
 #include "AbilitySystemGlobals.h"
-#include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"   // BeatEnd notify scan
+#include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"      // BeatEnd notify scan
+#include "AbilitySystem/AZ_AnimNotifyState_MeleeWindow.h"       // cancel-window presence scan
 #include "Animation/AZ_CombatMontage.h"
 #include "Animation/AZ_InfectedAnimInstance.h"
 #include "Animation/AZ_MoverAnimInstance.h"
@@ -29,6 +31,12 @@ UAZ_GA_MeleeAttack::UAZ_GA_MeleeAttack()
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 	DamageEffect = UAZ_GE_Damage::StaticClass();
+	// Same-hand chaining: without this the engine refuses to reactivate an active InstancedPerActor spec
+	// outright, and CanActivateAbility's recovery gate never gets a say. Note this is NOT sufficient on
+	// its own — the input rail only calls TryActivateAbility while the spec is INACTIVE, so today the
+	// recovery gate governs cross-hand chains only. Same-hand chains arrive with the input buffer, which
+	// must attempt activation on an active spec.
+	bRetriggerInstancedAbility = true;
 }
 
 void UAZ_GA_MeleeAttack::DeclareAbilityTags()
@@ -43,6 +51,14 @@ void UAZ_GA_MeleeAttack::DeclareAbilityTags()
 	ActivationBlockedTags.AddTag(T.State_Combat_Grabbing);    // holding someone: the grab is the attack
 	ActivationBlockedTags.AddTag(T.Character_Dead);
 	ActivationBlockedTags.AddTag(T.Character_Dying);
+
+	// A punch cancels a punch — explicitly, rather than by letting the new montage displace the old one
+	// on the slot and waiting for the loser's OnInterrupted. Ordering matters and works in our favour:
+	// GAS applies this in PreActivate, so the outgoing swing's EndAbility (and its generation-scoped
+	// ReleaseRootMotion) runs BEFORE the incoming one calls DriveRootMotion, and cannot cancel the new
+	// drive. Which swing is ALLOWED to start is decided separately, by the recovery gate in
+	// CanActivateAbility — this only makes the handover clean once permission is granted.
+	CancelAbilitiesWithTag.AddTag(T.Ability_Combat_Melee);
 }
 
 USkeletalMeshComponent* UAZ_GA_MeleeAttack::GetAvatarMesh() const
@@ -82,6 +98,19 @@ bool UAZ_GA_MeleeAttack::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
 	{
 		return false;
+	}
+	// CONTROLLED CHAINING. A swing may only be started (or restarted) while no other melee instance is
+	// mid-commitment. Checked on EVERY attempt, and — verified in engine source — this runs on the
+	// primary instance BEFORE the retrigger EndAbility block, so a refused mash does NOT end the swing
+	// already in flight. Without it, L and R being separate specs means a second fist can displace the
+	// first on the slot at frame 0, mid-warp and mid-strike.
+	if (IsOtherMeleeCommitted(ActorInfo))
+	{
+		return false;
+	}
+	if (IsActive() && !bCancellable)
+	{
+		return false;   // same spec, still committed — mashing does nothing until recovery
 	}
 
 	return true; //ToDo: HasAmmo();
@@ -162,10 +191,24 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// punch clips carry no notify → BeatSeconds = clip length → behaviour unchanged.
 	const float BeatSeconds = FindBeatEndNotifyTime(Montage);
 
+	// Retrigger reuses this instance, so every per-swing latch resets HERE, not just on end.
+	// A clip with no authored recovery window counts as cancellable THROUGHOUT — see
+	// MontageHasCancelWindow. Absence of data must not silently make a swing more committal than it was
+	// before this feature existed; authoring the window is what buys the commitment.
+	bCancellable = !MontageHasCancelWindow(Montage);
+	SetCancelWindowTag(bCancellable);
+	ActiveMontage = Montage;
+
+	// ★ Every tag the clip can send must be in THIS container: the montage task subscribes with it, and
+	// anything unlisted is silently dropped — the notify fires, nothing receives it, and the feature
+	// looks unimplemented. Adding a notify without adding its tag here is the single easiest way to lose
+	// an afternoon on this rail.
 	FGameplayTagContainer EventTags;
 	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Montage_Melee_WindowBegin);
 	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Montage_Melee_WindowEnd);
 	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Combat_BeatEnd);
+	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Combat_CancelOpen);
+	EventTags.AddTag(FAZ_GameplayTags::Get().Event_Combat_CancelClose);
 
 	MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
 		this, FName("MeleeMontage"), Montage, EventTags,
@@ -229,6 +272,10 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	}
 	// An interrupted swing must not leave a hit detector ticking past the ability.
 	StopHitWindow();
+	// Nor a recovery latch outliving the swing it belonged to — the instance is reused under retrigger,
+	// and the ASC tag would otherwise advertise a cancel window on a pawn that is no longer attacking.
+	bCancellable = false;
+	SetCancelWindowTag(false);
 
 	// Stop driving the capsule with the punch RM. No-op if none was queued; on an interrupted
 	// punch this cancels the layered move so it doesn't overrun its DurationMs. Self-heals for
@@ -321,6 +368,18 @@ AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
 		{
 			continue;
 		}
+		// ★ MIN-DISTANCE GATE. WarpApproachDistance places the warp point that far in FRONT of the
+		// target, measured back toward us. If they are ALREADY closer than that, the point lands BEHIND
+		// us and translation warping slides the attacker backwards through their own punch — the
+		// moonwalk-jab. Worse, at near-zero separation VectorFromTargetToOwner derives its direction from
+		// a collapsing vector and the point orbit-jitters every frame, since bFollowComponent re-reads it
+		// continuously. Registering nothing leaves the clip to play its authored distance, which at
+		// point-blank is exactly right — no warp needed, the fist is already in range.
+		const float Separation = FVector::Dist2D(Candidate->GetActorLocation(), Avatar->GetActorLocation());
+		if (Separation < WarpApproachDistance + WarpMinSeparationDeadband)
+		{
+			return nullptr;
+		}
 		return Candidate;
 	}
 	return nullptr;
@@ -393,6 +452,25 @@ bool UAZ_GA_MeleeAttack::FindAnimSetCombatMontage(const AActor* Avatar, FName St
 	return Out.IsSet();
 }
 
+bool UAZ_GA_MeleeAttack::MontageHasCancelWindow(const UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return false;
+	}
+	const FGameplayTag& CancelOpen = FAZ_GameplayTags::Get().Event_Combat_CancelOpen;
+	for (const FAnimNotifyEvent& Event : Montage->Notifies)
+	{
+		const UAZ_AnimNotifyState_MeleeWindow* Window =
+			Cast<UAZ_AnimNotifyState_MeleeWindow>(Event.NotifyStateClass);
+		if (Window && Window->BeginEventTag == CancelOpen)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 float UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(const UAnimMontage* Montage)
 {
 	if (!Montage)
@@ -418,6 +496,18 @@ void UAZ_GA_MeleeAttack::OnMontageFinished(FGameplayTag EventTag, FGameplayEvent
 
 void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData)
 {
+	// WHOSE MONTAGE SPOKE? These events are broadcast to the ASC and the task subscribes by tag alone,
+	// so a swing that was just cancelled still delivers its states' NotifyEnd — a frame or more after the
+	// replacement swing latched its own. Discard anything stamped with a different montage. Events with
+	// no stamp (the single-frame BeatEnd notify) are always accepted, since only window states stamp.
+	if (const UAnimSequenceBase* Source = Cast<UAnimSequenceBase>(EventData.OptionalObject.Get()))
+	{
+		if (ActiveMontage.IsValid() && Source != ActiveMontage.Get())
+		{
+			return;
+		}
+	}
+
 	// THE BITE END: the montage's authored BeatEnd notify says this attack's beat is over — end the
 	// ability (the task stops the montage with its blend). This is the event-driven replacement for
 	// GA_ZombieMelee's BiteSeconds timer; hero clips carry no BeatEnd and never reach this branch.
@@ -440,7 +530,57 @@ void UAZ_GA_MeleeAttack::OnMontageEvent(FGameplayTag EventTag, FGameplayEventDat
 	if (EventTag == Tags.Event_Montage_Melee_WindowEnd)
 	{
 		StopHitWindow();
+		return;
 	}
+
+	// RECOVERY. Startup and the strike are committed; from here the swing may be abandoned. Published
+	// as a tag so the input layer (buffered press) and the movement layer (cancel on move intent) can
+	// both act on it without either of them knowing this ability exists.
+	if (EventTag == Tags.Event_Combat_CancelOpen)
+	{
+		bCancellable = true;
+		SetCancelWindowTag(true);
+		return;
+	}
+	if (EventTag == Tags.Event_Combat_CancelClose)
+	{
+		bCancellable = false;
+		SetCancelWindowTag(false);
+	}
+}
+
+void UAZ_GA_MeleeAttack::SetCancelWindowTag(bool bOpen)
+{
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_CancelWindow, bOpen ? 1 : 0);
+	}
+}
+
+bool UAZ_GA_MeleeAttack::IsOtherMeleeCommitted(const FGameplayAbilityActorInfo* ActorInfo) const
+{
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC)
+	{
+		return false;
+	}
+	const FGameplayTag& MeleeIdentity = FAZ_GameplayTags::Get().Ability_Combat_Melee;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (!Spec.IsActive() || !Spec.Ability || !Spec.Ability->GetAssetTags().HasTagExact(MeleeIdentity))
+		{
+			continue;
+		}
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			const UAZ_GA_MeleeAttack* Melee = Cast<UAZ_GA_MeleeAttack>(Instance);
+			if (Melee && Melee != this && Melee->IsActive() && !Melee->bCancellable)
+			{
+				return true;   // someone else is mid-commitment — refuse
+			}
+		}
+	}
+	return false;
 }
 
 void UAZ_GA_MeleeAttack::StartHitWindow()
@@ -456,7 +596,8 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 	// hand the animator actually swings — measured, the clip names lie (AM_Zombie_Atk_L rakes with the
 	// RIGHT claw while its left hand is behind the body; the heavy punch's real strike is a right hook).
 	// Sweeping both and letting geometry decide leaves the animation as the single owner of that fact.
-	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this, { StrikeSocket_L, StrikeSocket_R }, SweepSphereRadius,
+	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this,
+		{ StrikeSocket_L, StrikeSocket_R, KnuckleSocket_L, KnuckleSocket_R }, SweepSphereRadius,
 		/*bHostilesOnly*/ true, /*bSingleTarget*/ true);
 	if (SweepTask)
 	{
@@ -499,6 +640,24 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	}
 	UE_LOG(LogTemp, Display, TEXT("[MeleeHit] %s -> %s contact at %s (socket sweep)"),
 		*GetName(), *GetNameSafe(Target), *Hit.ImpactPoint.ToCompactString());
+
+	// HIT-STOP, both sides. This is the frame-of-contact acknowledgment the fight was missing: the
+	// knockback clips peak at 1.34-1.81s and open at 8-14cm/s, so for ~300ms after a landed hit the
+	// victim is visually inert while the follow-through drives through them — which reads as fake far
+	// more strongly than the ~18cm of capsule overlap does (and that overlap is roughly what shipped
+	// melee authors anyway, because the capsule is not the body).
+	//
+	// Victim goes LAST and slightly longer: the damage GE above has already run, so the reaction montage
+	// is up and has had this frame to start — freezing it now hangs the body in a recoil pose instead of
+	// its pre-hit pose. Both are refresh-not-stack, so a pack landing together cannot multiply the hold.
+	if (UAZ_AbilitySystemComponent* SelfASC = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+	{
+		SelfASC->ApplyHitStop(HitStopAttackerSeconds);
+	}
+	if (UAZ_AbilitySystemComponent* VictimASC = Cast<UAZ_AbilitySystemComponent>(TargetASC))
+	{
+		VictimASC->ApplyHitStop(HitStopVictimSeconds);
+	}
 
 	// FIGHT NOISE: a landed hit is loud — pack hearing (direction-agnostic) pulls nearby Chalkies into
 	// a wary investigation of the brawl, and every hit re-pins its CURRENT location. Instigator must be

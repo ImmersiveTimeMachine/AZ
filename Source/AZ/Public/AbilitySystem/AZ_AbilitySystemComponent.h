@@ -81,6 +81,41 @@ public:
 
 	void GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities);
 
+	// ========================================
+	// HIT-STOP — the frame-of-contact acknowledgment
+	// ========================================
+	/**
+	 * Briefly collapse this actor's montage play rate, then restore it. Applied to BOTH sides of a
+	 * landed hit (attacker slightly shorter than victim, the fighting-game asymmetry that hands the
+	 * attacker the advantage back first).
+	 *
+	 * WHY THIS IS THE FIX, and not more distance tuning: measured, the fist ends ~18cm inside the
+	 * victim's 30cm capsule at the current stand-off — which is roughly what shipped melee actually
+	 * authors, because the capsule is not the body (the chest surface sits ~18-22cm from centre) and a
+	 * fist stopping at the capsule reads as a whiff. The penetration is not the defect. The defect is
+	 * that for ~300ms after contact NOTHING on screen changes: the knockback clips peak at 1.34-1.81s
+	 * and open at 8-14cm/s, so the victim is still standing there while the follow-through drives
+	 * through them. A stop at the contact frame is what the eye reads as impact.
+	 *
+	 * MOVER NOTE — why rate and not pause or time dilation: root motion reaches the capsule as a
+	 * PER-FRAME DELTA (RootMotionFromEverything -> attribute -> FLayeredMove_RootMotionAttribute), not a
+	 * time-indexed track. At rate ~0 the clip emits ~zero delta, so the capsule stops by construction
+	 * and resumes with no accumulated catch-up to lurch through. Actor CustomTimeDilation would NOT
+	 * work: the Mover sim ticks on world time, so the mesh would slow while the capsule kept moving.
+	 *
+	 * Refreshes rather than stacks — two hits in one frame (a pack landing together) must not multiply
+	 * the stop or fight over which one restores the rate.
+	 *
+	 * @param Seconds     Real-time hold. Kept well under the 0.5s margin on the combat watchdogs so a
+	 *                    stop can never outlive the beat it belongs to; clamped to HitStopMaxSeconds.
+	 * @param RateDuring  Play rate held during the stop. 0 would halt notify evaluation entirely.
+	 */
+	void ApplyHitStop(float Seconds, float RateDuring = 0.05f);
+
+	/** Total real seconds this ASC has spent in hit-stop. Combat clocks that are wall-clock (watchdogs,
+	 *  cut timers) can add the delta across their own lifetime to stay honest against a slowed montage. */
+	double GetTotalHitStopSeconds() const { return TotalHitStopSeconds; }
+
 	bool bStartupAbilitiesGiven = false;
 	bool bCharacterAbilitiesGiven = false;
 	bool bStartupEffectsApplied = false;
@@ -187,7 +222,24 @@ public:
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
-	
+
+	// ---- Hit-stop state (see ApplyHitStop) ----
+	/** Hard ceiling on a single stop. A stop that outlived its own beat would desync every wall-clock
+	 *  combat timer (watchdogs, cut timers) from the montage timeline they guard. */
+	static constexpr float HitStopMaxSeconds = 0.15f;
+	FTimerHandle HitStopTimer;
+	/** Rate to restore. Latched from the montage BEFORE the stop so a rate-scaled attack restores to its
+	 *  own rate, not to a hardcoded 1.0. */
+	float HitStopRestoreRate = 1.f;
+	/** The slowed rate we imposed. Restore only happens if the montage still carries it — anything else
+	 *  started at its own authored rate during the window and is not ours to retime. */
+	float HitStopRateDuring = 0.05f;
+	bool bHitStopActive = false;
+	/** World time the live stop ends. Refreshes extend this; TotalHitStopSeconds accrues only the
+	 *  extension past it, so overlapping stops are not double-counted. */
+	double HitStopEndTime = 0.0;
+	double TotalHitStopSeconds = 0.0;
+
 	void EffectApplied(UAbilitySystemComponent* SourceAbilitySystemComponent, const FGameplayEffectSpec& Spec, FActiveGameplayEffectHandle Handle);
 	
 	FGameplayAbilitySpecHandle AbilitySpecHandle;

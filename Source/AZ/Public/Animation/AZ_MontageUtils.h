@@ -182,8 +182,13 @@ public:
 	 *
 	 * @param StartTime        Window open, seconds.
 	 * @param Duration         Window length, seconds. Must be > 0 and stay inside the clip.
-	 * @param bReplaceExisting Remove existing melee-window states first, so re-running a build script
-	 *                         cannot stack two live windows on one clip.
+	 * @param bReplaceExisting Remove existing windows CARRYING THE SAME BEGIN TAG first, so re-running a
+	 *                         build script cannot stack two live windows — while still allowing a hit
+	 *                         window and a cancel window to coexist on one clip.
+	 * @param BeginTagName / EndTagName  Leave NAME_None for the hit window (defaults to
+	 *                         Event.Montage.Melee.WindowBegin/End). Pass Event.Combat.CancelOpen /
+	 *                         CancelClose to author the RECOVERY window on the same clip — same notify
+	 *                         state class, only the tags differ, so one authoring path serves both.
 	 * @return true on success (reason logged to LogAZ). Does NOT save.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
@@ -192,7 +197,9 @@ public:
 		float StartTime,
 		float Duration,
 		FName TrackName = TEXT("1"),
-		bool bReplaceExisting = true);
+		bool bReplaceExisting = true,
+		FName BeginTagName = NAME_None,
+		FName EndTagName = NAME_None);
 
 	/** Remove every melee-window notify state from a montage. Returns how many were removed. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")

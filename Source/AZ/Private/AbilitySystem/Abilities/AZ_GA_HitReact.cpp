@@ -54,8 +54,10 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	// runtime: measured, CDO = {State.Combat.Staggered} while a fresh instance = {}. The tag therefore
 	// never reached the ASC, no BT gate ever saw it, and the Chalkie swung again 0.5s into its own
 	// knockback. ApplyStaggerTag/ClearStaggerTag below are the real owners.
-	// (ActivationBlockedTags escapes this because CanActivateAbility is evaluated on Spec.Ability, which
-	// IS the CDO — the same patch works there and only there.)
+	// (ActivationBlockedTags does NOT escape this either: InternalTryActivateAbility picks
+	// `AbilitySource = InstancedAbility ? InstancedAbility : Ability`, so once a primary instance exists
+	// — always, for InstancedPerActor — CanActivateAbility runs on the INSTANCE too. Both containers are
+	// declared per-instance in DeclareAbilityTags; only AbilityTriggers and asset tags are CDO-read.)
 	if (!CDO->ActivationOwnedTags.HasTagExact(Tags.State_Combat_Staggered))
 	{
 		CDO->ActivationOwnedTags.AddTag(Tags.State_Combat_Staggered);

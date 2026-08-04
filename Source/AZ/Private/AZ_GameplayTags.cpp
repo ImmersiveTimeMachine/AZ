@@ -306,6 +306,11 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
     AddTag(GameplayTags.State_Grab_Resolving,  FName("State.Grab.Resolving"),  TEXT("Paired grab stage: outcome section queued/running — no longer interruptible"));
 
+    // ---- ATTACK PHASING (recovery cancel) ----
+    AddTag(GameplayTags.Event_Combat_CancelOpen, FName("Event.Combat.CancelOpen"), TEXT("Recovery begins — the attack may now be cancelled into another attack or into movement"));
+    AddTag(GameplayTags.Event_Combat_CancelClose, FName("Event.Combat.CancelClose"), TEXT("Recovery window closed"));
+    AddTag(GameplayTags.State_Combat_CancelWindow, FName("State.Combat.CancelWindow"), TEXT("ASC mirror of the live attack's recovery window — read by the input buffer and by movement-intent cancel"));
+
     // ---- ABILITY IDENTITY (asset tags — what Block/CancelAbilitiesWithTag match against) ----
     AddTag(GameplayTags.Ability_Combat_Melee, FName("Ability.Combat.Melee"), TEXT("Identity of the shared melee rail (hero punch + Chalkie claw) — cancelled by reactions and grabs"));
     AddTag(GameplayTags.Ability_Combat_Grab, FName("Ability.Combat.Grab"), TEXT("Identity of the Chalkie grab commit"));

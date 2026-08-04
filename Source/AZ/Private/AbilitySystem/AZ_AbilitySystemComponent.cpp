@@ -10,6 +10,7 @@
 #include "AZ_ConsoleVariables.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "TimerManager.h"   // hit-stop restore timer (World.h only forward-declares FTimerManager)
 
 void UAZ_AbilitySystemComponent::GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities)
 {
@@ -290,6 +291,73 @@ void UAZ_AbilitySystemComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	// ...
+}
+
+void UAZ_AbilitySystemComponent::ApplyHitStop(float Seconds, float RateDuring)
+{
+	const float Hold = FMath::Clamp(Seconds, 0.f, HitStopMaxSeconds);
+	if (Hold <= 0.f)
+	{
+		return;
+	}
+	UAnimInstance* AnimInstance = AbilityActorInfo.IsValid() ? AbilityActorInfo->GetAnimInstance() : nullptr;
+	UAnimMontage* Montage = AnimInstance ? AnimInstance->GetCurrentActiveMontage() : nullptr;
+	if (!AnimInstance || !Montage)
+	{
+		return;   // nothing playing to freeze — a hit landed on an idle body, no stop to apply
+	}
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// REFRESH, don't stack. Two attackers landing in the same frame must not multiply the hold or race
+	// over which one restores the rate — the second call simply extends the single active stop. The
+	// restore rate is latched only on the FIRST stop, so a refresh cannot capture the already-slowed
+	// rate and restore to 0.05 forever (the bug this ordering exists to prevent).
+	if (!bHitStopActive)
+	{
+		HitStopRestoreRate = AnimInstance->Montage_GetPlayRate(Montage);
+		if (HitStopRestoreRate <= 0.f)
+		{
+			HitStopRestoreRate = 1.f;
+		}
+		bHitStopActive = true;
+	}
+	AnimInstance->Montage_SetPlayRate(Montage, RateDuring);
+	HitStopRateDuring = RateDuring;
+
+	// Accumulate only the EXTENSION past the current stop's end, not the full hold: a refresh 0.01s into
+	// an 0.08s stop really costs ~0.09s of wall clock, and adding 0.08 again would tell a watchdog that
+	// tried to compensate to over-extend itself by nearly double.
+	const double Now = World->GetTimeSeconds();
+	const double NewEnd = Now + Hold;
+	TotalHitStopSeconds += FMath::Max(0.0, NewEnd - FMath::Max(HitStopEndTime, Now));
+	HitStopEndTime = FMath::Max(HitStopEndTime, NewEnd);
+
+	World->GetTimerManager().SetTimer(HitStopTimer,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			bHitStopActive = false;
+			// Restore on whatever is playing NOW, not on the montage captured at stop time: the reaction
+			// that the hit triggered has very likely replaced it on the slot by the time this fires, and
+			// leaving THAT one at 0.05 would freeze the victim mid-flinch.
+			//
+			// But only if it is still OUR slowdown. A montage that started during the window at its own
+			// authored rate was never ours to touch, and stamping the latched rate onto it would silently
+			// retime someone else's animation.
+			if (UAnimInstance* Anim = AbilityActorInfo.IsValid() ? AbilityActorInfo->GetAnimInstance() : nullptr)
+			{
+				if (UAnimMontage* Current = Anim->GetCurrentActiveMontage())
+				{
+					if (FMath::IsNearlyEqual(Anim->Montage_GetPlayRate(Current), HitStopRateDuring))
+					{
+						Anim->Montage_SetPlayRate(Current, HitStopRestoreRate);
+					}
+				}
+			}
+		}), Hold, false);
 }
 
 void UAZ_AbilitySystemComponent::AbilityActorInfoSet()

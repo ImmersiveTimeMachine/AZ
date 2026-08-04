@@ -197,6 +197,14 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_State_Throwing;
     FGameplayTag Ability_State_Dashing;
 
+    // ---- ATTACK PHASING (recovery cancel) ----
+    // Startup and Active are committed; RECOVERY is cancellable. Published by a notify state on the clip
+    // so the boundary is authored next to the animation, and mirrored onto the ASC as a loose tag so the
+    // input layer and the movement-intent layer can both read it without knowing about the ability.
+    FGameplayTag Event_Combat_CancelOpen;
+    FGameplayTag Event_Combat_CancelClose;
+    FGameplayTag State_Combat_CancelWindow;   // ASC mirror: "this attack may be cancelled right now"
+
     // ---- ABILITY IDENTITY (asset tags) ----
     // What an ability IS, so other abilities can address it in Block/CancelAbilitiesWithTag — those
     // match against the TARGET ability's ASSET tags, so an ability with no asset tag can never be

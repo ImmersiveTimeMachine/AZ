@@ -11,7 +11,7 @@ void UAZ_AnimNotifyState_MeleeWindow::NotifyBegin(USkeletalMeshComponent* MeshCo
 	float TotalDuration, const FAnimNotifyEventReference& EventReference)
 {
 	Super::NotifyBegin(MeshComp, Animation, TotalDuration, EventReference);
-	SendEvent(MeshComp, ResolveBeginTag());
+	SendEvent(MeshComp, ResolveBeginTag(), Animation);
 }
 
 void UAZ_AnimNotifyState_MeleeWindow::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation,
@@ -20,7 +20,7 @@ void UAZ_AnimNotifyState_MeleeWindow::NotifyEnd(USkeletalMeshComponent* MeshComp
 	Super::NotifyEnd(MeshComp, Animation, EventReference);
 	// Fires on the natural end AND on interruption/blend-out/section jump — that second case is the whole
 	// reason this is a state. A close with no matching open is harmless: StopHitWindow is idempotent.
-	SendEvent(MeshComp, ResolveEndTag());
+	SendEvent(MeshComp, ResolveEndTag(), Animation);
 }
 
 FGameplayTag UAZ_AnimNotifyState_MeleeWindow::ResolveBeginTag() const
@@ -33,7 +33,8 @@ FGameplayTag UAZ_AnimNotifyState_MeleeWindow::ResolveEndTag() const
 	return EndEventTag.IsValid() ? EndEventTag : FAZ_GameplayTags::Get().Event_Montage_Melee_WindowEnd;
 }
 
-void UAZ_AnimNotifyState_MeleeWindow::SendEvent(USkeletalMeshComponent* MeshComp, const FGameplayTag& Tag)
+void UAZ_AnimNotifyState_MeleeWindow::SendEvent(USkeletalMeshComponent* MeshComp, const FGameplayTag& Tag,
+	const UAnimSequenceBase* Animation)
 {
 	if (!MeshComp || !Tag.IsValid())
 	{
@@ -53,6 +54,7 @@ void UAZ_AnimNotifyState_MeleeWindow::SendEvent(USkeletalMeshComponent* MeshComp
 	Payload.EventTag = Tag;
 	Payload.Instigator = Owner;
 	Payload.Target = Owner;
+	Payload.OptionalObject = Animation;   // "who spoke" — see the header
 	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Owner, Tag, Payload);
 }
 

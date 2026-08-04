@@ -54,6 +54,13 @@ public:
 	 *  un-authored variants keep working. Goes native with UAZ_ChalkieAnimSet in the batch. */
 	static bool FindAnimSetCombatMontage(const AActor* Avatar, FName StructPropertyName, struct FAZ_CombatMontage& Out);
 
+	/** True if this montage authors a recovery window (a melee-window notify state carrying
+	 *  Event.Combat.CancelOpen). Clips WITHOUT one are treated as cancellable throughout: absence of
+	 *  data must not make combat more restrictive than it was before the feature existed, and today a
+	 *  second fist can already displace the first at any time. Authoring the window is what BUYS the
+	 *  commitment, rather than the feature silently imposing it on every clip in the project. */
+	static bool MontageHasCancelWindow(const UAnimMontage* Montage);
+
 	/** Trigger time of the Event.Combat.BeatEnd notify authored on this montage, or 0 when absent
 	 *  (arch step A: the montage timeline is the beat clock — "events drive, timers guard"). Used by
 	 *  GA_HitReact and by the melee bite; 0 means the caller falls back to its own beat source. */
@@ -80,6 +87,19 @@ protected:
 	void StartHitWindow();
 	void StopHitWindow();
 
+	/** Mirror bCancellable onto the ASC as State.Combat.CancelWindow. Absolute count (1/0), because
+	 *  loose tags are COUNTED and a cancel-into-attack ends one swing while starting the next — an
+	 *  Add/Remove pair would leave the count at 1 after the chain and mark the pawn permanently
+	 *  cancellable. Idempotent: safe to call with the same value twice. */
+	void SetCancelWindowTag(bool bOpen);
+
+	/** True if some OTHER melee instance on this ASC is mid-swing and is NOT in its recovery window.
+	 *  This is what makes chaining controlled rather than free: L and R are separate specs, so retrigger
+	 *  alone never governs a cross-hand chain, and without this a second fist could interrupt the first
+	 *  at frame 0 — mid-warp, mid-strike — which is the uncontrolled mashing the window exists to
+	 *  prevent. Returns false when nothing else is running, so the first punch is always allowed. */
+	bool IsOtherMeleeCommitted(const FGameplayAbilityActorInfo* ActorInfo) const;
+
 	/** A physically-touched, pre-filtered victim from the sweep task — apply damage + fight noise. */
 	UFUNCTION()
 	void OnSweepHit(const FHitResult& Hit);
@@ -102,11 +122,29 @@ protected:
 	/** Sphere swept along the strike socket's path each tick. Fist ~12; claws slightly bigger. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage", meta = (ClampMin = "1", ForceUnits = "cm"))
 	float SweepSphereRadius = 12.f;
-	/** Strike sockets (bone FNames, not asset paths — fine per project rules). BOTH are swept every
-	 *  window: Hand picks the montage, the animator picks the fist, and only geometry gets to say which
-	 *  one connected. See UAZ_AT_MeleeSweep for the measurements that forced this. */
+	/** Strike sockets (bone FNames, not asset paths — fine per project rules). ALL of them are swept
+	 *  every window: Hand picks the montage, the animator picks the fist, and only geometry gets to say
+	 *  which one connected. See UAZ_AT_MeleeSweep for the measurements that forced this.
+	 *
+	 *  hand_* is the WRIST. Measured root-relative, the knuckles reach 8-10cm further on every clip in
+	 *  the kit (Punch_L wrist 74.9 vs knuckle 83.4; Zombie_Atk_R 76.5 vs 87.0), so sweeping the wrist
+	 *  alone under-reaches the visible fist by most of a sphere radius and invites fudge factors in the
+	 *  stand-off instead. Sweeping both joints costs one extra sphere trace and makes the detected
+	 *  contact match what the player sees connect. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_L = TEXT("hand_l");
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_R = TEXT("hand_r");
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName KnuckleSocket_L = TEXT("middle_01_l");
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName KnuckleSocket_R = TEXT("middle_01_r");
+
+	// --- HIT-STOP (frame-of-contact acknowledgment; see UAZ_AbilitySystemComponent::ApplyHitStop) ---
+	/** Attacker's hold on a landed hit. Deliberately SHORTER than the victim's — the attacker recovering
+	 *  advantage first is the fighting-game convention that makes a landed hit feel earned. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Feel", meta = (ClampMin = "0", ClampMax = "0.15", ForceUnits = "s"))
+	float HitStopAttackerSeconds = 0.05f;
+	/** Victim's hold. Longer, and applied AFTER the reaction montage has had a frame to start, so the
+	 *  body hangs in a recoil pose rather than freezing in its pre-hit pose. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Feel", meta = (ClampMin = "0", ClampMax = "0.15", ForceUnits = "s"))
+	float HitStopVictimSeconds = 0.08f;
 
 	// --- Damage (S1 spine) ---
 	/** GE applied to each swept hostile; magnitude rides SetByCaller.Damage. Default = UAZ_GE_Damage. */
@@ -171,6 +209,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
 	float WarpApproachDistance = 100.f;
 
+	/** Slack below which a target is "already close enough" and no warp target is registered at all.
+	 *  Without it, a victim standing nearer than WarpApproachDistance puts the warp point BEHIND the
+	 *  attacker and translation warping walks them backwards mid-punch. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
+	float WarpMinSeparationDeadband = 15.f;
+
 	/** Nearest hostile in front within WarpSearchDistance, or null. Mirrors the hit sweep's filters so the
 	 *  thing we lunge at is the thing the damage window would hit. */
 	AActor* FindWarpTarget() const;
@@ -191,6 +235,17 @@ protected:
 	FTimerHandle BeatWatchdog;
 	UPROPERTY(EditDefaultsOnly) EAZ_MeleeHand Hand = EAZ_MeleeHand::Left;
 	bool bIsMovingLatched = false;
+	/** RECOVERY LATCH. True between the clip's Event.Combat.CancelOpen/CancelClose notify state — the
+	 *  phase where startup and the strike are done and the attack may be abandoned. Mirrored onto the ASC
+	 *  as State.Combat.CancelWindow so the input layer and movement-intent layer can read it without
+	 *  knowing this ability exists. MUST be reset in both ActivateAbility and EndAbility: the instance is
+	 *  reused under retrigger, and a stale true would make the next swing cancellable from frame 0. */
+	bool bCancellable = false;
+	/** THIS activation's montage. Window/cancel events carry their source montage in the payload, and
+	 *  anything from a different one is discarded: a cancelled swing's notify states fire their NotifyEnd
+	 *  a frame or more AFTER the replacement swing has latched its own state, and an unfiltered
+	 *  CancelClose from the outgoing clip would commit the incoming one for its entire montage. */
+	TWeakObjectPtr<UAnimMontage> ActiveMontage;
 	FGameplayTag ProfileTag;          // current Weapon.* — used by SelectMontage when CHT lands
 	int32 ComboIndex = 0;             // later
 	

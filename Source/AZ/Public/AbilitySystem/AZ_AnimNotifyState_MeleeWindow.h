@@ -57,6 +57,13 @@ private:
 	FGameplayTag ResolveEndTag() const;
 
 	/** Fire Tag on the mesh's owner. No-ops outside a game world so the anim editor's preview, which
-	 *  plays notifies too, cannot open a hit window on a preview actor. */
-	static void SendEvent(USkeletalMeshComponent* MeshComp, const FGameplayTag& Tag);
+	 *  plays notifies too, cannot open a hit window on a preview actor.
+	 *
+	 *  Animation is stamped into the payload's OptionalObject so the receiving ability can tell WHICH
+	 *  montage spoke. It must: these events are broadcast to the actor's ASC, and the montage task
+	 *  subscribes by tag alone. When one swing cancels another, the outgoing montage's states fire their
+	 *  NotifyEnd a frame or more later — after the incoming ability has already latched its own state —
+	 *  and an unstamped CancelClose would land on the new swing and commit it for its whole montage. */
+	static void SendEvent(USkeletalMeshComponent* MeshComp, const FGameplayTag& Tag,
+		const UAnimSequenceBase* Animation);
 };
