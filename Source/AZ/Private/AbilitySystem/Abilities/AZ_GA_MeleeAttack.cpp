@@ -10,7 +10,6 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"   // ApplyHitStop
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"      // BeatEnd notify scan
-#include "AbilitySystem/AZ_AnimNotifyState_MeleeWindow.h"       // cancel-window presence scan
 #include "Animation/AZ_CombatMontage.h"
 #include "Animation/AZ_InfectedAnimInstance.h"
 #include "Animation/AZ_MoverAnimInstance.h"
@@ -218,11 +217,18 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	const float BeatSeconds = FindBeatEndNotifyTime(Montage);
 
 	// Retrigger reuses this instance, so every per-swing latch resets HERE, not just on end.
-	// A clip with no authored recovery window counts as cancellable THROUGHOUT — see
-	// MontageHasCancelWindow. Absence of data must not silently make a swing more committal than it was
-	// before this feature existed; authoring the window is what buys the commitment.
-	bCancellable = !MontageHasCancelWindow(Montage);
-	SetCancelWindowTag(bCancellable);
+	//
+	// ★ COMMITTED UNTIL THE CLIP SAYS OTHERWISE. This started out inverted — "no authored window means
+	// cancellable throughout" — on the reasoning that missing data should never make a swing MORE
+	// committal. That was right for the chain gate and catastrophic once movement could cancel: an attack
+	// thrown while a movement key is HELD published its window on frame 0 and was cancelled on the next
+	// tick, before a single frame drew. Punching while moving became impossible, which also made
+	// AM_Fists_Punch_Move_L/R — clips whose entire purpose is punching on the move — unplayable.
+	//
+	// So the baseline is commitment, and an authored CancelOpen is what BUYS the freedom. Missing data
+	// now costs a swing its cancel tail, which is a small, visible loss — not a swing that never plays.
+	bCancellable = false;
+	SetCancelWindowTag(false);
 	ActiveMontage = Montage;
 
 	// ★ Every tag the clip can send must be in THIS container: the montage task subscribes with it, and
@@ -499,25 +505,6 @@ bool UAZ_GA_MeleeAttack::FindAnimSetCombatMontage(const AActor* Avatar, FName St
 	Out = *Field->ContainerPtrToValuePtr<FAZ_CombatMontage>(AnimSet);
 	// An authored row with no montage assigned is still "not set" — callers fall back to the legacy field.
 	return Out.IsSet();
-}
-
-bool UAZ_GA_MeleeAttack::MontageHasCancelWindow(const UAnimMontage* Montage)
-{
-	if (!Montage)
-	{
-		return false;
-	}
-	const FGameplayTag& CancelOpen = FAZ_GameplayTags::Get().Event_Combat_CancelOpen;
-	for (const FAnimNotifyEvent& Event : Montage->Notifies)
-	{
-		const UAZ_AnimNotifyState_MeleeWindow* Window =
-			Cast<UAZ_AnimNotifyState_MeleeWindow>(Event.NotifyStateClass);
-		if (Window && Window->BeginEventTag == CancelOpen)
-		{
-			return true;
-		}
-	}
-	return false;
 }
 
 float UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(const UAnimMontage* Montage)

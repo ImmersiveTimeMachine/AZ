@@ -89,7 +89,28 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 		return;
 	}
 
-	Grabber = TriggerEventData ? TriggerEventData->Instigator.Get() : nullptr;
+	// ★ EVENT-TRIGGERED ONLY. Nothing may start this ability except a grabber's Event.Grabbed.
+	//
+	// The grabbed spec carries the Input.Action.Interact dynamic tag so E-presses reach the MASH while it
+	// is running — but that same tag makes it a candidate for ordinary input activation, and
+	// AbilityInputTagHeld activates every non-active spec carrying the tag
+	// (AZ_AbilitySystemComponent.cpp:72-79). Every input action is bound to Triggered->Held as well as
+	// Started->Pressed, so simply HOLDING E in open space activated this with no trigger data: no
+	// grabber, no paired montage, no anchor — but State.Grabbed applied and the escape window armed.
+	// The player froze themselves for up to WindowSeconds with a "GRABBED!" prompt and nothing holding
+	// them. (The grant-site comment claims only Pressed can reach the spec; that is true of
+	// AbilityInputTagPressed and false of Held.)
+	//
+	// Guarding on the PAYLOAD rather than the input path: this ability is meaningless without a grabber,
+	// so a missing instigator is the honest test regardless of how activation was reached.
+	const AActor* EventInstigator = TriggerEventData ? TriggerEventData->Instigator.Get() : nullptr;
+	if (!EventInstigator)
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;   // ends BEFORE State.Grabbed is applied — nothing to unwind
+	}
+
+	Grabber = EventInstigator;
 	UE_LOG(LogTemp, Display, TEXT("[Grab] GA_PlayerGrabbed ACTIVE (grabber=%s)"), *GetNameSafe(Grabber.Get()));
 	Presses = 0;
 	bResolved = false;
@@ -102,7 +123,14 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
 	{
 		ASC->CancelAbilities(nullptr, nullptr, this);
-		ASC->AddLooseGameplayTag(FAZ_GameplayTags::Get().State_Grabbed);
+		// Absolute count, not Add/Remove: loose tags are COUNTED, and State.Grabbed is the gate that
+		// freezes movement, camera and every ability without bActivatableWhileGrabbed. A count left at 1
+		// after the paired Remove would freeze the player permanently with no input that can clear it.
+		// Not reachable today (this ability does not set bRetriggerInstancedAbility, and the grabber-side
+		// pre-check plus the one-grabber token stop a second grab landing on an already-grabbed victim) —
+		// but the failure is a softlock, so it is written to be safe by construction rather than by five
+		// guards elsewhere continuing to hold.
+		ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Grabbed, 1);
 		bAppliedGrabbedTag = true;
 	}
 
@@ -504,7 +532,9 @@ void UAZ_GA_PlayerGrabbed::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 		bAppliedGrabbedTag = false;
 		if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
 		{
-			ASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Grabbed);
+			// Absolute 0 — see the set site. A decrement can only ever be as correct as the count that
+			// preceded it; setting the value cannot leave the player frozen whatever happened upstream.
+			ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Grabbed, 0);
 		}
 	}
 	// Release the sync and the socket lock BEFORE the facing target: all of these must go on every exit

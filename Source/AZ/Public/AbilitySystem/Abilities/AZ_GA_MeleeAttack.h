@@ -54,13 +54,6 @@ public:
 	 *  un-authored variants keep working. Goes native with UAZ_ChalkieAnimSet in the batch. */
 	static bool FindAnimSetCombatMontage(const AActor* Avatar, FName StructPropertyName, struct FAZ_CombatMontage& Out);
 
-	/** True if this montage authors a recovery window (a melee-window notify state carrying
-	 *  Event.Combat.CancelOpen). Clips WITHOUT one are treated as cancellable throughout: absence of
-	 *  data must not make combat more restrictive than it was before the feature existed, and today a
-	 *  second fist can already displace the first at any time. Authoring the window is what BUYS the
-	 *  commitment, rather than the feature silently imposing it on every clip in the project. */
-	static bool MontageHasCancelWindow(const UAnimMontage* Montage);
-
 	/** Trigger time of the Event.Combat.BeatEnd notify authored on this montage, or 0 when absent
 	 *  (arch step A: the montage timeline is the beat clock — "events drive, timers guard"). Used by
 	 *  GA_HitReact and by the melee bite; 0 means the caller falls back to its own beat source. */

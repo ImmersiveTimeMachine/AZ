@@ -22,7 +22,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "DefaultMovementSet/LayeredMoves/BasicLayeredMoves.h"
 #include "Engine/World.h"
-#include "MoverTypes.h"
 #include "TimerManager.h"
 
 UAZ_GA_ChalkieGrab::UAZ_GA_ChalkieGrab()
@@ -127,7 +126,9 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// mid-grab is armored against the stagger montage that would break the hold on the slot.
 	if (UAbilitySystemComponent* SelfASC = GetAbilitySystemComponentFromActorInfo())
 	{
-		SelfASC->AddLooseGameplayTag(Tags.State_Combat_Grabbing);
+		// Absolute count (loose tags are COUNTED) — a leaked count here leaves the Chalkie permanently
+		// armored against its own hit reactions, i.e. an enemy that can never be staggered again.
+		SelfASC->SetLooseGameplayTagCount(Tags.State_Combat_Grabbing, 1);
 		bAppliedGrabbingTag = true;
 	}
 
@@ -260,14 +261,16 @@ void UAZ_GA_ChalkieGrab::SetGrabStage(const FGameplayTag& NewStage)
 	{
 		return;
 	}
+	// Absolute counts on both sides of the swap: stages change several times per grab
+	// (Catch -> Wrestle -> outcome), so this is the site where a drifting count would accumulate fastest.
 	if (ActiveStageTag.IsValid())
 	{
-		SelfASC->RemoveLooseGameplayTag(ActiveStageTag);
+		SelfASC->SetLooseGameplayTagCount(ActiveStageTag, 0);
 	}
 	ActiveStageTag = NewStage;
 	if (ActiveStageTag.IsValid())
 	{
-		SelfASC->AddLooseGameplayTag(ActiveStageTag);
+		SelfASC->SetLooseGameplayTagCount(ActiveStageTag, 1);
 	}
 }
 
@@ -491,7 +494,7 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 		bAppliedGrabbingTag = false;
 		if (UAbilitySystemComponent* SelfASC = GetAbilitySystemComponentFromActorInfo())
 		{
-			SelfASC->RemoveLooseGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing);
+			SelfASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Grabbing, 0);
 		}
 	}
 	CachedPairedMontage = nullptr;
