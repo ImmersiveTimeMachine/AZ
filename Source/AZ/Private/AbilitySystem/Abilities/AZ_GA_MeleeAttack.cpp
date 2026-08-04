@@ -258,7 +258,16 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// FLayeredMove_RootMotionAttribute makes the Mover follow it (OverrideAll). Mirrors the
 	// transition-clip bridge in AZ_MoverAnimInstance.cpp:112-116. Scoped to the montage length;
 	// cancelled in EndAbility so an interrupted punch doesn't overrun the capsule.
-	if (const AActor* Avatar = GetAvatarActorFromActorInfo())   // pawn-class-agnostic: hero AND infected
+	// ★ ONLY CLIPS THAT ACTUALLY TRAVEL GET A DRIVE. Every fist clip in the kit sets bEnableRootMotion, so
+	// the flag says nothing; the measured displacement does — the jabs move 0.0-0.3cm. Driving one queues
+	// an OverrideAll layered move that transports nothing for the clip's whole length, and OverrideAll
+	// applying a ~zero delta PINS the pawn. That is felt as "I still have to wait after punching", for no
+	// transport in return.
+	const FTransform ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(
+		0.f, Montage->GetPlayLength(), FAnimExtractContext());
+	const bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+
+	if (const AActor* Avatar = bClipTravels ? GetAvatarActorFromActorInfo() : nullptr)   // hero AND infected
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{

@@ -176,6 +176,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Feel")
 	bool bReleaseRootMotionOnHit = true;
 
+	/**
+	 * Minimum travel a clip must actually contain before its root motion is allowed to drive the capsule.
+	 *
+	 * ★ AN IN-PLACE ATTACK MUST NOT QUEUE A ROOT-MOTION MOVE AT ALL. Measured, the jabs carry
+	 * bEnableRootMotion = true but travel 0.0-0.3cm, so driving them queues an OverrideAll layered move
+	 * that transports nothing for the clip's whole length — and OverrideAll applying a ~zero delta is the
+	 * documented freeze: the pawn is PINNED for 0.8s while going nowhere. That is felt directly as "I
+	 * still have to wait after punching", and it is pure loss, because there was never any transport to
+	 * protect.
+	 *
+	 * The authored flag cannot be used as the test (every clip in the kit sets it); the clip's actual
+	 * displacement can. Above the threshold the drive behaves exactly as before.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float MinRootMotionTravel = 5.f;
+
 	// --- HIT-STOP (frame-of-contact acknowledgment; see UAZ_AbilitySystemComponent::ApplyHitStop) ---
 	/** Attacker's hold on a landed hit. Deliberately SHORTER than the victim's — the attacker recovering
 	 *  advantage first is the fighting-game convention that makes a landed hit feel earned. */
