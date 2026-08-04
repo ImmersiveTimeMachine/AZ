@@ -108,11 +108,33 @@ protected:
 	USkeletalMeshComponent* GetAvatarMesh() const;
 	bool ResolveAvatarIsMoving() const;
 
-	// --- Tunables: assign the 4 fist montages in a BP child (like GA_Shoot's FireMontage*) ---
+	// --- Tunables: assign the fist montages in a BP child (like GA_Shoot's FireMontage*) ---
+	// PunchIdle/PunchMove describe OUR movement state; PunchLunge describes the GAP. Selection reads the
+	// gap first — see SelectMontage.
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchIdle_L = nullptr;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchIdle_R = nullptr;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_L = nullptr;
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchMove_R = nullptr;
+
+	/** TRAVELLING attacks, used only when there is actually room to travel. Leave unset to disable the
+	 *  distance axis entirely — selection then falls back to the idle/move pair exactly as before. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchLunge_L = nullptr;
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation") UAnimMontage* PunchLunge_R = nullptr;
+
+	/**
+	 * Gap at or above which a lunge clip is chosen instead of an in-place one.
+	 *
+	 * THE POINT OF THE WHOLE DISTANCE AXIS: warping should CORRECT an attack's authored distance, never
+	 * invent it. The heavy punch travels 202cm; choosing it against a target 90cm away asked SkewWarp to
+	 * scale that down to nothing, and the attacker spent 1.70s of committed root motion grinding into a
+	 * blocking capsule. Pick the clip whose authored travel matches the measured gap and the warp is left
+	 * trimming a residual, which is what it is good at.
+	 *
+	 * Default 110 ≈ the jab's own contact reach (measured knuckle 83.4 + sweep 12 + victim capsule 30 =
+	 * ~125cm of coverage), so anything the jab can already touch never triggers a lunge.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Animation", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float LungeMinDistance = 110.f;
 
 	// RETIRED (socket-sweep windows replaced the single-frame hit event). Kept so BP children with a
 	// serialized value still load clean; nothing reads it. Delete at the native-class batch.
@@ -135,6 +157,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName StrikeSocket_R = TEXT("hand_r");
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName KnuckleSocket_L = TEXT("middle_01_l");
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Damage") FName KnuckleSocket_R = TEXT("middle_01_r");
+
+	/**
+	 * End the capsule's root-motion transport the moment a hit is CONFIRMED, instead of letting it run out
+	 * its authored seconds.
+	 *
+	 * Root-motion transport ending is not the same thing as the attack being finished. The drive exists to
+	 * close distance; once the fist has landed, every remaining centimetre of authored travel is the
+	 * attacker being carried INTO and through the victim — which is most of what reads as "the punch goes
+	 * inside". The heavy smears ~71cm of travel into its tail, and contact lands at 1.64-1.69 against a
+	 * 1.70s drive, so on a hit that tail is pure carry-through.
+	 *
+	 * Only the CAPSULE stops. The montage plays on, the strike window stays open, and the recovery window
+	 * still begins at its authored boundary — phase ownership of movement is a separate question from
+	 * whether the animation is over. On a WHIFF nothing is released early and the lunge completes
+	 * normally, which is what makes a missed heavy still commit you.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Feel")
+	bool bReleaseRootMotionOnHit = true;
 
 	// --- HIT-STOP (frame-of-contact acknowledgment; see UAZ_AbilitySystemComponent::ApplyHitStop) ---
 	/** Attacker's hold on a landed hit. Deliberately SHORTER than the victim's — the attacker recovering
@@ -209,12 +249,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
 	float WarpApproachDistance = 100.f;
 
-	/** Slack below which a target is "already close enough" and no warp target is registered at all.
-	 *  Without it, a victim standing nearer than WarpApproachDistance puts the warp point BEHIND the
-	 *  attacker and translation warping walks them backwards mid-punch. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
-	float WarpMinSeparationDeadband = 15.f;
-
 	/** Nearest hostile in front within WarpSearchDistance, or null. Mirrors the hit sweep's filters so the
 	 *  thing we lunge at is the thing the damage window would hit. */
 	AActor* FindWarpTarget() const;
@@ -235,6 +269,10 @@ protected:
 	FTimerHandle BeatWatchdog;
 	UPROPERTY(EditDefaultsOnly) EAZ_MeleeHand Hand = EAZ_MeleeHand::Left;
 	bool bIsMovingLatched = false;
+	/** The lunge candidate and its 2D gap, resolved ONCE at activation and reused by both the montage
+	 *  selection and the warp registration — two sweeps would risk them disagreeing about the target. */
+	TWeakObjectPtr<AActor> WarpTargetLatched;
+	float TargetGapLatched = 0.f;
 	/** RECOVERY LATCH. True between the clip's Event.Combat.CancelOpen/CancelClose notify state — the
 	 *  phase where startup and the strike are done and the attack may be abandoned. Mirrored onto the ASC
 	 *  as State.Combat.CancelWindow so the input layer and movement-intent layer can read it without

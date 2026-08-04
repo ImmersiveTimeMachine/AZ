@@ -144,6 +144,26 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	bIsMovingLatched = ResolveAvatarIsMoving();
 
+	// Resolve the lunge candidate BEFORE picking the clip: the gap is now a selection input, not just a
+	// warp input. Latched so selection and warp registration cannot disagree about which target this
+	// swing is for (a second sweep could return a different actor a frame later).
+	//
+	// Skipped entirely when neither consumer exists — the Chalkie warps from its BT task and has no lunge
+	// clips, so it would otherwise run a forward sweep per swing to produce a value nothing reads.
+	WarpTargetLatched = nullptr;
+	TargetGapLatched = 0.f;
+	if (bUseMotionWarping || PunchLunge_L || PunchLunge_R)
+	{
+		WarpTargetLatched = FindWarpTarget();
+		if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+		{
+			if (const AActor* Latched = WarpTargetLatched.Get())
+			{
+				TargetGapLatched = FVector::Dist2D(Latched->GetActorLocation(), Avatar->GetActorLocation());
+			}
+		}
+	}
+
 	UAnimMontage* Montage = SelectMontage();
 	if (!Montage)
 	{
@@ -160,18 +180,24 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		{
 			if (UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
 			{
-				if (const AActor* WarpTarget = FindWarpTarget())
+				if (const AActor* WarpTarget = WarpTargetLatched.Get())
 				{
 					if (USceneComponent* TargetRoot = WarpTarget->GetRootComponent())
 					{
-						// VectorFromTargetToOwner keeps the warp point on OUR side of them however they
-						// turn; bFollowComponent re-reads it each frame so a target that backs off mid-
-						// punch is still tracked. All six trailing args spelled out because the two
-						// overloads differ only in the 5th and both default it (ambiguous otherwise).
+						// ★ CLAMPED OFFSET. The point sits WarpApproachDistance in front of the target,
+						// measured back toward us — but never nearer than where we ALREADY stand. Without
+						// the clamp, a victim closer than the stand-off puts the point BEHIND us and
+						// translation warping walks the attacker backwards through their own punch; and
+						// at near-zero separation VectorFromTargetToOwner derives its direction from a
+						// collapsing vector, so the point orbit-jitters every frame (bFollowComponent
+						// re-reads it continuously). Clamped, the warp scales the clip's travel toward
+						// ZERO at point-blank — a lunge degrades into an in-place strike instead of
+						// grinding into a blocking capsule — while rotation warping still aims the swing.
+						const float ClampedApproach = FMath::Max(WarpApproachDistance, TargetGapLatched);
 						Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None,
 							/*bFollowComponent*/ true,
 							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
-							FVector(WarpApproachDistance, 0.f, 0.f), FRotator::ZeroRotator);
+							FVector(ClampedApproach, 0.f, 0.f), FRotator::ZeroRotator);
 					}
 				}
 				else
@@ -276,6 +302,9 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	// and the ASC tag would otherwise advertise a cancel window on a pawn that is no longer attacking.
 	bCancellable = false;
 	SetCancelWindowTag(false);
+	// Don't let the next swing's selection read this swing's gap.
+	WarpTargetLatched = nullptr;
+	TargetGapLatched = 0.f;
 
 	// Stop driving the capsule with the punch RM. No-op if none was queued; on an interrupted
 	// punch this cancels the layered move so it doesn't overrun its DurationMs. Self-heals for
@@ -368,18 +397,10 @@ AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
 		{
 			continue;
 		}
-		// ★ MIN-DISTANCE GATE. WarpApproachDistance places the warp point that far in FRONT of the
-		// target, measured back toward us. If they are ALREADY closer than that, the point lands BEHIND
-		// us and translation warping slides the attacker backwards through their own punch — the
-		// moonwalk-jab. Worse, at near-zero separation VectorFromTargetToOwner derives its direction from
-		// a collapsing vector and the point orbit-jitters every frame, since bFollowComponent re-reads it
-		// continuously. Registering nothing leaves the clip to play its authored distance, which at
-		// point-blank is exactly right — no warp needed, the fist is already in range.
-		const float Separation = FVector::Dist2D(Candidate->GetActorLocation(), Avatar->GetActorLocation());
-		if (Separation < WarpApproachDistance + WarpMinSeparationDeadband)
-		{
-			return nullptr;
-		}
+		// Close range is handled by CLAMPING the warp offset at the registration site, not by rejecting
+		// the target here — see ActivateAbility. Rejecting would leave a travelling clip to play its
+		// full authored distance (the heavy punch's 202cm) into a blocking capsule, and would also throw
+		// away the ROTATION warp, which is still wanted at point-blank.
 		return Candidate;
 	}
 	return nullptr;
@@ -387,9 +408,28 @@ AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
 
 UAnimMontage* UAZ_GA_MeleeAttack::SelectMontage() const
 {
+	const bool bLeft = (Hand == EAZ_MeleeHand::Left);
+
+	// DISTANCE FIRST. Warping is meant to CORRECT an attack's authored travel, not invent it: picking a
+	// 202cm lunge against a target 90cm away asked SkewWarp to scale that away to nothing and spent 1.70s
+	// of committed root motion pressed against a blocking capsule. Choose the clip whose reach matches the
+	// gap, and the warp is left trimming a residual — which also means close-quarters combat runs at the
+	// jab's 0.15s contact instead of the lunge's 1.65s.
+	//
+	// Requires a real candidate: with nothing in front there is nothing to close on, so an unset gap must
+	// never select a lunge. Unset PunchLunge slots disable the axis entirely (pre-existing behaviour).
+	if (WarpTargetLatched.IsValid() && TargetGapLatched >= LungeMinDistance)
+	{
+		if (UAnimMontage* Lunge = bLeft ? PunchLunge_L : PunchLunge_R)
+		{
+			return Lunge;
+		}
+	}
 	if (bIsMovingLatched)
-		return (Hand == EAZ_MeleeHand::Left) ? PunchMove_L : PunchMove_R;
-	return (Hand == EAZ_MeleeHand::Left) ? PunchIdle_L : PunchIdle_R;
+	{
+		return bLeft ? PunchMove_L : PunchMove_R;
+	}
+	return bLeft ? PunchIdle_L : PunchIdle_R;
 }
 
 float UAZ_GA_MeleeAttack::ReadConfigFloat(const UObject* Object, FName PropertyName, float Default)
@@ -650,6 +690,20 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	// Victim goes LAST and slightly longer: the damage GE above has already run, so the reaction montage
 	// is up and has had this frame to start — freezing it now hangs the body in a recoil pose instead of
 	// its pre-hit pose. Both are refresh-not-stack, so a pack landing together cannot multiply the hold.
+	// TRANSPORT IS DONE — the drive existed to close distance, and the distance is closed. Everything
+	// still authored in the clip's travel from here would carry the attacker INTO the victim. Only the
+	// capsule stops: the montage plays on, the strike window stays open, and recovery still begins at its
+	// authored boundary. Generation-scoped, so this cannot cancel a knockback that has already taken the
+	// bridge; zeroing the handle keeps EndAbility's release a no-op rather than a second cancel.
+	if (bReleaseRootMotionOnHit && RootMotionGen != 0)
+	{
+		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+		{
+			Mover->ReleaseRootMotion(RootMotionGen);
+			RootMotionGen = 0;
+		}
+	}
+
 	if (UAZ_AbilitySystemComponent* SelfASC = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
 	{
 		SelfASC->ApplyHitStop(HitStopAttackerSeconds);
