@@ -284,8 +284,13 @@ void UAZ_GA_ChalkieGrab::StartLoopMontage()
 	}
 	// Paired starts at the catch section; v1 starts wherever the clip starts.
 	const FName StartSection = CachedPairedMontage ? CatchSection : NAME_None;
+	// The outcome sections carry Event.Grab.OutcomeBegin on their first frame. The task subscribes BY TAG
+	// and silently drops anything unlisted, so this container is what makes the shove drivable at all.
+	FGameplayTagContainer GrabEventTags;
+	GrabEventTags.AddTag(FAZ_GameplayTags::Get().Event_Grab_OutcomeBegin);
+
 	LoopMontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
-		this, FName("GrabLoop"), Montage, FGameplayTagContainer(),
+		this, FName("GrabLoop"), Montage, GrabEventTags,
 		/*Rate*/ 1.f, StartSection, /*bStopWhenAbilityEnds*/ true,
 		/*AnimRootMotionTranslationScale*/ 1.f);
 	if (!LoopMontageTask)
@@ -295,6 +300,7 @@ void UAZ_GA_ChalkieGrab::StartLoopMontage()
 	// Replay on natural end/blend-out. NOT OnInterrupted — the exit montage preempts deliberately.
 	LoopMontageTask->OnCompleted.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnLoopMontageEnded);
 	LoopMontageTask->OnBlendOut.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnLoopMontageEnded);
+	LoopMontageTask->EventReceived.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnGrabMontageEvent);
 	LoopMontageTask->ReadyForActivation();
 
 	UAnimInstance* AnimInstance = GetOwnAnimInstance();
@@ -338,6 +344,65 @@ void UAZ_GA_ChalkieGrab::StartLoopMontage()
 		// Section self-loop (primary loop mechanism; the replay binding is the belt to this suspender).
 		const FName LoopSection = CachedLoopMontage->GetSectionName(0);
 		AnimInstance->Montage_SetNextSection(LoopSection, LoopSection, CachedLoopMontage);
+	}
+}
+
+void UAZ_GA_ChalkieGrab::OnGrabMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData)
+{
+	if (EventTag != FAZ_GameplayTags::Get().Event_Grab_OutcomeBegin || !CachedPairedMontage)
+	{
+		return;
+	}
+	// THE SHOVE. Until now the outcome was pose-only: the clip carries 39.6cm of authored root travel on
+	// the Chalkie side, but bEnableRootMotion was off and nothing drove the capsule, so the body glided
+	// back onto an unmoved capsule during blend-out. Driving it here makes the push actually separate the
+	// two pawns.
+	//
+	// STARTED HERE, not at Resolve: the outcome is queued with Montage_SetNextSection and begins at the
+	// next wrestle loop boundary — up to a full cycle later — so a drive armed at choose-time would spend
+	// most of its window on the wrestle loop and expire partway through the shove.
+	const UAnimInstance* AnimInstance = GetOwnAnimInstance();
+	if (!AnimInstance)
+	{
+		return;
+	}
+	const int32 SectionIndex = CachedPairedMontage->GetSectionIndex(AnimInstance->Montage_GetCurrentSection(CachedPairedMontage));
+	if (SectionIndex == INDEX_NONE)
+	{
+		return;
+	}
+	const float SectionLength = CachedPairedMontage->GetSectionLength(SectionIndex);
+	float SectionStart = 0.f, SectionEnd = 0.f;
+	CachedPairedMontage->GetSectionStartAndEndTime(SectionIndex, SectionStart, SectionEnd);
+
+	// Measure, don't trust the flag: bEnableRootMotion is set on clips all over this project that do not
+	// actually travel, and driving one of those PINS the pawn under OverrideAll instead of moving it —
+	// the same trap that froze the hero for 0.8s per jab.
+	const FTransform SectionRootMotion =
+		CachedPairedMontage->ExtractRootMotionFromTrackRange(SectionStart, SectionEnd, FAnimExtractContext());
+	if (SectionRootMotion.GetTranslation().Size2D() < OutcomeMinRootTravel)
+	{
+		return;
+	}
+	if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+	{
+		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+		{
+			const float DriveSeconds = (OutcomeRootMotionSeconds > 0.f)
+				? FMath::Min(OutcomeRootMotionSeconds, SectionLength) : SectionLength;
+			OutcomeRootMotionGen = Mover->DriveRootMotion(DriveSeconds);
+			UE_LOG(LogTemp, Display, TEXT("[Grab] shove drives %.1fcm over %.2fs (gen=%llu)"),
+				SectionRootMotion.GetTranslation().Size2D(), DriveSeconds, OutcomeRootMotionGen);
+		}
+	}
+
+	// POST-SHOVE BEAT. Without it the ability ends with the section and the BT may swing on its very next
+	// tick — the player shoves the Chalkie 40cm away and it is instantly back on them, which reads as the
+	// escape having achieved nothing. Covers the shove itself plus a recovery beat, and goes through the
+	// pawn's one owner so it cannot fight the reaction ability over the same tag.
+	if (AAZ_PawnMoverInfectedCharacter* Self = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Self->SetStaggeredFor(SectionLength + PostShoveStaggerSeconds);
 	}
 }
 
@@ -496,6 +561,19 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 		{
 			SelfASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Grabbing, 0);
 		}
+	}
+	// Stop driving the shove. Generation-scoped: no-op if a knockback or an attack already took the
+	// bridge, so an end firing late cannot cancel somebody else's live move.
+	if (OutcomeRootMotionGen != 0)
+	{
+		if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+		{
+			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+			{
+				Mover->ReleaseRootMotion(OutcomeRootMotionGen);
+			}
+		}
+		OutcomeRootMotionGen = 0;
 	}
 	CachedPairedMontage = nullptr;
 

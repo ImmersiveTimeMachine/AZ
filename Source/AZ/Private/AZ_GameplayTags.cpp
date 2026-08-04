@@ -306,6 +306,8 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
     AddTag(GameplayTags.State_Grab_Resolving,  FName("State.Grab.Resolving"),  TEXT("Paired grab stage: outcome section queued/running — no longer interruptible"));
 
+    AddTag(GameplayTags.Event_Grab_OutcomeBegin, FName("Event.Grab.OutcomeBegin"), TEXT("First frame of a grab outcome section (Push/Kick) — the shove's root motion starts here, not when the section was queued"));
+
     // ---- ATTACK PHASING (recovery cancel) ----
     AddTag(GameplayTags.Event_Combat_CancelOpen, FName("Event.Combat.CancelOpen"), TEXT("Recovery begins — the attack may now be cancelled into another attack or into movement"));
     AddTag(GameplayTags.Event_Combat_CancelClose, FName("Event.Combat.CancelClose"), TEXT("Recovery window closed"));

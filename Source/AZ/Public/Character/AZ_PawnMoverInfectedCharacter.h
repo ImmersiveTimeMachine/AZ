@@ -160,6 +160,38 @@ public:
 	 *  blend timing used to set AI pacing by accident. Wrapper kept so the BT call site never changes. */
 	bool IsStaggerReactionPlaying() const;
 
+	/**
+	 * ★ THE ONE OWNER of State.Combat.Staggered's lifetime for causes that are NOT a hit reaction.
+	 *
+	 * The tag means one thing — "this body is reeling and may not act" — but it now has two causes: a hit
+	 * reaction (owned by UAZ_GA_HitReact for its montage beat) and being shoved off a grab. Letting each
+	 * cause set and clear the tag independently is the counted-tag trap in a new costume: the grab's
+	 * clear-timer would wipe a stagger that a punch applied a moment later, silently handing the player's
+	 * hit back to the AI.
+	 *
+	 * So non-ability causes funnel through here, LAST WRITER WINS on a single shared timer — the
+	 * semantics this project already settled on once (the arch-step-A′ SetStaggeredFor, removed when
+	 * GA_HitReact briefly became the only source). Re-extending simply pushes the deadline out; it never
+	 * shortens a longer hold that is already running.
+	 *
+	 * GA_HitReact still owns its own window through its ability lifetime. If it is active when this
+	 * expires the tag stays up, because the ability re-asserts it — the clear here only releases what
+	 * THIS call put on.
+	 */
+	void SetStaggeredFor(float Seconds);
+
+private:
+	/** Shared deadline behind SetStaggeredFor. One timer, so two causes cannot each hold a clear. */
+	FTimerHandle StaggerHoldTimer;
+	double StaggerHoldEndTime = 0.0;
+
+	/** True while a reaction ability (asset tag Ability.Combat.HitReact) is running. Asked before this
+	 *  pawn's own hold clears the tag, so a timer started by a shove cannot cut short a reaction that
+	 *  began afterwards. Matched by IDENTITY TAG rather than class so a BP tuning child still counts. */
+	bool IsStaggerReactionAbilityActive() const;
+
+public:
+
 	/** How long the hit-react clip is allowed to drive the CAPSULE, in seconds. 0 = the whole montage.
 	 *
 	 *  The Zombie_*_KnockBack_Chase clips are ROUND TRIPS, not knockbacks: they recoil, hold, then walk

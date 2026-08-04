@@ -14,6 +14,7 @@
 #include "Animation/AnimMontage.h"
 #include "AZ_GameplayTags.h"
 #include "AbilitySystemComponent.h"
+#include "TimerManager.h"   // shared stagger-hold timer (World.h only forward-declares FTimerManager)
 #include "AI/AZ_InfectedAIController.h"
 #include "AIController.h"
 #include "GameplayEffectExtension.h"   // FGameplayEffectModCallbackData (scream causer)
@@ -241,6 +242,61 @@ void AAZ_PawnMoverInfectedCharacter::PlayStepBackReaction(UAnimMontage* Montage,
 	Payload.EventMagnitude = HoldSeconds;
 	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
 		this, FAZ_GameplayTags::Get().Event_Combat_StepBack, Payload);
+}
+
+bool AAZ_PawnMoverInfectedCharacter::IsStaggerReactionAbilityActive() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return false;
+	}
+	const FGameplayTag& ReactionIdentity = FAZ_GameplayTags::Get().Ability_Combat_HitReact;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.IsActive() && Spec.Ability && Spec.Ability->GetAssetTags().HasTagExact(ReactionIdentity))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AAZ_PawnMoverInfectedCharacter::SetStaggeredFor(float Seconds)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	UWorld* World = GetWorld();
+	if (!ASC || !World || Seconds <= 0.f)
+	{
+		return;
+	}
+	// EXTEND, never shorten. A second cause arriving mid-hold (shoved off a grab, then punched) must not
+	// be able to pull the deadline in — otherwise whichever cause happens to be shortest silently decides
+	// how long the body reels, and the player's hit gets handed back to the AI.
+	const double Now = World->GetTimeSeconds();
+	const double NewEnd = Now + Seconds;
+	if (NewEnd <= StaggerHoldEndTime)
+	{
+		return;   // a longer hold is already running — leave it alone
+	}
+	StaggerHoldEndTime = NewEnd;
+
+	ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Staggered, 1);
+	World->GetTimerManager().SetTimer(StaggerHoldTimer,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			StaggerHoldEndTime = 0.0;
+			// Only release what THIS held. GA_HitReact owns its own window through its ability lifetime,
+			// so if a reaction is live when this expires the tag must stay up — clearing it here would
+			// end a stagger that is still legitimately running.
+			if (UAbilitySystemComponent* SelfASC = GetAbilitySystemComponent())
+			{
+				if (!IsStaggerReactionAbilityActive())
+				{
+					SelfASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Staggered, 0);
+				}
+			}
+		}), Seconds, false);
 }
 
 bool AAZ_PawnMoverInfectedCharacter::IsStaggerReactionPlaying() const

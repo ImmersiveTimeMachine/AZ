@@ -197,6 +197,12 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_State_Throwing;
     FGameplayTag Ability_State_Dashing;
 
+    /** Authored at the first frame of each grab OUTCOME section (Push/Kick). The outcome is QUEUED at
+     *  the wrestle loop boundary, so it begins up to a full cycle after it is chosen — the clip itself is
+     *  the only thing that knows when it actually started, and the shove's root motion must be driven
+     *  from exactly there. */
+    FGameplayTag Event_Grab_OutcomeBegin;
+
     // ---- ATTACK PHASING (recovery cancel) ----
     // Startup and Active are committed; RECOVERY is cancellable. Published by a notify state on the clip
     // so the boundary is authored next to the animation, and mirrored onto the ASC as a loose tag so the

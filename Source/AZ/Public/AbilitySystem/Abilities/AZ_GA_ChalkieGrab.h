@@ -110,6 +110,30 @@ private:
 	 *  nothing but the two grab anims may show during the hold (user rule 2026-07-24). */
 	UFUNCTION() void OnLoopMontageEnded(FGameplayTag EventTag, FGameplayEventData EventData);
 
+	/** Event.Grab.OutcomeBegin — the shove section just STARTED. Drives the capsule with the clip's own
+	 *  root motion from here, which is the only moment that can be right: the outcome is queued at the
+	 *  wrestle loop boundary, so it begins up to a full cycle after it was chosen. */
+	UFUNCTION() void OnGrabMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData);
+
+	/** Seconds of root-motion drive for the shove. 0 = the outcome section's own length, which is what
+	 *  you want; a positive value cuts the capsule loose earlier than the animation. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "s"))
+	float OutcomeRootMotionSeconds = 0.f;
+
+	/** Minimum authored travel before the shove is allowed to drive the capsule. The hero's side of these
+	 *  paired clips moves 0.0cm (correct — you plant and shove, they fly), and driving a non-travelling
+	 *  clip would PIN the pawn under OverrideAll rather than move it. Measured, not trusted from the
+	 *  bEnableRootMotion flag, which is set on clips that do not move. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float OutcomeMinRootTravel = 5.f;
+
+	/** Recovery beat AFTER the shove animation, during which this Chalkie may not swing. Without it the
+	 *  ability ends with the section and the BT can attack on its next tick — shoved 40cm away and
+	 *  instantly back on the player, which makes the escape feel like it achieved nothing. Applied
+	 *  through the pawn's single stagger owner, so it never fights a hit reaction over the tag. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "s"))
+	float PostShoveStaggerSeconds = 1.f;
+
 	/** Single funnel for both outcomes — guards double-resolution (event + safety timer race). */
 	void Resolve(bool bPlayerEscaped);
 	void PlayExitMontage(FName MontageProperty);
@@ -124,6 +148,10 @@ private:
 	void SetGrabStage(const FGameplayTag& NewStage);
 
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* LoopMontageTask = nullptr;
+
+	/** Generation of the shove's root-motion drive. Released in EndAbility through the generation-scoped
+	 *  path, so a drive that a knockback or another ability has already superseded is never cancelled. */
+	uint64 OutcomeRootMotionGen = 0;
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* ExitMontageTask = nullptr;
 	UPROPERTY() UAnimMontage* CachedLoopMontage = nullptr;
 	UPROPERTY() UAnimMontage* CachedPairedMontage = nullptr;
