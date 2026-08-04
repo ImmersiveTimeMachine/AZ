@@ -334,6 +334,29 @@ protected:
 	 *  authored offset once the anchor clears. Called every Tick; early-outs when nothing is pending. */
 	void UpdateGrabMeshAnchor(float DeltaTime);
 
+	/**
+	 * MOVEMENT CANCEL. Asking to move during an attack's RECOVERY phase abandons the attack.
+	 *
+	 * The attack publishes its own recovery window as State.Combat.CancelWindow; this reads that tag and
+	 * the movement intent, and cancels by ABILITY TAG. Deliberately inverted — movement does not ask the
+	 * attack for permission and the attack does not poll the Mover input pipeline; each side owns what it
+	 * already knows. Startup and the strike are unaffected: the window simply is not open yet.
+	 *
+	 * Cancelling the ABILITY (rather than just releasing the root-motion drive) is what makes this look
+	 * right: EndAbility releases the drive AND the montage task stops the montage with its blend, so
+	 * locomotion takes the body back. Releasing the drive alone would hand back control while the
+	 * full-body montage still owned the pose — control without the animation to match it.
+	 *
+	 * Runs on the game thread from Tick, NOT from ProduceInput: cancelling an ability inside the Mover
+	 * simulation callback would re-enter GAS from the movement step.
+	 */
+	void TryMovementCancelAttack();
+
+	/** Stick/key deflection that counts as "I want to move" for the cancel above. High enough that a
+	 *  resting stick's drift never silently eats an attack the player meant to finish. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Combat", meta = (ClampMin = "0", ClampMax = "1"))
+	float AttackCancelInputDeadzone = 0.25f;
+
 	// The RAW world-space move intent produced this sim tick, captured in ProduceInput BEFORE the movement-
 	// capability clamp. Exposed via GetWorldMoveIntentRaw() so the obstacle sensor keeps sensing the wall even
 	// after the clamp zeroes the shipped Mover input cmd (otherwise a straight-in hit would self-blind).

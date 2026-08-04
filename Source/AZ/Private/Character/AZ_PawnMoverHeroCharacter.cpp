@@ -207,6 +207,25 @@ void AAZ_PawnMoverHeroCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	UpdateCameraForMode(DeltaTime);
 	UpdateGrabMeshAnchor(DeltaTime);
+	TryMovementCancelAttack();
+}
+
+void AAZ_PawnMoverHeroCharacter::TryMovementCancelAttack()
+{
+	// Cheapest test first — most frames have no movement input at all, and this runs every Tick.
+	if (CachedMoveInputIntent.SizeSquared() < FMath::Square(AttackCancelInputDeadzone))
+	{
+		return;
+	}
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_CancelWindow))
+	{
+		return;   // no attack running, or it is still in startup/strike — commitment holds
+	}
+	// By ASSET tag, so this reaches whichever hand is swinging without naming either ability class.
+	FGameplayTagContainer MeleeIdentity;
+	MeleeIdentity.AddTag(FAZ_GameplayTags::Get().Ability_Combat_Melee);
+	ASC->CancelAbilities(&MeleeIdentity);
 }
 
 void AAZ_PawnMoverHeroCharacter::SetGrabMeshAnchor(const USkeletalMeshComponent* InAnchorMesh, FName InAnchorSocket,
