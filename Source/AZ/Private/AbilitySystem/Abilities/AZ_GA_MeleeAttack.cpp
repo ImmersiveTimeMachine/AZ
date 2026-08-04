@@ -183,16 +183,22 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 				{
 					if (USceneComponent* TargetRoot = WarpTarget->GetRootComponent())
 					{
-						// ★ CLAMPED OFFSET. The point sits WarpApproachDistance in front of the target,
-						// measured back toward us — but never nearer than where we ALREADY stand. Without
-						// the clamp, a victim closer than the stand-off puts the point BEHIND us and
-						// translation warping walks the attacker backwards through their own punch; and
-						// at near-zero separation VectorFromTargetToOwner derives its direction from a
-						// collapsing vector, so the point orbit-jitters every frame (bFollowComponent
-						// re-reads it continuously). Clamped, the warp scales the clip's travel toward
-						// ZERO at point-blank — a lunge degrades into an in-place strike instead of
-						// grinding into a blocking capsule — while rotation warping still aims the swing.
-						const float ClampedApproach = FMath::Max(WarpApproachDistance, TargetGapLatched);
+						// ★ CLAMPED OFFSET — and it is a MIN, not a max.
+						//
+						// LocationOffset.X is the DESTINATION GAP, not a distance to travel: the engine
+						// builds the point as Target + normalize(Owner - Target) * X
+						// (RootMotionModifier.cpp:194-196), so it lands X cm from the TARGET on our side.
+						// The attacker therefore moves from its current gap TO X. Larger X = further from
+						// the target = backwards.
+						//
+						// Max() was wrong in both directions and shipped that way: at gap 200 with
+						// stand-off 100 it asked for 200 — the hero's own position — so the heavy punch's
+						// 202cm of travel scaled to nothing and the lunge silently never happened; at gap
+						// 60 it asked for 100, i.e. 40cm BEHIND the attacker, the moonwalk it was meant to
+						// prevent. Min approaches when there is room (200 -> 100) and holds position when
+						// there is not (60 -> 60), which is the whole intent: never retreat to reach a
+						// stand-off we are already inside.
+						const float ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched);
 						Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None,
 							/*bFollowComponent*/ true,
 							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
