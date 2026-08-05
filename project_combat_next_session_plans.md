@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-04T03:49:58.458Z
+  modified: 2026-08-05T00:36:18.226Z
 ---
 
 # Combat — two planned tasks for next session (planned + Fable-validated 2026-08-03)
@@ -147,13 +147,17 @@ with the Chalkie. User's own framing: *"it should be like catch"* (the Catch sec
 *"this can be RM in this case, I think we can wait the end of synced anims"* — i.e. accept root-motion
 driven alignment and do not hand control back until BOTH paired montages finish.
 
-**Prime suspect — the shared-origin doctrine is not live.** `AZ_GA_ChalkieGrab.cpp:157` states in a
-comment "On the paired route GrabHoldDistance is 0", and `:164` builds the contact point as
-`HeroLoc + DirToChalkie * GrabHoldDistance`. **The live BP value is 92** (Fable verified). NAAT paired
-clips are authored from ONE shared origin — the two actors' face-to-face relationship is BAKED into the
-pair. Playing them 92cm apart breaks that alignment by construction, and no amount of facing override
-fixes a relative pose that assumes co-location. Verify the BP value first; if 92 is deliberate, the
-paired clips are the wrong tool at that distance.
+**★ DISPROVEN 2026-08-04 — `GrabHoldDistance = 0` IS WRONG. DO NOT RETRY IT.** Tested in PIE: at 0 the
+hero and Chalkie stand **BACK TO BACK**; at the hand-tuned **92** the catch is, in the user's words,
+"perfect". The old suspicion below was built on a comment that is itself wrong, and both that comment
+(`AZ_GA_ChalkieGrab.cpp:157`) and the property doc have been corrected in code.
+WHY 0 fails: the shared-origin argument only holds if the two actors share a ROTATION as well as a
+position, and this feature deliberately opposes them ~180 degrees (the hero look-ats the grabber; the
+shared-yaw variant was already tried 2026-08-01 and read as "same line, not face to face"). Each NAAT
+clip bakes its body ~30cm IN FRONT of its actor origin (pelvises ~29.6cm apart; the mesh's -90 yaw maps
+anim +Y to actor forward), so two OPPOSED actors at one origin push their bodies along opposite facings
+— apart, backs together. ~2x that offset puts each body in front of the other, which is why 92 is
+correct and is not a fudge factor. The escape's face-to-face problem, if any remains, is NOT this value.
 
 **Second factor — the separation is entirely one-sided.** Measured: hero escape clips travel **0.0cm**,
 Chalkie's travel **39.6cm**. If the pair starts misaligned, only one body corrects, so the error grows
