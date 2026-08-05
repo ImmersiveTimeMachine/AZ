@@ -20,6 +20,8 @@
 #include "DrawDebugHelpers.h"
 #include "GenericTeamAgentInterface.h"
 #include "MotionWarpingComponent.h"
+#include "AnimNotifyState_MotionWarping.h"   // reading each warp window's own modifier off the notify
+#include "RootMotionModifier.h"              // URootMotionModifier_Warp: WarpTargetName + bWarpTranslation
 #include "Perception/AISense_Hearing.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
@@ -279,7 +281,51 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		0.f, Montage->GetPlayLength(), FAnimExtractContext());
 	const bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
 
-	if (const AActor* Avatar = bClipTravels ? GetAvatarActorFromActorInfo() : nullptr)   // hero AND infected
+	// ...BUT "does the clip travel" is the wrong question on its own, because WARPING SYNTHESISES TRAVEL
+	// A CLIP DOES NOT CONTAIN. The Chalkie's claws are in-place by design and get their entire approach
+	// from SkewWarp's add-translation branch — and that branch lives inside
+	// FLayeredMove_RootMotionAttribute::GenerateMove, so with no live layered move the warp modifier never
+	// runs at all. Gating on travel alone therefore didn't just cancel the lunge: it silently disabled the
+	// stand-off, and a Chalkie that stops at point-blank via nav swings an 87cm claw through a 30cm
+	// capsule. That is the "the claw goes inside the hero" report.
+	//
+	// The name is read off the NOTIFY's own modifier rather than this ability's WarpTargetName, so the
+	// hero ("MeleeTarget") and the BT-driven Chalkie ("AttackTarget") both work with no per-class config,
+	// and a notify/registration name mismatch stays inert instead of silently driving.
+	//
+	// TRANSLATION WINDOWS ONLY. A rotation-only window would also need the layered move, but driving one
+	// re-queues an OverrideAll move with a ~zero delta — the documented pin that cost the hero 0.8s per
+	// jab. Requiring translation keeps that fix intact; a rooted-but-rotating swing stays un-driven.
+	float WarpWindowEnd = 0.f;
+	bool bLiveWarpWindow = false;
+	if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+	{
+		if (const UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
+		{
+			TArray<FMotionWarpingWindowData> Windows;
+			UMotionWarpingUtilities::GetMotionWarpingWindowsFromAnimation(Montage, Windows);
+			for (const FMotionWarpingWindowData& Window : Windows)
+			{
+				const URootMotionModifier_Warp* Modifier = Window.AnimNotify
+					? Cast<URootMotionModifier_Warp>(Window.AnimNotify->RootMotionModifier) : nullptr;
+				if (Modifier && Modifier->bWarpTranslation && Warping->FindWarpTarget(Modifier->WarpTargetName))
+				{
+					bLiveWarpWindow = true;
+					WarpWindowEnd = FMath::Max(WarpWindowEnd, Window.EndTime);
+				}
+			}
+		}
+	}
+
+	const bool bDrive = bClipTravels || bLiveWarpWindow;
+	UE_LOG(LogTemp, Display,
+		TEXT("[MeleeRM] %s clip=%s travel=%.1fcm warpWindow=%s drive=%s"),
+		*GetNameSafe(GetAvatarActorFromActorInfo()), *GetNameSafe(Montage),
+		ClipRootMotion.GetTranslation().Size2D(),
+		bLiveWarpWindow ? *FString::Printf(TEXT("live->%.2fs"), WarpWindowEnd) : TEXT("none"),
+		bDrive ? TEXT("YES") : TEXT("no"));
+
+	if (const AActor* Avatar = bDrive ? GetAvatarActorFromActorInfo() : nullptr)   // hero AND infected
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
@@ -287,9 +333,14 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 			// montage — in-place punches). A positive value cuts the capsule loose even earlier so a
 			// lunge clip's travelling recovery tail cannot walk the attacker through the victim's
 			// knockback — see the property comment for the measured numbers.
-			const float RMDefault = (BeatSeconds > 0.f) ? BeatSeconds : Montage->GetPlayLength();
+			//
+			// The drive must also outlast the WARP WINDOW, or a beat that lands before the window closes
+			// truncates the approach the warp was in the middle of synthesising. Never extends past the
+			// window's end: beyond it the modifier is inactive and an in-place clip would just pin.
+			float RMDefault = (BeatSeconds > 0.f) ? BeatSeconds : Montage->GetPlayLength();
+			RMDefault = FMath::Max(RMDefault, WarpWindowEnd);
 			RootMotionGen = Mover->DriveRootMotion((RootMotionSeconds > 0.f)
-				? FMath::Min(RootMotionSeconds, Montage->GetPlayLength())
+				? FMath::Max(FMath::Min(RootMotionSeconds, Montage->GetPlayLength()), WarpWindowEnd)
 				: RMDefault);
 		}
 	}
@@ -638,6 +689,20 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 	// hand the animator actually swings — measured, the clip names lie (AM_Zombie_Atk_L rakes with the
 	// RIGHT claw while its left hand is behind the body; the heavy punch's real strike is a right hook).
 	// Sweeping both and letting geometry decide leaves the animation as the single owner of that fact.
+	// LATENESS INSTRUMENTATION ([MeleeWin], pairs with the swingT on [MeleeHit]): a window that OPENS
+	// with no [MeleeHit] before the swing's end is a WHIFF — and a whiffed swing followed by a connecting
+	// one is the main way "the reaction feels 1-2s late" happens without any code being late: the hit the
+	// player attributes to swing #1 actually landed on swing #2. The gap says whether the whiff was
+	// range (gap > ~130 reach) or timing.
+	{
+		const UAnimInstance* AnimForLog = GetAvatarMesh() ? GetAvatarMesh()->GetAnimInstance() : nullptr;
+		const float SwingT = (AnimForLog && ActiveMontage.IsValid())
+			? AnimForLog->Montage_GetPosition(ActiveMontage.Get()) : -1.f;
+		const AActor* LatchedTarget = WarpTargetLatched.Get();
+		const float Gap = LatchedTarget ? FVector::Dist2D(LatchedTarget->GetActorLocation(), Avatar->GetActorLocation()) : -1.f;
+		UE_LOG(LogTemp, Display, TEXT("[MeleeWin] %s OPEN swingT=%.2f clip=%s gap=%.0fcm"),
+			*GetNameSafe(Avatar), SwingT, *GetNameSafe(ActiveMontage.Get()), Gap);
+	}
 	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this,
 		{ StrikeSocket_L, StrikeSocket_R, KnuckleSocket_L, KnuckleSocket_R }, SweepSphereRadius,
 		/*bHostilesOnly*/ true, /*bSingleTarget*/ true);
@@ -680,8 +745,14 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	{
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
 	}
-	UE_LOG(LogTemp, Display, TEXT("[MeleeHit] %s -> %s contact at %s (socket sweep)"),
-		*GetName(), *GetNameSafe(Target), *Hit.ImpactPoint.ToCompactString());
+	// swingT: where in the attacker's clip contact registered. Window opens at 0.85 on the claw clips —
+	// a swingT near the open means detection is honest and any perceived lateness is the authored
+	// wind-up; a swingT pinned late in the window means the sweep is finding the target late.
+	const UAnimInstance* AnimForLog = GetAvatarMesh() ? GetAvatarMesh()->GetAnimInstance() : nullptr;
+	const float SwingT = (AnimForLog && ActiveMontage.IsValid())
+		? AnimForLog->Montage_GetPosition(ActiveMontage.Get()) : -1.f;
+	UE_LOG(LogTemp, Display, TEXT("[MeleeHit] %s -> %s contact at %s swingT=%.2f (socket sweep)"),
+		*GetName(), *GetNameSafe(Target), *Hit.ImpactPoint.ToCompactString(), SwingT);
 
 	// HIT-STOP, both sides. This is the frame-of-contact acknowledgment the fight was missing: the
 	// knockback clips peak at 1.34-1.81s and open at 8-14cm/s, so for ~300ms after a landed hit the

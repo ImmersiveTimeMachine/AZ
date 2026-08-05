@@ -61,22 +61,39 @@ void UAZ_VitalsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModC
 		// carries the causer in its own payload.
 		if (NewHealth > 0.f)
 		{
-			if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetOwningActor()))
+			// Causer robustness (audit rules-finding #11): projectiles/environment set a non-pawn
+			// EffectCauser — fall back to the instigating ASC's avatar so damage still locks/screams.
+			AActor* Causer = Data.EffectSpec.GetEffectContext().GetEffectCauser();
+			if (!Cast<APawn>(Causer))
 			{
-				// Causer robustness (audit rules-finding #11): projectiles/environment set a non-pawn
-				// EffectCauser — fall back to the instigating ASC's avatar so damage still locks/screams.
-				AActor* Causer = Data.EffectSpec.GetEffectContext().GetEffectCauser();
-				if (!Cast<APawn>(Causer))
+				if (const UAbilitySystemComponent* SourceASC = Data.EffectSpec.GetEffectContext().GetInstigatorAbilitySystemComponent())
 				{
-					if (const UAbilitySystemComponent* SourceASC = Data.EffectSpec.GetEffectContext().GetInstigatorAbilitySystemComponent())
+					if (AActor* SourceAvatar = SourceASC->GetAvatarActor())
 					{
-						if (AActor* SourceAvatar = SourceASC->GetAvatarActor())
-						{
-							Causer = SourceAvatar;
-						}
+						Causer = SourceAvatar;
 					}
 				}
+			}
+			if (AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetOwningActor()))
+			{
+				// Infected keep their pawn funnel: HandleDamaged owns scream/damage-lock/melee-cancel AND
+				// sends Event.Combat.HitReact itself. One sender per victim class, never both.
 				Infected->HandleDamaged(Causer, Damage);
+			}
+			else if (AActor* OwnerActor = GetOwningActor())
+			{
+				// REACTION PARITY (2026-08-05): every other fighting actor — the hero — used to fall
+				// through the cast above and eat the hit with zero feedback: no flinch, no stagger, and
+				// the victim hit-stop is a montage-rate collapse with no montage to collapse. Same event
+				// the infected path sends; the ContextHandle carries the sweep's hit result, which is
+				// what the directional Left/Right pick in GA_HitReact reads.
+				FGameplayEventData Payload;
+				Payload.EventTag = FAZ_GameplayTags::Get().Event_Combat_HitReact;
+				Payload.Target = OwnerActor;
+				Payload.Instigator = Causer;
+				Payload.ContextHandle = Data.EffectSpec.GetEffectContext();
+				Payload.EventMagnitude = Damage;
+				UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(OwnerActor, Payload.EventTag, Payload);
 			}
 		}
 

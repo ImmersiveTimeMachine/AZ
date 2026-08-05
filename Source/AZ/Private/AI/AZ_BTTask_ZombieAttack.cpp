@@ -41,6 +41,10 @@ namespace
 	constexpr float AZ_MaxSpeedToStartAttack = 80.f;
 	constexpr float AZ_MidBiteMoveBreakSpeed = 120.f;
 
+	// Hysteresis on the warp destination re-clamp (below). Small enough that a player charging in is
+	// tracked, large enough that ordinary jitter doesn't re-cache the warp target every frame.
+	constexpr float AZ_WarpReclampTolerance = 10.f;
+
 	const AActor* AZ_GetChaseTarget(UBehaviorTreeComponent& OwnerComp)
 	{
 		const UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
@@ -312,6 +316,41 @@ void UAZ_BTTask_ZombieAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8*
 				(Target->GetActorLocation() - Pawn->GetActorLocation()).GetSafeNormal2D());
 		}
 	}
+
+	// WARP DESTINATION RE-CLAMP — MONOTONIC, AND ONLY EVER SHRINKING.
+	//
+	// The registration clamp is latched at swing start, but the window runs 0.85s and a sprinting player
+	// can close 180 -> 40cm inside it. The latched destination would then sit behind the Chalkie and the
+	// add-translation branch would ease it backwards onto the point: the moonwalk again, just later.
+	//
+	// Only ever REDUCING the destination gap makes that impossible: X <= current gap always puts the point
+	// between the target and us, i.e. in front. It can therefore only ever brake the approach, never
+	// reverse it, so there is no oscillation to guard against — which is why this is safe where a naive
+	// "recompute every tick" (which can also GROW X, pushing the point behind us) would not be. The
+	// hysteresis keeps a stationary target from re-caching the warp target every frame.
+	//
+	// State-free on purpose: the live offset is read back off the warp target itself, so nothing here can
+	// desync from what the modifier is actually using.
+	if (bUseMotionWarping && !WarpTargetName.IsNone() && Target && Pawn)
+	{
+		if (UMotionWarpingComponent* Warping = Pawn->FindComponentByClass<UMotionWarpingComponent>())
+		{
+			if (const FMotionWarpingTarget* Live = Warping->FindWarpTarget(WarpTargetName))
+			{
+				const float Gap = FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation());
+				const float Desired = FMath::Min(WarpApproachDistance, Gap);
+				if (Desired < Live->LocationOffset.X - AZ_WarpReclampTolerance)
+				{
+					if (USceneComponent* TargetRoot = Target->GetRootComponent())
+					{
+						Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None,
+							/*bFollowComponent*/ true, EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
+							FVector(Desired, 0.f, 0.f), FRotator::ZeroRotator);
+					}
+				}
+			}
+		}
+	}
 	if (Pawn && Target && FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation()) > AZ_BreakOffDistance)
 	{
 		// UNBIND BEFORE CANCELLING: CancelAbilityHandle fires OnAbilityEnded synchronously — with the
@@ -402,9 +441,20 @@ void UAZ_BTTask_ZombieAttack::RegisterWarpTarget(UBehaviorTreeComponent& OwnerCo
 	//
 	// All six trailing args are spelled out on purpose: the two AddOrUpdateWarpTargetFromComponent
 	// overloads differ ONLY in their 5th parameter and both default it, so any shorter call is ambiguous.
+	// ★ CLAMPED, AND IT IS A MIN. LocationOffset.X is the DESTINATION GAP, not a distance to travel: the
+	// engine builds the point as Target + normalize(Owner - Target) * X (RootMotionModifier.cpp:194-196),
+	// so it lands X cm from the TARGET on our side and we move from our current gap TO X. Larger X =
+	// further from the target = BACKWARDS.
+	//
+	// Unclamped, a hero standing closer than WarpApproachDistance puts the point BEHIND us and the
+	// add-translation branch eases the whole body onto it — the Chalkie moonwalks through its own swing.
+	// That was invisible while the drive was gated off; it goes live with the gate fix, which is why the
+	// two ship together. Min approaches when there is room (gap 200 -> 100) and holds position when there
+	// is not (gap 60 -> 60): never retreat to reach a stand-off we are already inside.
+	const float Gap = FVector::Dist2D(Target->GetActorLocation(), Pawn->GetActorLocation());
 	Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None, /*bFollowComponent*/ true,
 		EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
-		FVector(WarpApproachDistance, 0.f, 0.f), FRotator::ZeroRotator);
+		FVector(FMath::Min(WarpApproachDistance, Gap), 0.f, 0.f), FRotator::ZeroRotator);
 }
 
 void UAZ_BTTask_ZombieAttack::ClearWarpTarget()

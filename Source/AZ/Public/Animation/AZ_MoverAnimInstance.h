@@ -70,6 +70,36 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "1"))
 	float GrabIKBlendSpeed = 8.f;
 
+	/** Fraction of the arm chain (upperarm+forearm) the IK may use before the target is clamped. Below
+	 *  1.0 so the elbow never fully locks out — a dead-straight arm reads as stretching even when the
+	 *  chain technically reaches. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "0.5", ClampMax = "1"))
+	float GrabIKReachScale = 0.97f;
+
+	/** Smoothing on the FINAL IK target (per second). The clamp can swap the target between the authored
+	 *  socket and a projected body-surface point as the wrestle pose oscillates; interpolating the result
+	 *  hides that hand-off. Snapped (not interpolated) on the first frame of a grab. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|GrabIK", meta = (ClampMin = "1"))
+	float GrabIKTargetInterpSpeed = 25.f;
+
+	/**
+	 * Where a grab hand should actually go: the DESIRED grip socket when the arm can reach it, else the
+	 * nearest point on the partner's body surface that it CAN reach, else the fullest extension toward
+	 * the grip. This is why hands stopped hovering: the retarget spread the pair (Chalkie hands measured
+	 * 17-19cm short of their grips at the worst wrestle frames), and TwoBoneIK just parks at full
+	 * extension pointing at an unreachable socket — an air grab. Clamping onto the partner's PHYSICS
+	 * ASSET surface (GetClosestPointOnPhysicsAsset — no trace channels, cannot miss a thin limb the way
+	 * a ray can) guarantees the hand lands ON the body, near the intended grip.
+	 *
+	 * Chain length is measured live from the three bone positions (lengths are pose-invariant; ~3 socket
+	 * reads). Shared by the hero and infected anim instances — one owner for this math.
+	 * @param OutDeficit  optional: how far beyond reach the DESIRED target was (0 when reachable).
+	 */
+	static FVector ResolveGrabIKTarget(
+		const USkeletalMeshComponent* OwnMesh, FName UpperArmBone, FName LowerArmBone, FName HandBone,
+		const USkeletalMeshComponent* PartnerMesh, const FVector& Desired, float ReachScale,
+		float* OutDeficit = nullptr);
+
 	// ---- Body shake (the camera shake's BODY counterpart, user 2026-07-24) ----
 	// Perlin rotation noise generated here each tick, applied in the AnimGraph by Transform (Modify)
 	// Bone node(s) in ADDITIVE rotation mode — one node per bone you want shaking (spine_02, head, ...),

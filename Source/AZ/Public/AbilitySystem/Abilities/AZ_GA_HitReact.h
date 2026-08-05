@@ -50,6 +50,53 @@ public:
 	 *  patches to the native CDO). Null = patch the native class. */
 	static void ConfigureOnCDO(UClass* GrantClass = nullptr);
 
+	/**
+	 * Grab-escape reactions, one picked at RANDOM per escape. Each carries its own timing because the
+	 * clips are shaped differently and a shared beat would be wrong for both:
+	 *   AM_Zombie_KB_Chase_2      3.10s, -117cm at 1.40s then walks back to +25cm (a round trip)
+	 *   Zombie_Atk_KnockBack_1    5.47s, -163cm arriving at 2.50s then holds (a pure knockback)
+	 * Leave empty to fall back to the single-descriptor path (anim-set GrabEscapeReact, else the
+	 * variant's own HitReact clip with its beat opened to the whole montage).
+	 *
+	 * ★ RootMotionSeconds matters more here than anywhere else: once a clip's root stops travelling,
+	 * driving it further applies a ~zero delta under OverrideAll, which PINS the pawn instead of moving
+	 * it. Set it to where the clip actually settles (2.6 for KnockBack_1), not to the clip length.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|Grab")
+	TArray<FAZ_CombatMontage> GrabEscapeReactions;
+
+	// --- FALLBACK reactions, used ONLY when the avatar has no AnimSet to resolve from (the hero: its
+	// pawn carries no AnimSet property, so before these existed the ability activated, resolved nothing,
+	// and silently ended — which is why the player ate claws with zero feedback). Chalkies never reach
+	// these: their anim-set descriptors resolve first.
+	//
+	// TWO of them because the pick is DIRECTIONAL: which side of the victim's body the sweep actually
+	// struck (impact point in victim local space — NOT the attacker's hand, which reads wrong the moment
+	// either body turns mid-swing). If Left/Right look mirrored in PIE, swap the two montage assignments
+	// in the BP child — the mapping is data, not code.
+
+	/** Struck on the LEFT side of the body (victim local -Y). Also the pick when no hit result rode the
+	 *  event (environment damage). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|Fallback")
+	FAZ_CombatMontage DefaultReactionLeft;
+
+	/** Struck on the RIGHT side of the body (victim local +Y). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|Fallback")
+	FAZ_CombatMontage DefaultReactionRight;
+
+	/** Pick this escape's reaction: a random entry of GrabEscapeReactions, else the fallback below. */
+	bool ResolveShoveDescriptor(const AActor* Avatar, FAZ_CombatMontage& Out) const;
+
+	/** Single-descriptor path: the anim set's GrabEscapeReact when authored, else its HitReact descriptor
+	 *  with the beat opened to the whole clip (a flinch cuts at the recoil peak; an escape plays out). */
+	static bool ResolveShoveFallback(const AActor* Avatar, FAZ_CombatMontage& Out);
+
+	/** LONGEST gate any escape reaction can run for. GA_ChalkieGrab sizes its post-handoff hold from this
+	 *  rather than re-picking: a second random draw would disagree with the one that actually played, and
+	 *  the hold must never end BEFORE the knockback (it restores pair collision and releases the crowd
+	 *  tokens). Erring long is harmless; erring short strands the Chalkie mid-flight. */
+	static float GetShoveHoldSeconds(const AActor* Avatar);
+
 protected:
 	/** GRAB ARMOR (rule 8) + the melee cancel. Damage-lock and scream are NOT here: they live in
 	 *  HandleDamaged and must fire even for a grabbed Chalkie, whose armor only suppresses the flinch

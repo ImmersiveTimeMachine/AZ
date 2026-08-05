@@ -319,6 +319,13 @@ struct AZ_API FAZ_GameplayTags
     // --- Reactions (arch step A: event-driven, "events drive, timers guard") ---
     FGameplayTag Event_Combat_HitReact;     // HandleDamaged -> GA_HitReact: survivable hit, play the variant flinch
     FGameplayTag Event_Combat_StepBack;     // horde -> GA_HitReact: pack recoil beat (payload: montage + optional shorter beat)
+    FGameplayTag Event_Combat_GrabShoved;   // GA_ChalkieGrab -> GA_HitReact (SELF): the player broke the grab.
+                                            //  Third trigger on the SAME reaction ability rather than a new one:
+                                            //  the shove needs exactly what a hit reaction already owns — a clip
+                                            //  with an authored beat, a root-motion window cut at the recoil peak,
+                                            //  and the Staggered gate held for the ability's lifetime. A separate
+                                            //  ability would be a SECOND absolute writer to that counted tag, and a
+                                            //  punch landing mid-shove would run both concurrently.
     FGameplayTag Event_Combat_BeatEnd;      // AUTHORED ON THE MONTAGE at the measured beat — the timeline itself
                                             //  ends the reaction/bite (rate-scale/interrupt-safe); timers only guard
 
@@ -335,6 +342,13 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Event_GrabEscaped;         // player -> grabber ASC: mash won, shove me off (GA_ChalkieGrab plays GrabEscapeMontage)
     FGameplayTag Event_GrabTimeout;         // player -> grabber ASC: window elapsed, attack lands (GrabEndMontage + damage chunk)
     FGameplayTag Event_GrabRelease;         // grabber -> player ASC: grab died for another reason (cancel/death) — free the player
+    FGameplayTag Event_Grab_Shove;          // hero's escape montage -> its own ASC, forwarded to the grabber: the shove
+                                            //  CONNECTS on this frame. Measured: both NAAT escape clips sit still for
+                                            //  1.35s and only then depart 39.6cm, so the contact is late in the clip and
+                                            //  firing the knockback at the section start would throw the whole wind-up
+                                            //  away. The notify lives on the hero's own standalone montage — a montage
+                                            //  FOLLOWER gets SetPosition every frame and can skip notifies entirely,
+                                            //  which is why the outcome is not synced at all.
     FGameplayTag SetByCaller_Damage;        // magnitude channel on GE_Damage specs
 
     // Equipment State Tags

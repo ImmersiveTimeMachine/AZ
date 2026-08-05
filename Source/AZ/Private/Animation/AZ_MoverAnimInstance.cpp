@@ -25,6 +25,55 @@
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"
 #include "PoseSearch/PoseSearchTrajectoryPredictor.h"
 
+FVector UAZ_MoverAnimInstance::ResolveGrabIKTarget(
+	const USkeletalMeshComponent* OwnMesh, FName UpperArmBone, FName LowerArmBone, FName HandBone,
+	const USkeletalMeshComponent* PartnerMesh, const FVector& Desired, float ReachScale,
+	float* OutDeficit)
+{
+	if (OutDeficit)
+	{
+		*OutDeficit = 0.f;
+	}
+	if (!OwnMesh)
+	{
+		return Desired;
+	}
+	const FVector Shoulder = OwnMesh->GetSocketLocation(UpperArmBone);
+	const FVector Elbow = OwnMesh->GetSocketLocation(LowerArmBone);
+	const FVector Hand = OwnMesh->GetSocketLocation(HandBone);
+	const float MaxReach = ((Elbow - Shoulder).Size() + (Hand - Elbow).Size()) * ReachScale;
+
+	const FVector ToDesired = Desired - Shoulder;
+	const float Dist = ToDesired.Size();
+	if (Dist <= MaxReach || Dist < KINDA_SMALL_NUMBER || MaxReach < KINDA_SMALL_NUMBER)
+	{
+		return Desired;   // the authored grip wins whenever the arm can actually get there
+	}
+	if (OutDeficit)
+	{
+		*OutDeficit = Dist - MaxReach;
+	}
+
+	// Farthest the hand can go toward the grip, then pull that onto the partner's body surface. The
+	// physics asset is capsule-per-bone, so "surface" is ~2-3cm off the visual mesh — good enough for a
+	// clawing grip, and the reachable-socket path above still handles the precise case.
+	const FVector Clamped = Shoulder + ToDesired * (MaxReach / Dist);
+	if (PartnerMesh)
+	{
+		FClosestPointOnPhysicsAsset Closest;
+		if (PartnerMesh->GetClosestPointOnPhysicsAsset(Clamped, Closest, /*bApproximate*/ true))
+		{
+			// Only take the surface point if the arm can reach IT — otherwise we would have traded an
+			// air-grab pointing at the grip for an air-grab pointing at the chest.
+			if ((Closest.ClosestWorldPosition - Shoulder).Size() <= MaxReach)
+			{
+				return Closest.ClosestWorldPosition;
+			}
+		}
+	}
+	return Clamped;   // no reachable surface: full extension toward the grip, but never a stretch
+}
+
 void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
@@ -76,7 +125,11 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// output bind to these). Cross-actor targets → world space, gathered here on the game thread.
 	{
 		float TargetAlpha = 0.f;
-		if (const AActor* Grabber = Cached_Pawn->GetGrabFacingTarget())
+		// LET GO ON CONTACT. The grab keeps its facing target and State.Grabbed through the escape on
+		// purpose (the hero rides its own shove animation while still "in" the grab), so those two alone
+		// would hold the palms glued to a Chalkie that is being hurled 117cm away — the hands visibly
+		// stretch after it. The shove's contact frame releases this; GrabIKBlendSpeed fades it out.
+		if (const AActor* Grabber = Cached_Pawn->IsGrabIKReleased() ? nullptr : Cached_Pawn->GetGrabFacingTarget())
 		{
 			const UAbilitySystemComponent* HeroASC = Cached_Pawn->GetAbilitySystemComponent();
 			if (HeroASC && HeroASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed))
@@ -84,8 +137,19 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				if (const USkeletalMeshComponent* GrabberMesh = Grabber->FindComponentByClass<USkeletalMeshComponent>())
 				{
 					TargetAlpha = 1.f;
-					GrabIKTarget_HandR = GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandR);
-					GrabIKTarget_HandL = GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandL);
+					// Reach-clamped: the grip socket when the arm can get there, else the nearest point on
+					// the grabber's body it CAN reach (see ResolveGrabIKTarget). Smoothed because the clamp
+					// hands off between socket and surface as the wrestle pose oscillates; SNAPPED on the
+					// grab's first frame or the hands would lerp in from wherever the last grab left them.
+					const FVector NewR = ResolveGrabIKTarget(GetSkelMeshComponent(),
+						TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"),
+						GrabberMesh, GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandR), GrabIKReachScale);
+					const FVector NewL = ResolveGrabIKTarget(GetSkelMeshComponent(),
+						TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"),
+						GrabberMesh, GrabberMesh->GetSocketLocation(GrabIKGrabberBoneForHandL), GrabIKReachScale);
+					const bool bSnap = GrabIKAlpha < 0.05f;
+					GrabIKTarget_HandR = bSnap ? NewR : FMath::VInterpTo(GrabIKTarget_HandR, NewR, DeltaSeconds, GrabIKTargetInterpSpeed);
+					GrabIKTarget_HandL = bSnap ? NewL : FMath::VInterpTo(GrabIKTarget_HandL, NewL, DeltaSeconds, GrabIKTargetInterpSpeed);
 				}
 			}
 		}

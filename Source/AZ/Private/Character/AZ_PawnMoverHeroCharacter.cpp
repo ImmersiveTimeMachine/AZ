@@ -5,6 +5,7 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
 #include "AbilitySystem/Abilities/AZ_GA_PlayerGrabbed.h"
+#include "AbilitySystem/Abilities/AZ_GA_HitReact.h"   // reaction parity: hero runs the same stagger-class react
 #include "AbilitySystemComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -114,6 +115,14 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	CameraGrabbed.SocketOffset = FVector(0.f, 60.f, 15.f);
 	CameraGrabbed.FOV          = 85.f;
 	CameraGrabbed.InterpSpeed  = 5.f;
+	// Grab OUTCOME: back off and widen so the shove is actually visible. Sized off the measured shove —
+	// the Chalkie travels ~114cm backwards over 1.8s — plus the hero's own 2.3s escape animation, neither
+	// of which fits in a 130cm over-the-shoulder. Faster interp than the hold: the pull-back should land
+	// before the payoff, not glide through it.
+	CameraGrabOutcome.BoomLength   = 320.f;
+	CameraGrabOutcome.SocketOffset = FVector(0.f, 40.f, 25.f);
+	CameraGrabOutcome.FOV          = 90.f;
+	CameraGrabOutcome.InterpSpeed  = 7.f;
 
 	// --- Mover ---
 	MoverComponent = CreateDefaultSubobject<UAZ_PawnMoverComponent>(TEXT("MoverComponent"));
@@ -296,7 +305,10 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 		const FAZ_GameplayTags& GPTags = FAZ_GameplayTags::Get();
 		if (AbilityComp->HasMatchingGameplayTag(GPTags.State_Grabbed))
 		{
-			Target = &CameraGrabbed;   // caught: nothing outranks the struggle framing
+			// Caught: nothing outranks the grab framing. Which grab framing depends on the phase — the
+			// hold is shot tight, the outcome is shot wide (the payoff moves ~114cm and does not fit in
+			// a 130cm boom). Look-at and the sweep are unaffected; only boom/offset/FOV/interp swap.
+			Target = bGrabOutcomeFraming ? &CameraGrabOutcome : &CameraGrabbed;
 			bGrabbedFraming = true;
 		}
 		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Ability_State_Aiming))
@@ -499,6 +511,17 @@ void AAZ_PawnMoverHeroCharacter::InitAbilitySystem()
 			GrabbedSpec.GetDynamicSpecSourceTags().AddTag(FAZ_GameplayTags::Get().Input_Action_Interact);
 			ASC->GiveAbility(GrabbedSpec);
 			UE_LOG(LogTemp, Display, TEXT("[Grab] %s granted to hero ASC"), *GrabbedClass->GetName());
+		}
+
+		// Reaction parity (same grant pattern): Event.Combat.HitReact now reaches the hero from the
+		// vitals set, and this is the ability that answers it. ConfigureOnCDO goes to the ASSIGNED class
+		// — a BP child's CDO does not inherit runtime patches made to the native one.
+		UClass* HitReactClass = *HitReactAbilityClass ? *HitReactAbilityClass : UAZ_GA_HitReact::StaticClass();
+		if (!ASC->FindAbilitySpecFromClass(HitReactClass))
+		{
+			UAZ_GA_HitReact::ConfigureOnCDO(HitReactClass);
+			ASC->GiveAbility(FGameplayAbilitySpec(HitReactClass, 1, INDEX_NONE, this));
+			UE_LOG(LogTemp, Display, TEXT("[HitReact] %s granted to hero ASC"), *HitReactClass->GetName());
 		}
 	}
 }

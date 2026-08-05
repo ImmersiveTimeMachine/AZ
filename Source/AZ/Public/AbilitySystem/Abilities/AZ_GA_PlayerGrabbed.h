@@ -83,6 +83,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Camera")
 	TSoftObjectPtr<UCurveFloat> ShakeIntensityCurve;
 
+	/** Fade the struggle rumble when the outcome section starts, instead of holding it to the very end of
+	 *  the ability. The rumble sells being PINNED; once you have broken free it just obscures the shove
+	 *  you earned. Turn off to keep the old behaviour (rumble until release). The pulled-back framing
+	 *  itself is CameraGrabOutcome on the pawn. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Camera")
+	bool bStopRumbleOnOutcome = true;
+
 	// --- PAIRED MONTAGE (the shared-origin NAAT grab), victim side ---
 	// When assigned, we play ONE sectioned montage and hand all timing to the grabber's montage through
 	// UAnimInstance::MontageSync_Follow: position, play rate, and — because the section tables match
@@ -101,6 +108,17 @@ protected:
 	/** Section to enter on. Must match the grabber montage's entry section name exactly. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
 	FName CatchSection = FName("Catch");
+
+	/** Our ESCAPE animations, one per outcome — standalone montages (FullBody slot), NOT sections of the
+	 *  paired montage. Each must carry an Event.Grab.Shove notify at its contact frame; that notify is
+	 *  what launches the Chalkie's knockback, so a montage without one falls back to the grabber's
+	 *  watchdog and the shove looks late.
+	 *
+	 *  ★ ORDER IS COUPLED to EscapeSections on BP_GA_ChalkieGrab — the grabber picks an index and sends
+	 *  it, because with the sync dropped there is nothing left to mirror the choice across. Index 0 here
+	 *  must mean the same outcome as index 0 there. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
+	TArray<TSoftObjectPtr<UAnimMontage>> EscapeMontages;
 
 	/** Safety ceiling on the outcome tail: after our verdict we stay grabbed and synced so our half of
 	 *  the escape/bite clip plays, and normally the grabber's Event.GrabRelease frees us. This is the
@@ -144,6 +162,12 @@ protected:
 private:
 	UFUNCTION() void OnMashPress(float TimeWaited);
 	UFUNCTION() void OnGrabberReleased(FGameplayEventData Payload);
+	/** Event.Grab.OutcomeBegin — the escape or the bite has started. Swaps the pawn to the pulled-back
+	 *  outcome framing and fades the struggle rumble. Fires on BOTH outcomes and does not end anything. */
+	UFUNCTION() void OnOutcomeBegan(FGameplayEventData Payload);
+	/** Event.Grab.Shove — a notify on OUR escape montage says the shove just connected. Forwarded to the
+	 *  grabber, which owns the knockback and the hand-IK release. */
+	UFUNCTION() void OnShoveNotify(FGameplayEventData Payload);
 	/** Unbreakable hold: replay the struggle loop if it ends while the grab is unresolved — nothing
 	 *  but the two grab anims may show during the hold (user rule 2026-07-24). */
 	UFUNCTION() void OnStruggleMontageEnded(FGameplayTag EventTag, FGameplayEventData EventData);
@@ -171,6 +195,10 @@ private:
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* MontageTask = nullptr;
 	UPROPERTY() UAZ_AT_WaitInputPressWithTags* MashTask = nullptr;
 	UPROPERTY() UAbilityTask_WaitGameplayEvent* WaitReleaseTask = nullptr;
+	UPROPERTY() UAbilityTask_WaitGameplayEvent* WaitShoveTask = nullptr;
+	UPROPERTY() UAbilityTask_WaitGameplayEvent* WaitOutcomeTask = nullptr;
+	/** True once we are playing our outcome section unsynced, under our own end delegate. */
+	bool bSelfDrivingOutcome = false;
 	UPROPERTY() UAnimMontage* CachedStruggleMontage = nullptr;
 	/** Our half of the paired montage while it is following the grabber's (null = v1 route). */
 	UPROPERTY() UAnimMontage* CachedPairedMontage = nullptr;

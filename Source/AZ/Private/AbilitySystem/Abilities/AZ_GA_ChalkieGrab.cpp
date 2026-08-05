@@ -2,6 +2,9 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_ChalkieGrab.h"
 
+#include "Character/AZ_PawnMoverHeroCharacter.h"  // releasing the victim's grab hand-IK on contact
+#include "AbilitySystem/Abilities/AZ_GA_HitReact.h"  // ResolveShoveDescriptor - one owner for the shove's timing
+
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetMontage
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/GameplayEffects/AZ_GE_Damage.h"
@@ -112,7 +115,17 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	GrabTarget = Target;
+	// ★ EVERY PER-GRAB LATCH RESETS HERE. InstancedPerActor means ONE instance serves every grab this
+	// Chalkie ever performs, so anything left set survives into the next one. bOutcomeHandedToHero is the
+	// expensive case: stale-true, it makes HandOffShoveToReaction early-out, so the second escape sends no
+	// Event.Combat.GrabShoved, its watchdog is also suppressed (same guard), and the shove silently falls
+	// back to the paired montage's 2.3s / 39.6cm section instead of the 3.1s / 117cm knockback — i.e.
+	// "the first knockback is fine and the next one is short". EndAbility is NOT the place for this: an
+	// abnormal end can skip it, and the next activation must not inherit anything either way.
 	bResolved = false;
+	bResolvedEscaped = false;
+	bOutcomeHandedToHero = false;
+	ChosenEscapeIndex = 0;
 
 	// Publish the prey to the pawn so the anim layer can aim the grab hand-IK at the victim's grip
 	// sockets. The anim instance must not reach into GAS or the AI tree for this — same reason the hero
@@ -139,6 +152,10 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	WaitTimeoutTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, Tags.Event_GrabTimeout);
 	WaitTimeoutTask->EventReceived.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnTimeout);
 	WaitTimeoutTask->ReadyForActivation();
+	// The victim's escape animation tells US when the shove connects (its notify, forwarded here).
+	WaitShoveTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, Tags.Event_Grab_Shove);
+	WaitShoveTask->EventReceived.AddDynamic(this, &UAZ_GA_ChalkieGrab::OnHeroShove);
+	WaitShoveTask->ReadyForActivation();
 
 	// COLLISION CARVE-OUT (user 2026-07-24: "closer"): the PAIR ignores each other's movement collision
 	// for the hold. On the paired route this is not optional — shared-origin clips put both capsules at
@@ -154,9 +171,11 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	bAppliedMoveIgnore = true;
 
 	// CLOSE-IN: slide the grabber onto the prey THROUGH the Mover sim (a short layered velocity move,
-	// the same mechanism the knockback uses). On the paired route GrabHoldDistance is 0, so this puts
-	// the Chalkie ON the hero — that IS the shared origin, and the clip's baked bone offsets separate
-	// the two bodies from there. The ATTACKER travels; the player keeps their position.
+	// the same mechanism the knockback uses). The ATTACKER travels; the player keeps their position.
+	//
+	// Stops at GrabHoldDistance, which is ~92 and NOT 0 — the two actors are rotationally OPPOSED here,
+	// so co-locating them puts the clips' baked body offsets back to back. See the property's comment
+	// before changing it; this was tested and reverted on 2026-08-04.
 	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 	{
 		const FVector HeroLoc = Target->GetActorLocation();
@@ -353,56 +372,153 @@ void UAZ_GA_ChalkieGrab::OnGrabMontageEvent(FGameplayTag EventTag, FGameplayEven
 	{
 		return;
 	}
-	// THE SHOVE. Until now the outcome was pose-only: the clip carries 39.6cm of authored root travel on
-	// the Chalkie side, but bEnableRootMotion was off and nothing drove the capsule, so the body glided
-	// back onto an unmoved capsule during blend-out. Driving it here makes the push actually separate the
-	// two pawns.
-	//
-	// STARTED HERE, not at Resolve: the outcome is queued with Montage_SetNextSection and begins at the
-	// next wrestle loop boundary — up to a full cycle later — so a drive armed at choose-time would spend
-	// most of its window on the wrestle loop and expire partway through the shove.
-	const UAnimInstance* AnimInstance = GetOwnAnimInstance();
-	if (!AnimInstance)
-	{
-		return;
-	}
-	const int32 SectionIndex = CachedPairedMontage->GetSectionIndex(AnimInstance->Montage_GetCurrentSection(CachedPairedMontage));
-	if (SectionIndex == INDEX_NONE)
-	{
-		return;
-	}
-	const float SectionLength = CachedPairedMontage->GetSectionLength(SectionIndex);
-	float SectionStart = 0.f, SectionEnd = 0.f;
-	CachedPairedMontage->GetSectionStartAndEndTime(SectionIndex, SectionStart, SectionEnd);
+	// Hand the outcome to the hero: camera phase on both, and on an escape the index of the standalone
+	// montage it should now play under its own steam. Sent on the frame the bodies leave the hold pose.
+	NotifyHeroOutcomeBegan();
 
-	// Measure, don't trust the flag: bEnableRootMotion is set on clips all over this project that do not
-	// actually travel, and driving one of those PINS the pawn under OverrideAll instead of moving it —
-	// the same trap that froze the hero for 0.8s per jab.
-	const FTransform SectionRootMotion =
-		CachedPairedMontage->ExtractRootMotionFromTrackRange(SectionStart, SectionEnd, FAnimExtractContext());
-	if (SectionRootMotion.GetTranslation().Size2D() < OutcomeMinRootTravel)
+	// FAIL keeps the paired route intact: the bite is authored as a two-body scene and the hero follows
+	// into its own half. Only the ESCAPE diverges.
+	if (!bResolvedEscaped)
 	{
 		return;
 	}
-	if (const AActor* Avatar = GetAvatarActorFromActorInfo())
+
+	// The SHOVE itself is no longer ours to time. It lands when the hero's escape animation says it
+	// does — measured at 1.35s into a 2.30s clip, because both NAAT escape clips hold still and only
+	// then depart 39.6cm. Firing here instead would discard the entire wind-up and launch the knockback
+	// before the hero has touched anything. Until that event arrives we keep playing our authored
+	// Pushed/Kicked section, which is exactly the wind-up.
+	//
+	// WATCHDOG, not the mechanism: if the notify is missing (montage unassigned, clip re-authored) the
+	// escape must still resolve rather than hang on a signal that is never coming.
+	if (UWorld* World = GetWorld())
 	{
-		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+		// Section length when we can resolve one, else a plain constant. GetSectionLength(INDEX_NONE)
+		// indexes the section array directly and would crash, so the lookup is guarded rather than
+		// chained — a missing section here is exactly the degraded case this watchdog exists for.
+		float Fallback = 2.3f;
+		if (const UAnimInstance* Anim = CachedPairedMontage ? GetOwnAnimInstance() : nullptr)
 		{
-			const float DriveSeconds = (OutcomeRootMotionSeconds > 0.f)
-				? FMath::Min(OutcomeRootMotionSeconds, SectionLength) : SectionLength;
-			OutcomeRootMotionGen = Mover->DriveRootMotion(DriveSeconds);
-			UE_LOG(LogTemp, Display, TEXT("[Grab] shove drives %.1fcm over %.2fs (gen=%llu)"),
-				SectionRootMotion.GetTranslation().Size2D(), DriveSeconds, OutcomeRootMotionGen);
+			const int32 Idx = CachedPairedMontage->GetSectionIndex(Anim->Montage_GetCurrentSection(CachedPairedMontage));
+			if (Idx != INDEX_NONE)
+			{
+				Fallback = CachedPairedMontage->GetSectionLength(Idx);
+			}
+		}
+		World->GetTimerManager().SetTimer(ShoveWatchdog, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (IsActive() && !bOutcomeHandedToHero)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Grab] shove notify never arrived — firing the knockback on the watchdog"));
+				HandOffShoveToReaction();
+			}
+		}), FMath::Max(0.2f, Fallback), false);
+	}
+}
+
+void UAZ_GA_ChalkieGrab::OnHeroShove(FGameplayEventData Payload)
+{
+	// The hero's escape montage reached its contact frame. THIS is the knockback's cue.
+	HandOffShoveToReaction();
+}
+
+void UAZ_GA_ChalkieGrab::NotifyHeroOutcomeBegan()
+{
+	if (!GrabTarget.IsValid())
+	{
+		return;
+	}
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	FGameplayEventData Payload;
+	Payload.EventTag = Tags.Event_Grab_OutcomeBegin;
+	Payload.Instigator = GetAvatarActorFromActorInfo();
+	Payload.Target = GrabTarget.Get();
+	// WHICH escape, by index. The victim no longer learns the outcome by having a section jump mirrored
+	// onto it, so the choice has to travel as data — and it stays the SERVER's choice, made here.
+	// Negative = the fail path (no escape montage to play, camera phase only).
+	Payload.EventMagnitude = bResolvedEscaped ? static_cast<float>(ChosenEscapeIndex) : -1.f;
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(GrabTarget.Get(), Tags.Event_Grab_OutcomeBegin, Payload);
+}
+
+void UAZ_GA_ChalkieGrab::HandOffShoveToReaction()
+{
+	if (bOutcomeHandedToHero)
+	{
+		return;   // OutcomeBegin fires once per section, but a replayed montage could re-enter
+	}
+	bOutcomeHandedToHero = true;
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ShoveWatchdog);
+	}
+
+	// ---- ORDER IS LOAD-BEARING. ----
+
+	// (1) LET GO. The hands were still pushing until this frame; from here the two bodies separate by
+	// 117cm and any IK left running visibly stretches after the other actor. Our own grip target and the
+	// hero's IK gate both drop here, one line each, and their blend speeds fade the rest.
+	if (AAZ_PawnMoverInfectedCharacter* Self = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Self->SetGrabTarget(nullptr);
+	}
+	if (AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GrabTarget.Get()))
+	{
+		Hero->SetGrabIKReleased(true);
+	}
+
+	// (2) DROP THE GRAB ARMOR before triggering the reaction. State.Combat.Grabbing is in GA_HitReact's
+	// ActivationBlockedTags (rule 8: a mid-grab Chalkie plays no flinch), and those containers are read
+	// off the ABILITY INSTANCE — so leaving it up makes the shove silently not activate, with no error.
+	if (bAppliedGrabbingTag)
+	{
+		bAppliedGrabbingTag = false;
+		if (UAbilitySystemComponent* SelfASC = GetAbilitySystemComponentFromActorInfo())
+		{
+			SelfASC->SetLooseGameplayTagCount(Tags.State_Combat_Grabbing, 0);
 		}
 	}
 
-	// POST-SHOVE BEAT. Without it the ability ends with the section and the BT may swing on its very next
-	// tick — the player shoves the Chalkie 40cm away and it is instantly back on them, which reads as the
-	// escape having achieved nothing. Covers the shove itself plus a recovery beat, and goes through the
-	// pawn's one owner so it cannot fight the reaction ability over the same tag.
-	if (AAZ_PawnMoverInfectedCharacter* Self = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo()))
+	// (3) Stop our half so the slot is free for the knockback. bInterrupt defaults true, which routes to
+	// the montage task's OnInterrupted — deliberately NOT bound on the loop task. Bind it, or stop with
+	// bInterrupt=false, and this re-enters OnLoopMontageEnded -> EndAbility from inside Resolve.
+	if (UAnimInstance* AnimInstance = GetOwnAnimInstance())
 	{
-		Self->SetStaggeredFor(SectionLength + PostShoveStaggerSeconds);
+		AnimInstance->Montage_Stop(0.2f, CachedPairedMontage);
+	}
+
+	// (4) Hand the body to the reaction ability. Synchronous: GA_HitReact has activated, taken the slot,
+	// queued its own generation-scoped root-motion drive and set the Staggered gate before this returns.
+	// Nothing below may assume our montage or our drive still exists.
+	FGameplayEventData ShovePayload;
+	ShovePayload.EventTag = Tags.Event_Combat_GrabShoved;
+	ShovePayload.Instigator = GrabTarget.Get();
+	ShovePayload.Target = GetAvatarActorFromActorInfo();
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+		GetAvatarActorFromActorInfo(), Tags.Event_Combat_GrabShoved, ShovePayload);
+
+	// STAY ALIVE across the shove. Not for the animation — GA_HitReact owns that outright now — but for
+	// two lifetimes that used to end with the outcome section: the BT task is latent on THIS ability, so
+	// ending now would release the attack/grab tokens and unlock crowd rotation while the Chalkie is
+	// still being hurled backwards; and EndAbility restores the pair-collision carve-out, which must not
+	// happen while the two capsules are still coincident.
+	// LONGEST possible reaction, not the one that was picked: the reaction ability rolls its own random
+	// entry and we cannot see which. Re-rolling here to "match" would produce a second, different draw —
+	// the hold must simply never end before the knockback does, because it restores pair collision and
+	// releases the crowd tokens.
+	const float HoldSeconds = UAZ_GA_HitReact::GetShoveHoldSeconds(GetAvatarActorFromActorInfo());
+	UE_LOG(LogTemp, Display, TEXT("[Grab] shove handed to GA_HitReact; holding the grab %.2fs for tokens + collision"),
+		HoldSeconds);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(HandoffTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (IsActive())
+			{
+				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+			}
+		}), FMath::Max(0.1f, HoldSeconds), false);
 	}
 }
 
@@ -441,6 +557,7 @@ void UAZ_GA_ChalkieGrab::Resolve(bool bPlayerEscaped)
 		return;
 	}
 	bResolved = true;
+	bResolvedEscaped = bPlayerEscaped;
 	UE_LOG(LogTemp, Display, TEXT("[Grab] %s RESOLVE: player %s"),
 		*GetNameSafe(GetAvatarActorFromActorInfo()), bPlayerEscaped ? TEXT("ESCAPED") : TEXT("overpowered (timeout)"));
 	if (UWorld* World = GetWorld())
@@ -483,7 +600,8 @@ void UAZ_GA_ChalkieGrab::Resolve(bool bPlayerEscaped)
 		FName Outcome = FailSection;
 		if (bPlayerEscaped && EscapeSections.Num() > 0)
 		{
-			Outcome = EscapeSections[FMath::RandRange(0, EscapeSections.Num() - 1)];
+			ChosenEscapeIndex = FMath::RandRange(0, EscapeSections.Num() - 1);
+			Outcome = EscapeSections[ChosenEscapeIndex];
 		}
 		if (CachedPairedMontage->GetSectionIndex(Outcome) == INDEX_NONE)
 		{
@@ -504,7 +622,20 @@ void UAZ_GA_ChalkieGrab::Resolve(bool bPlayerEscaped)
 		return;
 	}
 
-	PlayExitMontage(bPlayerEscaped ? TEXT("GrabEscapeMontage") : TEXT("GrabEndMontage"));
+	// V1 (unpaired) route. There is no outcome NOTIFY on this path — the exit is a separate montage, not
+	// a section — so the camera phase is announced here instead, at the equivalent moment.
+	NotifyHeroOutcomeBegan();
+
+	// The ESCAPE goes through the SAME reaction hand-off as the paired one rather than through
+	// GrabEscapeMontage: every anim set points that field at AM_Zombie_KB_Atk_1, which is an _IPC capture
+	// measuring 0.0cm of travel, so the v1 escape has never actually separated the two bodies.
+	// GA_HitReact's descriptor route plays a clip that does.
+	if (bPlayerEscaped)
+	{
+		HandOffShoveToReaction();
+		return;
+	}
+	PlayExitMontage(TEXT("GrabEndMontage"));
 }
 
 void UAZ_GA_ChalkieGrab::PlayExitMontage(FName MontageProperty)
@@ -543,6 +674,8 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	{
 		World->GetTimerManager().ClearTimer(SafetyTimer);
 		World->GetTimerManager().ClearTimer(StageTimer);
+		World->GetTimerManager().ClearTimer(HandoffTimer);
+		World->GetTimerManager().ClearTimer(ShoveWatchdog);
 	}
 	// Stage tag off before the grabbing tag — both are loose tags we own, and leaving a stage behind
 	// would tell the crowd brain a grab is still running on this Chalkie.
@@ -562,19 +695,9 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 			SelfASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Grabbing, 0);
 		}
 	}
-	// Stop driving the shove. Generation-scoped: no-op if a knockback or an attack already took the
-	// bridge, so an end firing late cannot cancel somebody else's live move.
-	if (OutcomeRootMotionGen != 0)
-	{
-		if (const AActor* Avatar = GetAvatarActorFromActorInfo())
-		{
-			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
-			{
-				Mover->ReleaseRootMotion(OutcomeRootMotionGen);
-			}
-		}
-		OutcomeRootMotionGen = 0;
-	}
+	// No root-motion release here any more: the shove's drive belongs to GA_HitReact, which owns it for
+	// its own lifetime through its own generation. Releasing from here would be a second owner reaching
+	// for someone else's move.
 	CachedPairedMontage = nullptr;
 
 	// The scene is over — tell the player, on EVERY exit path. Abnormal ends (BT abort, death, external
@@ -582,7 +705,11 @@ void UAZ_GA_ChalkieGrab::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	// the player stays grabbed and synced through the outcome section and is waiting for exactly this
 	// signal to hand control back. Harmless if they already ended: the tag check below fails and nothing
 	// is sent.
-	if (GrabTarget.IsValid())
+	// ...EXCEPT when we already handed the outcome over. Then the hero is deliberately still holding
+	// State.Grabbed while it plays its own shove/kick, and this signal would END its ability outright —
+	// dropping the tag, unfreezing movement and camera mid-animation, roughly 2.3s early. On the escape
+	// path the victim owns its own exit; here we would just be cutting it off.
+	if (GrabTarget.IsValid() && !bOutcomeHandedToHero)
 	{
 		const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GrabTarget.Get()))

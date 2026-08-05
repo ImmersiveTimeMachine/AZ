@@ -2,6 +2,7 @@
 
 #include "Animation/AZ_InfectedAnimInstance.h"
 
+#include "Animation/AZ_MoverAnimInstance.h"   // ResolveGrabIKTarget — one owner for the reach-clamp math
 #include "AZ_GameplayTags.h"
 #include "Animation/AZ_LocomotionTypes.h"
 #include "Character/AZ_PawnMoverComponent.h"
@@ -59,9 +60,36 @@ void UAZ_InfectedAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			if (const USkeletalMeshComponent* PreyMesh = Prey->FindComponentByClass<USkeletalMeshComponent>())
 			{
 				TargetAlpha = 1.f;
-				GrabIKTarget_HandL = PreyMesh->GetSocketLocation(GrabIKPreySocketForHandL);
-				GrabIKTarget_HandR = PreyMesh->GetSocketLocation(GrabIKPreySocketForHandR);
+				// Reach-clamped grips (shared math, see ResolveGrabIKTarget): the authored socket when the
+				// arm reaches, else the nearest reachable point ON the prey's body — this is what stops
+				// the "hands sometimes don't touch the hero" air-grab. Smoothed because the clamp hands
+				// off between socket and surface as the wrestle pose oscillates; snapped on frame one.
+				float DeficitL = 0.f, DeficitR = 0.f;
+				const FVector NewL = UAZ_MoverAnimInstance::ResolveGrabIKTarget(GetSkelMeshComponent(),
+					TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"),
+					PreyMesh, PreyMesh->GetSocketLocation(GrabIKPreySocketForHandL), GrabIKReachScale, &DeficitL);
+				const FVector NewR = UAZ_MoverAnimInstance::ResolveGrabIKTarget(GetSkelMeshComponent(),
+					TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"),
+					PreyMesh, PreyMesh->GetSocketLocation(GrabIKPreySocketForHandR), GrabIKReachScale, &DeficitR);
+				const bool bSnap = GrabIKAlpha < 0.05f;
+				GrabIKTarget_HandL = bSnap ? NewL : FMath::VInterpTo(GrabIKTarget_HandL, NewL, DeltaSeconds, GrabIKTargetInterpSpeed);
+				GrabIKTarget_HandR = bSnap ? NewR : FMath::VInterpTo(GrabIKTarget_HandR, NewR, DeltaSeconds, GrabIKTargetInterpSpeed);
+				if (DeficitL > 0.f || DeficitR > 0.f)
+				{
+					++GrabIKClampedFrames;
+					GrabIKMaxDeficit = FMath::Max(GrabIKMaxDeficit, FMath::Max(DeficitL, DeficitR));
+				}
 			}
+		}
+		else if (GrabIKClampedFrames > 0)
+		{
+			// Grab just released — report the clamp's workload once, with numbers (measure rule): how
+			// often a grip was out of reach and by how much. "0 frames" after a retune means the sockets
+			// themselves now sit inside reach and the clamp is a no-op.
+			UE_LOG(LogTemp, Display, TEXT("[GrabIK] %s: %d frames beyond reach, worst %.1fcm — clamped onto the prey's body surface"),
+				*GetNameSafe(Cached_Pawn), GrabIKClampedFrames, GrabIKMaxDeficit);
+			GrabIKClampedFrames = 0;
+			GrabIKMaxDeficit = 0.f;
 		}
 		// Ramp rather than snap: a hard 0->1 on the catch frame reads as the hands teleporting onto the prey.
 		GrabIKAlpha = FMath::FInterpTo(GrabIKAlpha, TargetAlpha, DeltaSeconds, GrabIKBlendSpeed);

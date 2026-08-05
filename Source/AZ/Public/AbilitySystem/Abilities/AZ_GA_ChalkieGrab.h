@@ -86,12 +86,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|Paired")
 	FName FailSection = FName("Munch");
 
-	/** Contact distance the grabber CLOSES TO at the catch (cm, center-to-center). The paired clips are
-	 *  SHARED-ORIGIN — both bodies are authored around one point and their separation is baked into the
-	 *  bones — so the paired path wants 0 (both actors at one transform) and the v1 path wants ~110.
-	 *  Raising this on the paired path pulls the two halves of the clinch apart. */
+	/** Contact distance the grabber CLOSES TO at the catch (cm, center-to-center).
+	 *
+	 *  ★ 92, AND 0 IS WRONG — DO NOT "RESTORE THE DOCTRINE" HERE. Tested in PIE 2026-08-04: at 0 the two
+	 *  bodies stand BACK TO BACK. The reasoning that says 0 ("the clips are shared-origin, so put both
+	 *  actors at one transform") only holds if the actors share a ROTATION as well as a position, and this
+	 *  feature deliberately does not: the hero look-ats the grabber, so the two are ~180 degrees OPPOSED
+	 *  (the shared-yaw variant was tried 2026-08-01 and read as "same line, not face to face").
+	 *
+	 *  Each NAAT clip bakes its body roughly 30cm IN FRONT of the actor origin (measured pelvises: hero
+	 *  (-0.2,-15.5,88.3), Chalkie (-2.0,14.1,90.9), ~29.6cm apart; the mesh's -90 yaw maps anim +Y onto
+	 *  actor forward). Two opposed actors at ONE origin therefore push their bodies along opposite
+	 *  facings — apart, backs together. Separating the origins by ~2x that offset lands each body in
+	 *  front of the other, which is why the hand-tuned 92 is right and is not a fudge factor.
+	 *
+	 *  The v1 (unpaired) path wants ~110. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0"))
-	float GrabHoldDistance = 0.f;
+	float GrabHoldDistance = 92.f;
 
 	/** Seconds for the close-in slide at the catch (short = a snatch/lunge feel). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0.05"))
@@ -110,29 +121,26 @@ private:
 	 *  nothing but the two grab anims may show during the hold (user rule 2026-07-24). */
 	UFUNCTION() void OnLoopMontageEnded(FGameplayTag EventTag, FGameplayEventData EventData);
 
-	/** Event.Grab.OutcomeBegin — the shove section just STARTED. Drives the capsule with the clip's own
-	 *  root motion from here, which is the only moment that can be right: the outcome is queued at the
-	 *  wrestle loop boundary, so it begins up to a full cycle after it was chosen. */
+	/** Event.Grab.OutcomeBegin — the outcome section just STARTED, i.e. the one frame on which both bodies
+	 *  leave the hold pose together. On an ESCAPE this is where the two halves DIVERGE: the hero keeps
+	 *  playing its authored shove/kick, and we hand our own body to GA_HitReact to play the variant
+	 *  knockback. It has to be here and not at Resolve, because the outcome is queued at the wrestle loop
+	 *  boundary and begins up to a full cycle after it was chosen. */
 	UFUNCTION() void OnGrabMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData);
 
-	/** Seconds of root-motion drive for the shove. 0 = the outcome section's own length, which is what
-	 *  you want; a positive value cuts the capsule loose earlier than the animation. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "s"))
-	float OutcomeRootMotionSeconds = 0.f;
+	/** Hand our half of the escape to GA_HitReact (Event.Combat.GrabShoved) and release the hero from the
+	 *  montage sync. Ordering inside is load-bearing — see the implementation. */
+	void HandOffShoveToReaction();
 
-	/** Minimum authored travel before the shove is allowed to drive the capsule. The hero's side of these
-	 *  paired clips moves 0.0cm (correct — you plant and shove, they fly), and driving a non-travelling
-	 *  clip would PIN the pawn under OverrideAll rather than move it. Measured, not trusted from the
-	 *  bEnableRootMotion flag, which is set on clips that do not move. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "cm"))
-	float OutcomeMinRootTravel = 5.f;
+	/** Tell the victim its outcome has started: swap to the pulled-back camera framing, drop the struggle
+	 *  rumble, and — on an escape — stop following us and play escape montage EscapeMontages[index]
+	 *  itself. The index rides EventMagnitude and is the ONE piece of coupling between the two sides'
+	 *  ordered arrays (ours is EscapeSections). Sent on both outcomes. */
+	void NotifyHeroOutcomeBegan();
 
-	/** Recovery beat AFTER the shove animation, during which this Chalkie may not swing. Without it the
-	 *  ability ends with the section and the BT can attack on its next tick — shoved 40cm away and
-	 *  instantly back on the player, which makes the escape feel like it achieved nothing. Applied
-	 *  through the pawn's single stagger owner, so it never fights a hit reaction over the tag. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0", ForceUnits = "s"))
-	float PostShoveStaggerSeconds = 1.f;
+	/** Event.Grab.Shove, forwarded by the victim from a notify on ITS escape montage — the frame the
+	 *  shove connects. Launches the knockback. */
+	UFUNCTION() void OnHeroShove(FGameplayEventData Payload);
 
 	/** Single funnel for both outcomes — guards double-resolution (event + safety timer race). */
 	void Resolve(bool bPlayerEscaped);
@@ -148,10 +156,6 @@ private:
 	void SetGrabStage(const FGameplayTag& NewStage);
 
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* LoopMontageTask = nullptr;
-
-	/** Generation of the shove's root-motion drive. Released in EndAbility through the generation-scoped
-	 *  path, so a drive that a knockback or another ability has already superseded is never cancelled. */
-	uint64 OutcomeRootMotionGen = 0;
 	UPROPERTY() UAZ_AT_PlayMontageAndWaitForEvent* ExitMontageTask = nullptr;
 	UPROPERTY() UAnimMontage* CachedLoopMontage = nullptr;
 	UPROPERTY() UAnimMontage* CachedPairedMontage = nullptr;
@@ -166,7 +170,29 @@ private:
 
 	TWeakObjectPtr<AActor> GrabTarget;
 	bool bResolved = false;
+	/** Which way it resolved — the outcome section is queued at Resolve but does not BEGIN until the
+	 *  wrestle loop boundary, and only the escape branch diverges when it does. */
+	bool bResolvedEscaped = false;
+	/** The hero now owns its own exit (it was told to unfollow and is playing its outcome section under
+	 *  its own steam). Suppresses Event.GrabRelease in EndAbility: that signal ENDS the victim's ability
+	 *  outright, so sending it here would drop State.Grabbed and hand movement back mid-animation —
+	 *  roughly 2.3s early, in the same synchronous stack as the mash press that started all this.
+	 *  Abnormal exits leave this false and still release, which is what keeps a dying grabber from
+	 *  freezing the player. */
+	bool bOutcomeHandedToHero = false;
 	FTimerHandle SafetyTimer;
+	/** Keeps this ability alive across the shove after the handoff, so the BT task stays latent and the
+	 *  crowd/grab tokens release on the same schedule as before — and so the pair-collision carve-out is
+	 *  restored once the bodies are APART. Restoring it at handoff time would fire with the capsules
+	 *  coincident (shared-origin hold), where the depenetration direction is arbitrary. */
+	FTimerHandle HandoffTimer;
+	/** Guards the hero's contact notify: fires the knockback anyway if the event never arrives, so an
+	 *  unauthored montage degrades instead of leaving the grab waiting on a signal that never comes. */
+	FTimerHandle ShoveWatchdog;
+	/** Which entry of EscapeSections this resolve picked — sent to the hero so both sides play the same
+	 *  outcome without the montage sync having to mirror it. */
+	int32 ChosenEscapeIndex = 0;
+	UPROPERTY() class UAbilityTask_WaitGameplayEvent* WaitShoveTask = nullptr;
 
 	/** State.Combat.Grabbing applied as an EXPLICIT loose tag (paired add/remove) — the flinch
 	 *  carve-out reads it; ActivationOwnedTags CDO patches don't reach BP-child instances. */

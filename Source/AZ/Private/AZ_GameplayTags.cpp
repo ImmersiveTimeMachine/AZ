@@ -324,6 +324,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
 
     AddTag(GameplayTags.Event_Combat_HitReact, FName("Event.Combat.HitReact"), TEXT("Survivable hit taken -> triggers GA_HitReact (payload Instigator = causer)"));
     AddTag(GameplayTags.Event_Combat_StepBack, FName("Event.Combat.StepBack"), TEXT("Pack recoil beat -> triggers GA_HitReact (payload OptionalObject = montage, EventMagnitude = caller beat, 0 = clip default)"));
+    AddTag(GameplayTags.Event_Combat_GrabShoved, FName("Event.Combat.GrabShoved"), TEXT("Grab broken by the victim -> triggers GA_HitReact on the GRABBER (resolves the GrabEscapeReact descriptor, else the HitReact one)"));
     AddTag(GameplayTags.Event_Combat_BeatEnd, FName("Event.Combat.BeatEnd"), TEXT("Authored montage notify marking the end of the clip's gameplay beat — ends reactions and the zombie bite from the animation timeline itself"));
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("RETIRED single-frame contact event (socket-sweep windows replaced it); registered so old data still resolves"));
     AddTag(GameplayTags.Event_Montage_Melee_WindowBegin, FName("Event.Montage.Melee.WindowBegin"), TEXT("Strike window opens — melee ability starts the fist socket sweep"));
@@ -333,6 +334,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Event_GrabEscaped,       FName("Event.GrabEscaped"),       TEXT("Player -> grabber ASC: the mash won — GA_ChalkieGrab plays the GrabEscapeMontage stagger"));
     AddTag(GameplayTags.Event_GrabTimeout,       FName("Event.GrabTimeout"),       TEXT("Player -> grabber ASC: escape window elapsed — GA_ChalkieGrab lands the attack (GrabEndMontage + damage)"));
     AddTag(GameplayTags.Event_GrabRelease,       FName("Event.GrabRelease"),       TEXT("Grabber -> player ASC: the grab ended abnormally (cancel/death) — GA_PlayerGrabbed frees the player"));
+    AddTag(GameplayTags.Event_Grab_Shove,        FName("Event.Grab.Shove"),        TEXT("Authored on the hero's escape montage at the contact frame (1.35s): forwarded to the grabber to launch its knockback and release both sides' hand IK"));
     AddTag(GameplayTags.SetByCaller_Damage,      FName("SetByCaller.Damage"),      TEXT("SetByCaller magnitude channel for damage on GE_Damage specs"));
 
     AddTag(GameplayTags.Combat_Aiming,          FName("Combat.Aiming"),          TEXT("Character is aiming"));

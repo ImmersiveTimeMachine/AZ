@@ -4,6 +4,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"   // FindAnimSetCombatMontage / FindAnimSetMontage / ReadConfigFloat / FindBeatEndNotifyTime
 #include "AbilitySystemComponent.h"   // SetLooseGameplayTagCount (the stagger gate is applied explicitly)
+#include "AbilitySystemGlobals.h"     // reading the GRANTED reaction class's escape array off its CDO
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -36,7 +37,7 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	}
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 
-	for (const FGameplayTag& TriggerTag : { Tags.Event_Combat_HitReact, Tags.Event_Combat_StepBack })
+	for (const FGameplayTag& TriggerTag : { Tags.Event_Combat_HitReact, Tags.Event_Combat_StepBack, Tags.Event_Combat_GrabShoved })
 	{
 		if (!CDO->AbilityTriggers.ContainsByPredicate(
 			[&TriggerTag](const FAbilityTriggerData& T) { return T.TriggerTag == TriggerTag; }))
@@ -70,12 +71,92 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	}
 }
 
+bool UAZ_GA_HitReact::ResolveShoveDescriptor(const AActor* Avatar, FAZ_CombatMontage& Out) const
+{
+	// RANDOM PICK, filtered to entries that actually have a montage — an array with an empty slot is the
+	// normal state while someone is still authoring it, and rolling onto that slot would silently drop
+	// the whole escape reaction.
+	TArray<const FAZ_CombatMontage*> Valid;
+	for (const FAZ_CombatMontage& Candidate : GrabEscapeReactions)
+	{
+		if (Candidate.IsSet())
+		{
+			Valid.Add(&Candidate);
+		}
+	}
+	if (Valid.Num() > 0)
+	{
+		Out = *Valid[FMath::RandRange(0, Valid.Num() - 1)];
+		return true;
+	}
+	return ResolveShoveFallback(Avatar, Out);
+}
+
+float UAZ_GA_HitReact::GetShoveHoldSeconds(const AActor* Avatar)
+{
+	// Read the array off the GRANTED class, not the native default: the Chalkie is granted a BP tuning
+	// child, and its CDO carries the authored entries. Spec.Ability IS that class's default object.
+	if (const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Avatar))
+	{
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			const UAZ_GA_HitReact* Reaction = Cast<UAZ_GA_HitReact>(Spec.Ability);
+			if (!Reaction)
+			{
+				continue;
+			}
+			float Longest = 0.f;
+			for (const FAZ_CombatMontage& Candidate : Reaction->GrabEscapeReactions)
+			{
+				if (Candidate.IsSet())
+				{
+					Longest = FMath::Max(Longest, Candidate.ResolveGate());
+				}
+			}
+			if (Longest > 0.f)
+			{
+				return Longest;
+			}
+			break;
+		}
+	}
+	FAZ_CombatMontage Single;
+	return ResolveShoveFallback(Avatar, Single) ? Single.ResolveGate() : 1.5f;
+}
+
+bool UAZ_GA_HitReact::ResolveShoveFallback(const AActor* Avatar, FAZ_CombatMontage& Out)
+{
+	if (UAZ_GA_MeleeAttack::FindAnimSetCombatMontage(Avatar, TEXT("GrabEscapeReact"), Out))
+	{
+		return true;   // authored per variant — the author's numbers win outright
+	}
+	if (!UAZ_GA_MeleeAttack::FindAnimSetCombatMontage(Avatar, TEXT("HitReact"), Out))
+	{
+		return false;
+	}
+	// FALLBACK: same clip, DIFFERENT beat. The flinch descriptor cuts KB_Chase_2 at 1.81s because a punch
+	// reaction wants the recoil peak and nothing after it — driving that clip further turns a knockback
+	// into a stroll back at you (see FAZ_CombatMontage's header). A grab escape is the opposite: the
+	// player earned the whole beat, so it plays the clip out, root motion and all, and the Chalkie's walk
+	// back in IS the authored consequence of letting it recover.
+	//
+	// Author GrabEscapeReact on the anim set to override this per variant.
+	Out.ActiveSeconds = 0.f;       // 0 = the whole montage
+	Out.RootMotionSeconds = 0.f;   // 0 = match the beat, i.e. also the whole montage
+	return true;
+}
+
 void UAZ_GA_HitReact::DeclareAbilityTags()
 {
 	Super::DeclareAbilityTags();
 
 	const FAZ_GameplayTags& T = FAZ_GameplayTags::Get();
 	ActivationBlockedTags.AddTag(T.State_Combat_Grabbing);   // grab armor (rule 8) — motion only
+	// VICTIM-side grab armor, now that the hero runs this ability too: a third Chalkie clawing a grabbed
+	// hero must not stomp the paired grab montage (or the self-driven escape, which holds State.Grabbed
+	// to its own end) with a FullBody flinch. Motion only — the damage GE has already run. Chalkies never
+	// carry State.Grabbed, so this is inert on their side.
+	ActivationBlockedTags.AddTag(T.State_Grabbed);
 	ActivationBlockedTags.AddTag(T.Character_Dead);
 	ActivationBlockedTags.AddTag(T.Character_Dying);
 	// Getting hit interrupts your swing. This replaces HandleDamaged's hand-rolled loop over every spec
@@ -96,7 +177,12 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	Desc = FAZ_CombatMontage();
 	bRecovering = false;   // retrigger: a fresh reaction is not a continuation of the last one's recover
 	const bool bStepBack = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Combat_StepBack;
-	if (bStepBack)
+	const bool bGrabShoved = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Combat_GrabShoved;
+	if (bGrabShoved)
+	{
+		ResolveShoveDescriptor(Avatar, Desc);
+	}
+	else if (bStepBack)
 	{
 		// Payload-supplied clip. Montage tasks want a mutable montage; the payload field is const by
 		// signature only — these are shared assets we do not mutate.
@@ -114,6 +200,24 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 			Desc.Montage = UAZ_GA_MeleeAttack::FindAnimSetMontage(Avatar, TEXT("HitReactMontage"));
 			Desc.ActiveSeconds = UAZ_GA_MeleeAttack::ReadConfigFloat(Avatar, TEXT("FlinchRootMotionSeconds"), 0.f);
 		}
+		// DIRECTIONAL FALLBACK — the hero path (no AnimSet on the pawn resolves above). Side = which
+		// side of the VICTIM'S body the sweep struck, read off the hit result the attacker stamped into
+		// the effect context (AZ_GA_MeleeAttack.cpp AddHitResult). Local +Y is the actor's right. NOT
+		// keyed on the attacker's hand: a right hook landing on your right side must pick the right-side
+		// react no matter whose fist it was, and the geometric read survives both bodies turning.
+		if (!Desc.IsSet() && Avatar)
+		{
+			const FHitResult* Hit = TriggerEventData ? TriggerEventData->ContextHandle.GetHitResult() : nullptr;
+			float LocalY = 0.f;   // no hit result (environment damage) -> Left, the documented default
+			if (Hit)
+			{
+				LocalY = Avatar->GetActorTransform().InverseTransformPosition(Hit->ImpactPoint).Y;
+			}
+			Desc = (LocalY > 0.f) ? DefaultReactionRight : DefaultReactionLeft;
+			UE_LOG(LogTemp, Display, TEXT("[HitReact] %s fallback react: struck %s (localY=%.1f, hit=%s)"),
+				*GetNameSafe(Avatar), (LocalY > 0.f) ? TEXT("RIGHT") : TEXT("LEFT"), LocalY,
+				Hit ? TEXT("yes") : TEXT("no"));
+		}
 	}
 
 	UAnimInstance* AnimInstance = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr;
@@ -124,8 +228,18 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	}
 
 	// Montage task: BeatEnd is the only event we wait for; completion callbacks are the lifecycle.
+	//
+	// ...EXCEPT on the shove. KB_Chase_2 carries an authored Event.Combat.BeatEnd at 1.810s — the recoil
+	// peak, correct for a flinch — and subscribing to it here would stop the montage there no matter what
+	// the descriptor says, silently cutting a 3.10s knockback down to 1.81s. The escape wants the clip
+	// whole, so it does not listen. An authored GrabEscapeReact that DOES want an early cut still gets
+	// one, through the cut timer below.
+	const bool bUseBeatNotify = !bGrabShoved;
 	FGameplayTagContainer EventTags;
-	EventTags.AddTag(Tags.Event_Combat_BeatEnd);
+	if (bUseBeatNotify)
+	{
+		EventTags.AddTag(Tags.Event_Combat_BeatEnd);
+	}
 	MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
 		this, FName("HitReactMontage"), Desc.Montage, EventTags, 1.f, NAME_None,
 		/*bStopWhenAbilityEnds*/ true, 1.f);
@@ -171,7 +285,7 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	// CLOCKS. Primary: the BeatEnd notify authored on the montage (the timeline itself). The cut timer
 	// is armed ONLY when that notify doesn't own the beat — un-authored variant, or a caller-shortened
 	// step-back — and does the identical stop. The watchdog ends the ability if every event path failed.
-	const float NotifyBeat = UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(Desc.Montage);
+	const float NotifyBeat = bUseBeatNotify ? UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(Desc.Montage) : 0.f;
 	const float Beat = Desc.ResolveBeat();
 	const bool bNotifyOwnsBeat = NotifyBeat > 0.f && Beat >= NotifyBeat - 0.05f;
 	if (!bNotifyOwnsBeat && Desc.IsCutEarly())

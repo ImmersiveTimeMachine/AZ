@@ -114,6 +114,10 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	UE_LOG(LogTemp, Display, TEXT("[Grab] GA_PlayerGrabbed ACTIVE (grabber=%s)"), *GetNameSafe(Grabber.Get()));
 	Presses = 0;
 	bResolved = false;
+	// Same reuse trap as the grabber (InstancedPerActor): stale-true, this makes OnOutcomeBegan early-out,
+	// so the second escape never takes over its own montage — the hero stays a follower, its escape
+	// montage never plays, and the contact notify that drives the knockback never fires.
+	bSelfDrivingOutcome = false;
 
 	// Being caught interrupts whatever the player was doing (mid-punch grab stops the punch + montage).
 	// State.Grabbed goes on EXPLICITLY (loose tag, removed in EndAbility) — ActivationOwnedTags is not
@@ -195,6 +199,16 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	WaitReleaseTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, FAZ_GameplayTags::Get().Event_GrabRelease);
 	WaitReleaseTask->EventReceived.AddDynamic(this, &UAZ_GA_PlayerGrabbed::OnGrabberReleased);
 	WaitReleaseTask->ReadyForActivation();
+
+	// Our own escape montage's contact notify, forwarded to the grabber as its knockback cue.
+	WaitShoveTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, FAZ_GameplayTags::Get().Event_Grab_Shove);
+	WaitShoveTask->EventReceived.AddDynamic(this, &UAZ_GA_PlayerGrabbed::OnShoveNotify);
+	WaitShoveTask->ReadyForActivation();
+
+	// Camera phase change, sent on BOTH outcomes (the escape unfollows as well; the bite does not).
+	WaitOutcomeTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, FAZ_GameplayTags::Get().Event_Grab_OutcomeBegin);
+	WaitOutcomeTask->EventReceived.AddDynamic(this, &UAZ_GA_PlayerGrabbed::OnOutcomeBegan);
+	WaitOutcomeTask->ReadyForActivation();
 
 	UpdateStruggleHUD();
 }
@@ -437,6 +451,103 @@ void UAZ_GA_PlayerGrabbed::OnGrabberReleased(FGameplayEventData Payload)
 	FinishGrab(/*bEscaped*/ true, /*bNotifyGrabber*/ false);
 }
 
+void UAZ_GA_PlayerGrabbed::OnOutcomeBegan(FGameplayEventData Payload)
+{
+	// THE PAYOFF IS A DIFFERENT SHOT. Both outcomes reach here (escape and bite) while State.Grabbed is
+	// still up, so the pawn keeps its grab framing precedence — we just tell it WHICH grab framing.
+	// Without this the whole escape plays behind a 130cm over-the-shoulder boom with the struggle rumble
+	// still running, which is a good hold shot and an unwatchable payoff.
+	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
+	{
+		Hero->SetGrabOutcomeFraming(true);
+	}
+	if (bStopRumbleOnOutcome)
+	{
+		if (APlayerController* PC = GetOwnerPlayerController())
+		{
+			if (RumbleShakeClass)
+			{
+				// Fade, not cut: the struggle is over, but snapping the shake off mid-frame reads as a bug.
+				PC->ClientStopCameraShake(RumbleShakeClass, /*bImmediately*/ false);
+			}
+		}
+	}
+	// ESCAPE: take the montage over completely. EventMagnitude carries the grabber's choice as an index
+	// into EscapeMontages (negative = the bite, which stays synced and needs nothing here).
+	//
+	// A STANDALONE montage, not the paired montage's Push/Kick section, and that is the whole point: a
+	// montage FOLLOWER is SetPosition'd every frame and can skip notifies, so the contact notify this
+	// escape depends on is only reliable once we stop following. Playing our own asset also removes the
+	// section-mirror race — we no longer need the leader to have jumped us into the right section first.
+	const int32 Index = FMath::RoundToInt(Payload.EventMagnitude);
+	if (Index < 0 || bSelfDrivingOutcome || !IsActive())
+	{
+		return;
+	}
+	bSelfDrivingOutcome = true;
+
+	AAZ_PawnMoverHeroCharacter* HeroPawn = GetHeroPawnFromActorInfo();
+	UAnimInstance* OwnAnim = HeroPawn && HeroPawn->GetMesh() ? HeroPawn->GetMesh()->GetAnimInstance() : nullptr;
+	if (!OwnAnim || EscapeMontages.Num() == 0)
+	{
+		return;   // unauthored: stay synced and let the grabber's watchdog resolve it
+	}
+	UAnimMontage* Escape = EscapeMontages[FMath::Clamp(Index, 0, EscapeMontages.Num() - 1)].LoadSynchronous();
+	if (!Escape)
+	{
+		return;
+	}
+
+	// Unfollow BEFORE playing: sync copies the leader's position unconditionally every tick, so a live
+	// link would fight (and win against) whatever we start here.
+	if (CachedPairedMontage)
+	{
+		OwnAnim->MontageSync_StopFollowing(CachedPairedMontage);
+		OwnAnim->Montage_Stop(0.2f, CachedPairedMontage);
+		CachedPairedMontage = nullptr;
+	}
+
+	if (OwnAnim->Montage_Play(Escape, 1.f) <= 0.f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Grab] escape montage %s would not play (FullBody slot missing?)"),
+			*GetNameSafe(Escape));
+		return;
+	}
+	// We own the ending now — the grabber deliberately stops sending Event.GrabRelease once it has
+	// handed the outcome over, so nothing else would ever free us.
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindWeakLambda(this, [this](UAnimMontage* /*M*/, bool /*bInterrupted*/)
+	{
+		if (IsActive())
+		{
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		}
+	});
+	OwnAnim->Montage_SetEndDelegate(EndDelegate, Escape);
+
+	UE_LOG(LogTemp, Display, TEXT("[Grab] outcome framing ON (rumble %s); hero self-driving %s [idx %d]"),
+		bStopRumbleOnOutcome ? TEXT("stopped") : TEXT("kept"), *GetNameSafe(Escape), Index);
+}
+
+void UAZ_GA_PlayerGrabbed::OnShoveNotify(FGameplayEventData Payload)
+{
+	// Our escape animation reached its contact frame. We are the only side that can hear this — the
+	// notify fires on OUR montage and lands on OUR ASC — so forward it to the grabber, which owns the
+	// knockback and the IK release. Doing it this way keeps the animator in control of WHEN the shove
+	// lands: move the notify, and the Chalkie flies at the new time with no code change.
+	if (!Grabber.IsValid())
+	{
+		return;
+	}
+	FGameplayEventData Out;
+	Out.EventTag = FAZ_GameplayTags::Get().Event_Grab_Shove;
+	Out.Instigator = GetAvatarActorFromActorInfo();
+	Out.Target = Grabber.Get();
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+		const_cast<AActor*>(Grabber.Get()), FAZ_GameplayTags::Get().Event_Grab_Shove, Out);
+	UE_LOG(LogTemp, Display, TEXT("[Grab] shove contact -> %s"), *GetNameSafe(Grabber.Get()));
+}
+
 void UAZ_GA_PlayerGrabbed::FinishGrab(bool bEscaped, bool bNotifyGrabber)
 {
 	if (bResolved || !IsActive())
@@ -545,6 +656,7 @@ void UAZ_GA_PlayerGrabbed::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
 	{
 		Hero->SetGrabFacingTarget(nullptr);
+		Hero->SetGrabOutcomeFraming(false);   // next grab starts on the tight hold framing again
 	}
 	Grabber = nullptr;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);

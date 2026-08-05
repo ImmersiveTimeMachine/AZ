@@ -142,6 +142,20 @@ public:
 	/** The current grabber (null outside a grab). AnimInstance reads this for the grab hand-IK targets. */
 	const AActor* GetGrabFacingTarget() const { return GrabFacingTarget.Get(); }
 
+	/** Switch the grabbed camera from the tight hold framing (CameraGrabbed) to the pulled-back payoff
+	 *  framing (CameraGrabOutcome). Called by GA_PlayerGrabbed when the outcome section starts, and
+	 *  cleared on every grab exit. Separate from SetGrabFacingTarget because the two have different
+	 *  lifetimes: the facing target lives for the whole grab, this only for its last couple of seconds. */
+	void SetGrabOutcomeFraming(bool bInOutcomeFraming) { bGrabOutcomeFraming = bInOutcomeFraming; }
+
+	/** Let go of the grabber. The hand IK holds the hero's palms on the Chalkie for the whole grab, keyed
+	 *  on the facing target + State.Grabbed — both of which deliberately outlive the shove, so without
+	 *  this the hands keep reaching for a body that is already 117cm away and visibly stretch after it.
+	 *  Set at the CONTACT frame, not at the outcome's start: the hands are still pushing until then.
+	 *  Separate from the camera flag because the two change at different moments (0.00 vs 1.35s). */
+	void SetGrabIKReleased(bool bInReleased) { bGrabIKReleased = bInReleased; }
+	bool IsGrabIKReleased() const { return bGrabIKReleased; }
+
 	/** GRAB HEIGHT MATCH: lift the MESH inside the capsule until our socket meets the grabber's hand.
 	 *  The capsule cannot carry this — Walking mode floor-snaps it every tick — so the "held off the
 	 *  ground" read is a mesh offset, leaving the capsule grounded and collidable. Called by
@@ -155,6 +169,14 @@ public:
 	 *  natively at possess with the Interact dynamic tag (E-mash routing). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
 	TSubclassOf<class UGameplayAbility> GrabbedAbilityClass;
+
+	/** The hero's on-hit reaction — the SAME stagger-class GA_HitReact the Chalkie runs (reaction parity:
+	 *  the victim moving on the contact frame is what makes a punch read; until now the hero ate claws
+	 *  with zero feedback and the victim hit-stop had no montage to bite on). Point at BP_GA_HitReact_Hero
+	 *  in the pawn BP; unset falls back to the native class. Clip resolution for a pawn with no AnimSet
+	 *  goes through the ability's DefaultReactionLeft/Right descriptors. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Abilities")
+	TSubclassOf<class UGameplayAbility> HitReactAbilityClass;
 
 	// ========================================
 	// Components
@@ -196,6 +218,16 @@ public:
 	 *  holds you nothing else frames the shot. Look input is frozen separately (OnLookTriggered gate). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
 	FAZ_CameraStanceConfig CameraGrabbed;
+
+	/** Grab OUTCOME (the escape shove or the bite) — replaces CameraGrabbed the moment the outcome
+	 *  section starts, while State.Grabbed is still up.
+	 *
+	 *  It exists because the hold framing is the WRONG shot for the payoff: CameraGrabbed sits 130cm out
+	 *  because the closeness is the drama while you are pinned, but the escape hurls the Chalkie ~114cm
+	 *  backwards and at that boom length the whole thing happens off-screen. Pull back and widen here to
+	 *  actually watch what you just earned. Look-at and the sweep still run — only the framing swaps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraStanceConfig CameraGrabOutcome;
 
 	// Grabbed-camera ROTATION framing (the boom/FOV part lives in CameraGrabbed above): the camera
 	// auto-turns to the grabber while look input is frozen; these shape that look-at.
@@ -296,6 +328,12 @@ protected:
 
 	/** See SetGrabFacingTarget. */
 	TWeakObjectPtr<const AActor> GrabFacingTarget;
+
+	/** See SetGrabOutcomeFraming — true only while the escape/bite section is playing. */
+	bool bGrabOutcomeFraming = false;
+
+	/** See SetGrabIKReleased — true from the shove's contact frame to the end of the grab. */
+	bool bGrabIKReleased = false;
 
 	// --- Cinematic grab camera (see SetGrabFacingTarget / UpdateCameraForMode) ---
 

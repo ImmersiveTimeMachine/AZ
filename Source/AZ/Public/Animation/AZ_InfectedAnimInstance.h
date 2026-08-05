@@ -87,6 +87,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK", meta = (ClampMin = "0.1"))
 	float GrabIKBlendSpeed = 8.f;
 
+	/** Fraction of the arm chain the IK may use before the target is clamped onto the prey's body
+	 *  surface (shared math: UAZ_MoverAnimInstance::ResolveGrabIKTarget). The Chalkie arms took the
+	 *  worse retarget hit — hands measured 17-19cm short of their grips at the worst wrestle frames —
+	 *  so this side is where the clamp earns its keep. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK", meta = (ClampMin = "0.5", ClampMax = "1"))
+	float GrabIKReachScale = 0.97f;
+
+	/** Smoothing on the FINAL IK target (per second); snapped on the grab's first frame. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|GrabIK", meta = (ClampMin = "1"))
+	float GrabIKTargetInterpSpeed = 25.f;
+
 	/** Socket on the PREY's mesh each hand reaches for. Straight mapping (L->L, R->R) to match the
 	 *  socket naming, where GrabIK_HandL means "the grip the partner's LEFT hand takes".
 	 *  NOTE the hero's equivalent pair is CROSSED and needs reconciling with this convention. */
@@ -99,6 +110,12 @@ protected:
 	/** Cached on init — the owning infected pawn (saves a per-tick TryGetPawnOwner cast). */
 	UPROPERTY(Transient)
 	TObjectPtr<AAZ_PawnMoverInfectedCharacter> Cached_Pawn;
+
+	/** Per-grab clamp instrumentation (measure rule): how many frames a grip was beyond reach and the
+	 *  worst deficit, logged once when the grab releases. Answers "are the hands still missing" with a
+	 *  number instead of a feeling. */
+	int32 GrabIKClampedFrames = 0;
+	float GrabIKMaxDeficit = 0.f;
 
 	/** Cached on init — the pawn's Mover component (the source of GetVelocity()). */
 	UPROPERTY(Transient)
