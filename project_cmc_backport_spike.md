@@ -1,0 +1,143 @@
+---
+name: project_cmc_backport_spike
+description: "★ LIVE spike plan (branch spike/cmc-backport from feature/NPC @ 9518095, task #16): CMC back-port — KEEP CHT+SM+BlendStack+MM (decision + evidence inside), resurrect the EXISTING v1 ACharacter hero (AAZ_HeroCharacter — discovery 2026-08-05), 5-phase plan + exit criteria. Read first for any spike work."
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
+  modified: 2026-08-06T04:47:54.411Z
+---
+
+# CMC back-port spike — plan (2026-08-05; P0 built+committed 2026-08-06)
+
+## ★★ RESUME HERE (session end 2026-08-06) — P0 COMPLETE @ `56dda9d`, AWAITING FIRST PIE
+Code built green (editor-closed CLI, 106s) + data pass done via unreal-mcp toolsets, committed+pushed on
+`spike/cmc-backport` (upstream set). Content (all compiled+saved, values READ BACK verified):
+- `BP_CMC_Hero` @ /Game/AZ/Blueprints/Character/Hero/CMC (USER-CHOSEN folder, not Spike/): full v2 mirror —
+  AZ_IMC_RT_PawnInputs, AZ_IA_RT_Move/Look, StartupAbilities Jump/Run/Crouch, BP_GA_PlayerGrabbed,
+  BP_GA_HitReact_Hero, SKM_SurvivalMan_Mesh3 + AZ_ABP_MoverAnimInstance_C; camera = v2 values (boom
+  RelLoc Z=70 ★, arm 220, socket (0,70,0), lag 8/10, FOV 90 — ctor had 80, BP overrides it).
+- `BP_CMC_Chalkie` @ Character/Infected/CMC: SK_ZombieAC_A + AZ_ABP_Chalkie_C, mesh rel (10,0,-94),
+  DA_ChalkieAnims_C_Rotter, 4 ability BP classes. NOT placed in any map yet — user places like BP_AZ_Chalkie.
+- `BP_CMC_GameMode` @ Game/CMC: child of BP_AZ_GameMode_C, only DefaultPawnClass swapped = THE generation
+  toggle. USER DECISION: NO test map (deleted) — test in L_001 via WorldSettings GameModeOverride.
+  ★ The override was set on L_001 IN-EDITOR but the MAP WAS NOT SAVED — next session it may be gone;
+  re-set = one property (WorldSettings.DefaultGameMode = BP_CMC_GameMode_C), clear it = back to v2.
+- v2 camera stance configs recorded for P2: Explore 220/(0,70,0)/90/8 · Strafe 100/(0,70,10)/90/8 ·
+  Aiming 120/(0,55,5)/55/8 · Grabbed 120/(0,0,-10)/35/5 · GrabOutcome 320/(0,40,25)/90/7.
+- ★ Kellan MetaHuman (Content/MetaHumans, BP_Kellan) = LEGACY `metahuman_base_skel` body → must be rebuilt
+  through the in-engine MetaHuman Creator (Beta, ships in our 5.8) at the P-MH phase. Face-match route:
+  MetaHuman Identity → Mesh-to-MetaHuman from the SurvivalMan head (module verified present); single photo
+  is NOT a first-class identity input (footage/depth is; photo = manual sculpt reference). Wardrobe
+  (hoodie/cargo) already fits the civilian look. P-MH stays AFTER the spike verdict.
+- NPCLevel copy revealed placed GASP SandboxCharacter_CMC_C ×3 + SandboxCharacter_Mover_C ×2 in that level
+  (reference chars; irrelevant now the test map is dead, but good to know NPCLevel carries them).
+NEXT: (1) user PIEs L_001 → expect `[CmcAnim] … driving a CMC character` log + WASD + camera + MM loops;
+jump SHOULD work (GA→IAZ_JumpRequester→native Jump()); stops/starts cross-fade only; GA_Crouch/GA_Run
+likely inert (Mover-coupled — P2). (2) Then P1: real phase machine on CMC branch + RM transitions
+(RootMotionFromEverything already correct on hero path) + gait input + crouch/sprint rerouting.
+MCP note: this session the unrealclaude execute_script surface was ABSENT; drove everything via the
+`unreal-mcp` router toolsets (BlueprintTools/ObjectTools/AssetTools/SceneTools — refPaths need
+`/Path/Pkg.Asset` form; CDO via get_default_object; ACharacter mesh subobject = `:CharacterMesh0`;
+level-actor refs go stale the moment the user switches levels — re-find_actors after any level change).
+
+## ★ P0 IMPLEMENTED 2026-08-06 (first CLI build pending at write time) — decisions + deviations
+User pivots incorporated: (a) classes FROM SCRATCH, not v1 resurrection (v1 = GASShooter-era baggage);
+(b) naming `AZ_Cmc*` prefix (AskUserQuestion choice) in `Source/AZ/{Public,Private}/Character/Cmc/`;
+(c) **CAS + Motion Warping committed** — base class carries `UMotionWarpingComponent` +
+`UContextualAnimSceneActorComponent`; ContextualAnimation plugin enabled in AZ.uproject + Build.cs.
+What exists: `AAZ_CmcCharacterBase` (ACharacter + IAbilitySystem/TagAsset/Team/JumpRequester/CombatAvatar;
+gait→MaxWalkSpeed one-owner SetGait, v2 capsule/mesh conventions), `AAZ_CmcHeroCharacter` (PlayerState ASC
++ v2 grant pattern, EnhancedInput self-pushed IMC in PawnClientRestart, camera boom 220/70, CMC feel
+starting values), `AAZ_CmcInfectedCharacter` (own ASC Minimal + Vitals, AAZ_InfectedAIController reused,
+native `AnimSet` UPROPERTY — exact reflection name, Death+HitReact grants; Melee/Grab = P3),
+`IAZ_CombatAvatar` (Public/Character/AZ_CombatAvatar.h).
+DEVIATIONS from the approved plan, each for cause:
+1. **NEW interface `IAZ_CombatAvatar`** instead of extending `IAZ_CombatInterface` — the existing one is a
+   GASShooter graveyard (all commented out but one delegate) that v2 pawns never implemented; a purpose-built
+   seam with default no-ops is the cleaner cut. v2 implementations + GA call-site swaps still land in P4.
+2. **NO UCharacterTrajectoryComponent** — the hero ABP generates trajectory itself via
+   `UPoseSearchTrajectoryLibrary::PoseSearchGenerateTransformTrajectory` (production 5.8 for-Character path,
+   CMC-simulated prediction, BlueprintThreadSafe). One trajectory owner; component would be a second.
+3. **AZ_AnimInstance.cpp legacy-cast swaps DROPPED** — discovery: the LIVE hero ABP is
+   `AZ_ABP_MoverAnimInstance` → `UAZ_MoverAnimInstance` (Mover-only, v2, NO AnimGraph SM — C++ phase enum);
+   the dual-path `UAZ_AnimInstance` belongs to the OLD v1-era ABP the CMC hero never runs. The real seam:
+   `UAZ_MoverAnimInstance` got `Cached_CmcCharacter` + a compact `UpdateAnimation_Cmc` (velocity/gait/stance/
+   tags/trajectory + LOOPS-ONLY phase pick; real phase machine + RM transitions = P1). Mover body untouched.
+4. `UAZ_InfectedAnimInstance` dual-pathed (Cached_CmcPawn): RootMotionMode EXPLICIT per branch — Mover =
+   FromEverything (RM-attribute bridge), CMC = **FromMontagesOnly** (montage RM native; FromEverything would
+   feed the loco sequence players' RM into the capsule). Lazy re-resolve sets the mode too (silent-default trap).
+Known P0 limitation (logged in-game via [CmcAnim]): transitions cross-fade instead of playing authored
+stop/start clips until P1. RootMotionFromEverything on the hero CMC path is correct and becomes the P1 RM
+route (CMC consumes graph RM natively in that mode).
+
+Branch `spike/cmc-backport` from feature/NPC @ 9518095 (main is 61 commits behind — never use it). Task #16.
+Context: 5.8 = final UE5 release, Mover experimental forever on this line ([[project_architecture_rationale]] addendum).
+
+## ★ DECISION — anim stack: KEEP Chooser(CHT) + SM + BlendStack + MM for the hero
+User asked CHT+MM vs classical blendspaces+RM-montages. Evidence-based verdict: KEEP, because:
+1. **Stability fact-check:** Chooser + PoseSearch are PRODUCTION plugins in 5.8 (uplugin flags verified; Chooser
+   moved out of Experimental/ entirely). Only Mover was experimental. Dropping MM removes no risk.
+2. **Docs/info:** CMC+GASP-style MM is Epic's flagship sample — the most-documented modern locomotion setup.
+   Our 191-clip GASP content is AUTHORED for MM (discrete per-foot starts/stops/pivots). The L/R-foot walk
+   stops the user wants come from MM pose matching + chooser rows; blendspaces can't pick a stop by foot
+   phase without hand-built sync-marker logic. Blendspace rebuild = re-author the graph AND lose that.
+3. **Measured seam (not assumed):** MM consumes `FTransformTrajectory` — movement-source-agnostic.
+   `UAZ_AnimInstance` KEPT the complete legacy-ACharacter dual path (init :84-88, trajectory :204-208 via
+   `CharacterTrajectoryComponent`, essential values :136, ~15 more sites to :1151). Engine 5.8 PoseSearch has
+   `UpdatePrediction_SimulateCharacterMovement` (CMC-native prediction). CHT/SM/BlendStack sit ABOVE trajectory
+   — zero changes.
+4. Rationale doc Decision 1 (CHT+SM+BlendStack) was always Mover-independent; its revisit clause (<30 clips,
+   no weapons, no MM) does not fire.
+NPC: KEEP classic SM + sequence players (already classical; no MM). Combat: KEEP montage+RM rail — CMC makes
+RM native (delete the bridge). Blendspaces stay a per-state fallback option later (SM owns logical states).
+Co-op: ACharacter+CMC+GAS = THE canonical replicated stack (CMC prediction battle-tested; ASC montage
+replication already our doctrine; ABP/MM is client-side cosmetic off replicated movement). v1 hero even ships
+weapon Server-RPCs already. Mover co-op (NetworkPrediction fixed-tick) had ~zero community examples.
+
+## ★ DISCOVERY 2026-08-05 — v1 ACharacter hero STILL EXISTS AND COMPILES
+`AAZ_HeroCharacter : AAZ_CharacterBase : ACharacter` (+IAZ_CombatInterface, IAbilitySystemInterface,
+IAZ_JumpRequester) — GASShooter-lineage v1 hero with: CMC tunables (WalkSpeed 195, accel 450, jump, step 30,
+slope 38), full camera rig (boom/lag/FOV/aim/crouch offsets), GAS possession wiring (PossessedBy/
+OnRep_PlayerState, ASC on PlayerState), `UCharacterTrajectoryComponent* CharacterTrajectory` for MM, FP mesh,
+replicated weapon/inventory RPCs. Referenced today by GA_MeleeAttack/ChalkieGrab/PlayerGrabbed/Crouch/
+GameplayAbility/PlayerController — both hero paths compile side by side. **Spike Phase 1 = RESURRECT v1, not
+build new.** No v1 infected exists — Chalkie CMC class is new spike work.
+
+## 5-phase plan (1-week time-box)
+- **P0 (½d) resurrection audit:** test map + GameMode default pawn = AZ_HeroCharacter (BP child, editor-assigned
+  assets per no-hardcoded-paths rule); possess; verify the 21-IA IMC stack reaches AddMovementInput (v1 may
+  predate the RT mirror [[project_input_stack_rt_mirror]]); verify ABP takes the legacy branch (log which);
+  ABP asset on the v1 mesh.
+- **P1 (2d) locomotion+MM parity:** trajectory via CharacterTrajectoryComponent OR the 5.8 library path
+  (PoseSearchGenerateTrajectory + SimulateCharacterMovement — what GASP 5.5+ uses; decide here if the
+  component is deprecated); port v2 gait semantics (Walk165/Run375/Sprint585) onto MaxWalkSpeed switching;
+  TIP; L/R stops; native CMC crouch + our anim chain; jump = CMC native + hybrid 2-clip.
+- **P2 (1d) gates + camera:** State.Grabbed/MeleeAttacking movement zeroing on CMC (GetMaxSpeed override or
+  input consume — pick ONE owner); camera stances (CameraGrabOutcome etc.) port or accept v1 camera for spike.
+- **P3 (1d) Chalkie on CMC:** new `AAZ_InfectedCharacter : ACharacter`; REUSE AAZ_InfectedAIController+BB/BT
+  (standard MoveTo); gait→MaxWalkSpeed map (values = authored clip speeds to avoid slide); classic ABP reads
+  CMC velocity; RM-lite curve-follow MUST be gated OFF (CMC RootMotionFromMontagesOnly, else double-speed).
+- **P4 (1d) combat proof:** melee exchange — motion warping NATIVE on ACharacter (no DriveRootMotion; keep
+  warp-window gate logic, drop the Mover drive); hit reacts both sides; one full grab cycle (paired montages;
+  close-in = look-at + MoveComponentTo or velocity nudge).
+
+## Exit criteria (measure & instrument)
+Side-by-side feel vs feature/NPC build; ported [MeleeRM]/[MeleeHit]/[GrabIK] numbers; full breakage list;
+LOC deleted vs added. THEN the migrate/stay decision — with data.
+
+## Known failure axes
+1. v1 is ~4 months stale — v2-era systems (crouch chain, jump hybrid, obstacle reactions, clearance, camera
+   stances, grab framing, ProduceInput gates) reference AAZ_PawnMoverHeroCharacter directly; the GAs need
+   pawn-agnostic seams or CMC branches. This IS the spike's main measurement.
+2. CharacterTrajectoryComponent possibly deprecated in 5.8 → library path fallback (both exist in engine).
+3. Feature freeze on feature/NPC during the spike week (or rebase spike) — no divergence.
+4. Chalkie foot slide if nav speed ≠ clip speed — set from authored fwd-vel values.
+5. Iris untouched (SP PIE unaffected).
+
+## If migration goes ahead — gets DELETED
+RM-attribute bridge, DriveRootMotion generations, grab-anchor layered move, custom crouch/jump/RMAction modes,
+RM-lite curve-follow, NavMover, warp-drive glue; task #15 (Mover CAS runtime) dies — CAS works native on ACharacter.
+
+Related: [[project_architecture_rationale]] (fired revisit clauses), [[project_contextual_anim_mover_assessment]],
+[[project_sp_first_coop_extensible]] (ALWAYS/AVOID lists still apply on CMC).

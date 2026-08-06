@@ -62,6 +62,8 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [project_chalkie_fight_rules.md](project_chalkie_fight_rules.md) — ★ THE 9-rule combat/engagement RULEBOOK, each rule = one code owner. Read before touching NPC combat/perception.
 - [project_crowd_engagement_design.md](project_crowd_engagement_design.md) — ★ NEXT SESSION: ring-slot + rotation design (fixes NPC stacking; observers/rotating engagement). Crowd brain v2 live at `bfaa7bc`.
 - [project_grab_grapple_design.md](project_grab_grapple_design.md) — ★ TLOU-style GRAB. **PIVOTED 2026-08-01 to NAAT shared-origin PAIRED montages + engine `MontageSync_Follow`** (read the pivot block at top first; v1 socket-anchor/IK notes below it are superseded). Read before any grab work.
+- [project_contextual_anim_mover_assessment.md](project_contextual_anim_mover_assessment.md) — ★ CAS×Mover feasibility (2026-08-05): CMC coupling quarantined in one replaceable class; reuse asset+editor, thin AZ runtime; DEFERRED until first execution/finisher (task #15). Read before any contextual-anim/execution work.
+- [project_cmc_backport_spike.md](project_cmc_backport_spike.md) — ★★ LIVE: CMC back-port spike plan (branch spike/cmc-backport, task #16). KEEP CHT+MM decision + v1 AAZ_HeroCharacter resurrection discovery + 5-phase plan. Read FIRST on the spike branch.
 - [project_multipawn_class_design.md](project_multipawn_class_design.md) — multi-pawn scaling rules (input split, two-ASC, seats).
 - [project_sp_first_coop_extensible.md](project_sp_first_coop_extensible.md) — SP-first scope rule + ALWAYS/AVOID/DEFER lists.
 - [project_mover_5_7_to_5_8_diff.md](project_mover_5_7_to_5_8_diff.md) — Mover 5.7→5.8 API diff.

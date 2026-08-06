@@ -3,6 +3,7 @@ name: AZ architecture rationale — why Mover and why Chooser+SM+BlendStack
 description: The two foundational architecture decisions for the AZ project (Mover over CMC, Chooser+SM+BlendStack over classical SM+BlendSpace+Montage), with concrete trade-offs, costs already paid, and signals that would warrant reconsidering
 type: project
 originSessionId: a2ff7a1b-69a0-4cb1-ae34-89e39479ce96
+modified: 2026-08-06T03:03:20.885Z
 ---
 Two foundational decisions made early in the GASP port that compound through every later system. Both are right for AZ's target (TLoU-style third-person, hybrid rotation, multiple weapons, MM-driven locomotion, traversals). Both have real ongoing costs documented honestly here so the question doesn't keep reopening.
 
@@ -76,6 +77,24 @@ The chooser is a **data-driven narrowing function**: given the current AnimInsta
 **When to revisit:**
 - If we ship before UE 5.8 or if Mover stops being upstream-maintained in some future UE release, we'd have to lock to a specific UE version or migrate. Low probability; Epic is investing.
 - If async physics / fixed-tick networking turn out unnecessary AND every new mode we add fits CMC's enum cleanly AND we drop MM, the cost-vs-benefit flips. Unlikely given the scope.
+
+**★ 2026-08-05 — BOTH revisit clauses FIRED:**
+1. Epic confirmed (State of Unreal 2026) that **5.8 is the FINAL major UE5 release** — feature development
+   moves to UE6 (UE5+UEFN merge, early access late 2027, production ~2028-29). Mover shipped 5.8 still
+   `IsExperimentalVersion: true` (verified in our engine tree) ⇒ **on the UE5 line Mover stays experimental
+   forever** — the "lock to a specific UE version" scenario happened by default; there is no graduation to wait for.
+2. SP-first was locked 2026-06 ⇒ fixed-tick networking + async physics (Mover's headline benefits) are unused.
+Consequences: engine freeze KILLS the API-churn cost (no more 5.x diffs) but also kills all future upstream
+fixes — frozen-mature (CMC, decade-hardened, ecosystem: CAS/GameplayInteractions/marketplace all assume
+ACharacter) beats frozen-experimental (known gaps: no live-pawn attach, sparse docs, shrinking community).
+Measured Mover coupling 2026-08-05: 49/343 source files, 430 refs, concentrated in Character/ (~17 files);
+much of it DELETES on CMC (RM bridge, DriveRootMotion, grab anchor, custom crouch/jump). Est. 3-5 weeks to parity.
+**Decision pending: 1-week time-boxed spike `spike/cmc-backport`** (hero pawn + one Chalkie on ACharacter+CMC,
+original CMC GASP as reference; run locomotion+MM, one melee exchange, one grab) — then decide with data.
+Spike GO given 2026-08-05: branch created from feature/NPC @ 9518095 (main is 61 commits behind — never
+branch the spike from main). Task #16.
+Note: most documented project pain (choosers, PSD sync, retarget, notifies, GC crashes) is ANIM-layer and
+follows us to CMC unchanged; the Mover-specific share is ~a third.
 
 ---
 
