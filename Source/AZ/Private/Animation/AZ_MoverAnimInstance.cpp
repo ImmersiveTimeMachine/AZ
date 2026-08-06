@@ -2,6 +2,9 @@
 
 #include "Animation/AZ_MoverAnimInstance.h"
 
+#include "Character/Cmc/AZ_CmcCharacterBase.h"          // [SPIKE: spike/cmc-backport] CMC (v3) backend
+#include "GameFramework/CharacterMovementComponent.h"   // CMC-branch velocity/accel/crouch reads
+
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AZ_LocomotionStateMachine.h"
@@ -99,6 +102,13 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 			Cached_MoverComponent = Cached_Pawn->GetMoverComponent();
 			Cached_CharacterMoverComponent = Cast<UCharacterMoverComponent>(Cached_MoverComponent);
 		}
+		else
+		{
+			// [SPIKE: spike/cmc-backport] CMC (v3) backend. RootMotionFromEverything (set above) is the
+			// RIGHT mode here too — CMC consumes graph root motion natively in that mode, which is what
+			// will drive the stop/start/transition clips in P1 (loops carry ~zero RM either way).
+			Cached_CmcCharacter = Cast<AAZ_CmcCharacterBase>(PawnOwner);
+		}
 	}
 
 	// Re-init can run on a re-used / Live-Coding-re-instanced object: clear every one-shot stash and
@@ -114,6 +124,14 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
+
+	// [SPIKE: spike/cmc-backport] CMC (v3) backend takes its own compact path — one added branch, the
+	// entire Mover body below stays byte-identical (zero risk to the v2 pawn the spike compares against).
+	if (!Cached_Pawn && Cached_CmcCharacter)
+	{
+		UpdateAnimation_Cmc(DeltaSeconds);
+		return;
+	}
 
 	if (!Cached_Pawn || !Cached_MoverComponent)
 	{
@@ -630,6 +648,74 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// descent (terrain-adaptive) → land on real floor contact. The teardown above kills the RM move on the
 	// apex edge. bUseHybridJump=false: pure physics — gait-scaled impulse, Walking→Falling, no RM move
 	// (the old float-then-drop fix path, kept for A/B).
+}
+
+void UAZ_MoverAnimInstance::UpdateAnimation_Cmc(float DeltaSeconds)
+{
+	// [SPIKE: spike/cmc-backport] P0-essentials drive for the CMC (v3) backend. Deliberately COMPACT and
+	// SEPARATE from the Mover body: one owner per backend, no interleaved if/else at 30 touchpoints. What
+	// this fills is exactly what the chooser/BlendStack layer consumes; what it skips (real phase machine,
+	// RM transition handoff, obstacle sensor, lean, combat overlay, grab IK) is spike P1/P2 work.
+	const UCharacterMovementComponent* Move = Cached_CmcCharacter->GetCharacterMovement();
+	if (!Move)
+	{
+		return;
+	}
+
+	if (!bLoggedCmcBranch)
+	{
+		bLoggedCmcBranch = true;
+		UE_LOG(LogTemp, Display,
+			TEXT("[CmcAnim] %s: UAZ_MoverAnimInstance driving a CMC character — P0 essentials (loops + MM trajectory; transitions land in P1)"),
+			*GetNameSafe(Cached_CmcCharacter));
+	}
+
+	// Trajectory — the production 5.8 for-Character generator (CMC-simulated prediction). Sampling counts
+	// mirror the Mover path (10 history @ 0.04s, 15 prediction @ 0.1s) so the MM schema sees the same shape.
+	FTransformTrajectory Generated;
+	UPoseSearchTrajectoryLibrary::PoseSearchGenerateTransformTrajectory(this, CmcTrajectoryData, DeltaSeconds,
+		Trajectory, PredictionYawLast, Generated,
+		/*HistorySamplingInterval*/ 0.04f, /*HistoryCount*/ 10,
+		/*PredictionSamplingInterval*/ 0.1f, /*PredictionCount*/ 15);
+	Trajectory = MoveTemp(Generated);
+
+	FVector FutureVel = FVector::ZeroVector;
+	UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(Trajectory, 0.1f, 0.3f, FutureVel, false);
+	PredictedFutureVelocity = FutureVel;
+
+	// IsMoving = INTENT (live accel + predicted future velocity), never lagging measured speed — the
+	// anim-debug rule; measured speed alone makes every stop arrive a beat late.
+	ChooserContext.Speed2D = Move->Velocity.Size2D();
+	ChooserContext.bIsMoving = Move->GetCurrentAcceleration().SizeSquared2D() > 1.f
+		|| PredictedFutureVelocity.Size2D() > 40.f;
+
+	ChooserContext.Gait          = Cached_CmcCharacter->GetCurrentGait();
+	ChooserContext.Stance        = Cached_CmcCharacter->bIsCrouched ? EAZ_Stance::Crouching : EAZ_Stance::Standing;
+	ChooserContext.FromStance    = ChooserContext.Stance;
+	ChooserContext.MovementMode  = Move->IsFalling() ? EAZ_MovementMode::InAir : EAZ_MovementMode::OnGround;
+	ChooserContext.bLeftFootDown = GetCurveValue(TEXT("contact_l")) > 0.5f;
+	ChooserContext.AimingRotation = Cached_CmcCharacter->GetBaseAimRotation();
+	Cached_CmcCharacter->GetOwnedGameplayTags(ChooserContext.OwnedTags);
+
+	// P0 phase pick: LOOPS ONLY (Idle / Locomotion / InAir), immediate edges. The real phase machine
+	// (UAZ_LocomotionStateMachine — foot-aware stops, RM turn-starts, land transitions) wires up in P1;
+	// keeping it out of P0 keeps this branch additive and the v2 path untouched. The chooser's loop rows
+	// + MM databases give walking/running/idling today; transitions will briefly cross-fade instead of
+	// playing their authored clips — a KNOWN, logged P0 limitation, not a bug to chase.
+	EAZ_StateMachineState NewState;
+	if (Move->IsFalling())
+	{
+		NewState = EAZ_StateMachineState::InAirLoop;
+	}
+	else
+	{
+		NewState = ChooserContext.bIsMoving ? EAZ_StateMachineState::LocomotionLoop : EAZ_StateMachineState::IdleLoop;
+	}
+	if (NewState != ChooserContext.SMState)
+	{
+		ChooserContext.SMState = NewState;
+		++TransitionSerial;   // the push-gate keys same-state transitions off this serial
+	}
 }
 
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(

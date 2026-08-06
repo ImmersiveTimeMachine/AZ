@@ -6,8 +6,10 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AZ_LocomotionTypes.h"
 #include "Animation/TrajectoryTypes.h"
+#include "PoseSearch/PoseSearchTrajectoryLibrary.h"   // FPoseSearchTrajectoryData (CMC-branch trajectory tuning)
 #include "AZ_MoverAnimInstance.generated.h"
 
+class AAZ_CmcCharacterBase;
 class AAZ_PawnMoverHeroCharacter;
 class UAZ_PawnMoverComponent;
 class UCharacterMoverComponent;
@@ -270,6 +272,25 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAZ_PawnMoverComponent> Cached_MoverComponent;
+
+	// ---- [SPIKE: spike/cmc-backport] CMC (v3) backend — see UpdateAnimation_Cmc ----
+
+	/** The CMC (v3) character, when this instance animates that generation instead of the Mover pawn.
+	 *  Exactly ONE of Cached_Pawn / Cached_CmcCharacter is set. */
+	UPROPERTY(Transient)
+	TObjectPtr<AAZ_CmcCharacterBase> Cached_CmcCharacter;
+
+	/** Trajectory tuning for the CMC-branch generator (PoseSearchGenerateTransformTrajectory — the 5.8
+	 *  for-Character path with CMC-simulated prediction). Defaults mirror what the engine ships. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Trajectory")
+	FPoseSearchTrajectoryData CmcTrajectoryData;
+
+	/** P0-essentials update for the CMC backend: velocity/gait/stance/tags/trajectory + a loops-only
+	 *  phase pick. The full phase machine + RM transitions wire up in spike P1. */
+	void UpdateAnimation_Cmc(float DeltaSeconds);
+
+	/** One-shot branch announcement so a PIE log always states which backend drives this instance. */
+	bool bLoggedCmcBranch = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCharacterMoverComponent> Cached_CharacterMoverComponent;

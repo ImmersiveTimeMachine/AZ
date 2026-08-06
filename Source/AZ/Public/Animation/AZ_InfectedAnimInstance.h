@@ -6,6 +6,7 @@
 #include "Animation/AnimInstance.h"
 #include "AZ_InfectedAnimInstance.generated.h"
 
+class AAZ_CmcInfectedCharacter;
 class AAZ_PawnMoverInfectedCharacter;
 class UAZ_PawnMoverComponent;
 
@@ -110,6 +111,11 @@ protected:
 	/** Cached on init — the owning infected pawn (saves a per-tick TryGetPawnOwner cast). */
 	UPROPERTY(Transient)
 	TObjectPtr<AAZ_PawnMoverInfectedCharacter> Cached_Pawn;
+
+	/** [SPIKE: spike/cmc-backport] The CMC (v3) Chalkie, when this instance animates that generation
+	 *  instead. Exactly ONE of Cached_Pawn / Cached_CmcPawn is set; every read branches on which. */
+	UPROPERTY(Transient)
+	TObjectPtr<AAZ_CmcInfectedCharacter> Cached_CmcPawn;
 
 	/** Per-grab clamp instrumentation (measure rule): how many frames a grip was beyond reach and the
 	 *  worst deficit, logged once when the grab releases. Answers "are the hands still missing" with a
