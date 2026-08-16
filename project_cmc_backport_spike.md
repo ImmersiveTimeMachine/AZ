@@ -5,10 +5,81 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-06T04:47:54.411Z
+  modified: 2026-08-16T03:34:31.525Z
 ---
 
 # CMC back-port spike — plan (2026-08-05; P0 built+committed 2026-08-06)
+
+## ★★ 2026-08-15 ADDENDUM — GASP 5.8 update changes the plan (read [[project_gasp58_update_audit]] FIRST)
+GASP 5.8 imported at /Game/GameAnimationSample/ ships an official **SandboxCharacter_CMC + _CMC_ABP**
+(plain ACharacter + stock CMC + BP PreCMCTick feel pass; ABP's "Experimental SM" path = exactly our
+controller-SM+BlendStack+chooser doctrine) → P1's reference implementation now exists in-editor.
+**PoseSearch Interaction** (multi-char MM, backend-agnostic, warp = RM override → CMC-native) replaces
+CAS in all plans: P5 becomes a PSI smoke test (was CAS), task #15 repoints to PSI for executions/grab-v2.
+CAS is dropped (Epic's own sample doesn't use it; still ACharacter-coupled + deeper Experimental in 5.8) —
+the UContextualAnimSceneActorComponent added to AAZ_CmcCharacterBase in P0 + the ContextualAnimation
+Build.cs/uproject deps are now removal candidates. P1 upgrades from "parity with v2" to "GASP-5.8 parity":
+trajectory (−1/30/0.1/15 + HandleTrajectoryWorldCollisions + per-state data), PreCMCTick derived params
+(braking 500/2000, sprint tapers, instant-yaw/200-falling rotation), 7-state controller rules — all values
+in the audit file. MetaHuman MHC_Hero is READY (user 2026-08-15) — P-MH stays post-verdict.
+
+## ★★ PLAN — next session (written 2026-08-15; USER-APPROVED strategy: stock GASP ABP + UEFN skeleton)
+
+USER DECISION: hero anim stack = **Epic's SandboxCharacter_CMC_ABP UNMODIFIED + all GASP databases**, driven
+through its own seam — `BP_CMC_Hero` implements `BPI_SandboxCharacter_Pawn.Get_PropertiesForAnimation`
+(the ONE call the ABP makes per frame). Hero mesh = `SKM_UEFN_Mannequin` for the spike. MetaHuman MHC_Hero
+display via Epic's RetargetedCharacters pattern at P-MH; combat-montage retarget (SurvivalMan→UEFN)
+inventoried AFTER locomotion proves. All reference values: [[project_gasp58_update_audit]].
+
+**Phase 0 — gates (editor open, ~15 min).** (1) Re-set L_001 WorldSettings GameModeOverride =
+`BP_CMC_GameMode_C` if it didn't survive (map was never saved). (2) PIE the P0 scaffold AS-IS (SurvivalMan +
+AZ_MoverAnimInstance CMC branch): `[CmcAnim]` log + WASD + camera + jump. This is the P0 acceptance gate —
+run it BEFORE the ABP swap so later failures attribute to the new anim stack, not the pawn plumbing.
+
+**Phase 1 — C++ batch (editor closed, ONE build).**
+1. CAS removal: `ContextualAnim` member + CreateDefaultSubobject out of AZ_CmcCharacterBase; drop
+   `ContextualAnimation` from AZ.Build.cs + AZ.uproject. (MotionWarping component STAYS.)
+2. PreCMCTick feel pass in AAZ_CmcCharacterBase: derived-params update each frame BEFORE CMC ticks
+   (tick prereq: CMC after actor tick, mesh after actor — GASP does this via AC_PreCMCTick component).
+   Formulas (audit file): braking 500 w/input / 2000 idle; accel walk/run 800, sprint taper 800→300 over
+   speed 300→700; friction 5, sprint taper 5→3 over 0→500; RotationRate yaw −1 (instant) grounded / 200
+   falling; rotation mode fixed OrientToMovement for v0 (strafe/aim later). Speeds v0 = GASP forward scalars
+   (walk 200 / run 500 / sprint 700 / crouch 225) — the DBs are authored for these; directional
+   vector+curve model DEFERRED until strafe. CMC details: JumpZ 500, AirControl 0.25,
+   bUseFlatBaseForFloorChecks, MinAnalogWalkSpeed 150, BrakingFrictionFactor 0, PerchRadiusThreshold 20,
+   CrouchedHalfHeight 60, bCanWalkOffLedgesWhenCrouching.
+3. JustLanded latch: OnLanded → bJustLanded + LandVelocity, 0.3 s retriggerable clear; BlueprintPure
+   getters for the BP seam (JustLanded, LandVelocity, aim rotation = ControlRotation local / BaseAimRotation
+   remote) — the GASP chooser inputs JustLanded_Light/Heavy (threshold 700) read these.
+4. Reroute GA_Run/GA_Crouch off Mover: inspect current impls, route through a backend-agnostic seam
+   (SetGait / native Crouch()) so sprint+crouch inputs work on the CMC hero.
+Gate: editor-closed CLI build green (standard command, MaxParallelActions=4).
+
+**Phase 2 — editor data pass (MCP; the GASP ABP asset itself is NEVER edited — no AnimBP-save risk).**
+1. BP_CMC_Hero: add Implemented Interface `BPI_SandboxCharacter_Pawn`; implement
+   `Get_PropertiesForAnimation` building `S_CharacterPropertiesForAnimation` from the new C++ getters.
+   ★ Seam-trace enum mappings with real ints BEFORE PIE (EAZ_Gait→E_Gait, stance, E_MovementMode:
+   OnGround/InAir from IsMovingOnGround/IsFalling — do NOT trust display names).
+2. Mesh swap: SKM_UEFN_Mannequin + AnimClass `SandboxCharacter_CMC_ABP_C`; adopt GASP capsule 30/86 +
+   mesh (0,0,−88) yaw −90 as BP overrides (C++ stays 25/90 for the Chalkie). Combat stand-off numbers
+   re-measure later anyway (P4).
+3. Add `AC_FoleyEvents` component (free footsteps — GASP clips carry the notifies). Optional if noisy.
+4. CVar defaults: flip AZ `DDCvar.FootPlacementMode` 0→1 (GASP parity). LocomotionSetupCMC already
+   mirrored (default 0 = full MM).
+5. Compile+save BP_CMC_Hero (regular BP — required after scripted edits).
+6. PIE: full GASP locomotion expected (idle/walk/run/sprint/crouch, starts/stops/pivots, TIP, jump via our
+   GAS→native Jump()). Then live `DDCVar.LocomotionSetupCMC 1` → A/B the Experimental-SM path.
+
+**Phase 3 — assess + commit.** Side-by-side vs v2 (GameMode override flip = generation toggle). Record
+verdict notes, commit, update memory/tasks.
+
+Known risk axes: (a) enum mapping drift (seam-trace); (b) RootMotionMode comes from the stock ABP class
+defaults (their content, their setting — our GAS montages on DefaultSlot still RM-from-montages); (c) editor
+"Accessed None TryGetPawnOwner" noise from GASP assets loading without a pawn = benign preview noise;
+(d) GA_Run/GA_Crouch reroute may reveal deeper Mover coupling — timebox, stub direct input binds if needed.
+DEFERRED explicitly: traversal (needs Traversable collision channel — conflict with AZ GTC1 'Ability'),
+GASP GameplayCameras (keep our SpringArm stances), directional speed model, MetaHuman display, combat
+retarget inventory, PSI smoke test (task #15), Chalkie (unchanged — classic ABP).
 
 ## ★★ RESUME HERE (session end 2026-08-06) — P0 COMPLETE @ `56dda9d`, AWAITING FIRST PIE
 Code built green (editor-closed CLI, 106s) + data pass done via unreal-mcp toolsets, committed+pushed on

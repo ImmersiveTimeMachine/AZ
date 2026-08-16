@@ -27,7 +27,8 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [feedback_aaa_design_first.md](feedback_aaa_design_first.md) — ★ USER RULE: AAA approach on EVERY task — propose design + anticipate failure axes BEFORE coding, wait for go; events drive timers guard; one owner per fact; measure & instrument.
 - Covered by skills: check-memory-first, agent-teams, validate-findings, no-read-approval, file-paths, port checklist, deep-pin-inspection, animgraph wiring, post-event-vs-threadsafe, blendstack-input-ref, python-gc-crash, retarget-root-motion, chooser-utils API, SM transition access, transition-rule tools.
 
-## GASP reference (standing rule: GASP imported at /Game/Blueprints/ — query via unrealclaude MCP; NEVER C:\UnrealEngine\Games\GameAnimationSample or gassample MCP)
+## GASP reference (standing rule UPDATED 2026-08-15: GASP **5.8** now imported at **/Game/GameAnimationSample/** — old /Game/Blueprints/… paths are redirectors; query via MCP; the source project C:\UnrealEngine\Games\GameAnimationSample is used ONLY for its Config/.uproject on disk, its Content is never referenced)
+- [project_gasp58_update_audit.md](project_gasp58_update_audit.md) — ★★ GASP 5.8 audit: PoseSearch Interaction (multi-char MM) engine facts, CMC pawn+ABP reference values, CAS dropped, config checklist. Read before spike-P1/interaction/parity work.
 - [gasp_animbp_architecture.md](gasp_animbp_architecture.md), [gasp_animbp_full_audit.md](gasp_animbp_full_audit.md) — ABP architecture + authoritative audit.
 - [gasp_pawn_bp_full.md](gasp_pawn_bp_full.md), [gasp_pawn_cpp_port_plan.md](gasp_pawn_cpp_port_plan.md) — pawn audit + port inventory.
 - [gasp_character_movement.md](gasp_character_movement.md), [gasp_movement_modes.md](gasp_movement_modes.md) — Mover pawn + per-mode BPs.
