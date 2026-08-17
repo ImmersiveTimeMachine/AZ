@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-16T03:34:31.525Z
+  modified: 2026-08-17T02:57:26.543Z
 ---
 
 # CMC back-port spike — plan (2026-08-05; P0 built+committed 2026-08-06)
@@ -23,7 +23,59 @@ trajectory (−1/30/0.1/15 + HandleTrajectoryWorldCollisions + per-state data), 
 (braking 500/2000, sprint tapers, instant-yaw/200-falling rotation), 7-state controller rules — all values
 in the audit file. MetaHuman MHC_Hero is READY (user 2026-08-15) — P-MH stays post-verdict.
 
-## ★★ PLAN — next session (written 2026-08-15; USER-APPROVED strategy: stock GASP ABP + UEFN skeleton)
+## ★★★ 2026-08-16 — STATE OF PLAY + NEXT SESSION START (supersedes the 2026-08-15 plan below)
+
+**USER PIVOT (2026-08-16): GASP is REFERENCE ONLY.** The "stock GASP ABP + UEFN skeleton" strategy in the
+next section is DEAD — we keep our own animations, databases and ABP, and read Epic's ABP as a spec.
+Consequence: the UEFN mesh swap, the `BPI_SandboxCharacter_Pawn` implementation and the combat-montage
+retarget inventory all drop out of the plan entirely.
+
+### DONE this session
+- **MetaHuman hero shipped.** `metahuman_base_skel` ← compatible with `SKEL_SurvivalMan` (+ retarget-modes
+  flag); 9 sockets ported to `SKM_MHC_Hero_BodyMesh`; `BP_CMC_Hero` rebuilt modular (Mesh=MetaHuman body,
+  `Face`+5 grooms, 6 leader-posed SurvivalMan garments, `MetaHumanComponentUE`, `LODSync`). Animations,
+  databases and choosers UNTOUCHED — the mesh is a swappable slot. See [[feedback-metahuman-modular-hero]]
+  (re-assembly wipes it → run `Tools/metahuman_fixup.py`).
+- **Phase 1 C++ landed** (editor-closed build green): CAS removed (component + Build.cs + uproject);
+  per-frame feel pass on the HERO (`ApplyMovementFeelParams`, actor is a tick prerequisite of CMC);
+  JustLanded latch + `GetAimRotation`; `ResolveGaitAndStanceFromTags` drives gait + native Crouch from
+  Movement.* tags so GA_Run/GA_Crouch work on both generations untouched;
+  `WireModularMeshFollowers` (leader pose — property alone is a no-op, needs the setter + bForceUpdate).
+- Plan revisions from measurement: **capsule stays 25/90** (MetaHuman is 179.3cm; GASP's 86 was for a
+  mannequin we dropped); hero keeps its own jump (JumpZ 420 / gravity 1.5), NOT GASP's 500.
+
+### DECISIONS TAKEN (do not re-litigate)
+1. **Target path 0 — the Motion Matching node**, not GASP's SM+Chooser+MM+BlendStack path (Epic labels
+   that one "highly experimental… far from ideal… to inform future tool development").
+2. **New ABP built from scratch** with `SandboxCharacter_CMC_ABP` as reference — full teardown/spec in
+   [[project-gasp-cmc-abp-spec]].
+3. **ABP skeleton = `SKEL_SurvivalMan`** (the ABP follows the animation library; compatible skeletons lets
+   it render on the MetaHuman mesh — already proven live).
+4. **Logic split: thin C++ seam, graph + logic in BP** (mirrors GASP, whose ABP parent is plain
+   `UAnimInstance` and whose pawn seam is ONE struct). NOTE: AnimBP graphs cannot be safely scripted
+   (Python GC crash) → graph authoring is the user's; spec + verification + C++ + databases are mine.
+5. **Do NOT parent the new ABP to `UAZ_MoverAnimInstance`** — that class IS the live v2 Mover hero's
+   (`AZ_BP_PawnMoverHeroCharacter` uses `AZ_ABP_MoverAnimInstance_C`), and it sets
+   `RootMotionFromEverything` in `NativeInitializeAnimation` for the Mover RM bridge — the opposite
+   contract to CMC. A new ABP parented to it inherits that bug.
+6. Keep `UAZ_LocomotionStateMachine` in C++ as a **gameplay** state provider that no longer drives pose.
+
+### ★ NEXT SESSION STARTS HERE
+**Build `UAZ_CmcAnimInstance` (C++) as the base class first, then move to BP.** (User, 2026-08-16.)
+Shape it on GASP's 19-field `S_CharacterPropertiesForAnimation` contract (fields + what AZ already has vs
+still needs: [[project-gasp-cmc-abp-spec]] §1). Explicit `RootMotionMode = RootMotionFromMontagesOnly`
+with a comment (doctrine rule 8). Then the BP ABP sits on top of it.
+
+Known blocker to schedule, NOT yet started: **PoseSearch database density** — AZ ~125 clips in 17 DBs,
+all loops, ZERO starts/stops/pivots/TIP; GASP has 160 DBs (131 clips in crouch-walk pivots alone). The
+clips EXIST on SKEL_SurvivalMan, just un-ingested; `UAZ_PoseSearchUtils` automates ingestion. Order is
+**ingest → density → MM node**, never the reverse. Numbers in [[project-gasp-cmc-abp-spec]] §5.
+
+Open item: `BP_CMC_Hero`'s `Mesh` was last seen with the RAW C++ class `AZ_AnimInstance` assigned as its
+anim class (no `_C` — not a Blueprint), and the garments still carry `AZ_ABP_MoverAnimInstance_C` in the
+template (harmless; C++ clears it at runtime). Verify/clean when the new ABP lands.
+
+## [SUPERSEDED 2026-08-16] PLAN — next session (written 2026-08-15; strategy: stock GASP ABP + UEFN skeleton)
 
 USER DECISION: hero anim stack = **Epic's SandboxCharacter_CMC_ABP UNMODIFIED + all GASP databases**, driven
 through its own seam — `BP_CMC_Hero` implements `BPI_SandboxCharacter_Pawn.Get_PropertiesForAnimation`
