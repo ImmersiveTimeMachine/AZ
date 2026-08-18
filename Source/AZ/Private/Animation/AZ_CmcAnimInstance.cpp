@@ -5,6 +5,9 @@
 #include "Character/Cmc/AZ_CmcCharacterBase.h"
 #include "Engine/EngineTypes.h"
 #include "Kismet/KismetSystemLibrary.h"   // EDrawDebugTrace
+#include "BlendStack/BlendStackAnimNodeLibrary.h"
+#include "PoseSearch/MotionMatchingAnimNodeLibrary.h"
+#include "PoseSearch/PoseSearchDatabase.h"
 
 namespace AZ::CmcAnim
 {
@@ -126,14 +129,17 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 			const UEnum* DirEnum = StaticEnum<EAZ_MovementDirection>();
 			UE_LOG(LogTemp, Display,
 				TEXT("[CmcAnim] spd=%.0f/%.0f moving=%d pivot=%d tip=%d | accel=%.2f | dir=%s ang=%.0f Lfoot=%d ")
-				TEXT("| trj past=%.0f cur=%.0f fut=%.0f turn=%.0f | land=%.2fs @ %.0f | samples=%d"),
+				TEXT("| trj past=%.0f cur=%.0f fut=%.0f turn=%.0f | land=%.2fs @ %.0f | samples=%d ")
+				TEXT("| MM db=%s cost=%.1f loop=%d tags=%d anim=%s"),
 				Speed2D, CharacterProperties.CurrentMaxSpeed, IsMoving(), IsPivoting(), ShouldTurnInPlace(),
 				AccelerationAmount,
 				DirEnum ? *DirEnum->GetNameStringByValue(static_cast<int64>(MovementDirection)) : TEXT("?"),
 				MovementDirectionAngle, bLeftFootDown,
 				Trj_PastVelocity.Size2D(), Trj_CurrentVelocity.Size2D(), Trj_FutureVelocity.Size2D(),
 				Get_TrajectoryTurnAngle(),
-				TrajectoryCollision.TimeToLand, TrajectoryCollision.LandSpeed, Trajectory.Samples.Num());
+				TrajectoryCollision.TimeToLand, TrajectoryCollision.LandSpeed, Trajectory.Samples.Num(),
+				*GetNameSafe(CurrentSelectedDatabase), SearchCost, bCurrentAssetLooping,
+				CurrentDatabaseTags.Num(), *GetNameSafe(CurrentSelectedAnim));
 		}
 	}
 }
@@ -401,6 +407,105 @@ FVector2D UAZ_CmcAnimInstance::Get_AOValue() const
 	// for its duration without anything else needing to know.
 	const float DisableAlpha = FMath::Clamp(GetCurveValue(DisableAOCurve), 0.f, 1.f);
 	return FMath::Lerp(FVector2D(Delta.Yaw, Delta.Pitch), FVector2D::ZeroVector, DisableAlpha);
+}
+
+// ======================================================================================
+// Motion matching — the AnimGraph hands us the node; C++ does the rest.
+// ======================================================================================
+
+TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
+{
+	// Stance gate only — see the header for why gait needs none.
+	const TArray<TObjectPtr<UPoseSearchDatabase>>& StancePool =
+		(Stance == EAZ_Stance::Crouching) ? Databases_Crouch : Databases_Stand;
+
+	TArray<UPoseSearchDatabase*> Result;
+	Result.Reserve(StancePool.Num() + Databases_Always.Num());
+
+	for (const TObjectPtr<UPoseSearchDatabase>& Database : StancePool)
+	{
+		if (Database)
+		{
+			Result.Add(Database);
+		}
+	}
+	for (const TObjectPtr<UPoseSearchDatabase>& Database : Databases_Always)
+	{
+		if (Database)
+		{
+			Result.Add(Database);
+		}
+	}
+	return Result;
+}
+
+void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
+{
+	EAnimNodeReferenceConversionResult Conversion = EAnimNodeReferenceConversionResult::Failed;
+	const FMotionMatchingAnimNodeReference MotionMatchingNode =
+		UMotionMatchingAnimNodeLibrary::ConvertToMotionMatchingNode(Node, Conversion);
+	if (Conversion != EAnimNodeReferenceConversionResult::Succeeded)
+	{
+		return;
+	}
+
+	UMotionMatchingAnimNodeLibrary::SetDatabasesToSearch(
+		MotionMatchingNode, Get_DatabasesToSearch(), Get_MMInterruptMode());
+}
+
+void UAZ_CmcAnimInstance::Update_MotionMatching_PostSelection(const FAnimNodeReference& Node)
+{
+	EAnimNodeReferenceConversionResult Conversion = EAnimNodeReferenceConversionResult::Failed;
+	const FMotionMatchingAnimNodeReference MotionMatchingNode =
+		UMotionMatchingAnimNodeLibrary::ConvertToMotionMatchingNode(Node, Conversion);
+	if (Conversion != EAnimNodeReferenceConversionResult::Succeeded)
+	{
+		return;
+	}
+
+	FPoseSearchBlueprintResult Result;
+	bool bIsResultValid = false;
+	UMotionMatchingAnimNodeLibrary::GetMotionMatchingSearchResult(MotionMatchingNode, Result, bIsResultValid);
+
+	// DIVERGENCE: GASP writes these unconditionally. We guard on validity — an invalid result carries a
+	// null database, and GetDatabaseTags would then WIPE CurrentDatabaseTags for that frame, which flips
+	// IsStarting and ShouldSpinTransition on mid-pivot. Holding the previous frame's selection is the
+	// stabler read of "the search told us nothing new".
+	if (bIsResultValid)
+	{
+		CurrentSelectedAnim = Result.SelectedAnim;
+		CurrentSelectedDatabase = Result.SelectedDatabase;
+		SearchCost = Result.SearchCost;
+
+		// Straight off the search, so we never need the state machine's BlendStack to know this.
+		bCurrentAssetLooping = Result.bLoop;
+
+		CurrentDatabaseTags.Reset();
+		if (CurrentSelectedDatabase)
+		{
+			UPoseSearchLibrary::GetDatabaseTags(CurrentSelectedDatabase, CurrentDatabaseTags);
+		}
+	}
+
+	// DIVERGENCE: GASP additionally calls OverrideMotionMatchingBlendSettings here with a FLAT 0.2s
+	// HermiteCubic blend. We do not, for two reasons and the second is the real one:
+	//
+	//  1. FMotionMatchingBlueprintBlendSettings declares a default constructor but its struct carries no
+	//     export macro, so the symbol is not linkable from a game module.
+	//  2. It would be a SECOND owner of the blend time. Get_MMBlendTime is bound to the node's BlendTime
+	//     pin and is state-aware (0.5 steady / 0.2 on touchdown / 0.15 rising); a flat post-selection
+	//     override runs after it every frame and silently wins, which makes the state-aware version
+	//     dead code. One owner per fact — we keep the one that reacts to what the character is doing.
+}
+
+bool UAZ_CmcAnimInstance::EnableSteering(const FAnimNodeReference& Node) const
+{
+	// DIVERGENCE: UAZ_AnimInstance added a BlendStackInputs.bLoop fallback and included Sliding. 5.8 is
+	// just "going somewhere, and something is playing".
+	const bool bGoingSomewhere = (MovementState == EAZ_MovementState::Moving)
+		|| (MovementMode == EAZ_MovementMode::InAir);
+
+	return bGoingSomewhere && UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimIsActive(Node);
 }
 
 // ======================================================================================

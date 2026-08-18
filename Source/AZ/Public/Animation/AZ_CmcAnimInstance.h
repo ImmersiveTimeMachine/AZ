@@ -14,6 +14,8 @@
 #include "AZ_CmcAnimInstance.generated.h"
 
 class AAZ_CmcCharacterBase;
+class UPoseSearchDatabase;
+struct FAnimNodeReference;
 
 /**
  * UAZ_CmcAnimInstance — native base for the CMC (v3) hero AnimBP. [SPIKE: spike/cmc-backport]
@@ -78,6 +80,41 @@ public:
 	/** AZ-only (see class comment): the 6-way bucket our CHT rows are addressed by. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
 	void Update_MovementDirection();
+
+	// ==================================================================================
+	// MOTION MATCHING — these need the MM node, which C++ cannot obtain on its own, so the
+	// AnimGraph passes it in. Same arrangement as SetOffsetRootTransform.
+	// ==================================================================================
+
+	/** Bind to the Motion Matching node's **On Update**. Picks the database pool and hands it to the
+	 *  node with our interrupt mode. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
+	void Update_MotionMatching(const FAnimNodeReference& Node);
+
+	/** Bind to the Motion Matching node's **On Update, after selection**. Reads back what the search
+	 *  actually chose — this is the ONLY way CurrentDatabaseTags, bCurrentAssetLooping and SearchCost
+	 *  ever get filled, and three predicates run degraded until it does. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
+	void Update_MotionMatching_PostSelection(const FAnimNodeReference& Node);
+
+	/** Steering is on while we are going somewhere and an animation is actually playing. Takes the
+	 *  BlendStack node because the relevant blend stack lives INSIDE the MM node's own graph. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
+	bool EnableSteering(const FAnimNodeReference& Node) const;
+
+	/**
+	 * Which database pool the search may draw from this frame.
+	 *
+	 * Gated on STANCE only, deliberately. Gait is self-gating — speed is part of the trajectory feature
+	 * vector, so at a walk the search prefers walk clips even with run clips in the pool. Stance is not:
+	 * crouched and standing trajectories at equal speed are identical and only the pose channel separates
+	 * them, so without this gate a crouch clip can win while standing.
+	 *
+	 * GASP evaluates a chooser here instead. Same shape, so swapping one in later is a one-line change;
+	 * with a single density tier and a single style, a chooser would currently have nothing to choose.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
+	TArray<UPoseSearchDatabase*> Get_DatabasesToSearch() const;
 
 	/**
 	 * The AnimGraph's one obligation. Call from the AnimGraph with
@@ -315,10 +352,22 @@ public:
 	TArray<FName> CurrentDatabaseTags;
 
 	/** Whether the selected asset loops. GASP reads this off its BlendStack inputs, which only exist on
-	 *  the state-machine path; on the MM path the post-selection step supplies it. Defaults true so the
-	 *  direction thresholds start in their steady-state (wider) configuration. */
+	 *  the state-machine path; on the MM path it comes straight off the search result's bLoop. Defaults
+	 *  true so the direction thresholds start in their steady-state (wider) configuration. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
 	bool bCurrentAssetLooping = true;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
+	TObjectPtr<UObject> CurrentSelectedAnim;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
+	TObjectPtr<const UPoseSearchDatabase> CurrentSelectedDatabase;
+
+	/** Cost of the winning pose. Pure instrumentation, but the single most useful number when the
+	 *  character picks something odd: a high cost means nothing in the pool matched, which is a content
+	 *  problem, not a logic one. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
+	float SearchCost = 0.f;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Direction")
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
@@ -455,6 +504,22 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves", meta = (ClampMin = "0"))
 	float FootPlantedSpeedThreshold = 1.f;
+
+	// ---- Database pools (editor-assigned; no /Game/ paths in code) ----
+
+	/** Searched while standing: walk/run/sprint loops, starts, stops, pivots, turns, plus stand idles,
+	 *  idle breaks, turn-in-place and gait transitions. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
+	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Stand;
+
+	/** Searched while crouched. Kept apart from the standing pool because trajectory alone cannot tell
+	 *  the two stances apart — see Get_DatabasesToSearch. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
+	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Crouch;
+
+	/** Searched in both stances — the stance transitions themselves, which by definition span the two. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
+	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Always;
 
 	// ---- Predicate tuning (GASP 5.8 values) ----
 
