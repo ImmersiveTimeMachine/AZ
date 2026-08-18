@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-16T23:46:49.242Z
+  modified: 2026-08-18T01:53:16.982Z
 ---
 
 Two traps hit while porting `MHC_Hero` onto `BP_CMC_Hero` (2026-08-16). Both fail SILENTLY.
@@ -24,6 +24,15 @@ MetaHuman assembly. Everything we configure there dies on the next re-assembly f
 `GrabIK_HandL/R`) attaches to nothing with no error and no log.
 
 **Fix:** run `C:\UnrealEngine\Games\AZ\Tools\metahuman_fixup.py` in the editor. Idempotent, verified.
+(That script IS committed — `Tools/metahuman_fixup.py`, since a583037.)
+
+★ **`/Content/AZ/Blueprints/Character/AZ_MHC_Hero/` is DELIBERATELY NOT COMMITTED — do not "fix" this.**
+It is **516 MB**, and **this project does not use LFS** (user confirmed 2026-08-17): `.gitattributes`
+line 1 declares `*.uasset filter=lfs`, but line 5 `*.uasset !text !filter !merge !diff` overrides it —
+`git check-attr filter` returns `unspecified` and tracked uassets in HEAD are raw binary, not pointers.
+The whole pack was 3.88 MiB before that commit. So this folder is the ONE exception to "everything under
+/Content/AZ/Blueprints is tracked": it is regenerable from MetaHuman assembly + the fixup script, so it
+stays out. `Plugins/` (5.9 GB) is gitignored for the same reason.
 
 **Why both properties live on the MetaHuman skeleton, not ours:** `CompatibleSkeletons` is documented
 "not bi-directional" (`Skeleton.h:339`) — a skeleton consumes animation from the skeletons in ITS OWN

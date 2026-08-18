@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-17T02:57:26.543Z
+  modified: 2026-08-18T02:03:32.286Z
 ---
 
 # CMC back-port spike — plan (2026-08-05; P0 built+committed 2026-08-06)
@@ -60,16 +60,108 @@ retarget inventory all drop out of the plan entirely.
    contract to CMC. A new ABP parented to it inherits that bug.
 6. Keep `UAZ_LocomotionStateMachine` in C++ as a **gameplay** state provider that no longer drives pose.
 
-### ★ NEXT SESSION STARTS HERE
-**Build `UAZ_CmcAnimInstance` (C++) as the base class first, then move to BP.** (User, 2026-08-16.)
-Shape it on GASP's 19-field `S_CharacterPropertiesForAnimation` contract (fields + what AZ already has vs
-still needs: [[project-gasp-cmc-abp-spec]] §1). Explicit `RootMotionMode = RootMotionFromMontagesOnly`
-with a comment (doctrine rule 8). Then the BP ABP sits on top of it.
+### ✅ 2026-08-17 — `UAZ_CmcAnimInstance` BUILT (editor-closed build green)
 
-Known blocker to schedule, NOT yet started: **PoseSearch database density** — AZ ~125 clips in 17 DBs,
-all loops, ZERO starts/stops/pivots/TIP; GASP has 160 DBs (131 clips in crouch-walk pivots alone). The
-clips EXIST on SKEL_SurvivalMan, just un-ingested; `UAZ_PoseSearchUtils` automates ingestion. Order is
-**ingest → density → MM node**, never the reverse. Numbers in [[project-gasp-cmc-abp-spec]] §5.
+Files: `Public/Animation/AZ_CmcAnimTypes.h` (new, `FAZ_CmcAnimContract` 19 fields) ·
+`Public/Animation/AZ_CmcAnimInstance.h` + `Private/Animation/AZ_CmcAnimInstance.cpp` (new) ·
+`FillAnimContract` added to `AAZ_CmcCharacterBase` (virtual) and overridden on `AAZ_CmcHeroCharacter`.
+
+Shape: parent = plain `UAnimInstance`, `UCLASS(Abstract)` (an AnimInstance with no AnimGraph silently
+evaluates the ref pose — Abstract makes the raw-native-class mistake impossible). `RootMotionMode =
+RootMotionFromMontagesOnly` **in the CONSTRUCTOR** so the ABP inherits it as a CDO default and can still
+override; `NativeInitializeAnimation` only WARNS on mismatch — never corrects, because a silent fix hides
+the authoring error (this is the anti-pattern of `AZ_MoverAnimInstance.cpp:94`).
+Threading: game thread pulls the contract only; trajectory + all derived state run in
+`NativeThreadSafeUpdateAnimation`, with `bGenerateTrajectoryOnGameThread` as a one-bool escape hatch.
+
+**Two design corrections found by reading engine source (both already applied):**
+1. `FPoseSearchTrajectoryData` has NO accel/braking UPROPERTYs — its private `FDerived` reads MaxSpeed /
+   BrakingDeceleration / Friction straight off the movement component every frame
+   (`PoseSearchTrajectoryLibrary.h:31-48`). Predictor-vs-feel-pass divergence is **impossible by
+   construction**; do not try to push those numbers in. Exposed knobs are only `RotateTowardsMovementSpeed`,
+   `MaxControllerYawRate`, `BendVelocityTowardsAcceleration`.
+2. `ACharacter::GetMovementBase()` and the `UPrimitiveComponent` overload of
+   `MovementBaseUtility::GetMovementBaseVelocity` were **deprecated in 5.8** ("will no longer compile"
+   next release). Use `GetMovementBaseInterfaceData()` + the `FMovementBaseInterfaceData*` overload.
+   `BasedMovement.BoneName` is unaffected.
+
+Left as a visible warning on purpose: `HandleTransformTrajectoryWorldCollisions` is `UE_EXPERIMENTAL(5.6)`
+and emits C4996 every build of that file. Not suppressed — silencing an "may be removed" notice on a spike
+whose premise is escaping experimental APIs is the wrong instinct.
+
+Unsettled, deliberately behind a CDO bool: `bInvertFootPhase`. Default reads "left foot planted -> RIGHT
+foot leads -> LR/RR". No legacy to preserve (v2's foot phase never worked), so it can only be settled by
+watching it — a bool means that costs a click, not a rebuild.
+
+### ✅ 2026-08-17 (later) — REWRITTEN as an exact GASP port (build green)
+
+User decision: recreate GASP's `Update_Logic` in C++ **node-for-node, same function and variable names**,
+AnimGraph stays BP. Done — the update half of `UAZ_CmcAnimInstance` is now a direct port. Every literal is
+a CDO property (numbers + graph structure: [[project-gasp-cmc-abp-spec]] §2b). Bools carry the UE `b`
+prefix and Blueprint still displays GASP's name, so no naming conflict.
+
+**Four stated deviations (do not "fix" these):**
+1. `Update_TargetRotation` NOT ported — only the experimental branch calls it, and that flag is false.
+2. `Update_MovementDirection` kept but marked AZ-only — MM selects by trajectory; our CHT rows need it.
+3. **Native drives the chain** (`NativeThreadSafeUpdateAnimation`), not a BP call as in GASP. A BP-owned
+   call means one deleted node silently freezes all anim state. BP's only job is `SetOffsetRootTransform`;
+   absent it, `RootTransform` falls back to `CharacterTransform` = GASP's own else-branch.
+4. `IsPivoting` ports the MM branch only (threshold by RotationMode 45/30/0). The SM branch's
+   stance×gait×speed-window table (Walk 50-200, Run 200-550, Sprint 200-700, crouch threshold 65) is
+   unreachable on our path — recorded here in case the SM path is ever revisited.
+
+★ `IsMoving` = `Velocity != 0 (tol 0.1) AND Acceleration != 0`. The `Trj_FutureVelocity` term our OLD
+memory note claims is present is a node Epic left **wired to nothing**, with the AND pin at its `true`
+default. Ported as it RUNS. Two frames of measured behaviour beat one line of remembered doctrine.
+
+★ Frames differ ON PURPOSE: `RelativeAcceleration` is measured against `RootTransform` (offset root,
+yaw+90) but `CalculateRelativeAccelerationAmount` against `CharacterTransform` (the capsule). GASP does
+this; it is not a bug.
+
+**Tooling built this session** (see the `az-cpp-utility-tools` skill): `UAZ_BlueprintNodeUtils::
+ListFunctionNodes` now emits pin DEFAULTS, WIRING, PropertyAccess **paths** (read by reflection —
+the node header is in a plugin Private folder), and recurses into **collapsed/composite subgraphs**
+(that is where GASP hides its pivot conditions). This is now the only sane way to read a GASP graph;
+the rider clipboard export truncates at ~5 nodes and Python cannot read protected node properties.
+
+### ★ NEXT SESSION STARTS HERE (state as of 2026-08-17 end, pushed `b732e86`)
+
+**C++ for the MM path is COMPLETE and committed.** Batches 1-3 all built green and pushed:
+contract · update chain · predicates · node-setting getters · MM node seam. Databases ingested
+(27 pools / 332 clips, verified). `AZ_ABP_CmcAnimInstance` exists, correctly parented, defaults flowing.
+
+**Nothing has run yet.** Three things stand between here and first motion, and #1 is the user's:
+
+1. **Stage A AnimGraph** (manual — AnimBP graphs cannot be safely scripted; the user confirmed the
+   utilities did not work for this and will hand-place):
+   `Motion Matching → Pose History → Output Pose`
+   - Pose History: `Tag=PoseHistory`, `SamplingInterval=0`, CollectedBones = foot_r, foot_l, thigh_r,
+     thigh_l, spine_05, pelvis; CollectedCurves = `Phase`; `RootBoneRecoveryTime=0.3`
+   - ★ `TransformTrajectory` pin → **PROPERTY-BIND to `Trajectory`**, context **Thread Safe**. This is a
+     BINDING, not a wire. Missing it = MM has no query and the pose never leaves frame 0, which reads
+     like a broken database.
+   - MM node: `BlendTime 0.5`, `NotifyRecencyTimeOut 0.2`
+2. **Two node-function bindings** on the MM node: `Update_MotionMatching` on *On Update*,
+   `Update_MotionMatching_PostSelection` on *On Update after selection*.
+3. **Three arrays on the ABP CDO**: `Databases_Stand`, `Databases_Crouch`, `Databases_Always`
+   (the 2 stance transitions).
+
+★ Turn on `bDebugAnim` (Python name `debug_anim`) BEFORE the first PIE. The 1 Hz line now carries
+speed, moving/pivot/TIP, direction, foot, all three trajectory velocities, sample count, **selected
+database + SearchCost + loop + tag count**. That one line separates "trajectory not built" from
+"search found nothing" from "search found something bad" without guessing.
+
+Then, in order: Stage B `DefaultSlot` → C `OffsetRootBone` (+ the `SetOffsetRootTransform` wire) →
+D foot placement/LegIK → E the two additives (need BlendSpaces built from our `AO_Stand`/`AO_Crouch` 21
+each and the `Lean_M_Neutral_Run_Lean_Pose_*` clips). **Skip RemapCurves entirely.**
+OffsetRootBone config is NOT drop-in: GASP runs TranslationMode Interpolate / RotationMode **Accumulate**
+/ halflife 0.2 / MaxTranslationError **30**, and leaves CollisionTestingMode Disabled — note collision
+needs BOTH a mode AND a finite MaxTranslationError or it is dead code.
+
+Deferred content work: step 3 strafe/combat slice (`Box`/`Diamond`/`Hourglass` ≈285 clips), jumps/lands,
+traversal. And `Get_StrafeYawRotationOffset` ships with that slice (we have all six `StrafeOffset_*` curves).
+
+Known thin spot to watch, not fix blind: standing turn-in-place has 2 clips vs crouch's 8.
 
 Open item: `BP_CMC_Hero`'s `Mesh` was last seen with the RAW C++ class `AZ_AnimInstance` assigned as its
 anim class (no `_C` — not a Blueprint), and the garments still carry `AZ_ABP_MoverAnimInstance_C` in the
