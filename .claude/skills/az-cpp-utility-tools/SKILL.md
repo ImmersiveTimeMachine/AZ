@@ -11,7 +11,39 @@ Six `UBlueprintFunctionLibrary` classes under `C:\UnrealEngine\Games\AZ\Source\A
 
 | Utility | Header | Purpose | Full API ref |
 |---|---|---|---|
-| `UAZ_BlueprintNodeUtils` | `AZ_BlueprintNodeUtils.h` | K2 nodes (CallFunc, VarGet/Set, Branch, Sequence, Cast, BreakStruct, SetFieldsInStruct, Reroute, AnimNodeRef, Return), local vars, pin connection, function-pin sync, `FixFunctionForAnimBinding`, `CompileBlueprint` | `reference_bp_node_tools.md` |
+| `UAZ_BlueprintNodeUtils` | `AZ_BlueprintNodeUtils.h` | K2 nodes (CallFunc, VarGet/Set, Branch, Sequence, Cast, BreakStruct, SetFieldsInStruct, Reroute, AnimNodeRef, Return), local vars, pin connection, function-pin sync, **`ListFunctionNodes` (READ a graph — see below)**, `FixFunctionForAnimBinding`, `CompileBlueprint` | `reference_bp_node_tools.md` |
+
+## ★ READING an existing BP/AnimBP graph — `ListFunctionNodes`
+
+**Use this, not the rider clipboard export.** `unreal.AZ_BlueprintNodeUtils.list_function_nodes(BpPath, FunctionName)`
+returns one line per node plus one per *meaningful* pin, with **defaults and wiring**:
+
+```
+[AB66F8B4] CallFunction | Pose Search Generate Trajectory (for Character)
+    in  execute:exec <-A6515C1F.then
+    in  InTrajectoryData:struct <-2720F511.ReturnValue
+    in  InHistorySamplingInterval:real = -1.000000
+    in  InTrajectoryHistoryCount:int = 30
+```
+
+GUIDs are truncated to 8 chars; `<-` / `->` give the linked node + pin, so exec order and dataflow are
+both recoverable. Pins with no link AND no default are dropped (they are the majority and say nothing).
+Filter `EdGraphNode_Comment` lines out when you want structure only — but READ them once, Epic documents
+known issues in graph comments.
+
+**Why not the alternatives** (all tried 2026-08-17, all dead ends):
+- `mcp__rider__ue_export_blueprint_nodes` — real data but ~2KB of pin boilerplate per node; truncates at
+  ~5 nodes, so a 43-node function is 10 round trips.
+- Python `node.get_editor_property('function_reference' / 'node_pos_x')` — **protected, unreadable**.
+  `UEdGraph.Nodes` is protected too. `UBlueprint.function_graphs` is not exposed at all.
+  You CAN reach a graph with `unreal.load_object(None, '<bp>.<bp>:<FunctionName>')` and a node with
+  `...:<FunctionName>.<K2NodeClass>_<n>` — but only to prove it exists.
+- UnrealClaude MCP `unreal_blueprint_query get_nodes` — would work, but the MCP client frequently
+  registers only `unreal_status` and never refreshes the rest (its description even reads
+  "NOT CONNECTED" while the server reports connected). Do not count on it.
+
+**Validate the reader against a screenshot before trusting a port.** Structure alone is not enough —
+the literals are the port. Reading GASP's trajectory node without defaults hid `-1.0 / 30 / 0.1 / 15`.
 | `UAZ_AnimGraphNodeUtils` | `AZ_AnimGraphNodeUtils.h` | AnimGraph nodes (BlendStack, TwoWayBlend, Inertialization, OffsetRootBone, PoseHistory), `SetAnimNodeTag`, `SetPinBinding`, PoseLink wiring, **BlendStack BoundGraph** (internal-graph node creation, function calls, AnimNodeRef, pin-by-name connection, property reflection inspect/set) | `reference_animgraph_node_tools.md` |
 | `UAZ_AnimBlueprintUtils` | `AZ_AnimBlueprintUtils.h` | SM transition CRUD (`CreateTransition`, `SetEntryState`, `ListTransitions`, `InspectTransitionRule`, `InspectTransitionProperties`, `SetTransitionProperty`); transition rule graph nodes (FunctionCall, VariableGet, AnimGetter, BreakStruct, EnumEquality, ArrayContains, GenericNode, RecreateRuleGraph, ClearRule) | `reference_animgraph_node_tools.md` § "AZ_AnimBlueprintUtils" |
 | `UAZ_ChooserUtils` | `AZ_ChooserUtils.h` | Chooser table config, columns (Enum, MultiEnum, FloatRange, Bool, Randomize, OutputStruct), nested sub-choosers, asset/enum/property remap, `AutoRemapChooserAssets` (Jaccard fuzzy), `DumpChooserFullTree`, `DecodeEnum` | header + `reference_cht_chooser_structure.md` |

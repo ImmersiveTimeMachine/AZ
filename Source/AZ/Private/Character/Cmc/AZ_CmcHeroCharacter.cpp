@@ -24,11 +24,11 @@ AAZ_CmcHeroCharacter::AAZ_CmcHeroCharacter(const FObjectInitializer& ObjectIniti
 	// --- CMC feel (starting point = v2 gait speeds + GASP-flavored accel; P1 tunes against the Mover
 	// build side-by-side; further tuning belongs in the BP child's CharacterMovement panel, NOT here
 	// once children exist — doctrine rule 1). ---
+	// NOTE: MaxAcceleration / BrakingDecelerationWalking / GroundFriction / RotationRate are deliberately
+	// NOT set here — ApplyMovementFeelParams() recomputes all four every frame and is their single owner.
+	// Setting them here too would look authoritative in the BP details panel while being overwritten on
+	// the first tick.
 	UCharacterMovementComponent* Move = GetCharacterMovement();
-	Move->MaxAcceleration = 800.f;
-	Move->BrakingDecelerationWalking = 500.f;
-	Move->GroundFriction = 5.f;
-	Move->RotationRate = FRotator(0.f, 500.f, 0.f);
 	Move->JumpZVelocity = 420.f;
 	Move->GravityScale = 1.5f;
 	Move->AirControl = 0.2f;
@@ -49,6 +49,135 @@ AAZ_CmcHeroCharacter::AAZ_CmcHeroCharacter(const FObjectInitializer& ObjectIniti
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(CameraBoom);
 	Camera->SetFieldOfView(80.f);
+}
+
+void AAZ_CmcHeroCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// GASP's PreCMCTick ordering: the derived-parameter pass must land BEFORE the movement component
+	// consumes it, otherwise CMC spends the frame on last frame's braking/accel values and the feel lags
+	// input by exactly one tick. Declaring the actor a prerequisite of CMC is what guarantees that.
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->PrimaryComponentTick.AddPrerequisite(this, PrimaryActorTick);
+	}
+	// The pose is evaluated from the post-move transform, so the mesh follows the actor as well.
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->PrimaryComponentTick.AddPrerequisite(this, PrimaryActorTick);
+	}
+}
+
+void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// Order matters: the gait resolves this frame's MaxWalkSpeed, and the feel pass tapers acceleration
+	// against the speed that gait implies.
+	ResolveGaitAndStanceFromTags();
+	ApplyMovementFeelParams();
+}
+
+void AAZ_CmcHeroCharacter::ResolveGaitAndStanceFromTags()
+{
+	const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+
+	// Movement.* is domain state (granted by the movement abilities via ActivationOwnedTags); we read it
+	// rather than Ability.State.*, which is ability-to-ability coordination. Same source as the v2 pawn.
+	EAZ_Gait DesiredGait = EAZ_Gait::Walk;
+	if (HasMatchingGameplayTag(AZTags.Movement_Sprinting))
+	{
+		DesiredGait = EAZ_Gait::Sprint;
+	}
+	else if (HasMatchingGameplayTag(AZTags.Movement_Running))
+	{
+		DesiredGait = EAZ_Gait::Run;
+	}
+
+	if (DesiredGait != GetCurrentGait())
+	{
+		SetGait(DesiredGait);   // the one write point for MaxWalkSpeed
+	}
+
+	// Crouch is native here — no Mover mode, no custom input struct. Guarded on bIsCrouched so we issue
+	// the request on the transition only; CMC handles the capsule resize and its replication.
+	const bool bWantsCrouch = HasMatchingGameplayTag(AZTags.Movement_Crouching);
+	if (bWantsCrouch && !bIsCrouched)
+	{
+		Crouch();
+	}
+	else if (!bWantsCrouch && bIsCrouched)
+	{
+		UnCrouch();
+	}
+}
+
+void AAZ_CmcHeroCharacter::FillAnimContract(FAZ_CmcAnimContract& Out) const
+{
+	Super::FillAnimContract(Out);
+
+	const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+
+	// Rotation mode drives which locomotion SET the graph searches (orient-to-movement forward clips vs
+	// the 8-way directional strafe set), so it has to be resolved before OrientationIntent is meaningful.
+	// Aiming outranks strafe: both face the camera, but aiming additionally locks the upper body.
+	if (HasMatchingGameplayTag(AZTags.Ability_State_Aiming))
+	{
+		Out.RotationMode = EAZ_RotationMode::Aiming;
+	}
+	else if (HasMatchingGameplayTag(AZTags.Movement_Strafe))
+	{
+		Out.RotationMode = EAZ_RotationMode::Strafe;
+	}
+
+	// Raw desires, kept separate from the RESOLVED gait/stance the base already published. The graph
+	// needs both: "sprinting" is what the body is doing, "wants to sprint" is what the player asked for,
+	// and they differ for exactly as long as a transition takes — which is the window the start clips fill.
+	Out.InputState.bWantsToSprint = HasMatchingGameplayTag(AZTags.Movement_Sprinting);
+	Out.InputState.bWantsToWalk = !Out.InputState.bWantsToSprint && !HasMatchingGameplayTag(AZTags.Movement_Running);
+	Out.InputState.bWantsToCrouch = HasMatchingGameplayTag(AZTags.Movement_Crouching);
+	Out.InputState.bWantsToStrafe = HasMatchingGameplayTag(AZTags.Movement_Strafe);
+	Out.InputState.bWantsToAim = HasMatchingGameplayTag(AZTags.Ability_State_Aiming);
+
+	// Recompute now that RotationMode is known — the base filled it assuming orient-to-movement, which is
+	// wrong the moment we are strafing (the body faces the camera, not the stick).
+	if (Out.RotationMode == EAZ_RotationMode::OrientToMovement && !Out.InputAcceleration.IsNearlyZero())
+	{
+		Out.OrientationIntent = Out.InputAcceleration.Rotation();
+	}
+	else
+	{
+		Out.OrientationIntent = FRotator(0.f, Out.AimingRotation.Yaw, 0.f);
+	}
+}
+
+void AAZ_CmcHeroCharacter::ApplyMovementFeelParams()
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (!Move)
+	{
+		return;
+	}
+
+	const float Speed2D = Move->Velocity.Size2D();
+	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero();
+
+	// Released stick brakes ~4x harder than a held one: that difference is the whole "plants on a stop
+	// instead of coasting" read.
+	Move->BrakingDecelerationWalking = bHasInput ? BrakingDecelWithInput : BrakingDecelNoInput;
+
+	// Acceleration and friction both fall off with speed, so the last stretch to top speed is gradual.
+	const float AccelAlpha = FMath::Clamp(
+		(Speed2D - AccelTaperSpeedMin) / FMath::Max(1.f, AccelTaperSpeedMax - AccelTaperSpeedMin), 0.f, 1.f);
+	Move->MaxAcceleration = FMath::Lerp(MaxAccelerationBase, MaxAccelerationAtTopSpeed, AccelAlpha);
+
+	const float FrictionAlpha = FMath::Clamp(Speed2D / FMath::Max(1.f, FrictionTaperSpeedMax), 0.f, 1.f);
+	Move->GroundFriction = FMath::Lerp(GroundFrictionMax, GroundFrictionMin, FrictionAlpha);
+
+	// Negative yaw rate = instant turn (CMC convention). Grounded turning is instant and smoothed
+	// visually by OffsetRootBone; airborne turning must stay finite or it reads as a snap.
+	Move->RotationRate = FRotator(0.f, Move->IsFalling() ? FallingRotationRateYaw : GroundedRotationRateYaw, 0.f);
 }
 
 void AAZ_CmcHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

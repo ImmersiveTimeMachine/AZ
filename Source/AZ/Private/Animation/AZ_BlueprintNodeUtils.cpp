@@ -918,22 +918,113 @@ TArray<FString> UAZ_BlueprintNodeUtils::ListFunctionNodes(const FString& Bluepri
 	UEdGraph* Graph = FindFunctionGraph(BP, FunctionName);
 	if (!Graph) return Result;
 
-	for (UEdGraphNode* Node : Graph->Nodes)
-	{
-		FString Info = FString::Printf(TEXT("GUID=%s Class=%s Title=%s Pins=["),
-			*Node->NodeGuid.ToString(),
-			*Node->GetClass()->GetName(),
-			*Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+	// Emits STRUCTURE + LITERALS + WIRING. The literals matter as much as the shape: reading a graph
+	// without its pin defaults gave us "Pose Search Generate Trajectory" with no idea it was configured
+	// -1.0 / 30 / 0.1 / 15, which is the difference between describing a node and being able to port it.
+	// Pins that are unconnected AND carry no default are dropped — they are the majority and say nothing.
+	//
+	// Two things are read by REFLECTION rather than by including their headers:
+	//  - UK2Node_PropertyAccess::TextPath — the node lives in a plugin's Private folder, so it cannot be
+	//    included, but the path is a UPROPERTY and reflection does not care about C++ access. Without it,
+	//    every pawn read in a GASP graph shows up as an anonymous "Property Access" and the port stalls.
+	//  - BoundGraph — collapsed/composite nodes hide real logic in a subgraph (GASP keeps its pivot
+	//    conditions there). We walk into any node exposing one, so nothing hides behind a collapse.
+	TArray<TPair<UEdGraph*, int32>> Work;
+	Work.Emplace(Graph, 0);
 
-		for (UEdGraphPin* Pin : Node->Pins)
+	while (Work.Num() > 0)
+	{
+	const TPair<UEdGraph*, int32> Current = Work.Pop();
+	UEdGraph* CurrentGraph = Current.Key;
+	const int32 Depth = Current.Value;
+	const FString Indent = FString::ChrN(Depth * 2, ' ');
+
+	if (Depth > 0)
+	{
+		Result.Add(FString::Printf(TEXT("%s--- subgraph: %s ---"), *Indent, *CurrentGraph->GetName()));
+	}
+
+	for (UEdGraphNode* Node : CurrentGraph->Nodes)
+	{
+		if (const FObjectPropertyBase* BoundGraphProp =
+			CastField<FObjectPropertyBase>(Node->GetClass()->FindPropertyByName(TEXT("BoundGraph"))))
 		{
-			Info += FString::Printf(TEXT("%s(%s,%s) "),
-				*Pin->PinName.ToString(),
-				Pin->Direction == EGPD_Input ? TEXT("In") : TEXT("Out"),
-				*Pin->PinType.PinCategory.ToString());
+			if (UEdGraph* Sub = Cast<UEdGraph>(BoundGraphProp->GetObjectPropertyValue_InContainer(Node)))
+			{
+				Work.Emplace(Sub, Depth + 1);
+			}
 		}
-		Info += TEXT("]");
-		Result.Add(Info);
+
+		FString PathSuffix;
+		if (const FTextProperty* TextPathProp =
+			CastField<FTextProperty>(Node->GetClass()->FindPropertyByName(TEXT("TextPath"))))
+		{
+			const FText PathText = TextPathProp->GetPropertyValue_InContainer(Node);
+			if (!PathText.IsEmpty())
+			{
+				PathSuffix = FString::Printf(TEXT(" path=%s"), *PathText.ToString());
+			}
+		}
+
+		FString Title = Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
+		Title.ReplaceInline(TEXT("\n"), TEXT(" "));
+		Title.ReplaceInline(TEXT("\r"), TEXT(""));
+		if (Title.Len() > 90)
+		{
+			Title = Title.Left(90) + TEXT("...");
+		}
+
+		Result.Add(FString::Printf(TEXT("%s[%s] %s | %s%s"),
+			*Indent,
+			*Node->NodeGuid.ToString().Left(8),
+			*Node->GetClass()->GetName().Replace(TEXT("K2Node_"), TEXT("")),
+			*Title,
+			*PathSuffix));
+
+		for (const UEdGraphPin* Pin : Node->Pins)
+		{
+			FString Value;
+			if (Pin->DefaultObject)
+			{
+				Value = Pin->DefaultObject->GetName();
+			}
+			else if (!Pin->DefaultValue.IsEmpty())
+			{
+				Value = Pin->DefaultValue;
+			}
+			else if (!Pin->DefaultTextValue.IsEmpty())
+			{
+				Value = Pin->DefaultTextValue.ToString();
+			}
+
+			FString Links;
+			for (const UEdGraphPin* Linked : Pin->LinkedTo)
+			{
+				if (!Linked || !Linked->GetOwningNodeUnchecked())
+				{
+					continue;
+				}
+				Links += FString::Printf(TEXT(" %s%s.%s"),
+					Pin->Direction == EGPD_Input ? TEXT("<-") : TEXT("->"),
+					*Linked->GetOwningNodeUnchecked()->NodeGuid.ToString().Left(8),
+					*Linked->PinName.ToString());
+			}
+
+			// Nothing wired, nothing authored: the pin is at its compiled-in default and is noise here.
+			if (Links.IsEmpty() && Value.IsEmpty())
+			{
+				continue;
+			}
+
+			Result.Add(FString::Printf(TEXT("%s    %-3s %s:%s%s%s"),
+				*Indent,
+				Pin->Direction == EGPD_Input ? TEXT("in") : TEXT("out"),
+				*Pin->PinName.ToString(),
+				*Pin->PinType.PinCategory.ToString(),
+				Value.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" = %s"), *Value),
+				*Links));
+		}
+	}
 	}
 #endif
 	return Result;

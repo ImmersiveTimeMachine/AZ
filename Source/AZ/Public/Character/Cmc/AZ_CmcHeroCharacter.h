@@ -19,7 +19,7 @@ struct FInputActionValue;
  *
  * From-scratch ACharacter hero, inspired by (not copied from) both predecessors:
  *  - v2 AZ_PawnMoverHeroCharacter: GAS grant sites (Configure-on-the-RESOLVED-class pattern), Enhanced
- *    Input surface, gait semantics, the grab seams (now behind IAZ_CombatAvatar).
+ *    Input surface, gait semantics, the grab seams (now behind IAZ_CombatAvatar)./sta
  *  - v1 AZ_HeroCharacter: the CMC layout itself — but tunables live directly ON the CMC (every CMC
  *    property is BP-editable already), not mirrored into pawn UPROPERTYs.
  *
@@ -43,6 +43,8 @@ class AZ_API AAZ_CmcHeroCharacter : public AAZ_CmcCharacterBase
 public:
 	AAZ_CmcHeroCharacter(const FObjectInitializer& ObjectInitializer);
 
+	virtual void PostInitializeComponents() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void PawnClientRestart() override;
 	virtual void PossessedBy(AController* NewController) override;
@@ -52,6 +54,11 @@ public:
 	// IAbilitySystemInterface — the player ASC lives on the PlayerState (persists across pawn switch).
 	// ========================================
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	/** Extends the base contract with the two facts only the hero has: which rotation mode the player is
+	 *  in, and the raw input desires. Both come from the same Movement.* tags the gait/stance resolve
+	 *  reads, so abilities stay movement-agnostic and unchanged across both pawn generations. */
+	virtual void FillAnimContract(FAZ_CmcAnimContract& Out) const override;
 
 	// ========================================
 	// IAZ_CombatAvatar — grab-victim seams (P0: state storage; camera/mesh reactions land in P2).
@@ -78,6 +85,71 @@ protected:
 
 	void OnMoveTriggered(const FInputActionValue& Value);
 	void OnLookTriggered(const FInputActionValue& Value);
+
+	/**
+	 * Per-frame derived CMC parameters — GASP's "PreCMCTick" pass, ported.
+	 *
+	 * GASP does not treat braking/acceleration/friction/turn rate as constants: it recomputes them every
+	 * frame from current speed and whether the stick is held, which is most of why its locomotion reads
+	 * heavy at speed and crisp at a standstill. This runs BEFORE the movement component ticks (see the
+	 * prerequisite set up in PostInitializeComponents) so CMC consumes this frame's values, not last
+	 * frame's. It is the ONE writer of these four properties; the constructor no longer sets them.
+	 *
+	 * Hero-only on purpose: the same tuning applied to the infected would silently change Chalkie chase
+	 * feel and its BT rotation tracking, which this spike never asked for.
+	 */
+	void ApplyMovementFeelParams();
+
+	/**
+	 * Translates MOVEMENT-domain GAS tags into CMC state, mirroring exactly what the v2 pawn packs into
+	 * its Mover InputCmd (AZ_PawnMoverHeroCharacter.cpp:847). The abilities are unchanged and stay
+	 * movement-agnostic — they only ever grant Movement.* tags; this pawn is what turns those into a gait
+	 * and into native Crouch()/UnCrouch(). That keeps GA_Run/GA_Crouch working on BOTH generations
+	 * without a Mover reference anywhere in them.
+	 */
+	void ResolveGaitAndStanceFromTags();
+
+	// ---- Derived-parameter tuning (GASP 5.8 SandboxCharacter_CMC reference values) ----
+
+	/** Braking while the stick is held vs released — the released value is what stops the slide. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float BrakingDecelWithInput = 500.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float BrakingDecelNoInput = 2000.f;
+
+	/** Acceleration tapers from Base down to AtTopSpeed across the speed window below, so top speed is
+	 *  approached rather than snapped to. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float MaxAccelerationBase = 800.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float MaxAccelerationAtTopSpeed = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "cm/s"))
+	float AccelTaperSpeedMin = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "cm/s"))
+	float AccelTaperSpeedMax = 700.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float GroundFrictionMax = 5.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float GroundFrictionMin = 3.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "cm/s"))
+	float FrictionTaperSpeedMax = 500.f;
+
+	/** Grounded yaw rate. NEGATIVE means instant in CMC — GASP turns the capsule instantly and lets the
+	 *  ABP's OffsetRootBone carry the visual smoothing (our stack has that node, so the pairing holds).
+	 *  If turning reads too snappy, this is the first dial: try 500 to restore the pre-spike behaviour. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float GroundedRotationRateYaw = -1.f;
+
+	/** In air the capsule turns at a finite rate — instant mid-air rotation reads as a glitch. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	float FallingRotationRateYaw = 200.f;
 
 	// ========================================
 	// Components

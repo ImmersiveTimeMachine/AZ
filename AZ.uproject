@@ -55,10 +55,6 @@
 			"Enabled": true
 		},
 		{
-			"Name": "ContextualAnimation",
-			"Enabled": true
-		},
-		{
 			"Name": "PoseSearch",
 			"Enabled": true
 		},
@@ -185,6 +181,62 @@
 		},
 		{
 			"Name": "EditorToolset",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanCharacter",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanCoreML",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Mac",
+				"IOS",
+				"TVOS",
+				"VisionOS"
+			]
+		},
+		{
+			"Name": "MetaHumanCrowd",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanGenerator",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanLiveLink",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanCharacterUAF",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHumanCalibrationProcessing",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux",
+				"Mac"
+			]
+		},
+		{
+			"Name": "MetaHuman",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux",
+				"Mac"
+			]
+		},
+		{
+			"Name": "LiveLinkExampleDevice",
+			"Enabled": true
+		},
+		{
+			"Name": "LiveLinkUnrealDevice",
 			"Enabled": true
 		}
 	]

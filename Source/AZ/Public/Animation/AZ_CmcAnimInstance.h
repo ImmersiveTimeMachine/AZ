@@ -1,0 +1,562 @@
+// Copyright Artur. AZ project.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/TrajectoryTypes.h"                  // FTransformTrajectory
+#include "Animation/AZ_CmcAnimTypes.h"
+#include "Animation/AZ_LocomotionTypes.h"
+#include "PoseSearch/PoseSearchTrajectoryLibrary.h"     // FPoseSearchTrajectoryData, FPoseSearchTrajectory_WorldCollisionResults
+#include "PoseSearch/PoseSearchLibrary.h"               // EPoseSearchInterruptMode
+#include "AnimationWarpingTypes.h"                      // EOffsetRootBoneMode
+#include "BoneControllers/AnimNode_OrientationWarping.h" // EOrientationWarpingSpace
+#include "AZ_CmcAnimInstance.generated.h"
+
+class AAZ_CmcCharacterBase;
+
+/**
+ * UAZ_CmcAnimInstance — native base for the CMC (v3) hero AnimBP. [SPIKE: spike/cmc-backport]
+ *
+ * A NODE-FOR-NODE port of GASP 5.8 SandboxCharacter_CMC_ABP's update chain, read out of the asset with
+ * UAZ_BlueprintNodeUtils::ListFunctionNodes on 2026-08-17 and screenshot-verified. Function names,
+ * variable names and every literal match the Blueprint deliberately, so this file can be diffed against
+ * Epic's asset and against [[project-gasp-cmc-abp-spec]] without a translation step. Where a bool is
+ * `bX` here it is UE convention only — Blueprint still displays it as GASP's `X`.
+ *
+ * WHAT RUNS. GASP's Update_Logic ends in Branch(UseExperimentalStateMachine), and that flag is FALSE on
+ * the shipped CDO, so Update_MovementDirection and Update_TargetRotation never execute on the Motion
+ * Matching path. Update_TargetRotation is therefore NOT ported — dead code that compiles is how the v1
+ * pawn confused every audit for months. Update_MovementDirection IS ported, but as OUR requirement: the
+ * MM node selects by trajectory and needs no direction bucket; our CHT chooser rows do.
+ *
+ * THREADING. NativeUpdateAnimation (game thread) does one thing: pull CharacterProperties from the pawn.
+ * Everything else — trajectory, collisions, derived state — runs in NativeThreadSafeUpdateAnimation on
+ * the worker thread, which is where GASP puts it (BlueprintThreadSafeUpdateAnimation is the only update
+ * event its ABP implements) and what the PoseSearch trajectory API is explicitly marked safe for.
+ *
+ * THE ONE THING BLUEPRINT MUST DO. RootTransform is the OffsetRootBone node's simulated root, fetched
+ * via AnimationWarpingLibrary::GetOffsetRootTransform(FAnimNodeReference). That reference cannot be built
+ * from C++: FAnimNodeReference constructs only from (UAnimInstance*, FAnimNode_Base&) or an int32 index,
+ * IAnimClassInterface exposes no tag lookup, and the BP node resolves its tag to an index at COMPILE time
+ * against the generated class — an index a parent class cannot know. So the AnimGraph calls
+ * SetOffsetRootTransform once per frame. If it never does, RootTransform falls back to CharacterTransform,
+ * which is exactly GASP's own else-branch — degraded, not broken.
+ *
+ * Abstract: an AnimInstance with no AnimGraph evaluates the ref pose silently, and we have already
+ * assigned a raw native anim class to a mesh once on this branch.
+ */
+UCLASS(Abstract, Blueprintable)
+class AZ_API UAZ_CmcAnimInstance : public UAnimInstance
+{
+	GENERATED_BODY()
+
+public:
+	UAZ_CmcAnimInstance();
+
+	virtual void NativeInitializeAnimation() override;
+	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
+
+	// ==================================================================================
+	// THE UPDATE CHAIN — GASP's Update_Logic, in order.
+	// ==================================================================================
+
+	/** Update_Trajectory -> Update_EssentialValues -> Update_States -> Update_MovementDirection. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void Update_Logic(float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void Update_Trajectory(float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void Update_EssentialValues(float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void Update_States();
+
+	/** AZ-only (see class comment): the 6-way bucket our CHT rows are addressed by. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void Update_MovementDirection();
+
+	/**
+	 * The AnimGraph's one obligation. Call from the AnimGraph with
+	 * GetOffsetRootTransform(Node Reference: OffsetRoot) — see the class comment for why C++ cannot.
+	 * Read one frame later, exactly as GASP reads it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	void SetOffsetRootTransform(const FTransform& InOffsetRootTransform);
+
+	// ==================================================================================
+	// PREDICATES + GETTERS — GASP names, GASP semantics.
+	// ==================================================================================
+
+	/** Velocity is non-zero AND acceleration is non-zero.
+	 *  NOTE the Trj_FutureVelocity term GASP's graph still contains is ORPHANED — the node exists, its
+	 *  output is wired to nothing, and the AND pin it fed is a bare `true`. Ported as it actually runs,
+	 *  not as it reads. (Our older memory note "IsMoving = FutureVelocity + Accel" describes GASP 5.5.) */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool IsMoving() const;
+
+	/** |trajectory turn angle| past a per-rotation-mode threshold, and moving. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool IsPivoting() const;
+
+	/** Aim-vs-body yaw past threshold, AND (aiming OR we stopped this very frame). */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool ShouldTurnInPlace() const;
+
+	/** Yaw between the acceleration direction and the velocity direction — the pivot signal. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	float Get_TrajectoryTurnAngle() const;
+
+	/** VelocityAcceleration normalised by max accel (or max braking when decelerating), actor space. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	FVector CalculateRelativeAccelerationAmount() const;
+
+	/** X = lateral lean scaled by speed; Y is always 0 in GASP. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	FVector2D Get_LeanAmount() const;
+
+	/** X = yaw, Y = pitch, faded out by the Disable_AO curve. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	FVector2D Get_AOValue() const;
+
+	/** lerp(1, clamp(Speed2D / MoveData_Speed, Min, Max), Enable_PlayRateWarping).
+	 *  Returns 1 when the clip has no MoveData_Speed — the honest no-op. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	float Get_DynamicPlayRate(float MinPlayRate = 0.8f, float MaxPlayRate = 1.2f) const;
+
+	// ==================================================================================
+	// DERIVED PREDICATES — GASP 5.8 semantics. Diffed against the 5.5-era UAZ_AnimInstance
+	// port on 2026-08-17; where the two disagreed 5.8 won, and each divergence is noted at
+	// its implementation site rather than silently reconciled.
+	// ==================================================================================
+
+	/** Accelerating out of rest: moving, future speed clearly exceeds current, not already pivoting. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool IsStarting() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool IsOnGround() const { return MovementMode == EAZ_MovementMode::OnGround; }
+
+	/** The body has fallen far enough behind the capsule that it needs to spin to catch up. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	bool ShouldSpinTransition() const;
+
+	/** Where steering should aim: the trajectory's facing a fixed time ahead. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	FQuat Get_DesiredFacing() const;
+
+	/** Aim-offset yaw. Non-zero ONLY while strafing — see the implementation for why. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	float Get_AO_Yaw() const;
+
+	/** DYNAMIC, not a constant: the quadrant boundaries widen or tighten with what we are doing. */
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	FAZ_MovementDirectionThresholds Get_MovementDirectionThresholds() const;
+
+	// ==================================================================================
+	// ANIMGRAPH NODE SETTINGS — bind these to node pins. Returning the real enums rather than
+	// uint8 is deliberate: EOffsetRootBoneMode runs Accumulate 0 / Interpolate 1 / Lock 2-4 /
+	// Release 5, and hand-written integers in that range have bitten this project before.
+	// ==================================================================================
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	float Get_MMBlendTime() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	float Get_MMNotifyRecencyTimeOut() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	EPoseSearchInterruptMode Get_MMInterruptMode() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	EOffsetRootBoneMode Get_OffsetRootRotationMode() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	EOffsetRootBoneMode Get_OffsetRootTranslationMode() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootTranslationHalfLife() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootTranslationRadius() const { return OffsetRootTranslationRadius; }
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	EOrientationWarpingSpace Get_OrientationWarpingWarpingSpace() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
+	bool AllowFootPinning() const;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	AAZ_CmcCharacterBase* GetCmcCharacter() const { return Cached_Character; }
+
+	// ==================================================================================
+	// PUBLISHED STATE — the AnimGraph binds to these by name, as it would to BP variables.
+	// ==================================================================================
+
+	/** The whole pawn seam, refreshed once per frame on the game thread. GASP's `Character Properties`. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim")
+	FAZ_CmcAnimContract CharacterProperties;
+
+	// ---- Trajectory ----
+
+	/** Bind the PoseSearchHistoryCollector node's TransformTrajectory pin to this. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	FTransformTrajectory Trajectory;
+
+	/** Carries TimeToLand + LandSpeed — a landing predictor the collision pass produces for free. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	FPoseSearchTrajectory_WorldCollisionResults TrajectoryCollision;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector Trj_PastVelocity = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector Trj_CurrentVelocity = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector Trj_FutureVelocity = FVector::ZeroVector;
+
+	/** Persisted across frames by the generator so predicted facing stays smooth. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Trajectory")
+	float PreviousDesiredControllerYaw = 0.f;
+
+	// ---- Essential values ----
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FTransform CharacterTransform = FTransform::Identity;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FTransform CharacterTransform_LastFrame = FTransform::Identity;
+
+	/** The OFFSET ROOT (yaw + 90 for the mesh convention), not the capsule — every actor-relative value
+	 *  is measured against this. That is how the anim layer stays coherent while the capsule turns
+	 *  instantly. Falls back to CharacterTransform when the AnimGraph has not pushed one. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FTransform RootTransform = FTransform::Identity;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector Acceleration = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector Acceleration_LastFrame = FVector::ZeroVector;
+
+	/** |Acceleration| / CurrentMaxAcceleration — normalised 0..1, not a raw magnitude. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	float AccelerationAmount = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	bool bHasAcceleration = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector Velocity = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector Velocity_LastFrame = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential", meta = (ForceUnits = "cm/s"))
+	float Speed2D = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	bool bHasVelocity = false;
+
+	/** (Velocity - Velocity_LastFrame) / max(DeltaTime, 0.001) — world space. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector VelocityAcceleration = FVector::ZeroVector;
+
+	/** VelocityAcceleration unrotated into RootTransform space. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector RelativeAcceleration = FVector::ZeroVector;
+
+	/** Held while stopped, so facing logic has a direction to work with at zero speed. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Essential")
+	FVector LastNonZeroVelocity = FVector::ZeroVector;
+
+	// ---- States (each paired with a one-frame history, which is what makes transitions detectable) ----
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_MovementMode MovementMode_LastFrame = EAZ_MovementMode::OnGround;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_RotationMode RotationMode = EAZ_RotationMode::OrientToMovement;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_RotationMode RotationMode_LastFrame = EAZ_RotationMode::OrientToMovement;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_MovementState MovementState = EAZ_MovementState::Idle;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_MovementState MovementState_LastFrame = EAZ_MovementState::Idle;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_Gait Gait = EAZ_Gait::Run;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_Gait Gait_LastFrame = EAZ_Gait::Run;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_Stance Stance = EAZ_Stance::Standing;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|State")
+	EAZ_Stance Stance_LastFrame = EAZ_Stance::Standing;
+
+	// ---- AZ-only derived state (CHT chooser inputs) ----
+
+	/** Tags of the database MM actually selected. Filled by the post-selection step once the AnimGraph
+	 *  hands us the MM node; empty until then, which degrades the predicates that read it to
+	 *  "not a pivot" rather than breaking them. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
+	TArray<FName> CurrentDatabaseTags;
+
+	/** Whether the selected asset loops. GASP reads this off its BlendStack inputs, which only exist on
+	 *  the state-machine path; on the MM path the post-selection step supplies it. Defaults true so the
+	 *  direction thresholds start in their steady-state (wider) configuration. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|MotionMatching")
+	bool bCurrentAssetLooping = true;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Direction")
+	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Direction", meta = (ForceUnits = "deg"))
+	float MovementDirectionAngle = 0.f;
+
+	/**
+	 * Left foot planted, from FootSpeed_L — NOT contact_l.
+	 * Our library authors a real per-foot speed on 824 clips where GASP authors a 0/1 flag; that is also
+	 * why we skip GASP's RemapCurves node, whose only job is faking a speed out of a flag. Measured
+	 * 2026-08-17: just 2 of the 104 clips in our databases carry contact_l at all, which is why the v2
+	 * stack's foot phase was permanently false and every foot-aware chooser row picked its default.
+	 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Direction")
+	bool bLeftFootDown = false;
+
+protected:
+	// ==================================================================================
+	// CONFIG — every GASP literal, exposed rather than baked in.
+	// ==================================================================================
+
+	/** Prediction shaping while standing still. Speed/braking/friction are NOT here: the generator's
+	 *  internal FDerived reads them off the movement component every frame, so predictor and simulation
+	 *  cannot drift apart (PoseSearchTrajectoryLibrary.h:31-48). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	FPoseSearchTrajectoryData TrajectoryGenerationData_Idle;
+
+	/** Prediction shaping while moving. GASP switches on Speed2D > 0.0 — any motion at all. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	FPoseSearchTrajectoryData TrajectoryGenerationData_Moving;
+
+	/** GASP: -1.0. NEGATIVE means "collect a history sample every update" rather than on an interval. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ForceUnits = "s"))
+	float TrajectoryHistorySamplingInterval = -1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ClampMin = "2"))
+	int32 TrajectoryHistoryCount = 30;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ForceUnits = "s"))
+	float TrajectoryPredictionSamplingInterval = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ClampMin = "2"))
+	int32 TrajectoryPredictionCount = 15;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	bool bHandleTrajectoryCollisions = true;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	bool bTrajectoryApplyGravity = true;
+
+	/** GASP: 0.01, not the 5-ish you would guess — the samples ride the surface, they do not hover. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ForceUnits = "cm"))
+	float FloorCollisionsOffset = 0.01f;
+
+	/** GASP: 150. The engine default is 10000, which lets a distant ceiling distort the prediction. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory", meta = (ForceUnits = "cm"))
+	float MaxObstacleHeight = 150.f;
+
+	/** Sample windows for the three velocities (seconds; negative = history). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector2D PastVelocityWindow = FVector2D(-0.3f, -0.2f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector2D CurrentVelocityWindow = FVector2D(0.0f, 0.2f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Trajectory")
+	FVector2D FutureVelocityWindow = FVector2D(0.4f, 0.5f);
+
+	// ---- Thresholds ----
+
+	/** bHasVelocity = Speed2D > this. GASP: 5. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
+	float HasVelocityThreshold = 5.f;
+
+	/** IsMoving's velocity comparison tolerance. GASP: 0.1. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds")
+	float IsMovingVelocityTolerance = 0.1f;
+
+	/** IsMoving's acceleration comparison tolerance (engine default on the compare node). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds")
+	float IsMovingAccelerationTolerance = 0.0001f;
+
+	/** Pivot turn-angle threshold per rotation mode. GASP: OrientToMovement 45, Strafe 30, Aiming 0. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
+	float PivotAngleThreshold_OrientToMovement = 45.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
+	float PivotAngleThreshold_Strafe = 30.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
+	float PivotAngleThreshold_Aiming = 0.f;
+
+	/** ShouldTurnInPlace yaw threshold. GASP: 50. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
+	float TurnInPlaceAngleThreshold = 50.f;
+
+	/** Lean speed ramp: Speed2D mapped from [In] to [Out] and multiplied into the lateral lean.
+	 *  GASP: 165..375 -> 0.5..1.0. Those are exactly our WalkSpeed and RunSpeed. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Lean")
+	FVector2D LeanSpeedRangeIn = FVector2D(165.f, 375.f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Lean")
+	FVector2D LeanSpeedRangeOut = FVector2D(0.5f, 1.f);
+
+	// ---- Direction (AZ-only) ----
+
+	/** false: left foot PLANTED means the right foot leads the next step -> LR / RR. There is no legacy
+	 *  behaviour to preserve (v2's foot phase never fired), so this can only be settled by watching it —
+	 *  and a CDO bool means settling it costs a click, not a rebuild. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Direction")
+	bool bInvertFootPhase = false;
+
+	/** Below this speed the velocity direction is numerical noise, so the angle HOLDS its last value. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Direction", meta = (ForceUnits = "cm/s"))
+	float DirectionHoldSpeed = 10.f;
+
+	// ---- Curve names (an authoring convention, not a content path) ----
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves")
+	FName FootSpeedCurveL = TEXT("FootSpeed_L");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves")
+	FName FootSpeedCurveR = TEXT("FootSpeed_R");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves")
+	FName MoveDataSpeedCurve = TEXT("MoveData_Speed");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves")
+	FName PlayRateWarpingCurve = TEXT("Enable_PlayRateWarping");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves")
+	FName DisableAOCurve = TEXT("Disable_AO");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves", meta = (ClampMin = "0"))
+	float FootPlantedSpeedThreshold = 1.f;
+
+	// ---- Predicate tuning (GASP 5.8 values) ----
+
+	/** IsStarting: how far future speed must exceed current speed. GASP: 100. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
+	float StartingFutureSpeedMargin = 100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
+	float SpinTransitionAngleThreshold = 130.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
+	float SpinTransitionMinSpeed = 150.f;
+
+	/** How far ahead Get_DesiredFacing samples the trajectory. GASP 5.8: 0.5. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "s"))
+	float DesiredFacingSampleTime = 0.5f;
+
+	/** Database tag marking a pivot pool. IsStarting and ShouldSpinTransition both suppress themselves
+	 *  while one is playing, so a pivot is never mistaken for a start or a spin. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|MotionMatching")
+	FName PivotDatabaseTag = TEXT("Pivots");
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings")
+	FName MontageSlotName = TEXT("DefaultSlot");
+
+	// ---- Direction thresholds: THREE sets, chosen per frame. GASP stores these signed (-60/60/-120/120);
+	// we keep our positive-magnitude convention and negate in Update_MovementDirection. ----
+
+	/** Forward/backward travel, and sideways travel during a pivot. GASP: 60 / 120. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Direction")
+	FAZ_MovementDirectionThresholds DirectionThresholds_Cardinal = { 60.0, 60.0, 120.0, 120.0 };
+
+	/** Sideways, settled into a loop, not aiming — widest back quadrant. GASP: 60 / 140. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Direction")
+	FAZ_MovementDirectionThresholds DirectionThresholds_SideLoop = { 60.0, 60.0, 140.0, 140.0 };
+
+	/** Sideways, mid-transition or aiming — tightest forward quadrant. GASP: 40 / 140. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Direction")
+	FAZ_MovementDirectionThresholds DirectionThresholds_SideTight = { 40.0, 40.0, 140.0, 140.0 };
+
+	// ---- Node settings (GASP 5.8 values) ----
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMBlendTime_Ground = 0.5f;
+
+	/** The touchdown frame blends FAST, so a land reads as an impact rather than a cross-fade. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMBlendTime_JustLanded = 0.2f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMBlendTime_Rising = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMBlendTime_Falling = 0.5f;
+
+	/** Above this upward speed we are still rising from a jump rather than falling. GASP: 100. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "cm/s"))
+	float MMRisingVelocityZ = 100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMNotifyRecency_Walk = 0.2f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMNotifyRecency_Run = 0.2f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float MMNotifyRecency_Sprint = 0.16f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float OffsetRootHalfLife_Idle = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings", meta = (ForceUnits = "s"))
+	float OffsetRootHalfLife_Moving = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings")
+	float OffsetRootTranslationRadius = 0.1f;
+
+	/** Mirrors whether the AnimGraph actually contains an OffsetRootBone node. Drives which space
+	 *  orientation warping works in — wrong here and warping fights the offset instead of riding it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|NodeSettings")
+	bool bOffsetRootBoneEnabled = true;
+
+	// ---- Debug ----
+
+	/** Once-a-second dump. Deliberately a CDO bool, not a CVar: our CVar rule (register in FAZModule,
+	 *  unregister by NAME, never a static TAutoConsoleVariable) makes a CVar the expensive option here,
+	 *  and this way it is per-character rather than global. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Debug")
+	bool bDebugAnim = false;
+
+	// ==================================================================================
+	// Internals
+	// ==================================================================================
+
+	/** Re-resolved lazily — on the first frames the pawn is unpossessed and has no ASC. */
+	UPROPERTY(Transient)
+	TObjectPtr<AAZ_CmcCharacterBase> Cached_Character;
+
+	/** Pushed by the AnimGraph; consumed by Update_EssentialValues on the next frame. */
+	FTransform OffsetRootTransform = FTransform::Identity;
+	bool bHasOffsetRootTransform = false;
+
+	float DebugAccumulator = 0.f;
+	bool bLoggedInit = false;
+};
