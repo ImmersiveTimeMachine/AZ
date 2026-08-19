@@ -127,10 +127,16 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 		{
 			DebugAccumulator = 0.f;
 			const UEnum* DirEnum = StaticEnum<EAZ_MovementDirection>();
+			FString GateNames;
+			for (const FName& GateLabel : MatchedGateLabels)
+			{
+				if (!GateNames.IsEmpty()) GateNames += TEXT(",");
+				GateNames += GateLabel.ToString();
+			}
 			UE_LOG(LogTemp, Display,
 				TEXT("[CmcAnim] spd=%.0f/%.0f moving=%d pivot=%d tip=%d | accel=%.2f | dir=%s ang=%.0f Lfoot=%d ")
 				TEXT("| trj past=%.0f cur=%.0f fut=%.0f turn=%.0f | land=%.2fs @ %.0f | samples=%d ")
-				TEXT("| MM db=%s cost=%.1f loop=%d tags=%d anim=%s"),
+				TEXT("| gates=[%s] | MM db=%s cost=%.1f loop=%d tags=%d anim=%s"),
 				Speed2D, CharacterProperties.CurrentMaxSpeed, IsMoving(), IsPivoting(), ShouldTurnInPlace(),
 				AccelerationAmount,
 				DirEnum ? *DirEnum->GetNameStringByValue(static_cast<int64>(MovementDirection)) : TEXT("?"),
@@ -138,6 +144,7 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 				Trj_PastVelocity.Size2D(), Trj_CurrentVelocity.Size2D(), Trj_FutureVelocity.Size2D(),
 				Get_TrajectoryTurnAngle(),
 				TrajectoryCollision.TimeToLand, TrajectoryCollision.LandSpeed, Trajectory.Samples.Num(),
+				*GateNames,
 				*GetNameSafe(CurrentSelectedDatabase), SearchCost, bCurrentAssetLooping,
 				CurrentDatabaseTags.Num(), *GetNameSafe(CurrentSelectedAnim));
 		}
@@ -415,25 +422,25 @@ FVector2D UAZ_CmcAnimInstance::Get_AOValue() const
 
 TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 {
-	// Stance gate only — see the header for why gait needs none.
-	const TArray<TObjectPtr<UPoseSearchDatabase>>& StancePool =
-		(Stance == EAZ_Stance::Crouching) ? Databases_Crouch : Databases_Stand;
+	// Union of every matching gate row — EvaluateChooserMulti semantics without the chooser (see
+	// FAZ_DatabaseGate). Order preserved: earlier rows land earlier in the array, like earlier chooser
+	// rows. The engine node AddUniques on ingest, so overlap between rows is harmless.
+	MatchedGateLabels.Reset();
 
 	TArray<UPoseSearchDatabase*> Result;
-	Result.Reserve(StancePool.Num() + Databases_Always.Num());
-
-	for (const TObjectPtr<UPoseSearchDatabase>& Database : StancePool)
+	for (const FAZ_DatabaseGate& Gate : DatabaseGates)
 	{
-		if (Database)
+		if (!Gate.Matches(MovementMode, Stance, MovementState, Gait))
 		{
-			Result.Add(Database);
+			continue;
 		}
-	}
-	for (const TObjectPtr<UPoseSearchDatabase>& Database : Databases_Always)
-	{
-		if (Database)
+		MatchedGateLabels.Add(Gate.Label);
+		for (const TObjectPtr<UPoseSearchDatabase>& Database : Gate.Databases)
 		{
-			Result.Add(Database);
+			if (Database)
+			{
+				Result.Add(Database);
+			}
 		}
 	}
 	return Result;
@@ -449,8 +456,31 @@ void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
 		return;
 	}
 
+	const TArray<UPoseSearchDatabase*> Pool = Get_DatabasesToSearch();
+	if (Pool.IsEmpty())
+	{
+		// No gate matched. Not calling SetDatabasesToSearch leaves the node on the last pushed pool
+		// (the override array persists on the node), which degrades to slightly-stale selection instead
+		// of a frozen pose from searching nothing. Warn once per dead spot — a hole in the gate table
+		// is authoring debt, not a per-frame event.
+		if (!bWarnedEmptyGateUnion)
+		{
+			bWarnedEmptyGateUnion = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("[CmcAnim] DatabaseGates union is EMPTY for mode=%d stance=%d state=%d gait=%d — ")
+				TEXT("MM holds the previous pool. Add a matching gate row."),
+				static_cast<int32>(MovementMode), static_cast<int32>(Stance),
+				static_cast<int32>(MovementState), static_cast<int32>(Gait));
+		}
+		return;
+	}
+	bWarnedEmptyGateUnion = false;
+
+	// Every update, like GASP: the node only stores the array + NextUpdateInterruptMode, and
+	// InterruptOnDatabaseChange does its own is-the-continuing-pose-still-in-the-set check downstream.
+	// Gating this call on "did the pool change" would starve that logic of the interrupt mode.
 	UMotionMatchingAnimNodeLibrary::SetDatabasesToSearch(
-		MotionMatchingNode, Get_DatabasesToSearch(), Get_MMInterruptMode());
+		MotionMatchingNode, Pool, Get_MMInterruptMode());
 }
 
 void UAZ_CmcAnimInstance::Update_MotionMatching_PostSelection(const FAnimNodeReference& Node)

@@ -103,15 +103,15 @@ public:
 	bool EnableSteering(const FAnimNodeReference& Node) const;
 
 	/**
-	 * Which database pool the search may draw from this frame.
+	 * Which database pool the search may draw from this frame: the union of every DatabaseGates row
+	 * matching (MovementMode, Stance, MovementState, Gait) — GASP's CHT_PoseSearchDatabases_Dense
+	 * evaluation, typed (see FAZ_DatabaseGate for why not a chooser asset).
 	 *
-	 * Gated on STANCE only, deliberately. Gait is self-gating — speed is part of the trajectory feature
-	 * vector, so at a walk the search prefers walk clips even with run clips in the pool. Stance is not:
-	 * crouched and standing trajectories at equal speed are identical and only the pose channel separates
-	 * them, so without this gate a crouch clip can win while standing.
-	 *
-	 * GASP evaluates a chooser here instead. Same shape, so swapping one in later is a one-line change;
-	 * with a single density tier and a single style, a chooser would currently have nothing to choose.
+	 * The gate that carries correctness weight is STANCE: gait and speed are self-gating through the
+	 * trajectory feature vector, but crouched and standing trajectories at equal speed are identical —
+	 * only the pose channel separates them, so without stance rows a crouch clip can win while standing.
+	 * MovementMode joins it the day airborne pools are ingested. As a side effect of matching,
+	 * refreshes MatchedGateLabels for the debug line.
 	 */
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
 	TArray<UPoseSearchDatabase*> Get_DatabasesToSearch() const;
@@ -505,21 +505,21 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Curves", meta = (ClampMin = "0"))
 	float FootPlantedSpeedThreshold = 1.f;
 
-	// ---- Database pools (editor-assigned; no /Game/ paths in code) ----
+	// ---- Database selection (editor-assigned; no /Game/ paths in code) ----
 
-	/** Searched while standing: walk/run/sprint loops, starts, stops, pivots, turns, plus stand idles,
-	 *  idle breaks, turn-in-place and gait transitions. */
+	/** The database-selection table: every row matching the current (MovementMode, Stance,
+	 *  MovementState, Gait) contributes its databases to the search union. Empty axis = Any.
+	 *  Authored on the ABP class defaults; evaluated by Get_DatabasesToSearch. All member databases
+	 *  must share one normalization set (PSN_AZ_CMC) or cross-database costs are not comparable. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
-	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Stand;
+	TArray<FAZ_DatabaseGate> DatabaseGates;
 
-	/** Searched while crouched. Kept apart from the standing pool because trajectory alone cannot tell
-	 *  the two stances apart — see Get_DatabasesToSearch. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
-	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Crouch;
+	/** Labels of the rows Get_DatabasesToSearch matched last evaluation — bDebugAnim diagnostics only.
+	 *  Mutable because the getter is const and thread-safe; only this instance's anim worker writes it. */
+	mutable TArray<FName> MatchedGateLabels;
 
-	/** Searched in both stances — the stance transitions themselves, which by definition span the two. */
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
-	TArray<TObjectPtr<UPoseSearchDatabase>> Databases_Always;
+	/** Latches the empty-union warning so it logs once per dead spot, not once per frame. */
+	bool bWarnedEmptyGateUnion = false;
 
 	// ---- Predicate tuning (GASP 5.8 values) ----
 

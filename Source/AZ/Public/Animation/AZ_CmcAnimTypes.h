@@ -7,6 +7,8 @@
 #include "Animation/AZ_LocomotionTypes.h"   // EAZ_Gait / EAZ_Stance / EAZ_MovementMode / EAZ_RotationMode / FAZ_PlayerInputState
 #include "AZ_CmcAnimTypes.generated.h"
 
+class UPoseSearchDatabase;
+
 /**
  * FAZ_CmcAnimContract — the ENTIRE pawn -> animation seam for the CMC (v3) generation.
  * [SPIKE: spike/cmc-backport]
@@ -130,4 +132,59 @@ struct AZ_API FAZ_CmcAnimContract
 	 *  tag stays a pure asset edit — no struct change, no chooser signature change, no rebuild. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Contract")
 	FGameplayTagContainer OwnedTags;
+};
+
+/**
+ * FAZ_DatabaseGate — one row of the database-selection table, typed.
+ *
+ * This is GASP's CHT_PoseSearchDatabases_Dense row model (MovementMode × Stance × MovementState × Gait
+ * -> database array, first-to-last, every matching row unioned) expressed as a struct array instead of
+ * a chooser asset. Same evaluation semantics as EvaluateChooserMulti; none of the chooser costs we have
+ * paid twice before: no property-name reflection binding (the AnimSet scar), no anonymous bool columns
+ * (the CHT_v2 scar), no scripted-edit row/column reordering hazards — and it diffs in git and prints in
+ * the debug line. GASP's meta-chooser layer above this is only a DDCvar-driven density-tier A/B switch;
+ * when we grow a second tier, that becomes a second gate array behind an FAZModule-registered CVar.
+ *
+ * An EMPTY axis array is the chooser's "Any" cell. Rows live on the ABP CDO (editor-assigned — no
+ * /Game/ paths in code) and are unioned by UAZ_CmcAnimInstance::Get_DatabasesToSearch.
+ */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_DatabaseGate
+{
+	GENERATED_BODY()
+
+	/** Row name, printed by the bDebugAnim line so a bad pool traces to a row in one read. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	FName Label;
+
+	/** Empty = Any. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_MovementMode> MovementModes;
+
+	/** Empty = Any. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_Stance> Stances;
+
+	/** Empty = Any. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_MovementState> MovementStates;
+
+	/** Empty = Any. Gate on gait only where content demands it (e.g. sprint-only pools) — speed already
+	 *  lives in the trajectory features, so gait gating is a cost optimization, not a correctness one,
+	 *  and strict per-gait gating with gait-incomplete content (no sprint pivots) punches holes. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_Gait> Gaits;
+
+	/** Databases this row contributes to the search when it matches. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<TObjectPtr<UPoseSearchDatabase>> Databases;
+
+	bool Matches(const EAZ_MovementMode InMode, const EAZ_Stance InStance,
+	             const EAZ_MovementState InState, const EAZ_Gait InGait) const
+	{
+		return (MovementModes.IsEmpty()  || MovementModes.Contains(InMode))
+			&& (Stances.IsEmpty()        || Stances.Contains(InStance))
+			&& (MovementStates.IsEmpty() || MovementStates.Contains(InState))
+			&& (Gaits.IsEmpty()          || Gaits.Contains(InGait));
+	}
 };
