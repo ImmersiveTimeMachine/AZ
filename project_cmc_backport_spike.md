@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-18T02:03:32.286Z
+  modified: 2026-08-19T03:20:43.810Z
 ---
 
 # CMC back-port spike — plan (2026-08-05; P0 built+committed 2026-08-06)
@@ -124,13 +124,28 @@ the node header is in a plugin Private folder), and recurses into **collapsed/co
 (that is where GASP hides its pivot conditions). This is now the only sane way to read a GASP graph;
 the rider clipboard export truncates at ~5 nodes and Python cannot read protected node properties.
 
-### ★ NEXT SESSION STARTS HERE (state as of 2026-08-17 end, pushed `b732e86`)
+### ★ NEXT SESSION STARTS HERE (state as of 2026-08-18 end: gates + PSN built green, pushed `3ae0f01`)
 
-**C++ for the MM path is COMPLETE and committed.** Batches 1-3 all built green and pushed:
-contract · update chain · predicates · node-setting getters · MM node seam. Databases ingested
-(27 pools / 332 clips, verified). `AZ_ABP_CmcAnimInstance` exists, correctly parented, defaults flowing.
+**C++ for the MM path is COMPLETE.** Batches 1-3 pushed (`b732e86`); 2026-08-18 added the
+**database-gate rework (committed `3ae0f01`, editor-closed build GREEN 2026-08-18)**:
 
-**Nothing has run yet.** Three things stand between here and first motion, and #1 is the user's:
+- **`FAZ_DatabaseGate`** (`AZ_CmcAnimTypes.h`): typed row model of GASP's `CHT_PoseSearchDatabases_Dense`
+  — (MovementModes, Stances, MovementStates, Gaits) each TArray, **empty = Any**, + Databases + `Label`.
+  `Get_DatabasesToSearch` unions all matching rows (= EvaluateChooserMulti semantics). REPLACES the three
+  flat arrays `Databases_Stand/_Crouch/_Always` (deleted). Decision record: **NO chooser asset** — GASP's
+  meta-CHT is only a `DDCvar.MMDatabaseLOD` debug tier switch (verified: binding chain `;MMDatabaseLOD;`
+  in the uasset, written solely by `Update_CVarDrivenVariables` reading the CVar); tier tables are just
+  4-enum gates; v1/v2 both abandoned their DB choosers (`CHT_NoWeapon_Locomotion` has **0 rows**, live v2
+  `UAZ_MoverAnimInstance` hard-picks single-DB properties). Second density tier later = second gate array
+  behind an FAZModule CVar.
+- **Empty-union guard**: no matching gate → do NOT call `SetDatabasesToSearch` (node persists last pool)
+  + warn once. **No change-detection gating** — engine node just stores array + NextUpdateInterruptMode;
+  `InterruptOnDatabaseChange` does its own membership check, so push every update like GASP.
+- **`PSN_AZ_CMC` created + assigned to all 27 DBs** (was: ALL our PSDs — v2's too — had
+  `NormalizationSet=None`, so cross-DB costs were never comparable; GASP uses one PSN per tier).
+  `PoseSearchNormalizationSetFactory` works from Python directly (no modal, unlike the DB factory).
+
+**Nothing has run yet.** Between here and first motion:
 
 1. **Stage A AnimGraph** (manual — AnimBP graphs cannot be safely scripted; the user confirmed the
    utilities did not work for this and will hand-place):
@@ -143,13 +158,35 @@ contract · update chain · predicates · node-setting getters · MM node seam. 
    - MM node: `BlendTime 0.5`, `NotifyRecencyTimeOut 0.2`
 2. **Two node-function bindings** on the MM node: `Update_MotionMatching` on *On Update*,
    `Update_MotionMatching_PostSelection` on *On Update after selection*.
-3. **Three arrays on the ABP CDO**: `Databases_Stand`, `Databases_Crouch`, `Databases_Always`
-   (the 2 stance transitions).
+3. **Author the 7 `DatabaseGates` rows on the ABP CDO** (replaces the old three-arrays step):
+   | Label | Modes | Stances | States | Gaits | Databases |
+   |---|---|---|---|---|---|
+   | StandIdle | Ground | Stand | Idle | Any | Stand_Idles, Stand_IdleBreaks, Stand_TurnInPlace |
+   | CrouchIdle | Ground | Crouch | Idle | Any | Crouch_Idles, Crouch_IdleBreaks, Crouch_TurnInPlace |
+   | StandMove | Ground | Stand | Moving | Any | Stand_Walk_* + Stand_Run_* (10) |
+   | SprintMove | Ground | Stand | Moving | Sprint | Stand_Sprint_Loops/Starts/Stops/Turns |
+   | CrouchMove | Ground | Crouch | Moving | Any | Crouch_Walk_* (5) |
+   | GaitTrans | Ground | Stand | Any | Any | Stand_GaitTransitions |
+   | StanceTrans | Any | Any | Any | Any | StanceTransitions |
+   ★ Deliberately NOT GASP's strict per-gait split: we have **no Sprint_Pivots**, so StandMove leaves
+   walk+run pools reachable while sprinting. Safe only while `IsMoving()` needs vel AND accel ≈ 0
+   (stops stay matched through deceleration) — revisit gates if that formula loosens.
 
 ★ Turn on `bDebugAnim` (Python name `debug_anim`) BEFORE the first PIE. The 1 Hz line now carries
-speed, moving/pivot/TIP, direction, foot, all three trajectory velocities, sample count, **selected
-database + SearchCost + loop + tag count**. That one line separates "trajectory not built" from
-"search found nothing" from "search found something bad" without guessing.
+speed, moving/pivot/TIP, direction, foot, all three trajectory velocities, sample count, **matched gate
+labels + selected database + SearchCost + loop + tag count**. That line separates "trajectory not built"
+from "gate hole" from "search found nothing" from "search found something bad" without guessing.
+
+**PROPOSED next content pass (user aware, not yet approved): notify-mirror.** Our 332 ingested clips have
+**ZERO functional PoseSearch notifies** — the 7-11 events they carry are null-class corpses (GASP foley BPs
+stripped at retarget). Loop flags + curves are correct. Every `RT_NWP_M_Neutral_X` has a same-length GASP
+5.8 twin `M_Neutral_X`: script = read twin's PS windows → apply via `AZ_PoseSearchUtils` helpers
+(AddBlockTransitionNotify/AddExcludeFromDatabaseNotify/AddModifyCostNotify/AddOverrideContinuingPoseCostBiasNotify),
+clean dead events in the same pass. 5.8 semantics (from `PoseSearchAnimNotifies.h`, CORRECTS the 5.5-era
+catalog): **BlockTransition = "Block Transition IN"** (search can't RETURN results in-window; playback
+advances through fine) — NOT "prevents leaving". **BranchIn in 5.8 GASP points at the SM-path DBs**
+(`PSD_SM_CMC_Loops`/`_Transitions`) = experimental-SM machinery, NOT needed for our MM path (membership =
+DB asset list). ModifyCost = "Override Base Cost Bias", negative CostAddend = more likely (land heavy -0.3).
 
 Then, in order: Stage B `DefaultSlot` → C `OffsetRootBone` (+ the `SetOffsetRootTransform` wire) →
 D foot placement/LegIK → E the two additives (need BlendSpaces built from our `AO_Stand`/`AO_Crouch` 21

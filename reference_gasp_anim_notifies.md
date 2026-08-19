@@ -3,10 +3,26 @@ name: reference_gasp_anim_notifies
 description: Complete catalog of GASP animation notifies and curves by category — reference for configuring AZ anims
 type: reference
 originSessionId: f6181671-d4a5-4b82-954f-4f2f5396f92f
+modified: 2026-08-19T03:20:56.350Z
 ---
 # GASP Animation Notifies & Curves Reference
 
-Source: `/Game/Characters/UEFN_Mannequin/Animations/` (1374 AnimSequences across 14 subfolders)
+★ **5.8 CORRECTIONS (2026-08-18, verified from `PoseSearchAnimNotifies.h` + live 5.8 clips — trust these
+over the 5.5-era text below where they conflict):**
+1. **BlockTransition = "Block Transition IN"**: a search will not RETURN results overlapping the window,
+   but playback advances into/through it fine. The catalog below says "prevents MM from transitioning
+   away" — that is WRONG (backwards).
+2. **BranchIn in 5.8 points at the experimental-SM databases** (`PSD_SM_CMC_Loops`, `PSD_SM_CMC_Transitions`
+   — verified on `M_Neutral_Walk_Loop_F`, `M_Neutral_Jump_B_Land_Run_Heavy`). It is SM+BlendStack path
+   machinery. **MM-path (dense) membership is the database asset list — BranchIn is NOT needed for it.**
+3. ModifyCost displays as "Override Base Cost Bias"; negative `CostAddend` = MORE likely (heavy land -0.3).
+4. ExcludeFromDatabase removes segments from indexing entirely (never play, never returned).
+5. **AZ's RT_NWP_* retargets carry ZERO functional PS notifies** — their 7-11 events are null-class corpses
+   (GASP foley BPs stripped at retarget). Loop flags + curves came through correctly. Mirror pass planned:
+   each `RT_NWP_M_Neutral_X` has a same-length 5.8 twin `M_Neutral_X` to copy windows from.
+
+Source: `/Game/Characters/UEFN_Mannequin/Animations/` (1374 AnimSequences across 14 subfolders; 5.8 import
+at `/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/` has 1881)
 
 All GASP locomotion anims have `EnableRootMotion = true`.
 
