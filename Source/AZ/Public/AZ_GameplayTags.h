@@ -232,6 +232,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_Cooldown_Interact;
     FGameplayTag Ability_Cooldown_Dash;
     FGameplayTag Ability_Cooldown_Grenade;
+    FGameplayTag Ability_Cooldown_Sprint;
 
     // Weapon Type Tags
     FGameplayTag Weapon_None;

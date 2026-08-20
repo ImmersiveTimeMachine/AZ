@@ -141,11 +141,31 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "cm/s"))
 	float FrictionTaperSpeedMax = 500.f;
 
-	/** Grounded yaw rate. NEGATIVE means instant in CMC — GASP turns the capsule instantly and lets the
-	 *  ABP's OffsetRootBone carry the visual smoothing (our stack has that node, so the pairing holds).
-	 *  If turning reads too snappy, this is the first dial: try 500 to restore the pre-spike behaviour. */
+	/** Grounded yaw rate at WALK gait, and the fallback whenever gait-specific turning is off.
+	 *
+	 *  MEASURED, not guessed: the capsule has to turn at the rate the sustained-turn content was authored
+	 *  at, or motion matching cannot match a held curve and reaches for the violent turn clips instead
+	 *  (pivots at 186 deg/s, 180-degree starts at 208) — which is what "it over-leans in a turn" looks
+	 *  like. AnimPro arc loops: walk 180 deg/s, run 93-116, and sprint has no arc content at all.
+	 *
+	 *  NEGATIVE means instant in CMC. GASP turns instantly and lets OffsetRootBone carry the visual
+	 *  smoothing — but our AnimGraph has no OffsetRootBone yet (Stage C), so instant reads as a snap
+	 *  AND spikes the trajectory. Keep these finite until that node lands. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "deg/s"))
+	float GroundedRotationRateYaw = 180.f;
+
+	/** Run gait yaw rate — matches RunArchLoop_L/R (93 / 116 deg/s). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "deg/s"))
+	float RunRotationRateYaw = 115.f;
+
+	/** Sprint gait yaw rate. Sprint owns no arc content, so this is a design choice rather than a
+	 *  measurement: slowest of the three, so a sprint turn carves wide instead of pivoting on the spot. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "deg/s"))
+	float SprintRotationRateYaw = 90.f;
+
+	/** Off = every grounded gait uses GroundedRotationRateYaw (the pre-2026-08-19 single-rate behaviour). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
-	float GroundedRotationRateYaw = -1.f;
+	bool bGaitScaledRotationRate = true;
 
 	/** In air the capsule turns at a finite rate — instant mid-air rotation reads as a glitch. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")

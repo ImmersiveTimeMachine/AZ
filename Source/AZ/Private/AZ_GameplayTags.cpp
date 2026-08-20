@@ -256,6 +256,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Ability_Cooldown_Interact, FName("Ability.Cooldown.Interact"), TEXT("Cooldown: Interact"));
     AddTag(GameplayTags.Ability_Cooldown_Dash,     FName("Ability.Cooldown.Dash"),     TEXT("Cooldown: Dash/dodge"));
     AddTag(GameplayTags.Ability_Cooldown_Grenade,  FName("Ability.Cooldown.Grenade"),  TEXT("Cooldown: Grenade throw"));
+    AddTag(GameplayTags.Ability_Cooldown_Sprint,   FName("Ability.Cooldown.Sprint"),   TEXT("Cooldown: sprint recuperation before it can be re-triggered"));
 
     // =========================================================
     // WEAPON TYPES

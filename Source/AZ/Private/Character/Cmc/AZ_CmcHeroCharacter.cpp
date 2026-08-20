@@ -175,9 +175,22 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams()
 	const float FrictionAlpha = FMath::Clamp(Speed2D / FMath::Max(1.f, FrictionTaperSpeedMax), 0.f, 1.f);
 	Move->GroundFriction = FMath::Lerp(GroundFrictionMax, GroundFrictionMin, FrictionAlpha);
 
-	// Negative yaw rate = instant turn (CMC convention). Grounded turning is instant and smoothed
-	// visually by OffsetRootBone; airborne turning must stay finite or it reads as a snap.
-	Move->RotationRate = FRotator(0.f, Move->IsFalling() ? FallingRotationRateYaw : GroundedRotationRateYaw, 0.f);
+	// Turn rate follows GAIT, because the arc loops disagree by gait and they are what a held turn has to
+	// match: walk arcs carve at 180 deg/s, run arcs at 93-116. One rate cannot serve both — at the walk
+	// rate a running turn outruns its arcs and the search falls through to pivots and 180-degree starts;
+	// at the run rate walking crawls (a 180 takes 1.6s). Sprint has no arc content, so it gets the widest
+	// carve by choice. Airborne stays finite regardless or the turn reads as a snap.
+	float GroundedYawRate = GroundedRotationRateYaw;
+	if (bGaitScaledRotationRate)
+	{
+		switch (CurrentGait)
+		{
+		case EAZ_Gait::Run:    GroundedYawRate = RunRotationRateYaw;    break;
+		case EAZ_Gait::Sprint: GroundedYawRate = SprintRotationRateYaw; break;
+		default:               break;   // Walk keeps GroundedRotationRateYaw
+		}
+	}
+	Move->RotationRate = FRotator(0.f, Move->IsFalling() ? FallingRotationRateYaw : GroundedYawRate, 0.f);
 }
 
 void AAZ_CmcHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -313,5 +326,5 @@ void AAZ_CmcHeroCharacter::OnLookTriggered(const FInputActionValue& Value)
 
 	const FVector2D Axis = Value.Get<FVector2D>();
 	AddControllerYawInput(Axis.X * LookRateYaw);
-	AddControllerPitchInput(Axis.Y * LookRatePitch);
+	AddControllerPitchInput(-Axis.Y * LookRatePitch);
 }
