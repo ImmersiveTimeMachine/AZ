@@ -393,3 +393,60 @@ RM-lite curve-follow, NavMover, warp-drive glue; task #15 (Mover CAS runtime) di
 
 Related: [[project_architecture_rationale]] (fired revisit clauses), [[project_contextual_anim_mover_assessment]],
 [[project_sp_first_coop_extensible]] (ALWAYS/AVOID lists still apply on CMC).
+
+---
+
+## ★★ 2026-08-19 — THE CONTENT/SPEED MISMATCH (root cause of walk/run/walk churn)
+
+**Measured root motion speeds (authored, cm/s):**
+
+| clip set | Walk | Run | Sprint | Crouch walk |
+|---|---|---|---|---|
+| **AnimPro** (`/Game/Assets/RTG_AZ/MovementAnimsetPro`, 197 clips) | **172.6** | **375.7** | 641.8 | 168.7 |
+| RT_NWP (GASP retargets, what the 27 CMC DBs held) | 206.0 | 514.9 | 720.9 | — |
+| `AAZ_CmcCharacterBase` gait constants | 165 | 375 | 585 | 90 |
+
+Our gait speeds were tuned to **AnimPro** (Run matches to 0.2%). Filling the databases with GASP retargets
+put every clip 25-37% off the pawn's real speed, and 375 lands almost exactly BETWEEN GASP's walk (206) and
+run (515) -> no loop matches, so the search oscillated walk/run and preferred `Stand_GaitTransitions`
+(whose clips sweep the middle speeds). Confirmed live: steady 375 playing `Transition_Walk_to_Run`.
+Cost-bias tuning (GaitTrans base +0.2 etc., applied 2026-08-19) treats the symptom; the CONTENT is the cause.
+
+**Curve consequence of moving to AnimPro:** RT_NWP carries 6 GASP curves
+(`FootSpeed_L/R`, `MoveData_Speed`, `Phase`, `Enable_OrientationWarping`, `Enable_PlayRateWarping`).
+AnimPro carries **`contact_l`/`contact_r` on only 2 clips, nothing else**. Effects: `Get_DynamicPlayRate`
+-> honest 1.0 no-op; `Get_AOValue` Disable_AO fade -> always full; foot phase dead (`bLeftFootDown` false,
+same as the v2 stack — direction still works, foot-phase variants of L/R just never separate); Pose History
+`CollectedCurves=["Phase"]` collects nothing; the blend-stack `Enable_OrientationWarping` alpha reads 0.
+Curve NAMES are `EditDefaultsOnly` FNames on the anim instance (h:490-503) + `bInvertFootPhase` (h:482) and
+`FootPlantedSpeedThreshold` (h:506) -> repointing to contact_l/contact_r is a CDO click, not a rebuild
+(contact is a 0/1 flag inverted vs a speed, so threshold 0.5 + bInvertFootPhase=true).
+
+**CHT_v2_CharacterAnimations = the reference** (84 rows, 13 columns, 82 anim refs): 75 AnimPro + 4
+`RTG_RM_M_Neutral_Crouch_Idle_Break_v02..v05` (AnimPro has no crouch breaks) + 3 `AZ_Bump_*` reactions.
+v2 chose `_new` variants for every crouch clip. v2 referenced NO sprint and NO gait-transition clips —
+**AnimPro has no gait-transition content at all**, which matches GASP 5.8 having no such database either.
+
+**The mapping (validated: 93 clips, 0 missing, 20 databases filled, 7 to clear):**
+Idles<-Idle | IdleBreaks<-Idle3/4/6 | TIP<-TurnLt90_Loop,TurnRt90_Loop,TurnLt180,TurnRt180 |
+Walk_Loops<-WalkFwd/BwdLoop+StrafeLeft/Right(+45/135) | Walk_Starts<-WalkFwdStart(+90/135/180 L/R),
+WalkBwdStart,StrafeLeft/RightStart | Walk_Stops<-WalkFwd/Bwd+StrafeLeft/Right Stop_LU/RU |
+Walk_Turns<-WalkArchLoop_L/R | Run_Loops<-RunFwd/Bwd/Lt/RtLoop+RunStrafe45/135 L/R |
+Run_Starts<-RunFwdStart(+90/135/180 L/R) | Run_Stops<-RunFwdStop_LU/RU |
+Run_Pivots<-RunFwdTurn180_L/R_LU/RU | Run_Turns<-RunArchLoop_L/R | Sprint_Loops<-SprintFwdLoop1 |
+StanceTransitions<-Idle2Crouch_new,Crouch2Idle_new | Crouch_Idles<-CrouchLoop_new |
+Crouch_IdleBreaks<-RTG_RM crouch breaks v02-v05 | Crouch_TIP<-Crouch_Turn90L/R_new |
+Crouch_Walk_Loops/Starts/Stops<-the 8 `_new` clips each.
+**CLEAR + ungate (no AnimPro content):** Stand_Walk_Pivots, Sprint_Starts/Stops/Turns,
+**Stand_GaitTransitions**, Crouch_Walk_Pivots, Crouch_Walk_Turns.
+Loop flag must be forced TRUE on: SprintFwdLoop1, Walk/RunArchLoop_L/R (authored unflagged).
+
+**Open tuning decisions (NOT applied):** SprintSpeed 585 -> 642 to match the one sprint loop;
+CrouchSpeed 90 -> ~169 (AnimPro crouch walk is authored at 169, so 90 = 47% foot slide);
+WalkSpeed 165 -> 172 (minor). All three are `EditDefaultsOnly` on `AAZ_CmcCharacterBase` — but
+**BP_CMC_Hero already serialized its own CDO copy**, so change them on the BP, not in C++ (doctrine rule 1).
+
+**Editor hazard hit:** `EditorAssetLibrary.save_loaded_asset` on an AnimSequence hung the game thread at
+"Generating thumbnails" (AnimPro_SprintFwdLoop1) — every subsequent Python call timed out while the editor
+stayed "connected". Suspect a modal behind the main window. Set loop flags via the asset editor instead,
+or save with a different path.
