@@ -81,5 +81,6 @@ UE 5.8 third-person survival-horror, **title CHALK**: 2024 Montreal outbreak, dr
 - [project_gas_gameplay.md](project_gas_gameplay.md) — GAS layout. [inventory-system.md](inventory-system.md) — inventory. [weapon_swap_architecture.md](weapon_swap_architecture.md), [feedback_ik_setup.md](feedback_ik_setup.md) — weapons/IK.
 
 ## Catalogs
+- [Rider MCP new tools](reference_rider_mcp_new_tools.md) — lint-before-compile, screenshots, refactor suite, call hierarchy, debugger attach.
 - [reference_noweapon_anim_catalog.md](reference_noweapon_anim_catalog.md) — 191 NoWeapon anims by group; gaps noted.
 - [reference_project_quickref.md](reference_project_quickref.md) — systems summary, naming, source dirs (ex-MEMORY.md detail).

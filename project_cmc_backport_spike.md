@@ -23,6 +23,111 @@ trajectory (−1/30/0.1/15 + HandleTrajectoryWorldCollisions + per-state data), 
 (braking 500/2000, sprint tapers, instant-yaw/200-falling rotation), 7-state controller rules — all values
 in the audit file. MetaHuman MHC_Hero is READY (user 2026-08-15) — P-MH stays post-verdict.
 
+## ★★★ 2026-08-21 (final) — ROOT-MOTION-FROM-EVERYTHING ON THE MM PATH: TRIED, FAILED, REVERTED. NEVER AGAIN.
+
+Attempted the Mover hybrid natively on CMC: ABP `RootMotionFromEverything` + `bEnableRootMotion=false`
+on in-place clips so only transitions RM-drive the capsule. **Catastrophic, fully reverted same day**
+(mode back to MontagesOnly, all 12 clip flags back to true). Measured failure signature: character
+travels at full speed with the mesh facing 82-178 degrees off travel for seconds (`ang=-178/-120/-97`
+sustained, loop at cost 5-10 vs normal ~0), "camera one direction, movement another".
+
+**Root cause — the mode is structurally incompatible with an MM blend stack:** every rm-on clip's
+BLEND TAIL (a start/pivot/stance clip fading out ~0.5s) flags `HasAnimRootMotion`, and CMC's
+`bAllowPhysicsRotationDuringAnimRootMotion=false` (default) FREEZES capsule rotation whenever the flag
+is up, while partial-WEIGHT root motion overrides velocity with a fraction of the clip's motion.
+Repeated transitions accumulate unbounded facing error. Montage RM works because a montage owns the
+body at FULL weight; MM never plays anything at full weight during blends. The Mover build got away
+with the hybrid because its bridge was TAG-GATED per window (Mover.SkipAnimRootMotion) and its
+transitions were near-full-weight BlendStack plays.
+
+If "capsule follows the transition clip" is ever attempted again on CMC, the candidates are
+capsule-side and rotation-safe: clamp MaxWalkSpeed to the playing clip's measured `MoveData_Speed`
+curve during the commitment window (curves exist, authored 2026-08-21), or a scoped RootMotionSource.
+NOT the global mode.
+
+**What SURVIVED the day and is live/baked:** velocity-based IsMoving (stops reachable), the four
+intent gates (Starts<100 / Stops-on-release / Pivots>=120deg / StanceTrans-on-stance-change — the
+LAST one closed the final fallback leak: crouch<->stand clips at cost 3-5 mid-turn), walk-slice
+commitment (-1.0) + measured MoveData_Speed curves + PlayRate binding, role-shaped notify windows.
+
+## ★★ 2026-08-21 (late) — INTENT-GATED MM POOLS: the selection doctrine (check EVERY pool edit against this)
+
+Whack-a-mole lesson: removing the wrong winner from a moving-turn query just promotes the next
+least-bad candidate (arc Turns -> Starts -> Stops, three costumes of ONE mechanism: our content has no
+per-angle pivots, so SOMETHING wrong always bids). The fix is a complete board where every clip class
+has an explicit competition condition, enforced in `Get_DatabasesToSearch` via DB Tags (deliberate GASP
+deviation — GASP outbids with 130+ pivots instead of gating):
+
+| class | searchable when | enforcement |
+|---|---|---|
+| Loops | always (state/gait rows) | gate rows |
+| Starts | Speed2D < 100, or a Starts clip is current | C++ filter, tag "Starts" (all 4 starts DBs tagged) |
+| Stops | input RELEASED (Acceleration ~ 0, IsMovingAccelerationTolerance), or a Stops clip is current | C++ filter, tag "Stops" (all 4 stops DBs tagged) |
+| Pivots | always in their rows (reversals happen at speed) | gate rows |
+| TIP | never (user rule: no TIP at idle/moving) | ungated |
+| StanceTrans | always, any speed (crouch toggles need it) | Any-row; WATCH for leaks |
+
+Key insight for Stops: STOPPING IS AN INPUT FACT, NOT A VELOCITY FACT — a held stick mid-turn brakes
+exactly like a stop; trajectory cost cannot separate them, input can. Both filters carry a
+currently-playing guard (CurrentDatabaseTags) so a filter never cuts its own clip mid-play.
+
+Walk-pivot solution (user-invented duplicate-per-role pattern): an asset carries ONE notify/tag set,
+so a clip serving two roles gets DUPLICATED — `AnimPro_WalkFwdTurn180_L/R` (duplicates of
+WalkFwdStart180_L/R) live in PSD_AZ_Stand_Walk_Pivots (tag Pivots, NOT speed-gated), originals stay in
+Walk_Starts (tag Starts, speed-gated). Crouch has the same hole; same pattern applies to
+Crouch_WalkFwdStart180_L/R when asked. Sprint reuses Run starts/stops/pivots (row 4, unchanged).
+
+Watch items left deliberately ungated: StanceTransitions in every union (pose channels keep them out so
+far); 135-degree walk turns may elect the 180 pivot copy (acceptable). Role-shaped BlockTransition
+windows (Pass 1, 31 clips): pivots [50%->end], starts [15%->end], stops [30%->end], stance [15%->end],
+loops untouched (their BranchIn corpses feed the v2 Mover branch DBs — NEVER strip).
+
+## ★★ 2026-08-21 — CONTENT DECISION: STAY ANIMPRO, CEILING ACCEPTED (do not re-litigate)
+
+User chose (AskUserQuestion, four options laid out) to KEEP AnimPro content at current gait speeds
+(165/375/585) for the hero MM path, accepting the density ceiling. Rejected alternatives, recorded so
+they are not re-proposed: RT_NWP+GASP speeds (full density, but run 375->500 ripples into feel/Chalkie
+pacing), freeze-and-advance-spike, and revisiting the v2 CHT+SM doctrine.
+
+**The inventory fact that framed the choice (was WRONG in older notes — "332 ingested"):**
+`RT_NWP_*` = **887 clips**, the ENTIRE GASP Neutral library retargeted on SKEL_SurvivalMan, including
+**351 pivot-family clips** (96 Box, 60 Pivot, 3 Spin, 10 Shuffle) + 50 loops / 120 starts / 66 stops /
+114 crouch / 48 jumps / 12 gait transitions. It sits unused because its authored speeds (~206/515/721)
+mismatch our gait speeds — the original walk/run oscillation. It remains the ready-made density fix if
+this decision is ever reopened (repopulate DBs mirroring GASP Dense + raise speeds to ~200/500/700).
+
+**What the ceiling means concretely (measured):** AnimPro has 4 run pivots (all ~180 deg), 0 walk pivots,
+0 spins, 0 shuffles, 0 gait transitions, 1 sprint loop. GASP Dense: 136/133 pivots, 18-20 loops per gait.
+Turning quality therefore rests on: Starts (90/135/180 fans) + Run pivots + capsule rotation,
+Steering at its ORIGINAL values (S1 ProceduralTargetTime 0.2 / DisableSteeringBelowSpeed 10; S2 0.2 —
+the GASP-parity edits 0.4/1.0/1e6 were tried 2026-08-21, user judged the batch WORSE, reverted same day;
+re-try only one-at-a-time with A/B), Turns DBs OUT of gates and OUT of PSN (user-approved Stage-2 state:
+"lean BP works better"), OffsetRootBone (+ native RootTransform pull in C++ — the BP SetOffsetRootTransform
+seam is DEAD, deprecated), and capsule rotation at uniform 180 deg/s (bGaitScaledRotationRate=false; the
+per-gait 180/115/90 split was arc-clip-era and is retired).
+
+★ PROTOCOL from the 2026-08-21 thrash: this baseline is the reference. ONE change per PIE test from here —
+never batch content edits with node-settings edits; every PSD content edit requires an editor RESTART
+before judging. A "restore" must restore the approved state EXACTLY, not the pre-approval state (the
+2026-08-21 restore wrongly re-gated the Turns DBs the user had approved removing — that overshoot plus
+batched steering edits is what made "everything worse").
+Do NOT try to close the turn-quality gap by settings tuning — two sessions proved settings are at parity
+and the residual is content. Open question for first PIE: does Steering's root-motion SCALING work with
+bForceRootLock=true clips, or only its additive correction path.
+
+**FINAL RESOLUTION on strafe clips in explore pools (settled 2026-08-21 after going back and forth):**
+Explore (OrientToMovement) pools are **FORWARD-ONLY** — user-confirmed, and this is the fix for the
+"moving right but face looks left" bug. Mechanism: GASP's orient-to-movement Dense pools DO keep every
+directional loop, but ONLY because its clips carry an `Enable_Warping` curve driving the
+OrientationWarping node, which rotates the pose so the clip's movement direction matches actual travel.
+AnimPro clips have NO such curve -> our OW node reads alpha 0 -> a lateral clip plays with its authored
+off-axis torso/head while the capsule faces velocity = the facing bug. So: lateral/backward loops in an
+orient-to-movement MM pool REQUIRE working orientation warping; without it, forward-only is correct.
+The strafe/backward family is RESERVED for the combat Strafe rotation mode
+([[project_combat_fist_build_plan]]: combat strafe locomotion, build once, shared with aiming) — when
+that slice lands it needs strafe-gated DBs (gate struct needs a RotationModes axis = UPROPERTY = build)
+OR Enable_Warping curves authored onto the clips (scriptable, AnimationLibrary curve API is GC-safe).
+
 ## ★★★ 2026-08-16 — STATE OF PLAY + NEXT SESSION START (supersedes the 2026-08-15 plan below)
 
 **USER PIVOT (2026-08-16): GASP is REFERENCE ONLY.** The "stock GASP ABP + UEFN skeleton" strategy in the
