@@ -104,6 +104,31 @@ struct AZ_API FAZ_CmcAnimContract
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Contract")
 	EAZ_Gait Gait = EAZ_Gait::Run;
 
+	/** Gait for ANIMATION POOL SELECTION — momentum-aware, and LATCHED for the duration of a stop.
+	 *  Gait above is COMMANDED (tag-derived) and correctly drives MaxWalkSpeed; this one is what the body
+	 *  is doing. Computed by AAZ_CmcCharacterBase::UpdateSelectionGait so there is one owner. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	EAZ_Gait SelectionGait = EAZ_Gait::Walk;
+
+	/**
+	 * The gait->speed table, published so the anim layer can classify what the BODY is doing.
+	 *
+	 * Gait above is the COMMANDED gait (tag-derived): releasing the sprint input drops it to Walk on that
+	 * frame while the character is still travelling at 565 cm/s, which narrowed the database gate rows to
+	 * WalkMove and offered a 162 cm/s stop clip to a sprinting body (measured 2026-08-23). Selection needs
+	 * momentum, not intent — so it derives its own gait from Speed2D against these, and takes the higher
+	 * of the two. Owned by AAZ_CmcCharacterBase::SetGait; published here rather than duplicated on the
+	 * AnimInstance so there stays exactly one owner of the table.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	float WalkSpeed = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	float RunSpeed = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	float SprintSpeed = 0.f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Contract")
 	EAZ_Stance Stance = EAZ_Stance::Standing;
 
@@ -178,6 +203,46 @@ struct AZ_API FAZ_DatabaseGate
 	/** Databases this row contributes to the search when it matches. */
 	UPROPERTY(EditAnywhere, Category = "Gate")
 	TArray<TObjectPtr<UPoseSearchDatabase>> Databases;
+
+	// ==================================================================================
+	// Stage-B/C axes — AUTHORED BUT NOT YET CONSULTED (added 2026-08-23).
+	//
+	// Matches() deliberately still tests only the four original axes, so every existing row behaves
+	// EXACTLY as before: empty array = Any, bExclusive = false. The fields live here now because adding
+	// UPROPERTYs to a USTRUCT changes its layout and therefore costs an editor-closed build, whereas
+	// WIRING them is a function body Live Coding can patch. Expensive part now, cheap part later.
+	//
+	// The plan these serve is [[project_mm_state_selection_plan]]: rows declare the available SET and
+	// motion matching chooses WITHIN it. Four separate bugs on 2026-08-22 shared one root cause — MM
+	// cannot separate near-tied candidates in sparse pools — and the handedness case proved cost can
+	// never fix it, because cost cannot see intent. These axes are how intent gets in.
+	// ==================================================================================
+
+	/** Empty = Any. The locomotion phase from UAZ_LocomotionStateMachine (Starting / Stopping / Pivoting
+	 *  / TurnInPlace / StanceChange / the loops). This is the axis that makes a discrete event's pool
+	 *  selectable by STATE rather than by cost. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_StateMachineState> States;
+
+	/** Empty = Any. Which way the turn goes, LATCHED at event onset. Reuses the SM's existing bucketing
+	 *  (UAZ_LocomotionStateMachine::BucketStartDirection over PendingStartAngleDeg) rather than inventing
+	 *  a second one. The latch is mandatory: at ~180 degrees the raw sign flickers frame to frame with
+	 *  stick noise, which is exactly how `_L` came to win 9 of 10 starts regardless of actual direction. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_StartDirection> StartDirections;
+
+	/** Empty = Any. OrientToMovement / Strafe / Aiming — needed by the combat strafe slice, and included
+	 *  now so that work does not cost a second editor-closed build. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	TArray<EAZ_RotationMode> RotationModes;
+
+	/** When this row matches, it is the ONLY pool searched — first-match-wins instead of union. This is
+	 *  what turns the gate table into a chooser for discrete events while leaving the loops unioned.
+	 *  NOTE there is deliberately no MaxAcceptableCost field: v2's MMCostLimit works because that code
+	 *  owns the push and can decline it, whereas the MM node commits internally before we ever see the
+	 *  result. There is no veto hook, so the field would be dead weight. */
+	UPROPERTY(EditAnywhere, Category = "Gate")
+	bool bExclusive = false;
 
 	bool Matches(const EAZ_MovementMode InMode, const EAZ_Stance InStance,
 	             const EAZ_MovementState InState, const EAZ_Gait InGait) const

@@ -403,10 +403,17 @@ static UEdGraph* FindBlendStackBoundGraph(UAnimBlueprint* ABP, const FString& Bl
 	if (!AnimGraph) return nullptr;
 
 	UEdGraphNode* Node = FindAnimGraphNodeByGUID(AnimGraph, BlendStackNodeGUID);
-	UAnimGraphNode_BlendStack* BSNode = Cast<UAnimGraphNode_BlendStack>(Node);
+
+	// _Base, NOT the concrete UAnimGraphNode_BlendStack. UAnimGraphNode_MotionMatching derives from
+	// UAnimGraphNode_BlendStack_Base and is a SIBLING of UAnimGraphNode_BlendStack, so casting to the
+	// concrete class silently failed for every MotionMatching node and reported "BlendStack node not
+	// found" — which reads as a missing sample graph rather than a bad cast. Both own a BoundGraph.
+	UAnimGraphNode_BlendStack_Base* BSNode = Cast<UAnimGraphNode_BlendStack_Base>(Node);
 	if (!BSNode)
 	{
-		UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: BlendStack node not found: %s"), *BlendStackNodeGUID);
+		UE_LOG(LogTemp, Error,
+			TEXT("AZ_AnimGraphUtils: no BlendStack-family node (BlendStack / MotionMatching) with GUID %s"),
+			*BlendStackNodeGUID);
 		return nullptr;
 	}
 

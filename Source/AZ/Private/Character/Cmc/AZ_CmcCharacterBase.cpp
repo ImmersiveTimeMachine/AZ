@@ -143,12 +143,99 @@ FRotator AAZ_CmcCharacterBase::GetAimRotation() const
 	return IsLocallyControlled() ? GetControlRotation() : GetBaseAimRotation();
 }
 
+EAZ_Gait AAZ_CmcCharacterBase::BandForSpeed(float Speed2D) const
+{
+	// Midpoints, so a band is only claimed once the body is nearer that gait than the one above it.
+	if (Speed2D > (RunSpeed + SprintSpeed) * 0.5f)  { return EAZ_Gait::Sprint; }
+	if (Speed2D > (WalkSpeed + RunSpeed) * 0.5f)    { return EAZ_Gait::Run; }
+	return EAZ_Gait::Walk;
+}
+
+void AAZ_CmcCharacterBase::UpdateSelectionGait()
+{
+	const UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (!Move)
+	{
+		SelectionGait = CurrentGait;
+		return;
+	}
+
+	const float Speed2D = Move->Velocity.Size2D();
+	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero();
+
+	// LATCH ON THE STOP EDGE. A stop clip decelerates LINEARLY, so the capsule must too — but a band
+	// recomputed from the CURRENT speed decays as the character slows, which made one stop from sprint
+	// step 615 -> 375 -> 190 and travel 493cm over 2.15s against a clip depicting 167cm over 0.95s
+	// (measured 2026-08-23). It also re-classified the POOL mid-stop, so a single stop played a run stop
+	// for 770ms and then a walk stop for 1237ms — two clips for one stop. Capturing the band once, at the
+	// instant the stop begins, fixes both: constant deceleration AND one pool for the whole stop.
+	// Diagnostic: the ACTUAL stop, measured. Separates the two readings of "the stop looks wrong" that
+	// 1 Hz sampling cannot — a clip cut before its plant (pose problem) vs the capsule travelling past
+	// what the clip depicts (movement problem). Reference: the stop clips depict 68 cm / 0.92 s (walk)
+	// and 167 cm / 0.95 s (run). Function-local statics, not members: a member changes the UCLASS layout
+	// and Live Coding cannot patch that. One player character per world, so sharing is harmless.
+	static FVector StopStartLocation = FVector::ZeroVector;
+	static float StopElapsed = 0.f;
+	static float StopEntrySpeed = 0.f;
+	static bool bStopMeasureActive = false;
+
+	if (!bHasInput)
+	{
+		if (!bStopBandLatched)
+		{
+			bStopBandLatched = true;
+			LatchedStopBand = BandForSpeed(Speed2D);
+
+			StopStartLocation = GetActorLocation();
+			StopEntrySpeed = Speed2D;
+			StopElapsed = 0.f;
+			bStopMeasureActive = (Speed2D > 50.f);
+		}
+
+		if (bStopMeasureActive)
+		{
+			StopElapsed += GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+			if (Speed2D <= 1.f)
+			{
+				bStopMeasureActive = false;
+				const float Travelled = FVector::Dist2D(GetActorLocation(), StopStartLocation);
+				UE_LOG(LogTemp, Display,
+					TEXT("[CmcStop] entry=%.0f cm/s -> stopped in %.2fs over %.0f cm  (band=%d, braking=%.0f)"),
+					StopEntrySpeed, StopElapsed, Travelled, static_cast<int32>(LatchedStopBand),
+					Move->BrakingDecelerationWalking);
+			}
+		}
+	}
+	else
+	{
+		bStopBandLatched = false;
+		bStopMeasureActive = false;
+	}
+
+	// While stopping the latched band wins outright. Otherwise take the HIGHER of commanded and
+	// speed-implied, which leaves acceleration untouched (a commanded sprint opens sprint pools at once)
+	// and only holds the wider pools open while the body is still fast.
+	if (bStopBandLatched)
+	{
+		SelectionGait = LatchedStopBand;
+	}
+	else
+	{
+		const EAZ_Gait SpeedBand = BandForSpeed(Speed2D);
+		SelectionGait = (static_cast<uint8>(SpeedBand) > static_cast<uint8>(CurrentGait)) ? SpeedBand : CurrentGait;
+	}
+}
+
 void AAZ_CmcCharacterBase::FillAnimContract(FAZ_CmcAnimContract& Out) const
 {
 	// --- Facts available with or without a movement component ---
 	Out.ActorTransform = GetActorTransform();
 	Out.AimingRotation = GetAimRotation();
 	Out.Gait = CurrentGait;
+	Out.SelectionGait = SelectionGait;
+	Out.WalkSpeed = WalkSpeed;
+	Out.RunSpeed = RunSpeed;
+	Out.SprintSpeed = SprintSpeed;
 	Out.Stance = bIsCrouched ? EAZ_Stance::Crouching : EAZ_Stance::Standing;
 	Out.bJustLanded = bJustLanded;
 	Out.LandVelocity = LandVelocity;

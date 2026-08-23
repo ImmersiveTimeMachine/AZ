@@ -4,10 +4,15 @@
 
 #include "Character/Cmc/AZ_CmcCharacterBase.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetSystemLibrary.h"   // EDrawDebugTrace
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
 #include "PoseSearch/MotionMatchingAnimNodeLibrary.h"
 #include "PoseSearch/PoseSearchDatabase.h"
+#include "BoneControllers/AnimNode_OffsetRootBone.h"
+#include "Animation/AnimClassInterface.h"
 
 namespace AZ::CmcAnim
 {
@@ -85,6 +90,132 @@ void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// The ENTIRE pawn -> anim seam, once per frame, on the game thread.
 	Cached_Character->FillAnimContract(CharacterProperties);
+
+	if (bDebugAnim)
+	{
+		DrawDebugAnimOverlay();
+		LogMovementFeelOncePerSecond(DeltaSeconds);
+	}
+}
+
+/**
+ * Prints the CMC values ApplyMovementFeelParams actually wrote this frame.
+ *
+ * GAME THREAD ONLY (called from NativeUpdateAnimation) — these are read straight off the live component,
+ * which the thread-safe update must not touch.
+ *
+ * Exists because "is this tuning value actually reaching the component?" was guessed at twice on
+ * 2026-08-22 and answered wrong once: a GroundFriction change read as having no effect, and the reason
+ * turned out to be that friction is only ~1/3 of the direction authority (MaxAcceleration owns the rest)
+ * — not that the value failed to apply. Reading the applied numbers is cheaper than reasoning about them.
+ *
+ * Function-local statics rather than members: a new member changes the UCLASS layout and Live Coding
+ * cannot patch that.
+ */
+void UAZ_CmcAnimInstance::LogMovementFeelOncePerSecond(float DeltaSeconds) const
+{
+	// GAME WORLDS ONLY. Without this an unpossessed or ABP-preview instance logs its UNTOUCHED CMC CDO
+	// (friction 8 / maxAccel 800 / braking 2048 / rotYaw 360) at spd=0 forever, which buried the real
+	// samples 81-to-17 the first time this ran. ApplyMovementFeelParams never touches those instances.
+	const UWorld* FeelWorld = GetWorld();
+	if (!FeelWorld || !FeelWorld->IsGameWorld())
+	{
+		return;
+	}
+
+	const ACharacter* Character = Cast<ACharacter>(Cached_Character);
+	const UCharacterMovementComponent* Move = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Move)
+	{
+		return;
+	}
+
+	static float FeelLogAccumulator = 0.f;
+	FeelLogAccumulator += DeltaSeconds;
+	if (FeelLogAccumulator < 1.f)
+	{
+		return;
+	}
+	FeelLogAccumulator = 0.f;
+
+	// Named to avoid hiding the member Speed2D, which the WORKER thread owns — this one is read live
+	// off the component on the game thread and the two must not be confused.
+	const float LiveSpeed2D = Move->Velocity.Size2D();
+	// Time to reach the CURRENT speed at the CURRENT acceleration — the honest scalar for "inertia".
+	const float TimeToSpeed = (Move->MaxAcceleration > 0.f) ? (LiveSpeed2D / Move->MaxAcceleration) : 0.f;
+
+	UE_LOG(LogTemp, Display,
+		TEXT("[CmcFeel] spd=%.0f | friction=%.2f maxAccel=%.0f braking=%.0f rotYaw=%.0f | ")
+		TEXT("timeToSpeed=%.2fs dirTau=%.2fs | orientToMove=%d ctrlDesired=%d"),
+		LiveSpeed2D, Move->GroundFriction, Move->MaxAcceleration, Move->BrakingDecelerationWalking,
+		Move->RotationRate.Yaw, TimeToSpeed,
+		(Move->GroundFriction > 0.f) ? (1.f / Move->GroundFriction) : 0.f,
+		Move->bOrientRotationToMovement ? 1 : 0, Move->bUseControllerDesiredRotation ? 1 : 0);
+}
+
+void UAZ_CmcAnimInstance::DrawDebugAnimOverlay() const
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// Stable keys so each line REPLACES itself instead of scrolling. Keys are arbitrary but must not
+	// collide with anything else drawing an overlay; the 0x415A ("AZ") prefix keeps us out of the way.
+	static constexpr int32 KeyBase = 0x415A00;
+
+	const UEnum* DirEnum   = StaticEnum<EAZ_MovementDirection>();
+	const UEnum* GaitEnum  = StaticEnum<EAZ_Gait>();
+	const UEnum* StateEnum = StaticEnum<EAZ_MovementState>();
+	auto EnumName = [](const UEnum* E, int64 V) -> FString
+	{
+		return E ? E->GetNameStringByValue(V) : TEXT("?");
+	};
+
+	// THE line: what is on screen right now, and out of which pool.
+	const FString AnimName = GetNameSafe(CurrentSelectedAnim);
+	const FString DbName   = GetNameSafe(CurrentSelectedDatabase);
+
+	// Capsule vs mesh root. Zero until an OffsetRootBone node exists; once it does, this IS the turn
+	// lag, and the single most useful number for judging whether the offset is behaving.
+	const float RootOffsetYaw = static_cast<float>(
+		(CharacterTransform.Rotator() - RootTransform.Rotator()).GetNormalized().Yaw);
+
+	FString GateNames;
+	for (const FName& GateLabel : MatchedGateLabels)
+	{
+		if (!GateNames.IsEmpty()) { GateNames += TEXT(","); }
+		GateNames += GateLabel.ToString();
+	}
+
+	const FVector2D Lean = Get_LeanAmount();
+
+	GEngine->AddOnScreenDebugMessage(KeyBase + 0, 0.f, FColor::Yellow,
+		FString::Printf(TEXT("ANIM  %s"), *AnimName));
+	GEngine->AddOnScreenDebugMessage(KeyBase + 1, 0.f, FColor::Orange,
+		FString::Printf(TEXT("DB    %s   cost %.1f   loop %d   tags %d"),
+			*DbName, SearchCost, bCurrentAssetLooping ? 1 : 0, CurrentDatabaseTags.Num()));
+	GEngine->AddOnScreenDebugMessage(KeyBase + 2, 0.f, FColor::Silver,
+		FString::Printf(TEXT("gates [%s]"), *GateNames));
+	GEngine->AddOnScreenDebugMessage(KeyBase + 3, 0.f, FColor::Green,
+		FString::Printf(TEXT("dir   %s  ang %+.0f    gait %s   state %s"),
+			*EnumName(DirEnum,  static_cast<int64>(MovementDirection)), MovementDirectionAngle,
+			*EnumName(GaitEnum, static_cast<int64>(Gait)),
+			*EnumName(StateEnum, static_cast<int64>(MovementState))));
+	GEngine->AddOnScreenDebugMessage(KeyBase + 4, 0.f, FColor::Cyan,
+		FString::Printf(TEXT("spd   %.0f / %.0f    trj fut %.0f   turnAng %+.0f"),
+			Speed2D, CharacterProperties.CurrentMaxSpeed,
+			Trj_FutureVelocity.Size2D(), Get_TrajectoryTurnAngle()));
+	// Capsule yaw, mesh-root yaw, and the lag between them. If ROOTOFF stays 0 while turning, the
+	// OffsetRootBone node is not reaching Update_EssentialValues.
+	GEngine->AddOnScreenDebugMessage(KeyBase + 5, 0.f,
+		FMath::Abs(RootOffsetYaw) > 60.f ? FColor::Red : FColor::White,
+		FString::Printf(TEXT("yaw   capsule %+.0f   root %+.0f   ROOTOFF %+.0f"),
+			CharacterTransform.Rotator().Yaw, RootTransform.Rotator().Yaw, RootOffsetYaw));
+	GEngine->AddOnScreenDebugMessage(KeyBase + 6, 0.f, FColor::Magenta,
+		FString::Printf(TEXT("lean  %+.2f    AOyaw %+.0f    pivot %d  tip %d  starting %d"),
+			Lean.X, Get_AO_Yaw(), IsPivoting() ? 1 : 0,
+			ShouldTurnInPlace() ? 1 : 0, IsStarting() ? 1 : 0));
 }
 
 void UAZ_CmcAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
@@ -101,8 +232,29 @@ void UAZ_CmcAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 
 void UAZ_CmcAnimInstance::SetOffsetRootTransform(const FTransform& InOffsetRootTransform)
 {
+	// DEAD — see the declaration. Update_EssentialValues pulls from the node directly and ignores this.
 	OffsetRootTransform = InOffsetRootTransform;
 	bHasOffsetRootTransform = true;
+}
+
+FAnimNode_OffsetRootBone* UAZ_CmcAnimInstance::FindOffsetRootBoneNode()
+{
+	// GetClass() is the GENERATED class at runtime, so a native parent can reach a node its own
+	// compilation never saw. This is the whole reason the BP hand-off is unnecessary.
+	const IAnimClassInterface* AnimClass = IAnimClassInterface::GetFromClass(GetClass());
+	if (!AnimClass)
+	{
+		return nullptr;
+	}
+
+	for (const FStructProperty* NodeProp : AnimClass->GetAnimNodeProperties())
+	{
+		if (NodeProp && NodeProp->Struct == FAnimNode_OffsetRootBone::StaticStruct())
+		{
+			return NodeProp->ContainerPtrToValuePtr<FAnimNode_OffsetRootBone>(this);
+		}
+	}
+	return nullptr;
 }
 
 // ======================================================================================
@@ -122,6 +274,60 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 
 	if (bDebugAnim)
 	{
+		// ------------------------------------------------------------------------------------------
+		// SELECTION-CHANGE log.
+		//
+		// The 1 Hz line below CANNOT see churn. Two adjacent rows in it are a whole second apart, so
+		// N alternating rows are indistinguishable from N separate, perfectly healthy reversals - a
+		// transition table built from it is a sampling artifact, not evidence. (Learned the hard way:
+		// a "pivot flip-flop" diagnosis was built on exactly that mistake.) This fires on the frame the
+		// selection actually changes, which is the only signal that separates "the search is
+		// flip-flopping" from "the clip simply looks start-like".
+		//
+		// READING IT: >=3 changes inside ONE reversal, each dt<200ms, is real churn. One change that
+		// then holds for the clip's length is not a selection bug at all - it is the content ceiling.
+		// cost<0 means the CONTINUING pose won (our -1.0 OverrideContinuingPoseCostBias applied);
+		// cost>0 is a fresh selection, and a LARGE positive cost means the pool had nothing better.
+		//
+		// Function-local statics, NOT members: a new member changes the UCLASS layout and Live Coding
+		// cannot patch that, which would cost an editor restart for a diagnostic. One player character
+		// per game world, and the IsGameWorld guard keeps ABP-editor preview instances out of the
+		// sample, so the sharing is harmless.
+		// ------------------------------------------------------------------------------------------
+		if (const UWorld* DebugWorld = GetWorld())
+		{
+			if (DebugWorld->IsGameWorld())
+			{
+				static TWeakObjectPtr<UObject> LastSelectedAnim;
+				static float SecondsSinceSelectionChange = 0.f;
+				static int32 SelectionChangeIndex = 0;
+
+				SecondsSinceSelectionChange += DeltaSeconds;
+
+				if (CurrentSelectedAnim.Get() != LastSelectedAnim.Get())
+				{
+					FString ChangeGates;
+					for (const FName& GateLabel : MatchedGateLabels)
+					{
+						if (!ChangeGates.IsEmpty()) ChangeGates += TEXT(",");
+						ChangeGates += GateLabel.ToString();
+					}
+					UE_LOG(LogTemp, Display,
+						TEXT("[CmcSel] #%d dt=%.0fms %s -> %s | cost=%+.2f spd=%.0f turn=%.0f accel=%.2f ")
+						TEXT("moving=%d pivot=%d tip=%d | db=%s gates=[%s]"),
+						++SelectionChangeIndex,
+						SecondsSinceSelectionChange * 1000.f,
+						*GetNameSafe(LastSelectedAnim.Get()), *GetNameSafe(CurrentSelectedAnim),
+						SearchCost, Speed2D, Get_TrajectoryTurnAngle(), AccelerationAmount,
+						IsMoving(), IsPivoting(), ShouldTurnInPlace(),
+						*GetNameSafe(CurrentSelectedDatabase), *ChangeGates);
+
+					LastSelectedAnim = CurrentSelectedAnim.Get();
+					SecondsSinceSelectionChange = 0.f;
+				}
+			}
+		}
+
 		DebugAccumulator += DeltaSeconds;
 		if (DebugAccumulator >= 1.f)
 		{
@@ -136,7 +342,8 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 			UE_LOG(LogTemp, Display,
 				TEXT("[CmcAnim] spd=%.0f/%.0f moving=%d pivot=%d tip=%d | accel=%.2f | dir=%s ang=%.0f Lfoot=%d ")
 				TEXT("| trj past=%.0f cur=%.0f fut=%.0f turn=%.0f | land=%.2fs @ %.0f | samples=%d ")
-				TEXT("| gates=[%s] | MM db=%s cost=%.1f loop=%d tags=%d anim=%s"),
+				TEXT("| gates=[%s] | yaw cap=%.0f root=%.0f ROOTOFF=%.0f ")
+				TEXT("| MM db=%s cost=%.1f loop=%d tags=%d anim=%s"),
 				Speed2D, CharacterProperties.CurrentMaxSpeed, IsMoving(), IsPivoting(), ShouldTurnInPlace(),
 				AccelerationAmount,
 				DirEnum ? *DirEnum->GetNameStringByValue(static_cast<int64>(MovementDirection)) : TEXT("?"),
@@ -145,6 +352,8 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 				Get_TrajectoryTurnAngle(),
 				TrajectoryCollision.TimeToLand, TrajectoryCollision.LandSpeed, Trajectory.Samples.Num(),
 				*GateNames,
+				CharacterTransform.Rotator().Yaw, RootTransform.Rotator().Yaw,
+				FRotator::NormalizeAxis(RootTransform.Rotator().Yaw - CharacterTransform.Rotator().Yaw),
 				*GetNameSafe(CurrentSelectedDatabase), SearchCost, bCurrentAssetLooping,
 				CurrentDatabaseTags.Num(), *GetNameSafe(CurrentSelectedAnim));
 		}
@@ -212,19 +421,26 @@ void UAZ_CmcAnimInstance::Update_EssentialValues(float DeltaSeconds)
 	CharacterTransform = CharacterProperties.ActorTransform;
 
 	// --- then_1: root transform ---
-	// The OFFSET root, not the capsule. Yaw + 90 converts the offset node's space into the mesh's
-	// (-90 yaw) convention, which is the frame every actor-relative value below is measured in.
-	if (bHasOffsetRootTransform)
+	// The OFFSET root, not the capsule — the mesh lags the capsule through a turn and every
+	// actor-relative value below has to be measured against what is actually on screen.
+	// GASP: RootTransform = MakeTransform(GetOffsetRootTransform(NodeReference: OffsetRoot)) with
+	// Yaw + 90, which converts the offset node's space into the mesh's (-90 yaw) convention.
+	FAnimNode_OffsetRootBone* OffsetRootNode = bOffsetRootBoneEnabled ? FindOffsetRootBoneNode() : nullptr;
+	if (OffsetRootNode)
 	{
-		const FRotator OffsetRotation = OffsetRootTransform.Rotator();
+		FTransform OffsetRoot;
+		OffsetRootNode->GetOffsetRootTransform(OffsetRoot);
+
+		const FRotator OffsetRotation = OffsetRoot.Rotator();
 		RootTransform = FTransform(
 			FRotator(OffsetRotation.Pitch, OffsetRotation.Yaw + 90.f, OffsetRotation.Roll),
-			OffsetRootTransform.GetTranslation(),
+			OffsetRoot.GetTranslation(),
 			FVector::OneVector);
 	}
 	else
 	{
-		// GASP's else-branch. Also where we land if the AnimGraph never calls SetOffsetRootTransform.
+		// GASP's else-branch, and where we land whenever the AnimGraph carries no OffsetRootBone node.
+		// Degraded, not broken: every direction below is then measured against the capsule instead.
 		RootTransform = CharacterTransform;
 	}
 
@@ -270,7 +486,15 @@ void UAZ_CmcAnimInstance::Update_States()
 	MovementState = IsMoving() ? EAZ_MovementState::Moving : EAZ_MovementState::Idle;
 
 	Gait_LastFrame = Gait;
-	Gait = CharacterProperties.Gait;
+
+	// The CONTRACT carries two gaits and we deliberately take the selection one. Gait (commanded,
+	// tag-derived) drops to Walk the frame the sprint input is released, which narrowed the gate rows to
+	// WalkMove while the body was still at 565 cm/s and offered a 162 cm/s stop clip to a sprinting
+	// character. SelectionGait is momentum-aware AND latched for the duration of a stop, so a single stop
+	// keeps one pool instead of stepping Sprint->Run->Walk and playing three different stop clips.
+	// Derived on the character (AAZ_CmcCharacterBase::UpdateSelectionGait) rather than here, so the
+	// gait->speed table has exactly one owner.
+	Gait = CharacterProperties.SelectionGait;
 
 	Stance_LastFrame = Stance;
 	Stance = CharacterProperties.Stance;
@@ -328,12 +552,15 @@ void UAZ_CmcAnimInstance::Update_MovementDirection()
 
 bool UAZ_CmcAnimInstance::IsMoving() const
 {
-	// GASP: (Velocity != 0, tol 0.1) AND <literal true> AND (Acceleration != 0).
-	// The middle term is a Trj_FutureVelocity test whose node is present but WIRED TO NOTHING — Epic
-	// left it disconnected and the AND pin sits at its `true` default. Ported as it runs.
-	const bool bVelocityNonZero = !Velocity.Equals(FVector::ZeroVector, IsMovingVelocityTolerance);
-	const bool bAccelerationNonZero = !Acceleration.Equals(FVector::ZeroVector, IsMovingAccelerationTolerance);
-	return bVelocityNonZero && bAccelerationNonZero;
+	// VELOCITY-BASED, per the GASP 5.8 audit's measured CMC behaviour: "IsMoving on CMC path =
+	// |current velocity| > 0.1". The earlier port ANDed in an acceleration term (read off the Mover
+	// graph) and that single term made stop animations UNREACHABLE: releasing the stick zeroes
+	// acceleration the same frame, the state flips to Idle instantly, the gate rows swap to the idle
+	// pool, and the Stops databases leave the search before the deceleration they exist for has even
+	// begun (2026-08-21: a whole session with ZERO stop selections, idle playing while sliding at
+	// 280 cm/s). Velocity-based, the state stays Moving through the brake — the audit's exact words:
+	// "GASP CMC stop-feel assumes velocity-based IsMoving".
+	return !Velocity.Equals(FVector::ZeroVector, IsMovingVelocityTolerance);
 }
 
 bool UAZ_CmcAnimInstance::IsPivoting() const
@@ -443,7 +670,188 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 			}
 		}
 	}
+
+	// DELIBERATE GASP DEVIATION (user call 2026-08-21): Starts pools are searchable only while
+	// actually STARTING. GASP searches starts at any speed and relies on its 130+ pivot clips to
+	// outbid them during moving turns; our pools have no such content, so mid-turn queries kept
+	// electing Start heads ("when we turn we have a start anim playing"). Below the cap covers both
+	// legitimate cases: the idle launch, and the near-stop plant of a reversal — where a 180-start
+	// IS the right answer. The CurrentDatabaseTags guard keeps the pool searchable while a start is
+	// already the selection, so one is never cut mid-play by its own filter.
+	// TODO: promote the cap to an EditDefaultsOnly UPROPERTY at the next editor-closed build.
+	static constexpr float StartsSearchMaxSpeed2D = 100.f;
+	static const FName StartsTag(TEXT("Starts"));
+	if (Speed2D > StartsSearchMaxSpeed2D && !CurrentDatabaseTags.Contains(StartsTag))
+	{
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(StartsTag);
+		});
+	}
+
+	// Second class under the same doctrine (user call, same day): Stops are only for STOPPING, and
+	// stopping is an INPUT fact, not a velocity fact. A held stick mid-turn brakes exactly like a
+	// stop — the trajectory cannot tell them apart, which is how "turning at some speed takes the
+	// stop anim" — but input can: released stick = stop legitimate, held stick = never. Uses the
+	// same tolerance IsMoving() uses for its acceleration term, so "input held" means the same thing
+	// everywhere. Same currently-playing guard as Starts: a selected stop is never cut by its own
+	// filter (re-pressing input mid-stop interrupts it through normal cost competition instead).
+	static const FName StopsTag(TEXT("Stops"));
+	const bool bInputHeld = !Acceleration.Equals(FVector::ZeroVector, IsMovingAccelerationTolerance);
+	if (bInputHeld && !CurrentDatabaseTags.Contains(StopsTag))
+	{
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(StopsTag);
+		});
+	}
+
+	// NOTE 2026-08-21: a pivot hard-turn gate (v2's bHardTurn>=135 analog) lived here for a few
+	// hours and was REMOVED the same day: Get_TrajectoryTurnAngle collapses the moment velocity flips
+	// through the plant and Speed2D dips during the decel, so the gate read false at exactly the frames
+	// a reversal selects its pivot — a whole session logged ZERO pivot selections. Its justification
+	// (a mis-fired 180 must not rotate the capsule) belonged to the reverted RootMotionFromEverything
+	// experiment. Pivots compete freely; commitment bounds the cost of a shallow-turn over-serve.
+
+	// Fourth and FINAL class — the leak the doctrine table had marked "watch": with every other wrong
+	// candidate gated, mid-turn queries fell through to the crouch<->stand clips (measured 2026-08-21:
+	// Idle2Crouch/Crouch2Idle selected at cost 3.2-4.6 during walking turns, and as rm-on transitions
+	// their near-zero root motion braked the capsule too). Stance transitions have exactly one
+	// legitimate trigger: the stance actually changing. Gate on that edge, with the standard
+	// currently-playing guard so the clip finishes once chosen. After this, every class in the pools
+	// has an explicit competition condition — there is no ungated fallback left.
+	static const FName StanceTransTag(TEXT("StanceTrans"));
+	if ((Stance == Stance_LastFrame) && !CurrentDatabaseTags.Contains(StanceTransTag))
+	{
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(StanceTransTag);
+		});
+	}
 	return Result;
+}
+
+namespace AZ::CmcAnim
+{
+	/** Database tag marking the deceleration one-shots. Matches the literal used by Get_DatabasesToSearch. */
+	static const FName StopsTagName(TEXT("Stops"));
+
+	/** Below this the character counts as stopped: the stop clip's remaining frames are settle, not travel. */
+	static constexpr float StoppedSpeedTolerance = 2.f;
+
+	/** Play-rate floor while a Stops clip is selected. Far below the loop floor (0.8) on purpose — see
+	 *  Get_DynamicPlayRate. 0.2 lets a stop settle into its plant instead of striding in place. */
+	static constexpr float StopsMinPlayRate = 0.2f;
+
+	/** Tag on the idle pools. Suppressed while a stop is still playing — see KeepPlayingOneShotSearchable. */
+	static const FName IdlesTagName(TEXT("Idles"));
+
+	/** Stops are held LONGER than other one-shots: their last third is the settle and plant, and cutting
+	 *  it is what made a stop read as unfinished. Measured 2026-08-23: stops played only 50-76% of the
+	 *  clip while the CAPSULE arrived correctly (run travelled 174cm against the clip's 167cm), so the
+	 *  fault was entirely the pose being replaced early, not the movement. */
+	static constexpr float StopKeepAliveFraction = 0.9f;
+
+	/** Hold a one-shot's database in the pool until this fraction of the clip has played. A FRACTION and
+	 *  not a fixed remaining-time: our stop clips run 0.933-1.533s, and any fixed "N seconds left" cut
+	 *  releases the short ones almost immediately and the long ones far too late. */
+	static constexpr float OneShotKeepAliveFraction = 0.7f;
+}
+
+/**
+ * Keep the CURRENTLY PLAYING one-shot's database in the searchable set until its clip is mostly done.
+ *
+ * WHY. The gate table is addressed by MovementState, so the frame Speed2D reaches 0 the matching row
+ * flips WalkMove -> StandIdle and the Stops database leaves the union entirely. InterruptOnDatabaseChange
+ * then invalidates the continuing pose *because its database is no longer listed* — so the stop clip is
+ * evicted by SET MEMBERSHIP, not outbid on cost. Measured 2026-08-22: stop clips survived a median of
+ * 82ms against 0.93-1.53s of content, and an OverrideContinuingPoseCostBias of -1.0 changed nothing,
+ * because a cost bias cannot help a candidate that was never in the search.
+ *
+ * This does NOT suppress anything. The pool still carries every database the new state wants, so a
+ * re-press mid-stop still puts Starts/Pivots in the search and they win on cost exactly as before. The
+ * only thing prevented is a clip being yanked out from under itself while it is still playing.
+ *
+ * Looping assets are excluded: they have no natural end, so holding one would pin the search forever.
+ */
+void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
+	const FMotionMatchingAnimNodeReference& MotionMatchingNode, TArray<UPoseSearchDatabase*>& Pool) const
+{
+	FPoseSearchBlueprintResult Current;
+	bool bIsResultValid = false;
+	UMotionMatchingAnimNodeLibrary::GetMotionMatchingSearchResult(MotionMatchingNode, Current, bIsResultValid);
+	if (!bIsResultValid || !Current.SelectedDatabase || Current.bLoop)
+	{
+		return;
+	}
+
+	const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(Current.SelectedAnim);
+	if (!Sequence)
+	{
+		return;
+	}
+
+	const float PlayLength = Sequence->GetPlayLength();
+	if (PlayLength <= 0.f)
+	{
+		return;
+	}
+
+	const bool bIsStop = CurrentDatabaseTags.Contains(AZ::CmcAnim::StopsTagName);
+	const float KeepAliveFraction =
+		bIsStop ? AZ::CmcAnim::StopKeepAliveFraction : AZ::CmcAnim::OneShotKeepAliveFraction;
+
+	if (Current.SelectedTime >= KeepAliveFraction * PlayLength)
+	{
+		return;
+	}
+
+	Pool.AddUnique(const_cast<UPoseSearchDatabase*>(Current.SelectedDatabase.Get()));
+
+	// While a stop is still playing, IDLE IS NOT A CANDIDATE.
+	//
+	// Keeping the stop's database in the pool only prevents EVICTION; it never stopped Idle out-bidding
+	// the stop's continuing pose on cost once the character was stationary. Measured 2026-08-23: most
+	// stops were cut at 50-63% of the clip — BELOW the keep-alive threshold — so membership was not the
+	// binding constraint, cost was. The same measurement cleared the movement of blame: the capsule
+	// travelled 174cm against a clip depicting 167cm, i.e. it arrives correctly and only the POSE was
+	// being replaced early. Removing the idle pools for the duration is the deterministic fix.
+	//
+	// Deliberately narrow: Starts, Loops and Pivots all stay in the search, so re-pressing input still
+	// interrupts a stop on cost exactly as before. The only thing suppressed is idling out of a stop that
+	// has not finished.
+	// Suppress the idle pools ONLY WHILE STILL DECELERATING.
+	//
+	// The point of the suppression is to stop Idle out-bidding a stop clip mid-deceleration. Once the
+	// character is actually stationary that job is done, and keeping it on is unsafe: the release
+	// condition was a fraction of the CURRENT clip, but a stop handing off to its opposite-foot variant
+	// RESETS SelectedTime to the new clip's entry frame, so the release point was never reached and the
+	// two stop clips traded indefinitely with Idle locked out (measured 2026-08-23: stuck in
+	// RunFwdStop_LU at spd=0, no transition to Idle at all). A speed bound cannot loop, because speed
+	// only decreases while stopping.
+	//
+	// The cost is that a stop may still be cut once the body halts. That is a lesser failure than being
+	// trapped, and the real fix for the handoff is a BlockTransition window on the stop clips' tails so a
+	// second stop cannot be ENTERED late — content, not gating.
+	if (bIsStop && Speed2D > AZ::CmcAnim::StoppedSpeedTolerance)
+	{
+		// NEVER empty the pool. At Speed2D 0 the only matching gate row is StandIdle, whose only database
+		// is Idles-tagged — removing it left the search with NOTHING and the character with no animation
+		// at all for ~480ms (measured 2026-08-23: "Stop_LU -> None, db=None gates=[]"). Suppression is
+		// only ever legitimate when something else remains playable.
+		const bool bHasNonIdleAlternative = Pool.ContainsByPredicate([](const UPoseSearchDatabase* Db)
+		{
+			return Db && !Db->Tags.Contains(AZ::CmcAnim::IdlesTagName);
+		});
+
+		if (bHasNonIdleAlternative)
+		{
+			Pool.RemoveAll([](const UPoseSearchDatabase* Db)
+			{
+				return Db && Db->Tags.Contains(AZ::CmcAnim::IdlesTagName);
+			});
+		}
+	}
 }
 
 void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
@@ -456,7 +864,8 @@ void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
 		return;
 	}
 
-	const TArray<UPoseSearchDatabase*> Pool = Get_DatabasesToSearch();
+	TArray<UPoseSearchDatabase*> Pool = Get_DatabasesToSearch();
+	KeepPlayingOneShotSearchable(MotionMatchingNode, Pool);
 	if (Pool.IsEmpty())
 	{
 		// No gate matched. Not calling SetDatabasesToSearch leaves the node on the last pushed pool
@@ -709,7 +1118,28 @@ float UAZ_CmcAnimInstance::Get_DynamicPlayRate(float MinPlayRate, float MaxPlayR
 		return 1.f;
 	}
 
-	const float Ratio = FMath::Clamp(Speed2D / MoveDataSpeed, MinPlayRate, MaxPlayRate);
+	// A DECELERATING one-shot needs a far wider floor than a loop does. On a stop the ground speed reaches
+	// zero while the clip still depicts a stride, so the honest ratio dives toward 0 — clamping that at a
+	// loop's 0.8 keeps the feet striding on a stationary character, which is precisely the slide the
+	// MoveData_Speed curves were authored to remove. Letting the rate fall to StopsMinPlayRate lets the
+	// clip settle into its plant instead. Measured 2026-08-23: the stop clips depict a ~0.95s glide
+	// (147-388 cm/s decaying linearly to 0), while the capsule stops in Speed/BrakingDecel — so without
+	// this the two only agree at exactly one braking value, and braking stops being a free gameplay dial.
+	const bool bStopSelected = CurrentDatabaseTags.Contains(AZ::CmcAnim::StopsTagName);
+
+	// Once the character has actually STOPPED, the rest of the clip is the settle and plant — it carries
+	// no ground motion, so matching stride speed to ground speed is meaningless there and the ratio would
+	// pin at the floor. Crawling at 0.2x meant SelectedTime never reached the keep-alive release point,
+	// which held the idle pools suppressed on a clip that was effectively finished (measured 2026-08-23).
+	// Play the settle at authored speed and let it end.
+	if (bStopSelected && Speed2D <= AZ::CmcAnim::StoppedSpeedTolerance)
+	{
+		return 1.f;
+	}
+
+	const float EffectiveMin = bStopSelected ? AZ::CmcAnim::StopsMinPlayRate : MinPlayRate;
+
+	const float Ratio = FMath::Clamp(Speed2D / MoveDataSpeed, EffectiveMin, MaxPlayRate);
 	const float WarpAlpha = FMath::Clamp(GetCurveValue(PlayRateWarpingCurve), 0.f, 1.f);
 	return FMath::Lerp(1.f, Ratio, WarpAlpha);
 }

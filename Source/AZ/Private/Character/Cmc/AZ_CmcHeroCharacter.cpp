@@ -76,6 +76,7 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	// Order matters: the gait resolves this frame's MaxWalkSpeed, and the feel pass tapers acceleration
 	// against the speed that gait implies.
 	ResolveGaitAndStanceFromTags();
+	UpdateSelectionGait();   // owns the stop-band latch that braking and pool selection both read
 	ApplyMovementFeelParams();
 }
 
@@ -163,9 +164,32 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams()
 	const float Speed2D = Move->Velocity.Size2D();
 	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero();
 
-	// Released stick brakes ~4x harder than a held one: that difference is the whole "plants on a stop
-	// instead of coasting" read.
-	Move->BrakingDecelerationWalking = bHasInput ? BrakingDecelWithInput : BrakingDecelNoInput;
+	// Released-stick braking follows GAIT, because the stop CLIPS disagree by gait and they are what the
+	// stop has to match. Foot slide on a stop is exactly clipStopTime - (Speed / braking), so a single
+	// shared value cannot serve three gaits: measured 2026-08-23 at a shared 500, walk still slid 0.59s
+	// while sprint OVERSHOT by 0.22s. Each per-gait default is that gait's speed / the clip's own ~0.95s
+	// stop time. (The old "released brakes 4x harder than held" framing is gone: at 2000 the capsule
+	// stopped in 0.19s from a run against a clip depicting 0.95s, which is what the 0.76s slide WAS.)
+	// Keyed off ACTUAL SPEED, not CurrentGait. Gait comes from gameplay tags
+	// (ResolveGaitAndStanceFromTags), so releasing the sprint input drops the tag to Walk on that frame
+	// while the body is still travelling at sprint speed — measured 2026-08-23: spd=558 with
+	// braking=190 (the walk value), a 2.9s stop. Rotation rate legitimately follows INTENT, which is why
+	// bGaitScaledRotationRate keys off the gait; braking must follow MOMENTUM, which only speed knows.
+	float NoInputBraking = BrakingDecelNoInput;
+	if (bGaitScaledBraking)
+	{
+		// SelectionGait, not Speed2D directly: it is latched at the instant the stop began, so the value
+		// stays CONSTANT for the whole stop. Recomputing per-frame from the current speed made the
+		// deceleration decay as the character slowed (615 -> 375 -> 190 in one stop from sprint = 493cm
+		// over 2.15s against a 167cm / 0.95s clip). The stop clips decelerate linearly; so must we.
+		switch (SelectionGait)
+		{
+		case EAZ_Gait::Sprint: NoInputBraking = SprintBrakingDecel; break;
+		case EAZ_Gait::Run:    NoInputBraking = RunBrakingDecel;    break;
+		default:               NoInputBraking = WalkBrakingDecel;   break;
+		}
+	}
+	Move->BrakingDecelerationWalking = bHasInput ? BrakingDecelWithInput : NoInputBraking;
 
 	// Acceleration and friction both fall off with speed, so the last stretch to top speed is gradual.
 	const float AccelAlpha = FMath::Clamp(

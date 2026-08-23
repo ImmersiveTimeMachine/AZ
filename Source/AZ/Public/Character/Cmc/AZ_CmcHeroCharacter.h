@@ -111,12 +111,39 @@ protected:
 
 	// ---- Derived-parameter tuning (GASP 5.8 SandboxCharacter_CMC reference values) ----
 
-	/** Braking while the stick is held vs released — the released value is what stops the slide. */
+	/** Braking while the stick is HELD. The released-stick value is chosen per gait below. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
 	float BrakingDecelWithInput = 500.f;
 
+	/** Released-stick braking when bGaitScaledBraking is OFF. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
-	float BrakingDecelNoInput = 2000.f;
+	float BrakingDecelNoInput = 500.f;
+
+	/**
+	 * Released-stick braking, per gait.
+	 *
+	 * MEASURED, not chosen: foot slide on a stop is exactly
+	 *     clipStopTime - (GaitSpeed / braking)
+	 * so the only real decision is WHERE inside the clip's ~0.9s the character decelerates. Sampling the
+	 * stop clips' own root-motion speed (2026-08-23) gives the deceleration each ANIMATION depicts:
+	 *   WalkFwdStop_LU  147 cm/s -> 0 at 0.92s = 160    WalkFwdStop_RU  162 -> 0 at 0.86s = 188
+	 *   RunFwdStop_LU   353 cm/s -> 0 at 0.95s = 372    RunFwdStop_RU   388 -> 0 at 1.03s = 377
+	 * Each default below is gait speed / ~0.95s. One shared value cannot serve three gaits: at a single
+	 * 500 the walk stop still slid 0.59s while sprint OVERSHOT by 0.22s (capsule still gliding after the
+	 * feet had planted). Sprint reuses the run stop clips, so its number is derived, not measured.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (EditCondition = "bGaitScaledBraking"))
+	float WalkBrakingDecel = 190.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (EditCondition = "bGaitScaledBraking"))
+	float RunBrakingDecel = 375.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (EditCondition = "bGaitScaledBraking"))
+	float SprintBrakingDecel = 615.f;
+
+	/** Off = every gait uses BrakingDecelNoInput (the single-value behaviour before 2026-08-23). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel")
+	bool bGaitScaledBraking = true;
 
 	/** Acceleration tapers from Base down to AtTopSpeed across the speed window below, so top speed is
 	 *  approached rather than snapped to. */

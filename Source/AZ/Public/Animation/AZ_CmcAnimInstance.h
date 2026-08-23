@@ -16,6 +16,8 @@
 class AAZ_CmcCharacterBase;
 class UPoseSearchDatabase;
 struct FAnimNodeReference;
+struct FAnimNode_OffsetRootBone;
+struct FMotionMatchingAnimNodeReference;
 
 /**
  * UAZ_CmcAnimInstance — native base for the CMC (v3) hero AnimBP. [SPIKE: spike/cmc-backport]
@@ -37,13 +39,17 @@ struct FAnimNodeReference;
  * the worker thread, which is where GASP puts it (BlueprintThreadSafeUpdateAnimation is the only update
  * event its ABP implements) and what the PoseSearch trajectory API is explicitly marked safe for.
  *
- * THE ONE THING BLUEPRINT MUST DO. RootTransform is the OffsetRootBone node's simulated root, fetched
- * via AnimationWarpingLibrary::GetOffsetRootTransform(FAnimNodeReference). That reference cannot be built
- * from C++: FAnimNodeReference constructs only from (UAnimInstance*, FAnimNode_Base&) or an int32 index,
- * IAnimClassInterface exposes no tag lookup, and the BP node resolves its tag to an index at COMPILE time
- * against the generated class — an index a parent class cannot know. So the AnimGraph calls
- * SetOffsetRootTransform once per frame. If it never does, RootTransform falls back to CharacterTransform,
- * which is exactly GASP's own else-branch — degraded, not broken.
+ * ROOT TRANSFORM. RootTransform is the OffsetRootBone node's simulated root. GASP reads it inline in
+ * Update_EssentialValues via AnimationWarpingLibrary::GetOffsetRootTransform(NodeReference: OffsetRoot),
+ * and we read it in the same place — see FindOffsetRootBoneNode. An earlier revision of this comment
+ * claimed C++ could not: that is true of FAnimNodeReference (it constructs only from
+ * (UAnimInstance*, FAnimNode_Base&) or a compile-time node index) but NOT of the problem. GetClass() at
+ * runtime IS the generated child class, so IAnimClassInterface::GetAnimNodeProperties finds the node
+ * struct directly, no reference needed. UAZ_AnimInstance has done it that way since v2.
+ *
+ * Latency is one frame, and identical to GASP's: FAnimNode_OffsetRootBone advances its simulated
+ * transform in Evaluate_AnyThread, which runs AFTER every update, so whoever reads it during an update
+ * — Blueprint or native — reads what the previous frame's evaluation left behind.
  *
  * Abstract: an AnimInstance with no AnimGraph evaluates the ref pose silently, and we have already
  * assigned a raw native anim class to a mesh once on this branch.
@@ -117,11 +123,13 @@ public:
 	TArray<UPoseSearchDatabase*> Get_DatabasesToSearch() const;
 
 	/**
-	 * The AnimGraph's one obligation. Call from the AnimGraph with
-	 * GetOffsetRootTransform(Node Reference: OffsetRoot) — see the class comment for why C++ cannot.
-	 * Read one frame later, exactly as GASP reads it.
+	 * DEAD as of the native pull (see FindOffsetRootBoneNode) and called by nothing — verified against
+	 * the ABP's package name table. Kept only because removing a UFUNCTION forces an editor-closed
+	 * rebuild; delete at the next one. Do NOT wire this up: the native pull owns RootTransform, and a
+	 * second writer would make "which one won this frame" unanswerable.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
+	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe, DeprecatedFunction,
+		DeprecationMessage = "RootTransform is read natively now. This setter is dead and will be removed."))
 	void SetOffsetRootTransform(const FTransform& InOffsetRootTransform);
 
 	// ==================================================================================
@@ -607,6 +615,9 @@ protected:
 	/** Once-a-second dump. Deliberately a CDO bool, not a CVar: our CVar rule (register in FAZModule,
 	 *  unregister by NAME, never a static TAutoConsoleVariable) makes a CVar the expensive option here,
 	 *  and this way it is per-character rather than global. */
+	/** Drives BOTH the once-a-second log line and the per-frame viewport overlay. Deliberately one
+	 *  toggle and not two: a second UPROPERTY cannot be added by Live Coding, and splitting them would
+	 *  have cost an editor restart for no behavioural gain. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Debug")
 	bool bDebugAnim = false;
 
@@ -618,9 +629,47 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<AAZ_CmcCharacterBase> Cached_Character;
 
-	/** Pushed by the AnimGraph; consumed by Update_EssentialValues on the next frame. */
+	/**
+	 * The AnimGraph's OffsetRootBone node, found by walking the GENERATED class's anim node properties.
+	 * Ported from UAZ_AnimInstance::FindOffsetRootBoneNode. Deliberately uncached: the scan is a handful
+	 * of properties, and caching a pointer into the instance would dangle across the class reinstancing
+	 * that follows every ABP recompile. Returns the FIRST such node — we author exactly one; a second
+	 * would make this ambiguous, and the property scan cannot see the node's tag to disambiguate.
+	 */
+	FAnimNode_OffsetRootBone* FindOffsetRootBoneNode();
+
+	/**
+	 * Adds the CURRENTLY PLAYING one-shot's database back into Pool while its clip is still running.
+	 *
+	 * The gate table is addressed by MovementState, so the frame speed reaches 0 the matching row flips
+	 * (e.g. WalkMove -> StandIdle) and the Stops database leaves the union — InterruptOnDatabaseChange then
+	 * invalidates the continuing pose because its database is no longer LISTED. The clip is evicted by set
+	 * membership, not by cost, which is why a -1.0 continuing-pose bias on the stop clips changed nothing
+	 * (measured 2026-08-22: 82ms median survival against 0.93-1.53s of content, unchanged by the bias).
+	 *
+	 * Deliberately additive: everything the new state wants stays in the pool, so a re-press mid-stop still
+	 * competes normally. Looping assets are skipped — they never end, so holding one would pin the search.
+	 */
+	void KeepPlayingOneShotSearchable(
+		const FMotionMatchingAnimNodeReference& MotionMatchingNode, TArray<UPoseSearchDatabase*>& Pool) const;
+
+
+	/** Written only by the dead SetOffsetRootTransform. Retire together with it. */
 	FTransform OffsetRootTransform = FTransform::Identity;
 	bool bHasOffsetRootTransform = false;
+
+	/**
+	 * Paints the current selection onto the viewport. GAME THREAD ONLY — called from
+	 * NativeUpdateAnimation, never from the thread-safe update: GEngine->AddOnScreenDebugMessage
+	 * touches shared engine state and is not safe from the anim worker thread.
+	 *
+	 * Reads values produced by the PREVIOUS frame's thread-safe update, which is what we want anyway:
+	 * they are the values that produced the pose currently on screen.
+	 */
+	void DrawDebugAnimOverlay() const;
+
+	/** Once-a-second dump of the CMC values ApplyMovementFeelParams actually wrote. GAME THREAD ONLY. */
+	void LogMovementFeelOncePerSecond(float DeltaSeconds) const;
 
 	float DebugAccumulator = 0.f;
 	bool bLoggedInit = false;

@@ -182,6 +182,27 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Speeds", meta = (ForceUnits = "cm/s"))
 	float SprintSpeed = 585.f;
 
+	// ---- Selection gait (momentum-aware) — see UpdateSelectionGait ----
+
+	/** Gait for ANIMATION POOL SELECTION. Distinct from CurrentGait, which is COMMANDED (tag-derived) and
+	 *  correctly drives MaxWalkSpeed. Selection must follow MOMENTUM: releasing sprint drops the tag to
+	 *  Walk on that frame while the body is still at 565 cm/s. Published in the contract; the AnimInstance
+	 *  consumes it rather than deriving its own, so there stays one owner of this fact. */
+	EAZ_Gait SelectionGait = EAZ_Gait::Walk;
+
+	/** True while decelerating with no input — the window over which the band below is held. */
+	bool bStopBandLatched = false;
+
+	/** The band captured at the instant a stop BEGAN. Held for the whole stop so that neither the braking
+	 *  value nor the searched pool steps down as speed decays through the band midpoints. */
+	EAZ_Gait LatchedStopBand = EAZ_Gait::Walk;
+
+	/** Classifies Speed2D into a gait band at the MIDPOINTS between gait speeds. */
+	EAZ_Gait BandForSpeed(float Speed2D) const;
+
+	/** Recomputes SelectionGait and maintains the stop latch. Call once per tick BEFORE the feel pass. */
+	void UpdateSelectionGait();
+
 	/** Crouched speed — applied to CMC MaxWalkSpeedCrouched (native crouch owns the stance). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Speeds", meta = (ForceUnits = "cm/s"))
 	float CrouchSpeed = 90.f;
