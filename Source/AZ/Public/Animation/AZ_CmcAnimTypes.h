@@ -110,6 +110,38 @@ struct AZ_API FAZ_CmcAnimContract
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
 	EAZ_Gait SelectionGait = EAZ_Gait::Walk;
 
+	// ---- Stop contract, latched by AAZ_CmcCharacterBase::UpdateSelectionGait on the no-input edge ----
+	// Published now, before the anim side consumes all of it: adding a contract field costs an
+	// editor-closed rebuild (Live Coding cannot add USTRUCT members), so the fields stage 2 needs ship
+	// in the same build as stage 1 rather than costing a second cycle.
+
+	/** True while a stop is committed — input released and the body still carrying momentum. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	bool bStopActive = false;
+
+	/** True when this stop cleared the content floor and stop CONTENT is expected to play. False means
+	 *  the release was too slow for any stop clip to match (the slowest peaks at 147 cm/s) and the graph
+	 *  should blend to idle instead of reaching for a stop it cannot honour. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	bool bStopIsAnimated = false;
+
+	/** Horizontal speed at the instant the stick was released. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim", meta = (ForceUnits = "cm/s"))
+	float StopEntrySpeed = 0.f;
+
+	/** Travel the capsule still has to make before it halts, projected on the latched stop direction.
+	 *  Stage 2 drives stop clip PHASE from this — the coordinate a stop is naturally parameterised by. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim", meta = (ForceUnits = "cm"))
+	float StopRemainingDistance = 0.f;
+
+	/** The whole planned travel of this stop (EntrySpeed * StopTimeSeconds * 0.5). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim", meta = (ForceUnits = "cm"))
+	float StopPlannedDistance = 0.f;
+
+	/** 0 at the stop edge, 1 when the planned travel is complete. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	float StopProgress = 0.f;
+
 	/**
 	 * The gait->speed table, published so the anim layer can classify what the BODY is doing.
 	 *

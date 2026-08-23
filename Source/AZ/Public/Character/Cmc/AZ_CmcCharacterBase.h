@@ -197,6 +197,88 @@ protected:
 	 *  value nor the searched pool steps down as speed decays through the band midpoints. */
 	EAZ_Gait LatchedStopBand = EAZ_Gait::Walk;
 
+	// ==================================================================================
+	// STOP CONTRACT — latched ONCE on the no-input edge, held until the stop ends.
+	//
+	// WHY A CONTRACT AND NOT A LOOKUP. The three-band braking table it replaces is exact at exactly
+	// three speeds (165 / 375 / 585) and degrades toward each band edge: releasing one cm/s below the
+	// run threshold latched the WALK value and took 1.42s to travel 190cm against a clip depicting
+	// 0.92s / 68cm. Entry speed is continuous; a three-entry table cannot be.
+	//
+	// WHAT REPLACES IT. The stop CLIPS all reach zero speed in 0.86-1.03s even though their peak speeds
+	// span 147-388 cm/s (measured 2026-08-23, root motion at 16 samples/clip). The content's invariant
+	// is stop TIME, not deceleration. So we latch entry speed once and solve for the deceleration that
+	// lands on StopTimeSeconds: braking = EntrySpeed / StopTimeSeconds, held CONSTANT for the stop.
+	// That gives v(t) = v0*(1 - t/T) — linear, reaching zero at exactly T, travelling v0*T/2.
+	//
+	// ⚠ THIS IS NOT THE REJECTED "braking = Speed2D / T" IDEA. Recomputing from the CURRENT speed every
+	// frame makes deceleration proportional to speed, i.e. exponential decay that never reaches zero
+	// and travels v0*T. Latching at the edge is what makes it constant. The distinction is the whole
+	// design; do not "simplify" this back into a per-frame expression.
+	//
+	// These are MEMBERS, not the function-local statics the first cut used. Statics were chosen because
+	// Live Coding cannot add UCLASS members, but they are shared by every instance of the class — and
+	// AAZ_CmcInfectedCharacter derives from this same base, so the moment an NPC calls UpdateSelectionGait
+	// every Chalkie would share one stop contract.
+
+	/** True while a stop is committed: input released and the body still carries momentum. */
+	bool bStopActive = false;
+
+	/** True when this stop cleared StopAnimEnterSpeed and stop CONTENT is expected to play. Below the
+	 *  floor there is nothing to match (the slowest stop clip peaks at 147 cm/s), so we stop briskly
+	 *  and let the graph blend to idle rather than pretending a stop animation exists. */
+	bool bStopIsAnimated = false;
+
+	/** Horizontal speed at the instant the stick was released. The one input to the whole contract. */
+	float StopEntrySpeed = 0.f;
+
+	/** Unit horizontal travel direction at the stop edge. Remaining distance is projected onto this
+	 *  rather than measured as unrestricted Euclidean distance, so a stop that slides along a wall
+	 *  reports the progress that actually matters. */
+	FVector StopDirection = FVector::ZeroVector;
+
+	/** Capsule location at the stop edge. */
+	FVector StopStartLocation = FVector::ZeroVector;
+
+	/** EntrySpeed * StopTimeSeconds * 0.5 — the travel a constant-deceleration stop covers. */
+	float StopPlannedDistance = 0.f;
+
+	/** The deceleration latched for this stop. ApplyMovementFeelParams pushes it; nothing else writes it. */
+	float StopBrakingDecel = 0.f;
+
+	/** Seconds since the stop began. */
+	float StopElapsed = 0.f;
+
+	/** Target stop duration. Defaults to the midpoint of the four measured clips (0.86-1.03s).
+	 *  ONE number replaces the three-band table, and it is exact at every entry speed rather than three. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "s"))
+	float StopTimeSeconds = 0.93f;
+
+	/** Release speeds below this get no stop clip — there is no content within reach of them. Hysteresis
+	 *  is structural rather than a second threshold: eligibility is decided ONCE at the edge and held,
+	 *  so a stop cannot flicker in and out of animated as the body slows through the boundary. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "cm/s"))
+	float StopAnimEnterSpeed = 120.f;
+
+	/** Stop duration below the content floor. SAME LAW, shorter constant — deliberately not a fixed
+	 *  deceleration: a fixed 900 would stop a 119 cm/s release in 0.13s while 121 cm/s took the full
+	 *  0.93s, a 7x duration jump across 2 cm/s of release speed. It cannot be the same 0.93s either,
+	 *  because nothing is playing to justify the travel and a planted idle pose makes every centimetre of
+	 *  it read as a skate. 0.25s caps sub-floor travel at ~15cm at the boundary. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "s"))
+	float StopFloorTimeSeconds = 0.25f;
+
+	/** Off restores the three-band lookup on the hero, so the two models can be A/B'd in one session. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop")
+	bool bStopTimeBraking = true;
+
+	/** Distance still to travel before the capsule halts, projected on StopDirection. Never negative.
+	 *  Published in the contract for stage 2 (distance-matched stop phase). */
+	float GetStopRemainingDistance() const;
+
+	/** 0 at the stop edge, 1 once the planned travel is complete. */
+	float GetStopProgress() const;
+
 	/** Classifies Speed2D into a gait band at the MIDPOINTS between gait speeds. */
 	EAZ_Gait BandForSpeed(float Speed2D) const;
 

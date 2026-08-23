@@ -143,6 +143,43 @@ FRotator AAZ_CmcCharacterBase::GetAimRotation() const
 	return IsLocallyControlled() ? GetControlRotation() : GetBaseAimRotation();
 }
 
+namespace AZ::CmcStop
+{
+	/** Below this the body counts as halted. Mirrors the anim side's StoppedSpeedTolerance so "stopped"
+	 *  means the same thing on both sides of the contract. */
+	static constexpr float StoppedSpeedTolerance = 2.f;
+
+	/** Watchdog multiple of StopTimeSeconds. A stop that has not completed in 2.5x its planned duration
+	 *  is blocked by something the analytical plan cannot see; release the contract rather than hold the
+	 *  pool and the braking value open indefinitely. */
+	static constexpr float TimeoutFactor = 2.5f;
+
+	/** Floor on the target stop duration, so a zeroed designer property cannot divide by zero. */
+	static constexpr float MinStopTime = 0.05f;
+}
+
+float AAZ_CmcCharacterBase::GetStopRemainingDistance() const
+{
+	if (!bStopActive)
+	{
+		return 0.f;
+	}
+
+	// PROJECTED on the latched direction, not Euclidean. A stop that scrapes along a wall has its travel
+	// deflected, and what animation phase needs is progress ALONG the stop, not distance from the origin.
+	const float Travelled = FVector::DotProduct(GetActorLocation() - StopStartLocation, StopDirection);
+	return FMath::Max(0.f, StopPlannedDistance - Travelled);
+}
+
+float AAZ_CmcCharacterBase::GetStopProgress() const
+{
+	if (!bStopActive || StopPlannedDistance <= KINDA_SMALL_NUMBER)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp(1.f - GetStopRemainingDistance() / StopPlannedDistance, 0.f, 1.f);
+}
+
 EAZ_Gait AAZ_CmcCharacterBase::BandForSpeed(float Speed2D) const
 {
 	// Midpoints, so a band is only claimed once the body is nearer that gait than the one above it.
@@ -162,54 +199,77 @@ void AAZ_CmcCharacterBase::UpdateSelectionGait()
 
 	const float Speed2D = Move->Velocity.Size2D();
 	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero();
-
-	// LATCH ON THE STOP EDGE. A stop clip decelerates LINEARLY, so the capsule must too — but a band
-	// recomputed from the CURRENT speed decays as the character slows, which made one stop from sprint
-	// step 615 -> 375 -> 190 and travel 493cm over 2.15s against a clip depicting 167cm over 0.95s
-	// (measured 2026-08-23). It also re-classified the POOL mid-stop, so a single stop played a run stop
-	// for 770ms and then a walk stop for 1237ms — two clips for one stop. Capturing the band once, at the
-	// instant the stop begins, fixes both: constant deceleration AND one pool for the whole stop.
-	// Diagnostic: the ACTUAL stop, measured. Separates the two readings of "the stop looks wrong" that
-	// 1 Hz sampling cannot — a clip cut before its plant (pose problem) vs the capsule travelling past
-	// what the clip depicts (movement problem). Reference: the stop clips depict 68 cm / 0.92 s (walk)
-	// and 167 cm / 0.95 s (run). Function-local statics, not members: a member changes the UCLASS layout
-	// and Live Coding cannot patch that. One player character per world, so sharing is harmless.
-	static FVector StopStartLocation = FVector::ZeroVector;
-	static float StopElapsed = 0.f;
-	static float StopEntrySpeed = 0.f;
-	static bool bStopMeasureActive = false;
+	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
 
 	if (!bHasInput)
 	{
 		if (!bStopBandLatched)
 		{
+			// ================= THE STOP EDGE — everything about this stop is decided here, ONCE. =======
+			// Releasing the stick is a discrete, unambiguous event. Deriving the stop's parameters from
+			// the CURRENT speed on later frames is what produced every stop bug so far: the band stepped
+			// 615 -> 375 -> 190 inside one stop (493cm over 2.15s against a 167cm / 0.95s clip) and
+			// re-classified the searched pool mid-stop, so one stop played a run clip for 770ms then a
+			// walk clip for 1237ms. Latch, then hold.
 			bStopBandLatched = true;
 			LatchedStopBand = BandForSpeed(Speed2D);
 
-			StopStartLocation = GetActorLocation();
+			bStopActive = true;
 			StopEntrySpeed = Speed2D;
+			StopDirection = Move->Velocity.GetSafeNormal2D();
+			StopStartLocation = GetActorLocation();
 			StopElapsed = 0.f;
-			bStopMeasureActive = (Speed2D > 50.f);
+
+			// Eligibility decided once and HELD — that is the hysteresis. A per-frame test would let a
+			// stop flicker between animated and not as the body decays through the threshold.
+			bStopIsAnimated = (Speed2D >= StopAnimEnterSpeed) && !StopDirection.IsNearlyZero();
+
+			// ONE LAW, TWO CONSTANTS. Solve for the deceleration that lands on the target duration —
+			// constant, because the clips decelerate linearly. Sub-floor uses the same law with a shorter
+			// time so there is no discontinuity in KIND at the boundary, only in degree. See the header
+			// for why this is NOT the rejected per-frame Speed2D/T formula.
+			// Clamped rather than branched: a designer zeroing either property would otherwise divide by
+			// zero, and there is no meaningful "no target time" case to write a fallback for.
+			const float TargetStopTime =
+				FMath::Max(bStopIsAnimated ? StopTimeSeconds : StopFloorTimeSeconds, AZ::CmcStop::MinStopTime);
+			StopBrakingDecel = StopEntrySpeed / TargetStopTime;
+			StopPlannedDistance = StopEntrySpeed * TargetStopTime * 0.5f;
 		}
 
-		if (bStopMeasureActive)
+		if (bStopActive)
 		{
-			StopElapsed += GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
-			if (Speed2D <= 1.f)
+			StopElapsed += DeltaSeconds;
+
+			// END ON MOVEMENT FACTS, not on animation time. Speed tolerance is the normal exit; the
+			// timeout is a watchdog for a stop that can never complete (blocked by geometry, carried by
+			// something underfoot). Events drive, timers guard.
+			const bool bHalted = Speed2D <= AZ::CmcStop::StoppedSpeedTolerance;
+			const bool bOverran = StopElapsed > (StopTimeSeconds * AZ::CmcStop::TimeoutFactor);
+			if (bHalted || bOverran)
 			{
-				bStopMeasureActive = false;
-				const float Travelled = FVector::Dist2D(GetActorLocation(), StopStartLocation);
-				UE_LOG(LogTemp, Display,
-					TEXT("[CmcStop] entry=%.0f cm/s -> stopped in %.2fs over %.0f cm  (band=%d, braking=%.0f)"),
-					StopEntrySpeed, StopElapsed, Travelled, static_cast<int32>(LatchedStopBand),
-					Move->BrakingDecelerationWalking);
+				// The measurement that judges this whole design: does the capsule take StopTimeSeconds,
+				// and how far does it travel versus what was planned? The distance error is the input to
+				// stage 2 (distance-matched stop phase) — play rate cannot fix it, because it changes
+				// cadence and not stride length.
+				if (bStopIsAnimated)
+				{
+					const float Travelled = FVector::DotProduct(GetActorLocation() - StopStartLocation, StopDirection);
+					UE_LOG(LogTemp, Display,
+						TEXT("[CmcStop] entry=%.0f -> %.2fs (target %.2f) | travelled %.0f cm, planned %.0f, err %+.0f | braking=%.0f%s"),
+						StopEntrySpeed, StopElapsed, StopTimeSeconds, Travelled, StopPlannedDistance,
+						Travelled - StopPlannedDistance, StopBrakingDecel, bOverran ? TEXT("  TIMEOUT") : TEXT(""));
+				}
+				bStopActive = false;
 			}
 		}
 	}
 	else
 	{
+		// Re-input cancels the contract on the SAME frame, so the feel pass below restores normal
+		// braking immediately rather than one tick later.
 		bStopBandLatched = false;
-		bStopMeasureActive = false;
+		bStopActive = false;
+		bStopIsAnimated = false;
 	}
 
 	// While stopping the latched band wins outright. Otherwise take the HIGHER of commanded and
@@ -233,6 +293,15 @@ void AAZ_CmcCharacterBase::FillAnimContract(FAZ_CmcAnimContract& Out) const
 	Out.AimingRotation = GetAimRotation();
 	Out.Gait = CurrentGait;
 	Out.SelectionGait = SelectionGait;
+
+	// Stop contract. Read-only for the anim layer: UpdateSelectionGait is the single writer, so the
+	// graph can never disagree with the movement about whether a stop is happening or how far it has to go.
+	Out.bStopActive = bStopActive;
+	Out.bStopIsAnimated = bStopIsAnimated;
+	Out.StopEntrySpeed = StopEntrySpeed;
+	Out.StopRemainingDistance = GetStopRemainingDistance();
+	Out.StopPlannedDistance = StopPlannedDistance;
+	Out.StopProgress = GetStopProgress();
 	Out.WalkSpeed = WalkSpeed;
 	Out.RunSpeed = RunSpeed;
 	Out.SprintSpeed = SprintSpeed;

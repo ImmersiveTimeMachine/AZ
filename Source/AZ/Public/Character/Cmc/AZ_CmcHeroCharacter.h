@@ -98,7 +98,73 @@ protected:
 	 * Hero-only on purpose: the same tuning applied to the infected would silently change Chalkie chase
 	 * feel and its BT rotation tracking, which this spike never asked for.
 	 */
-	void ApplyMovementFeelParams();
+	void ApplyMovementFeelParams(float DeltaSeconds);
+
+	// ---- Curve-driven stop braking: the capsule tracks what the clip depicts ----
+
+	/** Make the capsule follow the selected stop clip's own MoveData_Speed curve instead of a solved
+	 *  constant. Zero slide by construction at any release speed, and stopping DISTANCE becomes a
+	 *  property of the content rather than a tuned number.
+	 *
+	 *  ⚠ This INVERTS the ownership doctrine for stops: everywhere else CMC drives and animation
+	 *  follows (which is why RootMotionMode is montages-only). Legitimate — many shipped games do
+	 *  exactly this for stops — but it is a real doctrine change and will interact with network
+	 *  prediction later, so it is a flag rather than a silent default.
+	 *
+	 *  Falls back to the latched v0/T contract whenever the curve reads non-positive: no stop selected,
+	 *  the clip carries no MoveData_Speed, or the clip has reached its plant. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop")
+	bool bStopCurveBraking = true;
+
+	/** Ceiling on the per-frame correction. The frame a stop is selected the body's speed need not equal
+	 *  the clip's speed at the chosen entry frame, and an unclamped (Speed - ClipSpeed)/dt would apply
+	 *  that whole gap in one tick as a visible velocity step. MM picks the entry by trajectory so they
+	 *  should be close; this bounds the case where they are not. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop")
+	float StopCurveMaxBraking = 4000.f;
+
+	/**
+	 * Handover guards — the clip may only drive the capsule if the two AGREE when it takes over.
+	 *
+	 * Curve braking assumes the clip's phase corresponds to this stop's progress. That is false when the
+	 * selection is a CONTINUING POSE inherited from an earlier stop: tapping the stick repeatedly latches
+	 * a fresh contract at full walk speed while the clip is still at 0.78s depicting 25 cm/s. Measured
+	 * 2026-08-23 — twenty such handovers in five seconds, every one pinned at StopCurveMaxBraking, each a
+	 * visible snap. Trusting the clip there is trusting a clip that is describing a different stop.
+	 *
+	 * Both guards must pass. Speed agreement alone is not enough (a spent clip and a slow body can agree
+	 * by coincidence), and phase alone is not enough (an early frame of the wrong gait's clip is still wrong).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "cm/s"))
+	float StopCurveMaxHandoverStep = 120.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "s"))
+	float StopCurveMaxHandoverClipTime = 0.45f;
+
+	/**
+	 * How long the capsule takes to converge onto the clip's speed curve.
+	 *
+	 * The first cut divided by DeltaSeconds, i.e. closed the whole gap in ONE frame. That made every
+	 * disagreement a velocity step, which is why the handover gate had to be tight enough to reject
+	 * two thirds of stops. But most of those disagreements are legitimate: with two stop variants per
+	 * gait the foot phase can be a quarter-cycle off, so Motion Matching enters mid-clip where the
+	 * phase matches and the clip has already decelerated (measured 2026-08-23: entering at 0.27s with
+	 * the clip depicting 117 while the body was at 148 — a real 31 cm/s gap, and a correct entry).
+	 *
+	 * Converging over a window turns that gap from a snap into a lean: 31 cm/s over 0.1s is 310 cm/s²,
+	 * which reads as weight. The gate stays as a backstop for genuinely absurd handovers rather than
+	 * being the thing that decides most stops.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Stop", meta = (ForceUnits = "s"))
+	float StopCurveConvergenceTime = 0.1f;
+
+	/** Latches the "curve engaged" log to once per stop. Cleared when the stop contract releases. */
+	bool bStopCurveEngaged = false;
+
+	/** Set when a stop's handover was REJECTED, so the decision holds for the whole stop instead of being
+	 *  retested every frame — the clip advances and the body slows, so a rejected stop would otherwise
+	 *  flicker into curve driving partway through and produce the very step the guard exists to prevent. */
+	bool bStopCurveRejected = false;
 
 	/**
 	 * Translates MOVEMENT-domain GAS tags into CMC state, mirroring exactly what the v2 pawn packs into

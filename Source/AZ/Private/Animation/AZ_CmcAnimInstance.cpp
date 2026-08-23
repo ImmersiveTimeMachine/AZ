@@ -91,6 +91,40 @@ void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// The ENTIRE pawn -> anim seam, once per frame, on the game thread.
 	Cached_Character->FillAnimContract(CharacterProperties);
 
+	// ---- ANIM -> MOVEMENT snapshot: what the selected stop clip depicts RIGHT NOW. ----
+	// The movement layer makes the capsule track this instead of a tuned deceleration, so stopping
+	// distance becomes a property of the CONTENT rather than a number fitted to it. Snapshotted here,
+	// on the game thread, rather than read directly by the character: CurrentDatabaseTags and the curve
+	// are touched by the anim worker, and the character's Tick is a different thread context.
+	//
+	// The character ticks BEFORE the mesh (PostInitializeComponents adds the prerequisite), so it reads
+	// last frame's snapshot — one frame, ~16ms of latency on the braking value. Acceptable because the
+	// clip's speed curve is smooth; a discontinuous curve would need the read moved into the movement tick.
+	{
+		static const FName StopsTag(TEXT("Stops"));
+		bStopClipSelected_GT = CurrentDatabaseTags.Contains(StopsTag);
+
+		// Sample the SELECTED SEQUENCE'S OWN curve at its own playback time.
+		//
+		// NOT GetCurveValue(). That returns the BLEND-WEIGHTED value across everything still active in
+		// the BlendStack, so for the whole blend-in of a stop it is dominated by the outgoing loop.
+		// Measured 2026-08-23: it read 167-172 cm/s at the start of every walk stop — the walk LOOP's
+		// 172.6, not the stop clip's 147 peak — so the movement layer concluded the clip wanted MORE
+		// speed than the body had and coasted with braking=0 through the first part of every stop.
+		//
+		// EvaluateCurveData is immune to that: it asks one asset what it authored at one time.
+		StopClipSpeed_GT = 0.f;
+		StopClipSampleTime_GT = 0.f;
+		if (bStopClipSelected_GT)
+		{
+			if (const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get()))
+			{
+				StopClipSampleTime_GT = CurrentSelectedTime;
+				StopClipSpeed_GT = Sequence->EvaluateCurveData(MoveDataSpeedCurve, CurrentSelectedTime);
+			}
+		}
+	}
+
 	if (bDebugAnim)
 	{
 		DrawDebugAnimOverlay();
@@ -312,14 +346,32 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 						if (!ChangeGates.IsEmpty()) ChangeGates += TEXT(",");
 						ChangeGates += GateLabel.ToString();
 					}
+					// COMMANDED vs SELECTION gait, and the raw wants-flags behind them. The gate row is
+					// addressed by the SELECTION gait, so when a run start plays a WALK start clip for
+					// its first third (measured 2026-08-23: WalkFwdStart for 366ms, then RunFwdStart)
+					// the question is whether the Movement.Running tag arrived late or the run input did.
+					// Only the commanded gait separates them: it is tag-derived, so cmd=Walk while the
+					// player is holding run means the ABILITY has not granted the tag yet.
+					const UEnum* GaitEnum = StaticEnum<EAZ_Gait>();
+					const FString CmdGait = GaitEnum
+						? GaitEnum->GetNameStringByValue(static_cast<int64>(CharacterProperties.Gait))
+						: FString::FromInt(static_cast<int32>(CharacterProperties.Gait));
+					const FString SelGait = GaitEnum
+						? GaitEnum->GetNameStringByValue(static_cast<int64>(CharacterProperties.SelectionGait))
+						: FString::FromInt(static_cast<int32>(CharacterProperties.SelectionGait));
+
 					UE_LOG(LogTemp, Display,
 						TEXT("[CmcSel] #%d dt=%.0fms %s -> %s | cost=%+.2f spd=%.0f turn=%.0f accel=%.2f ")
-						TEXT("moving=%d pivot=%d tip=%d | db=%s gates=[%s]"),
+						TEXT("moving=%d pivot=%d tip=%d | cmd=%s sel=%s wantSprint=%d wantWalk=%d ")
+						TEXT("| db=%s gates=[%s]"),
 						++SelectionChangeIndex,
 						SecondsSinceSelectionChange * 1000.f,
 						*GetNameSafe(LastSelectedAnim.Get()), *GetNameSafe(CurrentSelectedAnim),
 						SearchCost, Speed2D, Get_TrajectoryTurnAngle(), AccelerationAmount,
 						IsMoving(), IsPivoting(), ShouldTurnInPlace(),
+						*CmdGait, *SelGait,
+						CharacterProperties.InputState.bWantsToSprint ? 1 : 0,
+						CharacterProperties.InputState.bWantsToWalk ? 1 : 0,
 						*GetNameSafe(CurrentSelectedDatabase), *ChangeGates);
 
 					LastSelectedAnim = CurrentSelectedAnim.Get();
@@ -498,6 +550,11 @@ void UAZ_CmcAnimInstance::Update_States()
 
 	Stance_LastFrame = Stance;
 	Stance = CharacterProperties.Stance;
+
+	// Mirrored with a _LastFrame twin like the states above, and for the same reason: the graph runs
+	// AFTER this block, so Get_MMInterruptMode can see the edge this frame rather than a frame late.
+	bStopActive_LastFrame = bStopActive;
+	bStopActive = CharacterProperties.bStopActive;
 }
 
 // ======================================================================================
@@ -698,7 +755,16 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// filter (re-pressing input mid-stop interrupts it through normal cost competition instead).
 	static const FName StopsTag(TEXT("Stops"));
 	const bool bInputHeld = !Acceleration.Equals(FVector::ZeroVector, IsMovingAccelerationTolerance);
-	if (bInputHeld && !CurrentDatabaseTags.Contains(StopsTag))
+
+	// THE CONTENT FLOOR. A release below StopAnimEnterSpeed has no stop clip within reach — the slowest
+	// stop depicts 147 cm/s — so offering the pool only invites a badly-costed match on a body moving at
+	// a third of that, which is what "no stop animation plays, it just slides" actually was on a tap of W.
+	// The movement side already decided this ONCE at the stop edge and holds it, so the pool cannot
+	// flicker as the body decays through the threshold. Below the floor the honest answer is to blend to
+	// idle, and no amount of selection work can manufacture the missing content.
+	const bool bSubFloorStop = CharacterProperties.bStopActive && !CharacterProperties.bStopIsAnimated;
+
+	if ((bInputHeld || bSubFloorStop) && !CurrentDatabaseTags.Contains(StopsTag))
 	{
 		Result.RemoveAll([](const UPoseSearchDatabase* Db)
 		{
@@ -798,6 +864,17 @@ void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
 	}
 
 	const bool bIsStop = CurrentDatabaseTags.Contains(AZ::CmcAnim::StopsTagName);
+
+	// INPUT-RELEASE ESCAPE. One blanket fraction cannot express per-state interruption rules. A Start held
+	// to 70% of a ~1.2s clip OUTLIVES the entire tap that spawned it: release W after 0.2s and the start
+	// kept its database in the pool — and with it the continuing pose — while the body decelerated to a
+	// halt. That is precisely the reported "we slide but no animation plays". A start is interrupted by
+	// the stick being released; a stop is not, because the release is what ASKED for it.
+	if (!bIsStop && CharacterProperties.bStopActive)
+	{
+		return;
+	}
+
 	const float KeepAliveFraction =
 		bIsStop ? AZ::CmcAnim::StopKeepAliveFraction : AZ::CmcAnim::OneShotKeepAliveFraction;
 
@@ -915,6 +992,13 @@ void UAZ_CmcAnimInstance::Update_MotionMatching_PostSelection(const FAnimNodeRef
 		CurrentSelectedAnim = Result.SelectedAnim;
 		CurrentSelectedDatabase = Result.SelectedDatabase;
 		SearchCost = Result.SearchCost;
+
+		// The clip's OWN playback time. Needed because the movement layer samples MoveData_Speed straight
+		// off the selected sequence: UAnimInstance::GetCurveValue returns the BLEND-WEIGHTED value across
+		// everything still active in the BlendStack, so during a stop's blend-in it is dominated by the
+		// outgoing LOOP. Measured 2026-08-23: it reported 167-172 cm/s at the start of every walk stop —
+		// the walk loop's 172.6, not the stop clip's 147 peak — which made the capsule coast instead of brake.
+		CurrentSelectedTime = Result.SelectedTime;
 
 		// Straight off the search, so we never need the state machine's BlendStack to know this.
 		bCurrentAssetLooping = Result.bLoop;
@@ -1056,6 +1140,26 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 			|| (Stance != Stance_LastFrame))
 		&& (MovementMode == EAZ_MovementMode::OnGround);
 
+	// THE STOP EDGE INVALIDATES THE CONTINUING POSE.
+	//
+	// BlockTransition cannot cover this case: it is applied through FSearchFilters, built only in the
+	// CANDIDATE search paths (PoseSearchDatabase.cpp:2371/2490/2693). SearchContinuingPose (:1874) never
+	// builds them, so a continuing pose is exempt from every filter — including any tail block we author.
+	//
+	// The consequence, measured 2026-08-23: releasing the stick again while a previous stop clip was
+	// still playing INHERITED that clip wholesale, so the new stop began at clipTime 0.5-0.99s with the
+	// clip depicting 24-50 cm/s against a body at 155. Curve-driven braking then saw a 130 cm/s
+	// disagreement and pinned at its clamp — twenty hard snaps in five seconds.
+	//
+	// Invalidating on the edge forces the search to find a pose that genuinely matches, rather than
+	// keeping one that only happens to be playing. Deliberately the EDGE and not the whole stop: holding
+	// it for the duration would re-search every frame and reintroduce the churn the continuing pose exists
+	// to damp.
+	if (bStopActive && !bStopActive_LastFrame)
+	{
+		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+	}
+
 	// DIVERGENCE: UAZ_AnimInstance did not gate the state change on being grounded and added a
 	// direction-changed term. Both made mid-air searches restart, which is what the continuing pose exists
 	// to prevent.
@@ -1133,6 +1237,22 @@ float UAZ_CmcAnimInstance::Get_DynamicPlayRate(float MinPlayRate, float MaxPlayR
 	// which held the idle pools suppressed on a clip that was effectively finished (measured 2026-08-23).
 	// Play the settle at authored speed and let it end.
 	if (bStopSelected && Speed2D <= AZ::CmcAnim::StoppedSpeedTolerance)
+	{
+		return 1.f;
+	}
+
+	// ONE CONTROLLER OWNS STOP PHASE. With the stop contract active the MOVEMENT already guarantees the
+	// stop's duration (braking is solved from the clip's own ~0.93s), so a second controller warping the
+	// clip's clock toward the speed ratio is not a safety net — it fights the guarantee. Both terms decay
+	// linearly, so the ratio does not settle: integrating dy/dx = k(1-x)/(1-y) with k = 269/147 finishes
+	// a 0.92s clip in 0.30s of a 0.93s stop. MaxPlayRate caps that at 0.77s, which is milder but still
+	// early, and the cap means the warp cannot fix a large mismatch anyway.
+	//
+	// What is LEFT over is a DISTANCE error, not a timing one — the capsule covers EntrySpeed*T/2 while
+	// the clip depicts its own authored travel, and they agree only when EntrySpeed matches the clip's
+	// peak. Play rate cannot close that gap: it changes cadence, not stride length. Stage 2 owns it
+	// (distance-matched phase and/or stride warping); [CmcStop] logs the error so stage 2 has a target.
+	if (bStopSelected && CharacterProperties.bStopActive && CharacterProperties.bStopIsAnimated)
 	{
 		return 1.f;
 	}

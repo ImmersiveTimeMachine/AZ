@@ -447,6 +447,46 @@ protected:
 
 	// ---- Thresholds ----
 
+public:
+	// ==================================================================================
+	// ANIM -> MOVEMENT SNAPSHOT. The one place the movement layer is allowed to read the anim layer.
+	//
+	// Direction of dependency is deliberate and narrow: the character asks "what does the selected stop
+	// clip depict right now" and matches the capsule to it, so stopping distance is a property of the
+	// CONTENT rather than a tuned constant. Everything else still flows movement -> anim through
+	// FAZ_CmcAnimContract; this is the single reverse edge and it carries two floats.
+	//
+	// Written once per frame in NativeUpdateAnimation (game thread). The character ticks BEFORE the mesh,
+	// so it reads last frame's values — see the note at the write site.
+	// ==================================================================================
+
+	/** True while a Stops-tagged clip is the current selection. */
+	bool IsStopClipSelected() const { return bStopClipSelected_GT; }
+
+	/** Ground speed the selected stop clip depicts at its current playback time, from MoveData_Speed.
+	 *  Zero means either no stop is selected, the clip carries no curve, or the clip has reached its
+	 *  plant — callers must treat "not positive" as "fall back to the latched stop contract". */
+	float GetStopClipDepictedSpeed() const { return StopClipSpeed_GT; }
+
+	/** Playback time the stop clip's curve was sampled at. Exposed for diagnostics: it is the only way to
+	 *  see whether Motion Matching entered a stop near its beginning or deep in its tail. */
+	float GetStopClipSampleTime() const { return StopClipSampleTime_GT; }
+
+protected:
+	/** Mirror of the contract's stop flag plus its previous value, so the graph can see the STOP EDGE.
+	 *  Get_MMInterruptMode invalidates the continuing pose on that edge — without it a spent stop clip
+	 *  from a previous stop is inherited wholesale, and the new stop begins at whatever time that clip
+	 *  had reached (measured 2026-08-23: clipTime 0.5-0.99s while the body was at full walk speed). */
+	bool bStopActive = false;
+	bool bStopActive_LastFrame = false;
+
+	bool bStopClipSelected_GT = false;
+	float StopClipSpeed_GT = 0.f;
+	float StopClipSampleTime_GT = 0.f;
+
+	/** The selected asset's own playback time, straight from the search result. */
+	float CurrentSelectedTime = 0.f;
+
 	/** bHasVelocity = Speed2D > this. GASP: 5. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
 	float HasVelocityThreshold = 5.f;

@@ -5,8 +5,10 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GA_HitReact.h"
 #include "AbilitySystem/Abilities/AZ_GA_PlayerGrabbed.h"
+#include "Animation/AZ_CmcAnimInstance.h"
 #include "AZ_GameplayTags.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -77,7 +79,7 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	// against the speed that gait implies.
 	ResolveGaitAndStanceFromTags();
 	UpdateSelectionGait();   // owns the stop-band latch that braking and pool selection both read
-	ApplyMovementFeelParams();
+	ApplyMovementFeelParams(DeltaSeconds);
 }
 
 void AAZ_CmcHeroCharacter::ResolveGaitAndStanceFromTags()
@@ -153,7 +155,7 @@ void AAZ_CmcHeroCharacter::FillAnimContract(FAZ_CmcAnimContract& Out) const
 	}
 }
 
-void AAZ_CmcHeroCharacter::ApplyMovementFeelParams()
+void AAZ_CmcHeroCharacter::ApplyMovementFeelParams(float DeltaSeconds)
 {
 	UCharacterMovementComponent* Move = GetCharacterMovement();
 	if (!Move)
@@ -176,7 +178,107 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams()
 	// braking=190 (the walk value), a 2.9s stop. Rotation rate legitimately follows INTENT, which is why
 	// bGaitScaledRotationRate keys off the gait; braking must follow MOMENTUM, which only speed knows.
 	float NoInputBraking = BrakingDecelNoInput;
-	if (bGaitScaledBraking)
+
+	// ===================== CURVE-DRIVEN STOP: the capsule tracks the CLIP =====================
+	// Highest precedence, because it is the only option here that needs no tuning at all. The stop clips
+	// carry MoveData_Speed, authored from their own root motion at 30Hz, so the animation already knows
+	// the deceleration profile it depicts. Brake exactly hard enough to reach that speed THIS frame and
+	// the capsule tracks the authored curve — zero slide by construction at any release speed, and
+	// stopping distance becomes a property of the content instead of a number fitted to it.
+	//
+	// Every constant below this line (StopTimeSeconds, the three-band table) exists only to APPROXIMATE
+	// this curve with a scalar. They stay as fallbacks for clips that carry no curve — the crouch stop's
+	// 9 cm/s peak, and anything not yet authored.
+	bool bCurveDriven = false;
+	if (bStopCurveBraking && bStopActive && bStopIsAnimated && DeltaSeconds > KINDA_SMALL_NUMBER)
+	{
+		if (const UAZ_CmcAnimInstance* CmcAnim =
+			GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr)
+		{
+			const float ClipSpeed = CmcAnim->GetStopClipDepictedSpeed();
+
+			// HANDOVER GATE — decided once, on the first frame a stop clip is available, and then held.
+			// Re-testing per frame would let a stop that failed the gate flicker into curve driving later
+			// (the clip advances, the body slows, and eventually they agree by coincidence), which
+			// reintroduces the step the gate exists to prevent.
+			if (!bStopCurveEngaged && !bStopCurveRejected && CmcAnim->IsStopClipSelected())
+			{
+				const float HandoverStep = FMath::Abs(ClipSpeed - Speed2D);
+				const float ClipTime = CmcAnim->GetStopClipSampleTime();
+				const bool bAgrees = ClipSpeed > KINDA_SMALL_NUMBER
+					&& HandoverStep <= StopCurveMaxHandoverStep
+					&& ClipTime <= StopCurveMaxHandoverClipTime;
+
+				if (!bAgrees)
+				{
+					bStopCurveRejected = true;
+					UE_LOG(LogTemp, Display,
+						TEXT("[CmcStop] curve REJECTED: body=%.0f clip=%.0f step=%.0f clipTime=%.2fs ")
+						TEXT("-> falling back to v0/T (clip is describing a different stop)"),
+						Speed2D, ClipSpeed, HandoverStep, ClipTime);
+				}
+			}
+
+			// ONCE ENGAGED, STAY ENGAGED FOR THE REST OF THE STOP — including the plant, where the curve
+			// legitimately reads zero.
+			//
+			// The first cut bailed out on a non-positive reading and handed back to the latched contract.
+			// But StopBrakingDecel is EntrySpeed/StopTimeSeconds, sized for the WHOLE stop, so it is far
+			// too soft for a leftover 100 cm/s at the end: measured 2026-08-23, entry=234 handed back at
+			// braking=251 and took 1.18s to travel 138cm against a 109cm plan. Everything after the clip
+			// plants is pure slide — the feet are down and the body is still moving.
+			//
+			// A zero reading can only mean "no curve on this clip" BEFORE engagement; once we have
+			// engaged we know the clip carries one, so zero can only mean the plant. Targeting zero
+			// through the same convergence then kills the residual in StopCurveConvergenceTime.
+			const bool bCurveUsable = ClipSpeed > KINDA_SMALL_NUMBER || bStopCurveEngaged;
+			if (!bStopCurveRejected && CmcAnim->IsStopClipSelected() && bCurveUsable)
+			{
+				// CONVERGE onto the curve over a window, do not snap onto it in one frame. Dividing by
+				// DeltaSeconds closes the whole gap in a single tick, which turns every legitimate
+				// foot-phase offset into a visible velocity step. Over StopCurveConvergenceTime the same
+				// gap reads as weight instead. Floored at DeltaSeconds so the correction can never be
+				// asked to act faster than one frame.
+				//
+				// Negative when the clip depicts MORE speed than the body has: coast, never accelerate.
+				// A stop that pushed the character forward would be worse than any slide.
+				const float ConvergeOver = FMath::Max(StopCurveConvergenceTime, DeltaSeconds);
+				const float Needed = (Speed2D - ClipSpeed) / ConvergeOver;
+				NoInputBraking = FMath::Clamp(Needed, 0.f, StopCurveMaxBraking);
+				bCurveDriven = true;
+
+				// Report the moment it takes over, once per stop. Without this we cannot tell a working
+				// curve path from one that never engaged — exactly how the sub-floor gate went unnoticed
+				// for a whole session. The step is the velocity discontinuity at handover: if MM entered
+				// the clip at a frame whose speed is far from ours, this is where it shows.
+				if (!bStopCurveEngaged)
+				{
+					bStopCurveEngaged = true;
+					UE_LOG(LogTemp, Display,
+						TEXT("[CmcStop] curve ENGAGED: body=%.0f clip=%.0f step=%+.0f cm/s braking=%.0f  clipTime=%.2fs"),
+						Speed2D, ClipSpeed, ClipSpeed - Speed2D, NoInputBraking,
+						CmcAnim->GetStopClipSampleTime());
+				}
+			}
+		}
+	}
+
+	if (!bStopActive)
+	{
+		bStopCurveEngaged = false;
+		bStopCurveRejected = false;
+	}
+
+	if (!bCurveDriven && bStopTimeBraking && bStopActive)
+	{
+		// THE STOP CONTRACT WINS. UpdateSelectionGait solved braking = EntrySpeed / StopTimeSeconds once,
+		// at the stop edge, so every stop takes the same ~0.93s the content depicts regardless of release
+		// speed. The three-band table below is exact at exactly three speeds (165/375/585) and degrades to
+		// the band edges — releasing one cm/s under the run threshold latched the WALK value and took
+		// 1.42s over 190cm against a clip depicting 0.92s / 68cm.
+		NoInputBraking = StopBrakingDecel;
+	}
+	else if (bGaitScaledBraking)
 	{
 		// SelectionGait, not Speed2D directly: it is latched at the instant the stop began, so the value
 		// stays CONSTANT for the whole stop. Recomputing per-frame from the current speed made the
