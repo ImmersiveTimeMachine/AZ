@@ -142,6 +142,32 @@ struct AZ_API FAZ_CmcAnimContract
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
 	float StopProgress = 0.f;
 
+	// ==================================================================================
+	// TURN-IN-PLACE CONTRACT (2026-08-24) — the mirror image of the stop contract.
+	//
+	// A stop is "input released, body still moving"; this is "input pressed, body must rotate before it
+	// may move". Latched on the character at the input edge (Idle + move input + |yaw to input| >=
+	// TurnInPlaceEnterAngle); while active the character ZEROES movement input — deliberately input and
+	// not MaxWalkSpeed, because CalcVelocity floors any held input at MinAnalogWalkSpeed (150), because
+	// the predictor reads GetMaxSpeed() as intent, and because orient-to-movement keeps rotating the
+	// capsule while acceleration is non-zero. Zero input silences all three through one write.
+	// GASP note: GASP has no such lock — its TIP only ever fires with NO input held (camera turns while
+	// aiming). This is our extension; the ingredients (0-travel TIP clips, the TIP Steering node, the
+	// TurnInPlace database tag) are all GASP's.
+	// ==================================================================================
+
+	/** True while the character holds a turn-in-place lock: translation suppressed, the mesh rotating
+	 *  to the latched target through the TIP clip + OffsetRootBone while the capsule stays put. */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim")
+	bool bTurnInPlaceActive = false;
+
+	/** World yaw of the latched input direction — where the body is turning TO. Valid only while
+	 *  bTurnInPlaceActive. Update_Trajectory bends the predicted facings toward this so the MM query
+	 *  actually depicts a turn (with input zeroed the raw prediction would show nothing turning and
+	 *  plain Idle would win the search). */
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Cmc|Anim", meta = (ForceUnits = "deg"))
+	float TurnInPlaceTargetYaw = 0.f;
+
 	/**
 	 * The gait->speed table, published so the anim layer can classify what the BODY is doing.
 	 *

@@ -472,6 +472,21 @@ public:
 	 *  see whether Motion Matching entered a stop near its beginning or deep in its tail. */
 	float GetStopClipSampleTime() const { return StopClipSampleTime_GT; }
 
+	// ---- Turn-in-place reverse edge — same _GT snapshot discipline as the stop trio above. The hero's
+	// TIP lock reads these to decide RELEASE: the capsule does not rotate during the lock, so remaining
+	// yaw can only be measured against the MESH root, which is an anim-side fact. ----
+
+	/** True while a TurnInPlace-tagged clip is the current selection. */
+	bool IsTurnInPlaceClipSelected() const { return bTipClipSelected_GT; }
+
+	/** Fraction of the selected TIP clip already played (0..1). 0 when no TIP clip is selected. */
+	float GetTurnInPlaceClipFraction() const { return TipClipFraction_GT; }
+
+	/** World yaw of the offset mesh root (actor convention — RootTransform already carries the +90).
+	 *  What the TIP lock measures its remaining rotation against, and what the capsule snaps to at
+	 *  release. */
+	float GetTipRootYaw() const { return TipRootYaw_GT; }
+
 protected:
 	/** Mirror of the contract's stop flag plus its previous value, so the graph can see the STOP EDGE.
 	 *  Get_MMInterruptMode invalidates the continuing pose on that edge — without it a spent stop clip
@@ -483,6 +498,19 @@ protected:
 	bool bStopClipSelected_GT = false;
 	float StopClipSpeed_GT = 0.f;
 	float StopClipSampleTime_GT = 0.f;
+
+	/** TIP contract mirror + edge twin — same pattern and same reason as the bStopActive pair. */
+	bool bTurnInPlaceActive = false;
+	bool bTurnInPlaceActive_LastFrame = false;
+
+	bool bTipClipSelected_GT = false;
+	float TipClipFraction_GT = 0.f;
+	float TipRootYaw_GT = 0.f;
+
+	/** How far ahead (s) the predicted facings fully converge on the TIP target. Shorter = the query
+	 *  depicts a harder turn = MM prefers the bigger/faster turn clips. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "s"))
+	float TurnInPlaceFacingConvergeTime = 0.5f;
 
 	/** The selected asset's own playback time, straight from the search result. */
 	float CurrentSelectedTime = 0.f;

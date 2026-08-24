@@ -100,6 +100,70 @@ protected:
 	 */
 	void ApplyMovementFeelParams(float DeltaSeconds);
 
+	// ---- Turn-in-place lock: plant, rotate, THEN move ----
+	//
+	// From idle, a move input pointing far off the current facing latches a lock: movement input is
+	// zeroed (input, not MaxWalkSpeed — the analog floor is 150 and the predictor reads MaxSpeed as
+	// intent), the capsule neither translates nor rotates, and the mesh turns to the latched target
+	// through the TurnInPlace clips + OffsetRootBone. Released when the mesh root arrives, the clip is
+	// mostly done, selection never happened (grace), or the watchdog fires — events drive, the timer
+	// guards. GASP has no such lock (its TIP only fires with no input held); ingredients are GASP's.
+
+	/** Update + release logic; runs every Tick after the feel pass. */
+	void UpdateTurnInPlaceLock(float DeltaSeconds);
+
+	/** Clear the lock. bSnapCapsule aligns actor yaw to the mesh root first — visually free (the mesh
+	 *  is already there; only the invisible capsule moves) and it makes the follow-up start a clean
+	 *  small-angle one instead of a second 180. */
+	void ReleaseTurnInPlaceLock(const TCHAR* Reason, bool bSnapCapsule);
+
+	/** Master switch — off restores pre-2026-08-24 behaviour (move+turn simultaneously). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace")
+	bool bTurnInPlaceLock = true;
+
+	/** Enter when |yaw(input, facing)| is at least this, from (near) standstill. GASP's TIP threshold
+	 *  is 50; ours is higher because entering ALSO suppresses input, which 50-degree adjustments do not
+	 *  deserve. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace", meta = (ForceUnits = "deg"))
+	float TurnInPlaceEnterAngle = 60.f;
+
+	/** Release when the mesh root is within this of the target. Matches the pivot thresholds' spirit:
+	 *  under this the normal rotation rate closes the rest invisibly. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace", meta = (ForceUnits = "deg"))
+	float TurnInPlaceExitAngle = 30.f;
+
+	/** Only latch below this speed — the moving version of this problem belongs to pivots, not TIP.
+	 *  GASP uses the same 50 in its own idle test. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace", meta = (ForceUnits = "cm/s"))
+	float TurnInPlaceEnterMaxSpeed = 50.f;
+
+	/** Watchdog only — release is event-driven (root arrival / clip fraction / no-selection grace).
+	 *  Sized above the longest TIP clip (TurnLt/Rt180 = 1.67 s) so it can never own a healthy turn. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace", meta = (ForceUnits = "s"))
+	float TurnInPlaceTimeout = 2.f;
+
+	/** Mid-lock input direction change bigger than this re-latches the target (elapsed resets — it is a
+	 *  new turn). Smaller wobbles are stick noise and keep the original target. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace", meta = (ForceUnits = "deg"))
+	float TurnInPlaceRetargetAngle = 45.f;
+
+	/** Snap capsule yaw to the mesh root on successful release. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace")
+	bool bTurnInPlaceSnapCapsuleOnRelease = true;
+
+	/** Consecutive input frames past the enter angle required to latch — a debounce so stick taps and
+	 *  crossing transients do not flash a turn. ~2 frames = 35-40 ms. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace")
+	int32 TurnInPlaceMinHoldFrames = 2;
+
+	// TIP lock state (not UPROPERTYs — pure runtime)
+	bool bTipLockActive = false;
+	float TipTargetYaw = 0.f;
+	float TipLockElapsed = 0.f;
+	int32 TipEnterCandidateFrames = 0;
+	FVector LastMoveInputDir = FVector::ZeroVector;
+	float LastMoveInputTime = -1.f;
+
 	// ---- Curve-driven stop braking: the capsule tracks what the clip depicts ----
 
 	/** Make the capsule follow the selected stop clip's own MoveData_Speed curve instead of a solved

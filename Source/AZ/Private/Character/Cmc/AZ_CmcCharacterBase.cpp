@@ -275,7 +275,17 @@ void AAZ_CmcCharacterBase::UpdateSelectionGait()
 	// While stopping the latched band wins outright. Otherwise take the HIGHER of commanded and
 	// speed-implied, which leaves acceleration untouched (a commanded sprint opens sprint pools at once)
 	// and only holds the wider pools open while the body is still fast.
-	if (bStopBandLatched)
+	// The latch is only CONSUMED while the stop is actually in progress.
+	//
+	// bStopBandLatched and bStopActive have deliberately different lifetimes and it matters:
+	//   bStopActive       clears when the body HALTS (or the watchdog fires)
+	//   bStopBandLatched  clears only when INPUT RETURNS
+	// The second is the "already latched for this release" guard — clearing it on halt would re-latch a
+	// brand new stop every frame while standing still. But CONSUMING it after the stop has finished
+	// pinned the gates to a stale band at rest: measured 2026-08-23 as `cmd=Run sel=Walk` at spd=0,
+	// i.e. the commanded gait was Run while selection was still offering the Walk pools from a stop that
+	// had ended. SelectionGait must never sit BELOW the commanded gait.
+	if (bStopBandLatched && bStopActive)
 	{
 		SelectionGait = LatchedStopBand;
 	}

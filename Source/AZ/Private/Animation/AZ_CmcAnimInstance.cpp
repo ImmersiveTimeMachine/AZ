@@ -123,6 +123,21 @@ void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				StopClipSpeed_GT = Sequence->EvaluateCurveData(MoveDataSpeedCurve, CurrentSelectedTime);
 			}
 		}
+
+		// TIP reverse edge, same discipline. Root yaw is snapshotted unconditionally: the hero's release
+		// snap wants it even on the frame the selection has already moved on.
+		static const FName TurnInPlaceSnapshotTag(TEXT("TurnInPlace"));
+		bTipClipSelected_GT = CurrentDatabaseTags.Contains(TurnInPlaceSnapshotTag);
+		TipClipFraction_GT = 0.f;
+		if (bTipClipSelected_GT)
+		{
+			if (const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get()))
+			{
+				const float Len = Sequence->GetPlayLength();
+				TipClipFraction_GT = (Len > KINDA_SMALL_NUMBER) ? (CurrentSelectedTime / Len) : 0.f;
+			}
+		}
+		TipRootYaw_GT = static_cast<float>(RootTransform.Rotator().Yaw);
 	}
 
 	if (bDebugAnim)
@@ -250,6 +265,21 @@ void UAZ_CmcAnimInstance::DrawDebugAnimOverlay() const
 		FString::Printf(TEXT("lean  %+.2f    AOyaw %+.0f    pivot %d  tip %d  starting %d"),
 			Lean.X, Get_AO_Yaw(), IsPivoting() ? 1 : 0,
 			ShouldTurnInPlace() ? 1 : 0, IsStarting() ? 1 : 0));
+
+	// The lean and the root offset were ON SCREEN ONLY, so every "did it change?" question this session
+	// had to be answered by eye instead of by grep. Mirror the two numbers that matter into the log.
+	// relAccY is the RAW normalised lateral term the lean is built from: if that stays pinned at +-1.00
+	// the new split-budget normalisation is not taking; if it varies but the character looks the same,
+	// the lean is simply too small to see and the blendspace range is the thing to change.
+	// rootOff is the capsule-vs-mesh-root yaw lag. If it stays ~0 through a turn, OffsetRootBone is NOT
+	// absorbing the rotation and the mesh is rigidly welded to the capsule — a different fault entirely.
+	if (Speed2D > 40.f)
+	{
+		UE_LOG(LogTemp, Display,
+			TEXT("[CmcLean] lean=%+.2f relAccY=%+.2f spd=%.0f rootOff=%+.0f capsuleYaw=%+.0f"),
+			Lean.X, CalculateRelativeAccelerationAmount().Y, Speed2D, RootOffsetYaw,
+			CharacterTransform.Rotator().Yaw);
+	}
 }
 
 void UAZ_CmcAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
@@ -338,8 +368,61 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 
 				SecondsSinceSelectionChange += DeltaSeconds;
 
+				// ----------------------------------------------------------------------------------
+				// MISMATCH RATIO — ActualSpeed / DepictedSpeed, accumulated per selected clip.
+				//
+				// This is the number that decides WHICH correction layer a clip needs, and it must be
+				// measured rather than guessed. Play rate alone can absorb roughly 0.85-1.15; stride
+				// warping extends that; beyond about 0.75-1.25 sustained, the honest answer is that the
+				// content and the gameplay speed disagree and no procedural layer hides it.
+				//
+				// Sampled from the SELECTED sequence at its own time (not GetCurveValue, which returns
+				// the blend-weighted value and reads the outgoing clip during blend-in).
+				// ----------------------------------------------------------------------------------
+				static float RatioSum = 0.f;
+				static int32 RatioCount = 0;
+				static float RatioMin = TNumericLimits<float>::Max();
+				static float RatioMax = 0.f;
+
+				// Below this the ratio is dominated by noise: near-zero ground speed against a clip
+				// still depicting motion produces an arbitrarily small number that means nothing.
+				static constexpr float RatioMinSpeed = 20.f;
+
+				float DepictedSpeed = 0.f;
+				if (const UAnimSequenceBase* SelectedSeq = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get()))
+				{
+					DepictedSpeed = SelectedSeq->EvaluateCurveData(MoveDataSpeedCurve, CurrentSelectedTime);
+				}
+				if (DepictedSpeed > UE_KINDA_SMALL_NUMBER && Speed2D > RatioMinSpeed)
+				{
+					const float Ratio = Speed2D / DepictedSpeed;
+					RatioSum += Ratio;
+					++RatioCount;
+					RatioMin = FMath::Min(RatioMin, Ratio);
+					RatioMax = FMath::Max(RatioMax, Ratio);
+				}
+
 				if (CurrentSelectedAnim.Get() != LastSelectedAnim.Get())
 				{
+					// Report the clip that is ENDING, classified by how much correction it needed.
+					// GREEN survives on play rate alone; YELLOW needs stride warping too; RED is a
+					// content/gameplay disagreement (the crouch loop at 172.5 against a 90 gait speed
+					// is the known example) and should be re-authored or the gait speed changed.
+					if (RatioCount > 0)
+					{
+						const float Mean = RatioSum / RatioCount;
+						const TCHAR* Band =
+							(Mean >= 0.85f && Mean <= 1.15f) ? TEXT("GREEN") :
+							(Mean >= 0.75f && Mean <= 1.25f) ? TEXT("YELLOW") : TEXT("RED");
+						UE_LOG(LogTemp, Display,
+							TEXT("[CmcRatio] %-32s n=%3d mean=%.2f min=%.2f max=%.2f  %s"),
+							*GetNameSafe(LastSelectedAnim.Get()), RatioCount, Mean, RatioMin, RatioMax, Band);
+					}
+					RatioSum = 0.f;
+					RatioCount = 0;
+					RatioMin = TNumericLimits<float>::Max();
+					RatioMax = 0.f;
+
 					FString ChangeGates;
 					for (const FName& GateLabel : MatchedGateLabels)
 					{
@@ -449,6 +532,30 @@ void UAZ_CmcAnimInstance::Update_Trajectory(float DeltaSeconds)
 		Trajectory = MoveTemp(Generated);
 	}
 
+	// TIP LOCK: bend the PREDICTED facings toward the latched target. With input zeroed the predictor
+	// sees zero acceleration and a static camera, so the raw prediction depicts nothing turning — the MM
+	// query would keep choosing Idle, and the TIP Steering node (whose target is Get_DesiredFacing, i.e.
+	// a sample of THIS trajectory) would actively fight the clip's authored rotation back to the old
+	// facing. One edit fixes both consumers, which is why it lives here and not in either of them.
+	// Composed as a WORLD-Z DELTA on each sample's own facing rather than an absolute quat, so the mesh
+	// component's -90 yaw convention never enters into it.
+	if (CharacterProperties.bTurnInPlaceActive)
+	{
+		const float DeltaYaw = static_cast<float>(FRotator::NormalizeAxis(
+			CharacterProperties.TurnInPlaceTargetYaw
+			- CharacterProperties.ActorTransform.Rotator().Yaw));
+		const float ConvergeTime = FMath::Max(TurnInPlaceFacingConvergeTime, KINDA_SMALL_NUMBER);
+		for (FTransformTrajectorySample& Sample : Trajectory.Samples)
+		{
+			if (Sample.TimeInSeconds > 0.f)
+			{
+				const float Alpha = FMath::Clamp(Sample.TimeInSeconds / ConvergeTime, 0.f, 1.f);
+				const FQuat Delta(FVector::UpVector, FMath::DegreesToRadians(DeltaYaw * Alpha));
+				Sample.Facing = Delta * Sample.Facing;
+			}
+		}
+	}
+
 	// THREE samples, not one. Past feeds deceleration reads, current is the honest "now", and future is
 	// 0.4-0.5s out — far enough ahead to choose a clip before the motion it describes has begun.
 	UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(
@@ -512,7 +619,25 @@ void UAZ_CmcAnimInstance::Update_EssentialValues(float DeltaSeconds)
 	Speed2D = Velocity.Size2D();
 	bHasVelocity = Speed2D > HasVelocityThreshold;
 
-	VelocityAcceleration = (Velocity - Velocity_LastFrame) / FMath::Max(DeltaSeconds, 0.001f);
+	// SMOOTHED, not raw. A single-frame derivative of velocity is noise: variable frame time, collision
+	// resolution and CalcVelocity's friction bend all perturb it, and on keyboard the input goes 0 -> full
+	// in one frame so the derivative spikes. That value feeds CalculateRelativeAccelerationAmount ->
+	// Get_LeanAmount -> the lean blendspace, so an unfiltered read makes the character SNAP into a bank
+	// instead of rolling into it. The harshness is created here, after the capsule — no amount of movement
+	// tuning reaches it.
+	//
+	// Smoothed at the source so RelativeAcceleration below inherits it: both are the same signal in
+	// different spaces, and both feed additive layers that want a rolled response rather than a spike.
+	//
+	// ~8 gives a visible roll in and out without lag. Lower = smoother and mushier, higher = sharper.
+	// TODO: promote to an EditDefaultsOnly UPROPERTY at the next editor-closed build so it is tunable
+	// without a recompile. Kept a constant for now because a new UPROPERTY cannot be Live Coding patched.
+	static constexpr float LeanInterpSpeed = 8.f;
+
+	const FVector RawVelocityAcceleration =
+		(Velocity - Velocity_LastFrame) / FMath::Max(DeltaSeconds, 0.001f);
+	VelocityAcceleration =
+		FMath::VInterpTo(VelocityAcceleration, RawVelocityAcceleration, DeltaSeconds, LeanInterpSpeed);
 	RelativeAcceleration = RootTransform.GetRotation().UnrotateVector(VelocityAcceleration);
 
 	if (bHasVelocity)
@@ -555,6 +680,9 @@ void UAZ_CmcAnimInstance::Update_States()
 	// AFTER this block, so Get_MMInterruptMode can see the edge this frame rather than a frame late.
 	bStopActive_LastFrame = bStopActive;
 	bStopActive = CharacterProperties.bStopActive;
+
+	bTurnInPlaceActive_LastFrame = bTurnInPlaceActive;
+	bTurnInPlaceActive = CharacterProperties.bTurnInPlaceActive;
 }
 
 // ======================================================================================
@@ -637,6 +765,15 @@ bool UAZ_CmcAnimInstance::IsPivoting() const
 
 bool UAZ_CmcAnimInstance::ShouldTurnInPlace() const
 {
+	// The character's TIP lock outranks the angle test: the angle was already checked at the latch edge
+	// (>= TurnInPlaceEnterAngle) and the capsule does not rotate during the lock, so re-deriving it here
+	// against a moving mesh root would CLOSE the gate mid-turn — the exact self-cancelling-signal
+	// failure the 2026-08-21 pivot gate died of. One owner: the latch decides, this predicate reports.
+	if (CharacterProperties.bTurnInPlaceActive)
+	{
+		return true;
+	}
+
 	const float YawDelta = static_cast<float>(FMath::Abs(
 		(CharacterProperties.OrientationIntent - RootTransform.Rotator()).GetNormalized().Yaw));
 
@@ -665,15 +802,62 @@ FVector UAZ_CmcAnimInstance::CalculateRelativeAccelerationAmount() const
 		return FVector::ZeroVector;
 	}
 
-	// Which budget to normalise against depends on whether we are speeding up or slowing down, and the
-	// dot of acceleration against velocity is what says which.
-	const bool bSpeedingUp = FVector::DotProduct(Acceleration, Velocity) > 0.0;
-	const float Budget = bSpeedingUp ? MaxAcceleration : MaxDeceleration;
+	// ★★ REWRITTEN 2026-08-24. The old form clamped the WHOLE velocity derivative against the linear
+	// acceleration budget and normalised by it. That is correct for speeding up and slowing down and
+	// badly wrong for turning, because in a steady carve the derivative is CENTRIPETAL: its magnitude is
+	// v*omega, which has nothing to do with how hard the character can push off the ground.
+	//
+	// Measured 2026-08-24 at RunSpeed 375.7 against the 400 budget:
+	//     omega 400 deg/s -> 2618 cm/s^2 -> 6.5x budget
+	//     omega 165 deg/s -> 1080 cm/s^2 -> 2.7x budget
+	//     omega 115 deg/s ->  753 cm/s^2 -> 1.9x budget
+	// Over budget at EVERY rotation rate the project has ever shipped, so the clamp pinned the lateral
+	// term at +-1 and the lean became a binary left/right at full deflection. It could not express how
+	// hard the turn was, which is why four separately verified parameter changes (rotation rate 180 ->
+	// 400 -> 165, friction 3.5 -> 8) all looked identical: the lean is the ONLY node in this AnimGraph
+	// that responds to turning at all, and it was saturated flat through every one of them.
+	//
+	// The fix is to give each component the budget that actually bounds it:
+	//   LONGITUDINAL (along velocity) -> MaxAcceleration / MaxDeceleration, exactly as before.
+	//   LATERAL      (across velocity) -> v * omega_ref, the centripetal acceleration of a reference
+	//                                     turn at the CURRENT speed. Speed cancels, so the term becomes
+	//                                     a clean "how much of a full-rate turn is this", 0..1.
+	const FVector VelDir = Velocity.GetSafeNormal2D();
+	if (VelDir.IsNearlyZero())
+	{
+		// No heading to decompose against; fall back to the old whole-vector form.
+		const float Budget = FMath::Max(MaxAcceleration, 1.f);
+		return CharacterTransform.GetRotation().UnrotateVector(
+			VelocityAcceleration.GetClampedToMaxSize(Budget) / Budget);
+	}
 
-	const FVector Clamped = VelocityAcceleration.GetClampedToMaxSize(Budget) / Budget;
+	// TODO: promote to EditDefaultsOnly and, better, feed the capsule's live RotationRate.Yaw through
+	// the anim contract so the lean maxes out exactly when the turn does. Both need an editor-closed
+	// build; this constant is deliberately near the shipped GroundedRotationRateYaw so the mapping is
+	// honest today. Raising it makes lean less sensitive, lowering it more.
+	static constexpr float LeanTurnRateReferenceDegPerSec = 180.f;
+
+	const float   LongMag  = static_cast<float>(FVector::DotProduct(VelocityAcceleration, VelDir));
+	const FVector LatVec   = FVector(VelocityAcceleration.X, VelocityAcceleration.Y, 0.f) - VelDir * LongMag;
+
+	// Sign convention preserved: positive longitudinal = speeding up, so it takes the accel budget.
+	const float LongBudget = FMath::Max(LongMag >= 0.f ? MaxAcceleration : MaxDeceleration, 1.f);
+	const float TurnBudget = FMath::Max(
+		Speed2D * FMath::DegreesToRadians(LeanTurnRateReferenceDegPerSec), 1.f);
+
+	const FVector LongPart = VelDir * FMath::Clamp(LongMag / LongBudget, -1.f, 1.f);
+	const FVector LatPart  = LatVec.GetSafeNormal2D()
+		* FMath::Clamp(static_cast<float>(LatVec.Size2D()) / TurnBudget, 0.f, 1.f);
+
+	// Clamp the COMBINED vector, not just each component. Measured 2026-08-24: with the two parts
+	// clamped separately the sum reaches sqrt(2) = 1.414 when both saturate, and the log showed exactly
+	// that (relAccY -1.35, -1.41, -1.41 through the hardest third of a turn). Everything past 1.0 pins
+	// at the blendspace axis, so the strongest part of the turn was STILL flat — the same saturation
+	// bug this function was rewritten to remove, just one step further out.
+	const FVector Combined = (LongPart + LatPart).GetClampedToMaxSize(1.f);
 
 	// CharacterTransform here, NOT RootTransform — GASP measures this one against the capsule.
-	return CharacterTransform.GetRotation().UnrotateVector(Clamped);
+	return CharacterTransform.GetRotation().UnrotateVector(Combined);
 }
 
 FVector2D UAZ_CmcAnimInstance::Get_LeanAmount() const
@@ -735,8 +919,17 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// legitimate cases: the idle launch, and the near-stop plant of a reversal — where a 180-start
 	// IS the right answer. The CurrentDatabaseTags guard keeps the pool searchable while a start is
 	// already the selection, so one is never cut mid-play by its own filter.
+	// LOWERED 100 -> 50 on 2026-08-24, and the number is read off a log rather than chosen. A turn
+	// during the run loop swings Acceleration off Velocity, CalcVelocity takes the friction branch, and
+	// speed craters 375 -> 67-89 BEFORE any animation is involved. At a cap of 100 that dip made the
+	// Starts pool legal mid-turn, and the trajectory genuinely looks like "near-rest with a heading
+	// change", so RunFwdStart180/135/90 won on cost — seven times in one session. That is the user's
+	// "when i turn during the run loop, MM takes turn anims": the deceleration was making the wrong
+	// clip legal. The separation is clean and empirical: genuine starts entered at spd=5 and 23, every
+	// turn leak entered at 67-89, and nothing landed in between. 50 splits them with margin on both
+	// sides. Raising it back above ~60 reopens the leak.
 	// TODO: promote the cap to an EditDefaultsOnly UPROPERTY at the next editor-closed build.
-	static constexpr float StartsSearchMaxSpeed2D = 100.f;
+	static constexpr float StartsSearchMaxSpeed2D = 50.f;
 	static const FName StartsTag(TEXT("Starts"));
 	if (Speed2D > StartsSearchMaxSpeed2D && !CurrentDatabaseTags.Contains(StartsTag))
 	{
@@ -772,14 +965,68 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 		});
 	}
 
-	// NOTE 2026-08-21: a pivot hard-turn gate (v2's bHardTurn>=135 analog) lived here for a few
-	// hours and was REMOVED the same day: Get_TrajectoryTurnAngle collapses the moment velocity flips
-	// through the plant and Speed2D dips during the decel, so the gate read false at exactly the frames
-	// a reversal selects its pivot — a whole session logged ZERO pivot selections. Its justification
-	// (a mis-fired 180 must not rotate the capsule) belonged to the reverted RootMotionFromEverything
-	// experiment. Pivots compete freely; commitment bounds the cost of a shallow-turn over-serve.
+	// Third class — PIVOTS, restored 2026-08-24 (user report: "when i turn during the run loop, MM
+	// tries to take turn anims, but i need them only if i pass some conditions").
+	//
+	// A gate like this lived here for a few hours on 2026-08-21 and was removed the same day because a
+	// whole session logged ZERO pivot selections. That failure is worth stating precisely, because the
+	// fix is one line different: the old gate ALSO required a speed that the deceleration itself was
+	// destroying, so it shut mid-event. Two things make this version survive:
+	//   1. The window is evaluated BEFORE the plant exists. With input held against velocity, CMC takes
+	//      the friction branch (CalcVelocity :3923) and speed decays only AFTER the reversal begins —
+	//      so at the flip frame, which is the frame that matters, Speed2D is still full loop speed.
+	//   2. The standard currently-playing guard. Once a pivot IS the selection its pool cannot be cut
+	//      by its own filter, so the collapse that killed the old gate is unreachable by construction.
+	//
+	// The content justifies the 135 floor rather than taste: every pivot clip we own rotates a full
+	// 180 (measured 2026-08-24: 179.8-180.0 deg on all six), and the MM path has no RotationMethod::
+	// Scale, so a 180 asset serving a 90 request over-rotates by 90. Below this angle the honest answer
+	// is the loop plus rotation rate, which is what the arc/lean setup already does well.
+	//
+	// NOTE the tag also covers AnimPro_RunArchLoop_L/R, which share PSD_AZ_Stand_Run_Pivots. They are
+	// currently DISABLED at the database-entry level and kept there deliberately as an experiment
+	// toggle (user, 2026-08-24), so this gate does not affect them either way. Leave them in place.
+	// TODO: promote both constants to EditDefaultsOnly UPROPERTYs at the next editor-closed build.
+	static constexpr float PivotSearchMinTurnAngle = 135.f;
+	static constexpr float PivotSearchMinSpeed2D   = 200.f;
 
-	// Fourth and FINAL class — the leak the doctrine table had marked "watch": with every other wrong
+	// ★ INPUT MUST BE HELD. Get_TrajectoryTurnAngle is (Acceleration.Rotation() - Velocity.Rotation()),
+	// and on a released stick Acceleration is ZERO, so Acceleration.Rotation() collapses to the zero
+	// rotator and the "angle" degenerates into the negated world heading of the velocity. Measured
+	// 2026-08-24: a plain run-and-release logged a rock-steady turn=144 for 12+ consecutive frames with
+	// accel=0.00 — not a reversal at all, just a stop whose heading happened to sit past the threshold.
+	// That opened the pivot window through the entire stop and let pivots compete with the Stops pool.
+	// A reversal is an INPUT fact, exactly as the Stops gate above already establishes.
+	const bool bPivotInputHeld = !Acceleration.Equals(FVector::ZeroVector, IsMovingAccelerationTolerance);
+	const float ReversalAngle = bPivotInputHeld ? FMath::Abs(Get_TrajectoryTurnAngle()) : 0.f;
+	const bool bReversalCommitted = bPivotInputHeld
+		&& (ReversalAngle >= PivotSearchMinTurnAngle)
+		&& (Speed2D >= PivotSearchMinSpeed2D);
+
+	if (!bReversalCommitted && !CurrentDatabaseTags.Contains(PivotDatabaseTag))
+	{
+		Result.RemoveAll([this](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(PivotDatabaseTag);
+		});
+	}
+
+	// Logged only WHILE OPEN, deliberately. The first version edge-logged through a function-local
+	// static and the trace was unreadable: a second UAZ_CmcAnimInstance in the level (idle, spd=0)
+	// shares that static and flipped it every frame, so every real line came paired with a phantom
+	// "shut | turn=0 spd=0". Statics in an AnimInstance method are per-CLASS, not per-instance — the
+	// same scar as the stop contract's function-local latches. An open window is a condition no idle
+	// instance can satisfy, so keying the log on it removes the confound without any shared state.
+	// Silence here still means the window never opened, which was the question this log exists for.
+	if (bReversalCommitted)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[CmcPivot] window OPEN | turn=%.0f spd=%.0f poolSize=%d pivotsInPool=%d"),
+			ReversalAngle, Speed2D, Result.Num(),
+			Result.ContainsByPredicate([this](const UPoseSearchDatabase* Db)
+				{ return Db && Db->Tags.Contains(PivotDatabaseTag); }) ? 1 : 0);
+	}
+
+	// Fourth class — the leak the doctrine table had marked "watch": with every other wrong
 	// candidate gated, mid-turn queries fell through to the crouch<->stand clips (measured 2026-08-21:
 	// Idle2Crouch/Crouch2Idle selected at cost 3.2-4.6 during walking turns, and as rm-on transitions
 	// their near-zero root motion braked the capsule too). Stance transitions have exactly one
@@ -794,6 +1041,37 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 			return Db && Db->Tags.Contains(StanceTransTag);
 		});
 	}
+
+	// Fifth class — TURN IN PLACE, wired 2026-08-24. PSD_AZ_Stand_TurnInPlace (TurnLt/Rt90_Loop,
+	// TurnLt/Rt180) and PSD_AZ_Crouch_TurnInPlace existed, were tagged, and were referenced by NO gate
+	// row, so ShouldTurnInPlace() was computed every frame with nothing able to act on it.
+	//
+	// The condition REUSES ShouldTurnInPlace() rather than restating it. That predicate already owns
+	// the question and encodes the right doctrine: a turn-in-place is legal while AIMING (the body
+	// catching up to the camera, which is the whole point of the feature) or on the single frame we
+	// stopped. Duplicating the test here would be a second owner of one fact, and the handedness bugs
+	// in this file all trace to exactly that.
+	//
+	// This is also the one turn case that works WITHOUT capsule root motion, which is why it is safe
+	// to serve from MM while moving pivots are not: at idle with no input,
+	// ComputeOrientToMovementRotation returns CurrentRotation, so the capsule is stationary BY DESIGN
+	// and the visible rotation is carried entirely by the clip through OffsetRootBone. There is no
+	// capsule-vs-clip mismatch to resolve because the capsule is not a participant.
+	//
+	// ⚠ KNOWN FRAGILITY: ShouldTurnInPlace()'s non-aiming path is bJustStopped, a ONE-FRAME edge
+	// (Idle this frame, Moving last). The search has to land on that exact frame; if it does, the
+	// currently-playing guard below keeps the pool alive for the rest of the clip, but if it misses,
+	// the turn is simply lost. Aiming holds continuously and does not have this problem. Widening the
+	// stopped window needs a latch, and a latch needs a member, which needs an editor-closed build.
+	static const FName TurnInPlaceTag(TEXT("TurnInPlace"));
+	if (!ShouldTurnInPlace() && !CurrentDatabaseTags.Contains(TurnInPlaceTag))
+	{
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(TurnInPlaceTag);
+		});
+	}
+
 	return Result;
 }
 
@@ -945,22 +1223,58 @@ void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
 	KeepPlayingOneShotSearchable(MotionMatchingNode, Pool);
 	if (Pool.IsEmpty())
 	{
-		// No gate matched. Not calling SetDatabasesToSearch leaves the node on the last pushed pool
-		// (the override array persists on the node), which degrades to slightly-stale selection instead
-		// of a frozen pose from searching nothing. Warn once per dead spot — a hole in the gate table
-		// is authoring debt, not a per-frame event.
+		// ================== EMPTY UNION — FAIL SAFE, DO NOT JUST RETURN ==================
+		// The old behaviour (return, leave the node on its last pushed pool) was reasoned to "degrade to
+		// slightly-stale selection". MEASURED 2026-08-23: it degrades to NO ANIMATION. The last pushed
+		// pool can itself have been narrowed by KeepPlayingOneShotSearchable (idles suppressed during a
+		// stop), so when the held clip ends the node has nothing left that matches and the search returns
+		// a NULL anim — 300-400ms with no pose, twelve times in one session.
+		//
+		// The trigger is almost always mode=InAir: there is no airborne row in DatabaseGates at all, so
+		// every frame off the ground empties the union. It also flips GetMaxBrakingDeceleration to the
+		// falling value, which breaks stop prediction for as long as it lasts.
+		//
+		// Retrying the match as if GROUNDED is the fail-safe: airborne locomotion is unauthored, so the
+		// grounded row for the same stance/state/gait is the nearest legal content rather than an
+		// arbitrary fallback. This does NOT excuse the missing rows — authoring them is the real fix and
+		// the warning stays — but the character must never have zero animation.
+		for (const FAZ_DatabaseGate& Gate : DatabaseGates)
+		{
+			if (!Gate.Matches(EAZ_MovementMode::OnGround, Stance, MovementState, Gait))
+			{
+				continue;
+			}
+			for (const TObjectPtr<UPoseSearchDatabase>& Database : Gate.Databases)
+			{
+				if (Database)
+				{
+					Pool.AddUnique(Database);
+				}
+			}
+		}
+
 		if (!bWarnedEmptyGateUnion)
 		{
 			bWarnedEmptyGateUnion = true;
 			UE_LOG(LogTemp, Warning,
 				TEXT("[CmcAnim] DatabaseGates union is EMPTY for mode=%d stance=%d state=%d gait=%d — ")
-				TEXT("MM holds the previous pool. Add a matching gate row."),
+				TEXT("fell back to the GROUNDED rows (%d db). Add a matching gate row."),
 				static_cast<int32>(MovementMode), static_cast<int32>(Stance),
-				static_cast<int32>(MovementState), static_cast<int32>(Gait));
+				static_cast<int32>(MovementState), static_cast<int32>(Gait), Pool.Num());
 		}
-		return;
+
+		// Only if even the grounded retry found nothing is holding the previous pool the best available
+		// answer — at that point the gate table is empty for this stance/state/gait and there is nothing
+		// legal to offer.
+		if (Pool.IsEmpty())
+		{
+			return;
+		}
 	}
-	bWarnedEmptyGateUnion = false;
+	else
+	{
+		bWarnedEmptyGateUnion = false;
+	}
 
 	// Every update, like GASP: the node only stores the array + NextUpdateInterruptMode, and
 	// InterruptOnDatabaseChange does its own is-the-continuing-pose-still-in-the-set check downstream.
@@ -1156,6 +1470,15 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 	// it for the duration would re-search every frame and reintroduce the churn the continuing pose exists
 	// to damp.
 	if (bStopActive && !bStopActive_LastFrame)
+	{
+		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+	}
+
+	// The TIP-latch edge invalidates for the same reason the stop edge does: the continuing pose at that
+	// moment is Idle (or an idle break), it is exempt from every filter, and with the body stationary it
+	// costs almost nothing — left alone it would out-compete the turn clip and the lock would sit in its
+	// no-selection grace until the watchdog released it. Edge only, not the whole lock, as above.
+	if (bTurnInPlaceActive && !bTurnInPlaceActive_LastFrame)
 	{
 		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
 	}

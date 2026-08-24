@@ -80,6 +80,7 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	ResolveGaitAndStanceFromTags();
 	UpdateSelectionGait();   // owns the stop-band latch that braking and pool selection both read
 	ApplyMovementFeelParams(DeltaSeconds);
+	UpdateTurnInPlaceLock(DeltaSeconds);
 }
 
 void AAZ_CmcHeroCharacter::ResolveGaitAndStanceFromTags()
@@ -152,6 +153,16 @@ void AAZ_CmcHeroCharacter::FillAnimContract(FAZ_CmcAnimContract& Out) const
 	else
 	{
 		Out.OrientationIntent = FRotator(0.f, Out.AimingRotation.Yaw, 0.f);
+	}
+
+	// TIP lock last, because it overrides the intent the branches above just derived: with input zeroed
+	// InputAcceleration is zero, so the else-branch would publish the CAMERA yaw — and the whole point
+	// of the lock is that the body is turning to the LATCHED STICK direction, camera untouched.
+	Out.bTurnInPlaceActive = bTipLockActive;
+	Out.TurnInPlaceTargetYaw = TipTargetYaw;
+	if (bTipLockActive)
+	{
+		Out.OrientationIntent = FRotator(0.f, TipTargetYaw, 0.f);
 	}
 }
 
@@ -316,7 +327,43 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams(float DeltaSeconds)
 		default:               break;   // Walk keeps GroundedRotationRateYaw
 		}
 	}
-	Move->RotationRate = FRotator(0.f, Move->IsFalling() ? FallingRotationRateYaw : GroundedYawRate, 0.f);
+	const float NewYawRate = Move->IsFalling() ? FallingRotationRateYaw : GroundedYawRate;
+
+	// Logged on CHANGE only, and deliberately with no static or member to hold the previous value: we
+	// write RotationRate every frame, so comparing against what is already on the component IS the
+	// change test, and it works per-instance. This exists because a CDO edit made while PIE is running
+	// never reaches the spawned instance, which reads as "I changed the value and nothing happened" —
+	// three separate times on 2026-08-24. Now the applied number is in the log and there is no doubt.
+	if (!FMath::IsNearlyEqual(Move->RotationRate.Yaw, NewYawRate))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[CmcRot] RotationRate.Yaw %.0f -> %.0f | gaitScaled=%d gait=%d falling=%d"),
+			Move->RotationRate.Yaw, NewYawRate, bGaitScaledRotationRate ? 1 : 0,
+			static_cast<int32>(CurrentGait), Move->IsFalling() ? 1 : 0);
+	}
+
+	Move->RotationRate = FRotator(0.f, NewYawRate, 0.f);
+
+	// [CmcTurn] GROUND TRUTH. Every turn number so far has come from a simulation of CalcVelocity, and
+	// on 2026-08-24 that simulation predicted a 90-degree turn bottoming at 281 cm/s while the live log
+	// showed selections at 24-34. One of the two is wrong and only the game can say which. Logs the
+	// APPLIED values (after the writes above), gated so it only speaks during an actual turn.
+	{
+		const FVector V = Move->Velocity;
+		const FVector A = Move->GetCurrentAcceleration();
+		const float   Sp = V.Size2D();
+		if (Sp > 40.f && !A.IsNearlyZero())
+		{
+			const float Ang = FMath::Abs(FRotator::NormalizeAxis(
+				static_cast<float>(A.Rotation().Yaw - V.Rotation().Yaw)));
+			if (Ang > 25.f)
+			{
+				UE_LOG(LogTemp, Display,
+					TEXT("[CmcTurn] ang=%5.1f spd=%6.1f fric=%4.1f accel=%5.0f maxspd=%5.0f capsuleYaw=%7.1f"),
+					Ang, Sp, Move->GroundFriction, Move->MaxAcceleration, Move->GetMaxSpeed(),
+					GetActorRotation().Yaw);
+			}
+		}
+	}
 }
 
 void AAZ_CmcHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -437,8 +484,150 @@ void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 	// IA_Move axis convention (same asset as v2): X = Right/Left, Y = Forward/Back. Camera-relative.
 	const FVector2D Axis = Value.Get<FVector2D>();
 	const FRotator YawRotation(0.f, Controller ? Controller->GetControlRotation().Yaw : 0.f, 0.f);
-	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), Axis.Y);
-	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), Axis.X);
+	const FVector Forward = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+	// Raw-input facts for the TIP lock. Kept regardless of the lock state: release detection is
+	// "this timestamp went stale" (there is no Completed binding to hook), and the re-latch test needs
+	// the live direction while input is suppressed.
+	LastMoveInputDir = (Forward * Axis.Y + Right * Axis.X).GetSafeNormal2D();
+	LastMoveInputTime = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : -1.f;
+
+	// Lock held: translation is the thing being suppressed, so the input stops HERE. Everything else
+	// about the frame (camera, abilities, the contract) proceeds normally.
+	if (bTipLockActive)
+	{
+		return;
+	}
+
+	// Latch test — idle, on the ground, orienting to movement, input pointing far off the facing.
+	// Strafe/aiming are excluded because there the body is camera-owned and sidesteps are legitimate;
+	// that path keeps GASP's aim-TIP behaviour, which needs no lock (no input to suppress).
+	if (bTurnInPlaceLock && !LastMoveInputDir.IsNearlyZero())
+	{
+		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+		const UCharacterMovementComponent* Move = GetCharacterMovement();
+		const bool bEligible =
+			Move && Move->IsMovingOnGround()
+			&& Move->Velocity.Size2D() < TurnInPlaceEnterMaxSpeed
+			&& !HasMatchingGameplayTag(AZTags.Ability_State_Aiming)
+			&& !HasMatchingGameplayTag(AZTags.Movement_Strafe);
+
+		const float InputYaw = static_cast<float>(LastMoveInputDir.Rotation().Yaw);
+		const float EnterDelta = FMath::Abs(FRotator::NormalizeAxis(
+			InputYaw - static_cast<float>(GetActorRotation().Yaw)));
+
+		if (bEligible && EnterDelta >= TurnInPlaceEnterAngle)
+		{
+			// Debounce: the frames spent counting also swallow the input, so a latch never begins with
+			// a two-frame twitch of translation. A tap that never reaches the count costs an invisible
+			// ~35 ms hole; a small-angle press never enters this branch at all.
+			if (++TipEnterCandidateFrames >= TurnInPlaceMinHoldFrames)
+			{
+				bTipLockActive = true;
+				TipTargetYaw = InputYaw;
+				TipLockElapsed = 0.f;
+				TipEnterCandidateFrames = 0;
+				UE_LOG(LogTemp, Display,
+					TEXT("[CmcTip] LATCH target=%.0f delta=%.0f spd=%.0f"),
+					TipTargetYaw, EnterDelta, Move->Velocity.Size2D());
+			}
+			return;
+		}
+		TipEnterCandidateFrames = 0;
+	}
+
+	AddMovementInput(Forward, Axis.Y);
+	AddMovementInput(Right, Axis.X);
+}
+
+void AAZ_CmcHeroCharacter::UpdateTurnInPlaceLock(float DeltaSeconds)
+{
+	if (!bTipLockActive)
+	{
+		return;
+	}
+	TipLockElapsed += DeltaSeconds;
+
+	// Input released mid-lock: back to plain idle, nothing to align to. Detected by staleness because
+	// only Triggered is bound; two missed input ticks is unambiguous.
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	if (Now - LastMoveInputTime > 0.1f)
+	{
+		ReleaseTurnInPlaceLock(TEXT("input released"), /*bSnapCapsule*/ false);
+		return;
+	}
+
+	// Direction changed hard mid-lock: it is a NEW turn — re-latch and restart the clock. Below the
+	// threshold it is stick noise and the original target stands.
+	const float LiveYaw = static_cast<float>(LastMoveInputDir.Rotation().Yaw);
+	if (FMath::Abs(FRotator::NormalizeAxis(LiveYaw - TipTargetYaw)) > TurnInPlaceRetargetAngle)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[CmcTip] RELATCH %.0f -> %.0f (t=%.2f)"),
+			TipTargetYaw, LiveYaw, TipLockElapsed);
+		TipTargetYaw = LiveYaw;
+		TipLockElapsed = 0.f;
+	}
+
+	const UAZ_CmcAnimInstance* CmcAnim =
+		GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr;
+	if (!CmcAnim)
+	{
+		ReleaseTurnInPlaceLock(TEXT("no anim instance"), false);
+		return;
+	}
+
+	// Remaining rotation is measured against the MESH ROOT — the capsule deliberately does not rotate
+	// during the lock, so actor yaw would read "not started" forever.
+	const float RemainingYaw = FMath::Abs(FRotator::NormalizeAxis(TipTargetYaw - CmcAnim->GetTipRootYaw()));
+	const bool bTipSelected = CmcAnim->IsTurnInPlaceClipSelected();
+
+	if (RemainingYaw <= TurnInPlaceExitAngle)
+	{
+		ReleaseTurnInPlaceLock(TEXT("root arrived"), true);
+	}
+	else if (bTipSelected && CmcAnim->GetTurnInPlaceClipFraction() >= 0.7f)
+	{
+		// The clip is nearly spent but the root has not arrived — authored rotation ran out (a 90 clip
+		// serving a 170 request). Snap anyway: the offset absorbs it and the follow-up start covers it.
+		ReleaseTurnInPlaceLock(TEXT("clip done"), true);
+	}
+	else if (!bTipSelected && TipLockElapsed > 0.35f)
+	{
+		// Selection never happened — the search kept Idle despite the bent trajectory. Do not hold a
+		// lock nothing is animating; release WITHOUT the snap (nothing rotated).
+		ReleaseTurnInPlaceLock(TEXT("no selection"), false);
+	}
+	else if (TipLockElapsed >= TurnInPlaceTimeout)
+	{
+		ReleaseTurnInPlaceLock(TEXT("WATCHDOG"), true);
+	}
+}
+
+void AAZ_CmcHeroCharacter::ReleaseTurnInPlaceLock(const TCHAR* Reason, bool bSnapCapsule)
+{
+	const UAZ_CmcAnimInstance* CmcAnim =
+		GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr;
+
+	if (bSnapCapsule && bTurnInPlaceSnapCapsuleOnRelease && CmcAnim)
+	{
+		// Align the capsule to where the mesh already visibly faces. OffsetRootBone recomputes its
+		// offset to ~0 (Accumulate mode keeps the root world-stable through capsule rotation — the
+		// same mechanism that lets GASP rotate its capsule instantly), so nothing on screen moves; and
+		// the resumed input now reads as a small-angle start instead of a second 180.
+		SetActorRotation(FRotator(0.f, CmcAnim->GetTipRootYaw(), 0.f));
+	}
+
+	UE_LOG(LogTemp, Display,
+		TEXT("[CmcTip] RELEASE (%s) t=%.2f remaining=%.0f clipFrac=%.2f snap=%d"),
+		Reason, TipLockElapsed,
+		CmcAnim ? FMath::Abs(FRotator::NormalizeAxis(TipTargetYaw - CmcAnim->GetTipRootYaw())) : -1.f,
+		CmcAnim ? CmcAnim->GetTurnInPlaceClipFraction() : -1.f,
+		bSnapCapsule ? 1 : 0);
+
+	bTipLockActive = false;
+	TipLockElapsed = 0.f;
+	TipEnterCandidateFrames = 0;
 }
 
 void AAZ_CmcHeroCharacter::OnLookTriggered(const FInputActionValue& Value)
