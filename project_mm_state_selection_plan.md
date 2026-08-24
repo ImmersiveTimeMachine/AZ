@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-23T01:25:39.717Z
+  modified: 2026-08-24T00:42:04.327Z
 ---
 
 # MM selection: state-driven for discrete events, cost-driven for loops
@@ -174,6 +174,78 @@ idiom (`Starts`/`Stops`/`StanceTrans`).
 - Right-hand turns select `_R` clips ≥ 90% of the time (today: ~0%).
 - Costs committed to stay under the Stage-D limit.
 - ★ Seam-trace with real numbers before every PIE ([[feedback_seam_trace_before_pie]]).
+
+## 7a. ★★ 2026-08-23 — THE ENGINE FACT that shapes the whole plan, plus measured entry/exit
+
+**`BlockTransition` CANNOT touch the continuing pose.** It is applied through `FSearchFilters`, built ONLY
+in the candidate-search paths (`PoseSearchDatabase.cpp:2371 / 2490 / 2693`). `SearchContinuingPose`
+(`:1874`) never builds them — a continuing pose is exempt from EVERY filter. So tail-blocking clips can
+stop MM *jumping into* a late frame but can never stop a spent clip being inherited.
+
+Two distinct sub-problems, needing different levers:
+| case | signature | lever |
+|---|---|---|
+| spent clip inherited as continuing pose | `clipTime` 0.5-0.99 on rapid re-stops | interrupt mode |
+| fresh search picks a late frame | `clipTime` 0.10-0.33, values REPEAT exactly | BlockTransition |
+
+**SHIPPED:** `Get_MMInterruptMode` returns `InterruptOnDatabaseChangeAndInvalidateContinuingPose` on the
+`bStopActive` false->true EDGE (one frame only — holding it re-searches every frame and brings back churn).
+Result: max `clipTime` 0.99 -> 0.30, and stops still get selected (the feared "loop wins instead" did not
+happen). The remaining 0.10-0.33 entries REPEAT EXACTLY, which proves they are genuine foot-phase matches,
+not leftovers — MM enters where the clip's foot phase matches the loop's, which with 2 variants per gait
+can be a quarter-cycle off.
+
+### ★ MM PLAYS POSES, NOT CLIPS — the measured cost
+Entry `clipTime` 0.10-0.33 and survival 830-1018ms against 1.267-1.533s clips = **we play the middle
+55-70% of every stop**. Turns are worse (168ms median vs a 1.533s clip = 11%, 611ms after fixes = 43%).
+Starts were 16-48%, now 55-65% after `MaxAccelerationBase` was lowered.
+This is not a bug — it is Motion Matching working as designed, and it is invisible in GASP because density
+means some clip's BEGINNING always matches. **This is the single strongest argument for the push path:**
+"play this clip whole" is native to a chooser+BlendStack actuator and only achievable under protest on the
+MM node (BlockTransition to force entry + SearchThrottleTime to prevent exit).
+
+The distance consequence is closed and quantified in [[project_cmc_movement_feel_tuning]]: capsule travel
+lost equals the clip fraction skipped. No movement-side model can recover it.
+
+## 7b. ★★★ `MaxWalkSpeed` IS AN INTENT SIGNAL TO THE SEARCH — do not let animation own it
+
+Verified 2026-08-23 (three independent reviews agreed; engine source checked):
+`PoseSearchTrajectoryLibrary.cpp:73` sets `TrajectoryDataDerived.MaxSpeed = Max(GetMaxSpeed() *
+AnalogInputModifier, GetMinAnalogSpeed())`, and `:189` clamps EVERY predicted step:
+`OutVelocity = OutVelocity.GetClampedToMaxSize(TrajectoryDataDerived.MaxSpeed)`.
+
+`MaxSpeed` there is not "current speed" — it is the HEADROOM the prediction may grow into. The predictor
+is seeded from actual velocity and integrates acceleration forward; this clamp is the only thing bounding
+it. So `SetGait -> MaxWalkSpeed` is how INTENT reaches the search: write 585 and the predictor simulates
+the ramp, and MM selects sprint content BEFORE the body is fast. That anticipation is a central benefit of
+Motion Matching and it is bought entirely with this one write.
+
+★ **Therefore: never write an animation-derived speed into anything `GetMaxSpeed()` returns.** Doing so
+sets headroom to zero and reverses the information flow:
+```
+correct:   intent -> trajectory -> clip -> realized motion
+inverted:  clip -> speed ceiling -> trajectory -> same clip
+```
+From a 172 cm/s walk loop a 375 future becomes unrepresentable, so run clips carry permanently bad
+trajectory cost. (Precisely: unreachable *through trajectory cost*. A commanded-gait pool swap could still
+surface a run clip — but it would receive a walk-speed future and score its entry frame against the wrong
+acceleration profile. Workaround, not fix.)
+
+**Why curve-driven STOPS are the legitimate exception:** a stop is a COMMITTED TERMINAL EVENT. After the
+stick is released there is no higher-speed future intent for the selected clip to make unreachable, so
+there is no anticipation left to destroy. The stop system also writes `BrakingDecelerationWalking`, which
+the predictor reads via `GetMaxBrakingDeceleration()` — so prediction MATCHES the clip instead of being
+capped by it. That is why it works and why it does not generalise.
+
+If animation-owned locomotion speed is ever wanted, it needs TWO channels — `GetMaxSpeed()` stays
+gait-owned for the query, and a private movement target drives the capsule in a custom CMC ground path.
+That does NOT require forking PoseSearch. See [[project_cmc_movement_feel_tuning]] for the measured content.
+
+Related trap: a graph-BLENDED movement-authority curve needs schema-complete coverage across every pose
+contributor that can carry non-zero weight (idle, stance transitions, landing, mirrored, additive,
+montages) — the blend path treats a missing curve as 0, not as absent (`LerpToValid` exists precisely
+because plain `LerpTo` does not preserve the valid side). Per-clip `EvaluateCurveData` sampling (play rate,
+stops) does not have this problem.
 
 ## 8. Measured content reference (2026-08-22, root-motion measured — do NOT trust filenames)
 

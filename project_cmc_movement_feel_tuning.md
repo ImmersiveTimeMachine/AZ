@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-23T03:30:52.009Z
+  modified: 2026-08-23T22:54:37.346Z
 ---
 
 # CMC hero movement feel — measured values and queued work
@@ -229,5 +229,63 @@ The user tunes these values in the editor at the same time. `MaxScaleRatio` and 
 already at their target when scripted writes ran (no-ops), and `RunRotationRateYaw` 160 was reverted to 115.
 ALWAYS read-before-write and print BEFORE/AFTER; never assume a scripted CDO write survived.
 See [[feedback_parallel_editor_edits]].
+
+## ★★ 2026-08-23 EVENING — the stop CONTRACT and CURVE-DRIVEN braking (shipped)
+
+The three-band table is retired for stops. `AAZ_CmcCharacterBase::UpdateSelectionGait` now latches a full
+stop contract on the no-input edge — entry speed, direction, start location, planned distance, braking —
+as REAL MEMBERS (the old function-local statics were shared by every instance, and
+`AAZ_CmcInfectedCharacter` derives from the same base). Published in `FAZ_CmcAnimContract`
+(`bStopActive`, `bStopIsAnimated`, `StopEntrySpeed`, `StopRemainingDistance`, `StopPlannedDistance`,
+`StopProgress`).
+
+Precedence in `ApplyMovementFeelParams`: **curve-driven → latched v0/T → three-band → single value.**
+
+### Why v0/T is NOT the rejected "Speed2D/T" idea
+Latched at the edge it is a CONSTANT deceleration reaching zero at exactly T. Recomputed per frame it is
+exponential decay. The latch is the whole design. `StopFloorTimeSeconds` (0.25) uses the same law with a
+shorter constant below `StopAnimEnterSpeed`, so the boundary differs in degree, not kind.
+
+### Curve-driven braking — `braking = (Speed2D - ClipSpeed) / StopCurveConvergenceTime`
+- ★ **NEVER `GetCurveValue`** — it returns the BLEND-WEIGHTED value across the BlendStack, so during a
+  stop's blend-in it reads the outgoing LOOP (measured: 167-172 = the walk loop's 172.6, not the stop
+  clip's 147). Use `Sequence->EvaluateCurveData(Name, SelectedTime)` on the SELECTED asset.
+- ★ **`FPoseSearchBlueprintResult::SelectedTime` IS current playback time** — confirmed, it climbs while
+  the sampled curve falls. Open question from 2026-08-22 now closed.
+- Converge over ~0.1s, NOT over DeltaSeconds. One-frame convergence turns every legitimate foot-phase
+  offset into a velocity step and forced a guard so tight it rejected 2/3 of stops.
+  ⚠ But a pure lag TRAILS: steady-state error = clipDecel x tau (walk 16 cm/s, run 37), which reads as
+  slide. The correct form is feed-forward + correction: `clipDecel + (Speed - ClipSpeed)/tau`. NOT BUILT.
+- Once engaged, STAY engaged through the plant (curve reads 0). Handing back to `StopBrakingDecel` there
+  is far too soft for a residual — measured entry=234 taking 1.18s over 138cm against a 109cm plan.
+- Handover guard (`StopCurveMaxHandoverStep` 120, `StopCurveMaxHandoverClipTime` 0.45) is a BACKSTOP only.
+
+### ★ THE CLOSED DIAGNOSIS — every remaining stop error is the ENTRY FRAME
+Measured after all of the above: walk `travelled 62 vs clip 69.6`, run `121 vs 158.4`. Entering at
+`clipTime` 0.10-0.33 means the body adopts the clip's speed THERE and skips the travel the clip would
+have made in the part never played. The loss equals the skipped fraction. **No braking model can recover
+it.** Only entering the clip at its start can — which is [[project_mm_state_selection_plan]]'s territory.
+
+### Content facts measured this session
+- Loops carry FULL root motion: walk 172.6 / run 375.7 / sprint 641.8 cm/s vs configured 165/375/585.
+  So `enable_root_motion=True` on EVERY clip incl. loops — there is NO free data-driven loop-vs-transition
+  switch for an RM route on CMC. `UCharacterMovementComponent::CalcAnimRootMotionVelocity` is virtual
+  (`CharacterMovementComponent.h:2882`) and is the hook if that route is ever taken.
+- ★ Start clips had NO curves at all. 14 authored 2026-08-23 (`MoveData_Speed` + `Enable_PlayRateWarping`,
+  30Hz from own root motion). `Start180_L/R` had STOP curves copied onto them — wrong data, now rewritten.
+- ★ Start/loop speed DISCONTINUITY: `AnimPro_WalkFwdStart` ends at 114 cm/s, walk loop runs at 172.6.
+  Run start ends 301, run loop 375.7. Walk start set is heterogeneous (117-194 final). No warping fixes this.
+- `MaxAccelerationBase` 500 makes the capsule reach walk speed in 0.33s vs the clip's ~0.77s. ~215 matches
+  the straight start; the turning starts imply more. Start survival went 120-365ms -> 411-498ms after.
+
+### Two OPEN bugs, precisely characterised (not fixed)
+1. **Empty gate union when airborne.** `mode=1 (InAir) stance=0 state=1 gait=0` — there is NO InAir row in
+   `DatabaseGates`. The empty-union path returns WITHOUT `SetDatabasesToSearch`, so the node holds its
+   previous pool (`Run_Stops` alone), the stop clip ends, nothing else matches, and the search returns a
+   NULL anim: 317-400ms with no animation. 12 `-> None` selections in one session. Root cause of "MM
+   struggles" after a run stop. Unknown: WHY the capsule reads airborne at spd=0 on flat ground.
+2. **`cmd=Run` with `sel=Walk` at rest.** `SelectionGait` is `max(commanded, speedBand)` and can never be
+   BELOW commanded — so the stop-band latch is being held with a stale Walk band. Latch-lifetime bug in
+   `UpdateSelectionGait`.
 
 Related: [[project_mm_state_selection_plan]] (the selection side), [[project_cmc_backport_spike]].
