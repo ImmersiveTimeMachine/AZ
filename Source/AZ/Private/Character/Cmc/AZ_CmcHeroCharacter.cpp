@@ -479,6 +479,41 @@ void AAZ_CmcHeroCharacter::InitAbilitySystem()
 	}
 }
 
+namespace AZ::InputRamp
+{
+	// INPUT RAMP ("the corrector", user design 2026-08-24 night).
+	//
+	// Scale the movement input down on a fresh press or a hard direction change, then ease back to 1
+	// over RampSeconds. The character no longer snaps to full speed the instant intent changes; it
+	// builds, which is what a body does and what the start/turn clips depict.
+	//
+	// WHY INPUT AND NOT MaxWalkSpeed: AddMovementInput's magnitude becomes CMC's AnalogInputModifier,
+	// and the PoseSearch predictor reads exactly that — MaxSpeed * AnalogInputModifier, floored by
+	// GetMinAnalogSpeed() (PoseSearchTrajectoryLibrary.cpp:73). So the predicted trajectory ramps with
+	// the body for free and clip selection stays honest. A MaxWalkSpeed write has no such guarantee.
+	//
+	// THE FLOOR MATTERS: MinAnalogWalkSpeed is 150 against a 172.6 walk, so at scale 0.45 the walk
+	// target would clamp 78 -> 150 and the ramp would be worth 13% instead of 55%. The floor is scaled
+	// by the same factor here, in the same place, so the ramp means what it says at every gait.
+	//
+	// File-scope statics, not members: Live Coding can patch function bodies but not add UPROPERTYs,
+	// and this has to be testable without closing the editor. Single locally-controlled hero, so the
+	// sharing is safe. TODO promote to EditDefaultsOnly members at the next editor-closed build.
+	// OFF 2026-08-24 night. It made the artifact WORSE and the reason is instructive: cutting input cuts
+	// ACCELERATION, and acceleration is what redirects velocity (Velocity += Acceleration*dt). The capsule
+	// still rotated at the full 165 deg/s toward the (unchanged) input DIRECTION, so the body turned on
+	// time while the velocity took longer to come round than before — "slide, then turn". Reducing input
+	// widens the capsule-vs-velocity gap; it cannot close it.
+	// Tunables moved to EditDefaultsOnly UPROPERTYs on the character (AZ|Movement|InputRamp) so they
+	// can be dragged live instead of round-tripping through a code patch. Only RUNTIME state stays
+	// here, and it stays file-scope for the reason documented above (Live Coding cannot add members).
+
+	static double RampStartTime   = -1.0;
+	static double LastInputTime   = -1.0;
+	static FVector LastInputDir   = FVector::ZeroVector;
+	static float  LastLoggedScale = 1.f;
+}
+
 void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 {
 	// IA_Move axis convention (same asset as v2): X = Right/Left, Y = Forward/Back. Camera-relative.
@@ -537,8 +572,50 @@ void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 		TipEnterCandidateFrames = 0;
 	}
 
-	AddMovementInput(Forward, Axis.Y);
-	AddMovementInput(Right, Axis.X);
+	float RampScale = 1.f;
+	if (bInputRampEnabled && GetWorld())
+	{
+		const double Now = GetWorld()->GetTimeSeconds();
+		const FVector Dir = (Forward * Axis.Y + Right * Axis.X).GetSafeNormal2D();
+
+		// Two things restart the ramp, and both are INTENT changes rather than body facts: a fresh
+		// press after letting go, and a hard change of direction while held. Deliberately NOT keyed on
+		// speed — a speed test would re-trigger every frame while the character is still slow, and the
+		// ramp would never advance past its own start.
+		const bool bFreshPress = (AZ::InputRamp::LastInputTime < 0.0)
+			|| ((Now - AZ::InputRamp::LastInputTime) > InputRampReleaseSeconds);
+		const bool bHardTurn = !AZ::InputRamp::LastInputDir.IsNearlyZero() && !Dir.IsNearlyZero()
+			&& FMath::Abs(FRotator::NormalizeAxis(static_cast<float>(
+				Dir.Rotation().Yaw - AZ::InputRamp::LastInputDir.Rotation().Yaw))) > InputRampRetriggerAngle;
+
+		if (bFreshPress || bHardTurn || AZ::InputRamp::RampStartTime < 0.0)
+		{
+			AZ::InputRamp::RampStartTime = Now;
+		}
+
+		const float Elapsed = static_cast<float>(Now - AZ::InputRamp::RampStartTime);
+		const float Alpha = FMath::Clamp(Elapsed / FMath::Max(InputRampSeconds, 0.01f), 0.f, 1.f);
+		RampScale = FMath::Lerp(InputRampStartScale, 1.f, Alpha);
+
+		AZ::InputRamp::LastInputTime = Now;
+		AZ::InputRamp::LastInputDir = Dir;
+
+		if (UCharacterMovementComponent* Move = GetCharacterMovement())
+		{
+			Move->MinAnalogWalkSpeed = InputRampBaseMinAnalog * RampScale;
+		}
+
+		if (FMath::Abs(RampScale - AZ::InputRamp::LastLoggedScale) > 0.15f)
+		{
+			AZ::InputRamp::LastLoggedScale = RampScale;
+			UE_LOG(LogTemp, Display, TEXT("[CmcRamp] scale=%.2f t=%.2f fresh=%d hardTurn=%d spd=%.0f"),
+				RampScale, Elapsed, bFreshPress ? 1 : 0, bHardTurn ? 1 : 0,
+				GetCharacterMovement() ? GetCharacterMovement()->Velocity.Size2D() : -1.f);
+		}
+	}
+
+	AddMovementInput(Forward, Axis.Y * RampScale);
+	AddMovementInput(Right, Axis.X * RampScale);
 }
 
 void AAZ_CmcHeroCharacter::UpdateTurnInPlaceLock(float DeltaSeconds)

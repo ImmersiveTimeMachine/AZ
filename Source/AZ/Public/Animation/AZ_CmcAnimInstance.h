@@ -515,6 +515,47 @@ protected:
 	/** The selected asset's own playback time, straight from the search result. */
 	float CurrentSelectedTime = 0.f;
 
+	// ========================================
+	// LIVE-TUNABLE SELECTION + LEAN KNOBS (promoted from hardcoded constants 2026-08-24). Every one of
+	// these was measured rather than chosen — the comments at their use sites carry the evidence.
+	// ========================================
+
+	/** Starts pool is searchable only below this speed. Genuine starts enter at 5-23 cm/s; turn-induced
+	 *  speed dips leaked in at 67-89, so the gap is where this belongs. Raising it past ~60 reopens
+	 *  "MM takes turn anims during the run loop". */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Selection", meta = (ForceUnits = "cm/s"))
+	float StartsSearchMaxSpeed2D = 50.f;
+
+	/** Reversal angle a pivot needs. All six pivot clips rotate a full 180 and the MM path has no
+	 *  rotation scaling, so below this a pivot over-rotates the request. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Selection", meta = (ForceUnits = "deg", ClampMin = "0", ClampMax = "180"))
+	float PivotSearchMinTurnAngle = 135.f;
+
+	/** Speed floor for pivots — "actually travelling", not "travelling fast". Above the walk loop
+	 *  (172.6) this makes walk pivots unreachable entirely. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Selection", meta = (ForceUnits = "cm/s"))
+	float PivotSearchMinSpeed2D = 200.f;
+
+	/** Hold a one-shot's database in the pool until this fraction has played. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Selection", meta = (ClampMin = "0", ClampMax = "1"))
+	float OneShotKeepAliveFractionTunable = 0.7f;
+
+	/** Stops hold LONGER — their last third is the settle and plant, and cutting it is what made a stop
+	 *  read as unfinished. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Selection", meta = (ClampMin = "0", ClampMax = "1"))
+	float StopKeepAliveFractionTunable = 0.9f;
+
+	/** How fast the lean input follows the velocity derivative. Lower = smoother/mushier, higher =
+	 *  sharper. Smooths at the source, so RelativeAcceleration inherits it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Lean")
+	float LeanInterpSpeed = 8.f;
+
+	/** Reference turn rate the LATERAL lean term is normalised against (v * omega_ref). The lateral
+	 *  term is centripetal, so normalising it against the linear acceleration budget pinned the lean at
+	 *  +/-1 in every turn. Lower = more sensitive lean. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Lean", meta = (ForceUnits = "deg/s"))
+	float LeanTurnRateReference = 180.f;
+
 	/** bHasVelocity = Speed2D > this. GASP: 5. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
 	float HasVelocityThreshold = 5.f;

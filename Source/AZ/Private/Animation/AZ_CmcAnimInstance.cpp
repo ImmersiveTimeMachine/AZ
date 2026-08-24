@@ -632,7 +632,6 @@ void UAZ_CmcAnimInstance::Update_EssentialValues(float DeltaSeconds)
 	// ~8 gives a visible roll in and out without lag. Lower = smoother and mushier, higher = sharper.
 	// TODO: promote to an EditDefaultsOnly UPROPERTY at the next editor-closed build so it is tunable
 	// without a recompile. Kept a constant for now because a new UPROPERTY cannot be Live Coding patched.
-	static constexpr float LeanInterpSpeed = 8.f;
 
 	const FVector RawVelocityAcceleration =
 		(Velocity - Velocity_LastFrame) / FMath::Max(DeltaSeconds, 0.001f);
@@ -831,11 +830,9 @@ FVector UAZ_CmcAnimInstance::CalculateRelativeAccelerationAmount() const
 			VelocityAcceleration.GetClampedToMaxSize(Budget) / Budget);
 	}
 
-	// TODO: promote to EditDefaultsOnly and, better, feed the capsule's live RotationRate.Yaw through
-	// the anim contract so the lean maxes out exactly when the turn does. Both need an editor-closed
-	// build; this constant is deliberately near the shipped GroundedRotationRateYaw so the mapping is
-	// honest today. Raising it makes lean less sensitive, lowering it more.
-	static constexpr float LeanTurnRateReferenceDegPerSec = 180.f;
+	// Now an EditDefaultsOnly property (AZ|Cmc|Anim|Lean). Still a REFERENCE rate rather than the
+	// capsule's live RotationRate.Yaw — feeding the real rate through the contract would make the lean
+	// max out exactly when the turn does, and remains the better answer.
 
 	const float   LongMag  = static_cast<float>(FVector::DotProduct(VelocityAcceleration, VelDir));
 	const FVector LatVec   = FVector(VelocityAcceleration.X, VelocityAcceleration.Y, 0.f) - VelDir * LongMag;
@@ -843,7 +840,7 @@ FVector UAZ_CmcAnimInstance::CalculateRelativeAccelerationAmount() const
 	// Sign convention preserved: positive longitudinal = speeding up, so it takes the accel budget.
 	const float LongBudget = FMath::Max(LongMag >= 0.f ? MaxAcceleration : MaxDeceleration, 1.f);
 	const float TurnBudget = FMath::Max(
-		Speed2D * FMath::DegreesToRadians(LeanTurnRateReferenceDegPerSec), 1.f);
+		Speed2D * FMath::DegreesToRadians(LeanTurnRateReference), 1.f);
 
 	const FVector LongPart = VelDir * FMath::Clamp(LongMag / LongBudget, -1.f, 1.f);
 	const FVector LatPart  = LatVec.GetSafeNormal2D()
@@ -928,8 +925,6 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// clip legal. The separation is clean and empirical: genuine starts entered at spd=5 and 23, every
 	// turn leak entered at 67-89, and nothing landed in between. 50 splits them with margin on both
 	// sides. Raising it back above ~60 reopens the leak.
-	// TODO: promote the cap to an EditDefaultsOnly UPROPERTY at the next editor-closed build.
-	static constexpr float StartsSearchMaxSpeed2D = 50.f;
 	static const FName StartsTag(TEXT("Starts"));
 	if (Speed2D > StartsSearchMaxSpeed2D && !CurrentDatabaseTags.Contains(StartsTag))
 	{
@@ -986,9 +981,6 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// NOTE the tag also covers AnimPro_RunArchLoop_L/R, which share PSD_AZ_Stand_Run_Pivots. They are
 	// currently DISABLED at the database-entry level and kept there deliberately as an experiment
 	// toggle (user, 2026-08-24), so this gate does not affect them either way. Leave them in place.
-	// TODO: promote both constants to EditDefaultsOnly UPROPERTYs at the next editor-closed build.
-	static constexpr float PivotSearchMinTurnAngle = 135.f;
-	static constexpr float PivotSearchMinSpeed2D   = 200.f;
 
 	// ★ INPUT MUST BE HELD. Get_TrajectoryTurnAngle is (Acceleration.Rotation() - Velocity.Rotation()),
 	// and on a released stick Acceleration is ZERO, so Acceleration.Rotation() collapses to the zero
@@ -1090,16 +1082,7 @@ namespace AZ::CmcAnim
 	/** Tag on the idle pools. Suppressed while a stop is still playing — see KeepPlayingOneShotSearchable. */
 	static const FName IdlesTagName(TEXT("Idles"));
 
-	/** Stops are held LONGER than other one-shots: their last third is the settle and plant, and cutting
-	 *  it is what made a stop read as unfinished. Measured 2026-08-23: stops played only 50-76% of the
-	 *  clip while the CAPSULE arrived correctly (run travelled 174cm against the clip's 167cm), so the
-	 *  fault was entirely the pose being replaced early, not the movement. */
-	static constexpr float StopKeepAliveFraction = 0.9f;
 
-	/** Hold a one-shot's database in the pool until this fraction of the clip has played. A FRACTION and
-	 *  not a fixed remaining-time: our stop clips run 0.933-1.533s, and any fixed "N seconds left" cut
-	 *  releases the short ones almost immediately and the long ones far too late. */
-	static constexpr float OneShotKeepAliveFraction = 0.7f;
 }
 
 /**
@@ -1154,7 +1137,7 @@ void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
 	}
 
 	const float KeepAliveFraction =
-		bIsStop ? AZ::CmcAnim::StopKeepAliveFraction : AZ::CmcAnim::OneShotKeepAliveFraction;
+		bIsStop ? StopKeepAliveFractionTunable : OneShotKeepAliveFractionTunable;
 
 	if (Current.SelectedTime >= KeepAliveFraction * PlayLength)
 	{

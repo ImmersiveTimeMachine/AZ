@@ -117,9 +117,51 @@ protected:
 	 *  small-angle one instead of a second 180. */
 	void ReleaseTurnInPlaceLock(const TCHAR* Reason, bool bSnapCapsule);
 
-	/** Master switch — off restores pre-2026-08-24 behaviour (move+turn simultaneously). */
+	// ========================================
+	// INPUT RAMP ("the corrector") — all live-tunable; stop PIE before editing, CDO changes do not
+	// reach an already-spawned character.
+	// ========================================
+
+	/** Master switch. OFF by default: measured 2026-08-24, cutting input cuts ACCELERATION, which is
+	 *  what redirects velocity — the capsule still turned at full rate toward the unchanged input
+	 *  DIRECTION, so the body turned on time while velocity took longer to follow ("slide, then turn").
+	 *  Kept for experimentation; re-enable knowing it widens the capsule-vs-velocity gap. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp")
+	bool bInputRampEnabled = false;
+
+	/** Input multiplier the instant intent changes. 1 = no ramp. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float InputRampStartScale = 0.15f;
+
+	/** Time from InputRampStartScale back to 1.0. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp", meta = (ForceUnits = "s", ClampMin = "0.05"))
+	float InputRampSeconds = 1.f;
+
+	/** A gap in input longer than this counts as "let go" and restarts the ramp on the next press. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp", meta = (ForceUnits = "s", ClampMin = "0.02"))
+	float InputRampReleaseSeconds = 0.15f;
+
+	/** Direction change while held that restarts the ramp. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp", meta = (ForceUnits = "deg", ClampMin = "0", ClampMax = "180"))
+	float InputRampRetriggerAngle = 45.f;
+
+	/** MinAnalogWalkSpeed is scaled by the ramp factor, or the 150 floor eats the ramp at walk gait
+	 *  (172.6 walk: scale 0.15 targets 26, floored to 150 = no effect at all). Mirrors the value
+	 *  AAZ_CmcCharacterBase pushes onto the movement component. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|InputRamp", meta = (ForceUnits = "cm/s"))
+	float InputRampBaseMinAnalog = 150.f;
+
+	/** Master switch — off restores pre-2026-08-24 behaviour (move+turn simultaneously).
+	 *
+	 *  ★ DEFAULTED OFF the night of 2026-08-24 after it LOCKED THE PLAYER OUT OF MOVEMENT. The lock
+	 *  swallows movement input while held; if the TIP database is not reachable in the current gate
+	 *  rows the search never selects a turn clip, the lock releases on the no-selection grace, input
+	 *  resumes, the input angle is STILL past the enter threshold, and it latches again — an endless
+	 *  latch/release loop in which the character can rotate but never move. A cooldown after a failed
+	 *  latch fixes the loop and must land BEFORE this is switched back on, together with verifying
+	 *  PSD_AZ_Stand_TurnInPlace is actually in the StandIdle gate row. Do not re-enable without both. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnInPlace")
-	bool bTurnInPlaceLock = true;
+	bool bTurnInPlaceLock = false;   // DEFAULT OFF 2026-08-24 night — see the failure note below.
 
 	/** Enter when |yaw(input, facing)| is at least this, from (near) standstill. GASP's TIP threshold
 	 *  is 50; ours is higher because entering ALSO suppresses input, which 50-degree adjustments do not
