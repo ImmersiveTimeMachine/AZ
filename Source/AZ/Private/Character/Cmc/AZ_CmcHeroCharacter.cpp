@@ -6,6 +6,9 @@
 #include "AbilitySystem/Abilities/AZ_GA_HitReact.h"
 #include "AbilitySystem/Abilities/AZ_GA_PlayerGrabbed.h"
 #include "Animation/AZ_CmcAnimInstance.h"
+#include "Chooser.h"
+#include "ChooserFunctionLibrary.h"
+#include "Animation/AZ_LocomotionStateMachine.h"   // BucketStartDirection — one owner for the turn thresholds
 #include "AZ_GameplayTags.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -53,6 +56,33 @@ AAZ_CmcHeroCharacter::AAZ_CmcHeroCharacter(const FObjectInitializer& ObjectIniti
 	Camera->SetFieldOfView(80.f);
 }
 
+namespace AZ::RmMontage
+{
+	// RM MONTAGE HAND-BACK. The first version committed the player for the CLIP'S WHOLE LENGTH
+	// (0.77-1.4s), which reads exactly as reported: "as soon as we start RM animation inputs are
+	// prohibited unless it ends". Root motion itself was working perfectly throughout (measured
+	// 2026-08-25: mtgHasRM=1 charHasRM=1, rmDelta 0.10 -> 2.22, vel 5 -> 113) — the fault was the
+	// commitment, not the mechanism.
+	//
+	// Measured: every start clip delivers 95-100% of its ROTATION by 50-60% of its length; the rest is
+	// the run-out into the loop, which CMC can do itself and which the player should own. RM therefore
+	// keeps the plant and the turn — the part only it can deliver — and hands back at ReleaseFraction
+	// carrying whatever velocity it built.
+	//
+	// Two interrupts on top, because a start that ignores a changed mind is the same lockout in
+	// miniature: a hard direction change and a released stick both blend out immediately.
+	// File-scope so this is testable under Live Coding; single locally-controlled hero.
+	// TODO promote to EditDefaultsOnly members at the next editor-closed build.
+	static constexpr float ReleaseFraction   = 0.60f;
+	static constexpr float InterruptAngleDeg = 60.f;
+	static constexpr float BlendOutSeconds   = 0.15f;
+
+	static bool    bActive = false;
+	static double  LaunchTime = -1.0;
+	static bool    bIsStop = false;
+	static FVector LaunchDir = FVector::ZeroVector;
+}
+
 void AAZ_CmcHeroCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
@@ -79,6 +109,103 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	// against the speed that gait implies.
 	ResolveGaitAndStanceFromTags();
 	UpdateSelectionGait();   // owns the stop-band latch that braking and pool selection both read
+	// RM STOP on the stop EDGE. UpdateSelectionGait latched bStopActive this frame if the stick was
+	// released while moving; that edge is the only moment a stop clip can start at its own frame 0.
+	if (bStopActive && !bStopActive_LastFrameHero)
+	{
+		TryPlayRootMotionStop();
+	}
+	bStopActive_LastFrameHero = bStopActive;
+
+	// RM HAND-BACK: release the montage once it has delivered what only it can deliver, or the moment
+	// the player asks for something else. Without this the clip owns the character to its last frame.
+	if (AZ::RmMontage::bActive)
+	{
+		USkeletalMeshComponent* RmMesh = GetMesh();
+		UAnimInstance* RmAnim = RmMesh ? RmMesh->GetAnimInstance() : nullptr;
+		UAnimMontage* Mtg = RmAnim ? RmAnim->GetCurrentActiveMontage() : nullptr;
+		if (!RmAnim || !Mtg)
+		{
+			AZ::RmMontage::bActive = false;
+		}
+		else
+		{
+			const float Len = Mtg->GetPlayLength();
+			const float Frac = (Len > KINDA_SMALL_NUMBER) ? (RmAnim->Montage_GetPosition(Mtg) / Len) : 1.f;
+			const float Now2 = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+			const bool bInputHeld = ((Now2 - LastMoveInputTime) <= 0.1f) && !LastMoveInputDir.IsNearlyZero();
+
+			const TCHAR* Why = nullptr;
+			if (Frac >= AZ::RmMontage::ReleaseFraction)
+			{
+				Why = TEXT("delivered");
+			}
+			else if (!AZ::RmMontage::bIsStop && !bInputHeld)
+			{
+				Why = TEXT("input released");
+			}
+			else if (bInputHeld && !AZ::RmMontage::LaunchDir.IsNearlyZero()
+				&& FMath::Abs(FRotator::NormalizeAxis(static_cast<float>(
+					LastMoveInputDir.Rotation().Yaw - AZ::RmMontage::LaunchDir.Rotation().Yaw)))
+					> AZ::RmMontage::InterruptAngleDeg)
+			{
+				Why = TEXT("redirected");
+			}
+			else if (AZ::RmMontage::bIsStop && bInputHeld
+				&& LastMoveInputTime > (AZ::RmMontage::LaunchTime + 0.05))
+			{
+				// The input must have arrived AFTER the stop began. Without that test the 0.1s input
+				// staleness window still counts the frames from just BEFORE the release, so every RM
+				// stop cancelled itself on its first frame (measured 2026-08-25: 19 of 19 at 0%).
+				Why = TEXT("stop cancelled");
+			}
+
+			if (Why)
+			{
+				RmAnim->Montage_Stop(AZ::RmMontage::BlendOutSeconds, Mtg);
+				AZ::RmMontage::bActive = false;
+				bRootMotionStopActive = false;
+				UE_LOG(LogTemp, Display, TEXT("[CmcRmEnd] %s at %.0f%% vel=%.0f"), Why, Frac * 100.f,
+					GetCharacterMovement() ? GetCharacterMovement()->Velocity.Size2D() : -1.f);
+			}
+		}
+	}
+
+	// Clear the RM-stop flag once the montage is gone, so the contract resumes ownership next time.
+	if (bRootMotionStopActive)
+	{
+		const UAnimInstance* Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+		if (!Anim || !Anim->IsAnyMontagePlaying())
+		{
+			bRootMotionStopActive = false;
+		}
+	}
+
+	// [CmcRmDbg] Is montage root motion actually REACHING the capsule? The clips carry real root motion
+	// (WalkFwdStart travels 73cm in 0.77s, verified), the montage plays, and yet the body reads spd=0
+	// during it. Four things have to line up and this prints all four rather than assuming any of them:
+	// the montage exists and claims root motion, the character reports HasAnimRootMotion, CMC's
+	// RootMotionParams carry a delta, and the resulting velocity is non-zero.
+	if (const USkeletalMeshComponent* DbgMesh = GetMesh())
+	{
+		if (UAnimInstance* DbgAnim = DbgMesh->GetAnimInstance())
+		{
+			if (UAnimMontage* Mtg = DbgAnim->GetCurrentActiveMontage())
+			{
+				const UCharacterMovementComponent* M = GetCharacterMovement();
+				UE_LOG(LogTemp, Display,
+					TEXT("[CmcRmDbg] %s pos=%.2f mtgHasRM=%d charHasRM=%d rmParams=%d rmDelta=%.2f vel=%.0f mode=%d"),
+					*GetNameSafe(Mtg), DbgAnim->Montage_GetPosition(Mtg),
+					Mtg->HasRootMotion() ? 1 : 0,
+					IsPlayingRootMotion() ? 1 : 0,
+					M ? (M->RootMotionParams.bHasRootMotion ? 1 : 0) : -1,
+					M ? M->RootMotionParams.GetRootMotionTransform().GetTranslation().Size2D() : -1.f,
+					M ? M->Velocity.Size2D() : -1.f,
+					static_cast<int32>(DbgAnim->RootMotionMode));
+			}
+		}
+	}
+
 	ApplyMovementFeelParams(DeltaSeconds);
 	UpdateTurnInPlaceLock(DeltaSeconds);
 }
@@ -280,7 +407,14 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams(float DeltaSeconds)
 		bStopCurveRejected = false;
 	}
 
-	if (!bCurveDriven && bStopTimeBraking && bStopActive)
+	// RM stop owns the deceleration outright — the clip's root motion IS the stop. Two controllers
+	// solving the same deceleration fight, and the montage wins on velocity anyway, so the contract's
+	// braking would only corrupt the prediction the trajectory is built from.
+	if (bRootMotionStopActive)
+	{
+		NoInputBraking = 0.f;
+	}
+	else if (!bCurveDriven && bStopTimeBraking && bStopActive)
 	{
 		// THE STOP CONTRACT WINS. UpdateSelectionGait solved braking = EntrySpeed / StopTimeSeconds once,
 		// at the stop edge, so every stop takes the same ~0.93s the content depicts regardless of release
@@ -479,6 +613,7 @@ void AAZ_CmcHeroCharacter::InitAbilitySystem()
 	}
 }
 
+
 namespace AZ::InputRamp
 {
 	// INPUT RAMP ("the corrector", user design 2026-08-24 night).
@@ -614,8 +749,224 @@ void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 		}
 	}
 
+	// RM START. Attempted BEFORE the input is applied: if a start launches, its root motion owns the
+	// capsule for the clip's duration and adding input on top would fight it (CMC ignores input for
+	// translation while HasAnimRootMotion(), but the acceleration would still steer orient-to-movement
+	// and desync the facing the clip is authoring). Returns false in every case it does not apply —
+	// already moving, montage playing, cooldown, no content for this bucket — and normal input flows.
+	const FVector WorldInputDir = (Forward * Axis.Y + Right * Axis.X).GetSafeNormal2D();
+	if (TryPlayRootMotionStart(WorldInputDir))
+	{
+		return;
+	}
+
 	AddMovementInput(Forward, Axis.Y * RampScale);
 	AddMovementInput(Right, Axis.X * RampScale);
+}
+
+bool AAZ_CmcHeroCharacter::TryPlayRootMotionStart(const FVector& WorldInputDir)
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!bRootMotionStarts || !Move || !MeshComp || WorldInputDir.IsNearlyZero())
+	{
+		return false;
+	}
+
+	// From (near) rest, on the ground, and not already inside a start. Above the speed threshold this is
+	// a pivot or a gait change — different events, different content, not this code's business.
+	if (!Move->IsMovingOnGround() || Move->Velocity.Size2D() > RootMotionStartMaxSpeed)
+	{
+		return false;
+	}
+
+	UAnimInstance* Anim = MeshComp->GetAnimInstance();
+	if (!Anim)
+	{
+		return false;
+	}
+
+	// Already playing one: do not restart. Montage RM owns the capsule while it runs, and relaunching
+	// mid-motion would teleport the character back to the clip's frame 0 root.
+	if (Anim->IsAnyMontagePlaying())
+	{
+		return false;
+	}
+
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	if (LastRootMotionStartTime >= 0.f && (Now - LastRootMotionStartTime) < RootMotionStartCooldown)
+	{
+		return false;
+	}
+
+	// Signed yaw from where the body faces to where the stick points, bucketed with the SAME helper the
+	// anim layer uses — one owner for the thresholds, so movement and animation can never disagree
+	// about which start this is.
+	const float SignedAngle = static_cast<float>(FRotator::NormalizeAxis(
+		WorldInputDir.Rotation().Yaw - GetActorRotation().Yaw));
+	const EAZ_StartDirection Direction = UAZ_LocomotionStateMachine::BucketStartDirection(SignedAngle);
+	const EAZ_Gait Gait = GetCurrentGait();
+
+	// Chooser first when assigned; the hardcoded table is the fallback. Same clip either way, so the
+	// migration is reversible and the playback below never changes.
+	ChooserDirection = Direction;
+	UAnimSequence* Clip = EvaluateLocomotionChooser(RootMotionStartChooser);
+	if (!Clip)
+	{
+		const FAZ_RootMotionStartClip* Row = RootMotionStartClips.FindByPredicate(
+			[Gait, Direction](const FAZ_RootMotionStartClip& Entry)
+			{
+				return Entry.Gait == Gait && Entry.Direction == Direction && Entry.Clip != nullptr;
+			});
+		if (Row) { Clip = Row->Clip; }
+	}
+
+	if (!Clip)
+	{
+		// No content for this combination is a legitimate, common case (sprint has no start set at all).
+		// Fall through silently to the MM path rather than forcing a wrong clip.
+		return false;
+	}
+
+	UAnimMontage* Played = Anim->PlaySlotAnimationAsDynamicMontage(
+		Clip, RootMotionStartSlot,
+		RootMotionStartBlendIn, RootMotionStartBlendOut,
+		/*InPlayRate*/ 1.f, /*LoopCount*/ 1);
+
+	if (!Played)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[CmcRmStart] FAILED to play %s on slot %s"),
+			*GetNameSafe(Clip), *RootMotionStartSlot.ToString());
+		return false;
+	}
+
+	LastRootMotionStartTime = Now;
+	AZ::RmMontage::bActive = true;
+	AZ::RmMontage::LaunchTime = Now;
+	AZ::RmMontage::bIsStop = false;
+	AZ::RmMontage::LaunchDir = WorldInputDir;
+
+	const UEnum* DirEnum = StaticEnum<EAZ_StartDirection>();
+	UE_LOG(LogTemp, Display,
+		TEXT("[CmcRmStart] %s | angle=%+.0f bucket=%s gait=%d spd=%.0f dur=%.2fs"),
+		*GetNameSafe(Clip), SignedAngle,
+		DirEnum ? *DirEnum->GetNameStringByValue(static_cast<int64>(Direction)) : TEXT("?"),
+		static_cast<int32>(Gait), Move->Velocity.Size2D(), Clip->GetPlayLength());
+
+	return true;
+}
+
+UAnimSequence* AAZ_CmcHeroCharacter::EvaluateLocomotionChooser(UChooserTable* Table)
+{
+	if (!Table)
+	{
+		return nullptr;
+	}
+
+	// Publish the axes the chooser's columns bind to. Written immediately before evaluation so a column
+	// can never read a stale frame's value — the whole point of keeping them here rather than letting
+	// each column reach into live state on its own.
+	ChooserGait = GetCurrentGait();
+	ChooserStance = bIsCrouched ? EAZ_Stance::Crouching : EAZ_Stance::Standing;
+	ChooserSpeed = GetCharacterMovement() ? GetCharacterMovement()->Velocity.Size2D() : 0.f;
+
+	const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
+	ChooserRotationMode = HasMatchingGameplayTag(AZTags.Ability_State_Aiming) ? EAZ_RotationMode::Aiming
+		: (HasMatchingGameplayTag(AZTags.Movement_Strafe) ? EAZ_RotationMode::Strafe
+		                                                  : EAZ_RotationMode::OrientToMovement);
+
+	if (const UAZ_CmcAnimInstance* CmcAnim =
+		GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr)
+	{
+		bChooserLeftFootDown = CmcAnim->bLeftFootDown;
+	}
+
+	// `this` is the context object: chooser property columns resolve against the character's reflected
+	// properties by name (the Chooser* fields above).
+	UObject* Result = UChooserFunctionLibrary::EvaluateChooser(this, Table, UAnimSequence::StaticClass());
+	return Cast<UAnimSequence>(Result);
+}
+
+bool AAZ_CmcHeroCharacter::TryPlayRootMotionStop()
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!bRootMotionStops || !Move || !MeshComp)
+	{
+		return false;
+	}
+
+	UAnimInstance* Anim = MeshComp->GetAnimInstance();
+	if (!Anim || Anim->IsAnyMontagePlaying() || !Move->IsMovingOnGround())
+	{
+		return false;
+	}
+
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	if (LastRootMotionStopTime >= 0.f && (Now - LastRootMotionStopTime) < RootMotionStartCooldown)
+	{
+		return false;
+	}
+
+	const float EntrySpeed = Move->Velocity.Size2D();
+
+	// Read the foot from the ANIM INSTANCE, not from bChooserLeftFootDown. That staging field is only
+	// written inside EvaluateLocomotionChooser, which returns early when no chooser is assigned - so
+	// with the array path in use it kept its default forever and every stop logged leftFoot=1 (measured
+	// 2026-08-25: 15 of 15). The chooser path sets it too, so both routes now agree.
+	bool bLeftDown = true;
+	if (const UAZ_CmcAnimInstance* FootAnim =
+		GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr)
+	{
+		bLeftDown = FootAnim->bLeftFootDown;
+	}
+	bChooserLeftFootDown = bLeftDown;
+
+	UAnimSequence* Clip = nullptr;
+
+	// Chooser first when one is assigned; the array is the fallback and the two never both run.
+	ChooserDirection = EAZ_StartDirection::Fwd;   // a stop has no turn bucket; column can ignore it
+	if (UAnimSequence* Chosen = EvaluateLocomotionChooser(RootMotionStopChooser))
+	{
+		Clip = Chosen;
+	}
+	else
+	{
+		const EAZ_Gait Gait = GetCurrentGait();
+		const FAZ_RootMotionStopClip* Row = RootMotionStopClips.FindByPredicate(
+			[Gait, bLeftDown, EntrySpeed](const FAZ_RootMotionStopClip& E)
+			{
+				return E.Clip && E.Gait == Gait && E.bLeftFootDown == bLeftDown
+					&& EntrySpeed >= E.MinEntrySpeed && EntrySpeed <= E.MaxEntrySpeed;
+			});
+		if (Row) { Clip = Row->Clip; }
+	}
+
+	if (!Clip)
+	{
+		// Out of band, or no content: the curve-driven stop contract owns this stop, unchanged.
+		return false;
+	}
+
+	UAnimMontage* Played = Anim->PlaySlotAnimationAsDynamicMontage(
+		Clip, RootMotionStartSlot, RootMotionStartBlendIn, RootMotionStartBlendOut, 1.f, 1);
+	if (!Played)
+	{
+		return false;
+	}
+
+	LastRootMotionStopTime = Now;
+	bRootMotionStopActive = true;
+	AZ::RmMontage::bActive = true;
+	AZ::RmMontage::LaunchTime = Now;
+	AZ::RmMontage::bIsStop = true;
+	AZ::RmMontage::LaunchDir = FVector::ZeroVector;
+
+	UE_LOG(LogTemp, Display,
+		TEXT("[CmcRmStop] %s | entry=%.0f leftFoot=%d gait=%d dur=%.2fs"),
+		*GetNameSafe(Clip), EntrySpeed, bLeftDown ? 1 : 0,
+		static_cast<int32>(GetCurrentGait()), Clip->GetPlayLength());
+	return true;
 }
 
 void AAZ_CmcHeroCharacter::UpdateTurnInPlaceLock(float DeltaSeconds)

@@ -72,6 +72,13 @@ void UAZ_CmcAnimInstance::NativeInitializeAnimation()
 	}
 }
 
+namespace
+{
+	// See the MONTAGE-ENDED EDGE comment at the write site in NativeUpdateAnimation.
+	bool GCmcMontageWasActive = false;
+	bool GCmcMontageJustEnded = false;
+}
+
 void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
@@ -444,9 +451,10 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 						: FString::FromInt(static_cast<int32>(CharacterProperties.SelectionGait));
 
 					UE_LOG(LogTemp, Display,
-						TEXT("[CmcSel] #%d dt=%.0fms %s -> %s | cost=%+.2f spd=%.0f turn=%.0f accel=%.2f ")
+						TEXT("[CmcSel:%s|mtg=%d] #%d dt=%.0fms %s -> %s | cost=%+.2f spd=%.0f turn=%.0f accel=%.2f ")
 						TEXT("moving=%d pivot=%d tip=%d | cmd=%s sel=%s wantSprint=%d wantWalk=%d ")
 						TEXT("| db=%s gates=[%s]"),
+						*GetNameSafe(TryGetPawnOwner()), GCmcMontageWasActive ? 1 : 0,
 						++SelectionChangeIndex,
 						SecondsSinceSelectionChange * 1000.f,
 						*GetNameSafe(LastSelectedAnim.Get()), *GetNameSafe(CurrentSelectedAnim),
@@ -682,6 +690,22 @@ void UAZ_CmcAnimInstance::Update_States()
 
 	bTurnInPlaceActive_LastFrame = bTurnInPlaceActive;
 	bTurnInPlaceActive = CharacterProperties.bTurnInPlaceActive;
+
+	// MONTAGE-ENDED EDGE — the third invalidation edge, same doctrine as the stop and TIP edges above.
+	// While an RM start/stop montage owns the slot, whatever MM elects underneath is invisible and often
+	// garbage (measured 2026-08-25: WalkFwdLoop at cost 5.2-6.99 with the body at 8-10 cm/s). If that
+	// selection survives as the continuing pose, the montage's blend-out lands INTO an arbitrarily
+	// phased loop — which is the hand-back jerk. Invalidating on the ended edge makes the next search
+	// honest: the pose history already contains the montage's actual end pose, so MM picks the loop at
+	// the matching phase instead of resuming a stale one.
+	// File-scope statics, not members (Live Coding cannot add members): single UAZ_CmcAnimInstance in
+	// the level in practice — the other logging instance is the Mover ABP, a different class. TODO
+	// promote to a member pair at the next editor-closed build.
+	{
+		const bool bMontageNow = (GetCurrentActiveMontage() != nullptr);
+		GCmcMontageJustEnded = (GCmcMontageWasActive && !bMontageNow);
+		GCmcMontageWasActive = bMontageNow;
+	}
 }
 
 // ======================================================================================
@@ -690,11 +714,25 @@ void UAZ_CmcAnimInstance::Update_States()
 
 void UAZ_CmcAnimInstance::Update_MovementDirection()
 {
-	// FootSpeed_L/R, not contact_l/r. "Planted" = slow AND slower than the other foot, so idle (both
-	// feet near zero) still resolves to a definite foot instead of flickering between them.
-	const float FootSpeedL = GetCurveValue(FootSpeedCurveL);
-	const float FootSpeedR = GetCurveValue(FootSpeedCurveR);
-	bLeftFootDown = (FootSpeedL < FootPlantedSpeedThreshold) && (FootSpeedL <= FootSpeedR);
+	// ★ FIXED 2026-08-25. This read FootSpeed_L/R — curves that exist on ZERO clips in the AnimPro set.
+	// GetCurveValue returns 0 for a missing curve, so the test was (0 < 1) && (0 <= 0) = TRUE on every
+	// frame of every clip: bLeftFootDown was a constant. Measured consequence: 19 consecutive RM stops
+	// all logged leftFoot=1 and the _RU stop clip could never be selected, so half of all stops landed
+	// on the wrong foot.
+	//
+	// The clips carry contact_l / contact_r, and those are CONTACT FLAGS with the opposite polarity to a
+	// speed: high = planted. Hence the comparison flips.
+	//
+	// Only updated when at least one foot reports contact. Clips without the curves (the stops, and any
+	// one-shot) then HOLD the last known foot rather than snapping to a default — which matters
+	// precisely here, because the stop foot is decided at the stop edge while the LOOP is still playing,
+	// and the loops are the clips that carry the curves.
+	const float ContactL = GetCurveValue(FootSpeedCurveL);
+	const float ContactR = GetCurveValue(FootSpeedCurveR);
+	if (ContactL > FootPlantedSpeedThreshold || ContactR > FootPlantedSpeedThreshold)
+	{
+		bLeftFootDown = (ContactL >= ContactR);
+	}
 
 	// Below a crawl the velocity direction is numerical noise; HOLD the last angle rather than let the
 	// chooser row churn every frame while the character settles.
@@ -1025,6 +1063,28 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// legitimate trigger: the stance actually changing. Gate on that edge, with the standard
 	// currently-playing guard so the clip finishes once chosen. After this, every class in the pools
 	// has an explicit competition condition — there is no ungated fallback left.
+	// RM MONTAGE OWNS THE POSE: drop the one-shot pools while a start/stop montage is playing. The
+	// montage sits on DefaultSlot above the graph, so whatever MM picks underneath is invisible — but it
+	// still runs, still churns, and still pollutes the trace (measured 2026-08-25: Start135_L -> _R ->
+	// _L in 19ms steps beneath an RM start). Nothing downstream needs a one-shot while the slot drives,
+	// so the honest answer is not to search for one.
+	// THE GAME-THREAD SNAPSHOT, not GetCurrentActiveMontage(). This function runs on the anim WORKER
+	// thread, and calling GetCurrentActiveMontage() from it read game-thread montage state cross-thread
+	// — which failed INTERMITTENTLY: measured 2026-08-25, Walk_Starts was searched and elected from at
+	// +101ms into a playing montage (db=PSD_AZ_Stand_Walk_Starts under an active RM start), while other
+	// frames gated correctly. The snapshot is written once per frame in NativeUpdateAnimation (game
+	// thread, same discipline as every _GT member in this file) and covers the montage's whole life
+	// including both blend phases.
+	if (GCmcMontageWasActive)
+	{
+		static const FName RmStartsTag(TEXT("Starts"));
+		static const FName RmStopsTag(TEXT("Stops"));
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && (Db->Tags.Contains(RmStartsTag) || Db->Tags.Contains(RmStopsTag));
+		});
+	}
+
 	static const FName StanceTransTag(TEXT("StanceTrans"));
 	if ((Stance == Stance_LastFrame) && !CurrentDatabaseTags.Contains(StanceTransTag))
 	{
@@ -1466,6 +1526,13 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
 	}
 
+	// The montage-ended edge (see NativeUpdateAnimation). Consumed on read so it fires exactly once.
+	if (GCmcMontageJustEnded)
+	{
+		GCmcMontageJustEnded = false;
+		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+	}
+
 	// DIVERGENCE: UAZ_AnimInstance did not gate the state change on being grounded and added a
 	// direction-changed term. Both made mid-air searches restart, which is what the continuing pose exists
 	// to prevent.
@@ -1481,6 +1548,19 @@ EOffsetRootBoneMode UAZ_CmcAnimInstance::Get_OffsetRootRotationMode() const
 	// problematic when combined with motion warping. 5.8 added LockOffsetIncreaseAndConsumeAnimation,
 	// which would let a warped montage close the offset without widening it. Left as Release for parity;
 	// revisit here first if warped melee reads wrong on v3.
+	// REVERTED to Accumulate on user request (2026-08-24 night), restoring GASP parity.
+	//
+	// FOR THE RECORD, because the measurement was unambiguous and will be relevant if the symptom
+	// returns: the engine defines Accumulate as "the offset will COUNTER the motion, and the root will
+	// STAY IN PLACE", so every degree the capsule turns is actively held out of the mesh and never
+	// converges. With Interpolate ("the root will stay behind, but will attempt to catch up") the mesh
+	// lag beyond 30 degrees went from 52%% of frames to 0%%, and the "character ends a turn facing the
+	// wrong direction" symptom disappeared. Accumulate also makes RotationHalfLife inert, since that
+	// property is documented as "how fast the rotation offset is BLENDED OUT".
+	//
+	// GASP ships Accumulate because its capsule rotates INSTANTLY (RotationRate -1), so the offset IS
+	// the visible turn. Ours rotates at a finite rate, which is the condition that makes the two modes
+	// behave differently. If the wrong-facing ending comes back, this line is the first suspect.
 	return IsSlotActive(MontageSlotName) ? EOffsetRootBoneMode::Release : EOffsetRootBoneMode::Accumulate;
 }
 

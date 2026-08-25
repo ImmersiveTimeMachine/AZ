@@ -136,13 +136,20 @@ public:
 	 *  loop mid-flinch. Benign single-word read (same race class as the Notify* writes). */
 	bool IsReactionActive(float WorldNow) const { return ReactionEndTime > 0.f && WorldNow < ReactionEndTime; }
 
+public:
+	/** Bucket a signed facing→desired yaw (deg, +right) into a turn-start clip selector. Moved here from
+	 *  the file-static in AZ_MoverAnimInstance.cpp.
+	 *
+	 *  PUBLIC because the movement layer selects RM start clips with the SAME thresholds the anim layer
+	 *  uses (45 / 112.5 / 157.5). Two callers, one definition — if these ever diverge, the capsule and
+	 *  the pose disagree about which start is playing, which is the class of bug this file exists to
+	 *  prevent. Pure static, no state touched. */
+	static EAZ_StartDirection BucketStartDirection(float SignedAngleDeg);
+
 private:
 	/** The faithful port of DeriveSMState's body — returns the next phase, mutating the timers/latches. */
 	EAZ_StateMachineState ComputeNextState(const FAZ_LocoSMInputs& In);
 
-	/** Bucket a signed facing→desired yaw (deg, +right) into a turn-start clip selector. Moved here from the
-	 *  file-static in AZ_MoverAnimInstance.cpp. */
-	static EAZ_StartDirection BucketStartDirection(float SignedAngleDeg);
 
 	// ---- runtime state (owned here; was on the AnimInstance) ----
 	EAZ_StateMachineState PreviousState = EAZ_StateMachineState::IdleLoop;

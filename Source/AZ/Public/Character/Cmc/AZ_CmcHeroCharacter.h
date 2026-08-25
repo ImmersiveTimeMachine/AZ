@@ -8,6 +8,7 @@
 
 class UAZ_GameplayAbility;
 class UCameraComponent;
+class UChooserTable;
 class UGameplayAbility;
 class UInputAction;
 class UInputMappingContext;
@@ -99,6 +100,128 @@ protected:
 	 * feel and its BT rotation tracking, which this spike never asked for.
 	 */
 	void ApplyMovementFeelParams(float DeltaSeconds);
+
+	// ========================================
+	// ROOT-MOTION STARTS
+	//
+	// The pivot away from "MM selects a pose and an impulse approximates the motion". A start is a
+	// DISCRETE event whose whole content IS the root motion, so it plays as a dynamic montage on
+	// DefaultSlot and the clip's authored translation AND rotation drive the capsule exactly as
+	// animated. Nothing new was needed to make this possible: RootMotionMode is already
+	// RootMotionFromMontagesOnly, every clip carries bEnableRootMotion, the slot node exists, and
+	// bAllowPhysicsRotationDuringAnimRootMotion is false so CMC's own rotation stands down while RM
+	// owns the capsule. PlaySlotAnimationAsDynamicMontage needs no montage assets.
+	//
+	// Scope is deliberately ONE event. Loops stay on CMC velocity — a looping RM run makes the capsule
+	// a slave to clip cadence, costs gait speed as a gameplay dial, and leaves network prediction
+	// nothing to predict. If this reads right, stops/pivots follow one at a time.
+	//
+	// ★ No /Game/ paths in C++: the clips are editor-assigned below.
+	// ========================================
+
+	/** One row per (gait, turn bucket). Direction buckets come from
+	 *  UAZ_LocomotionStateMachine::BucketStartDirection — the SAME thresholds the anim layer already
+	 *  uses (45 / 112.5 / 157.5), so selection cannot disagree between the two. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart")
+	TArray<FAZ_RootMotionStartClip> RootMotionStartClips;
+
+	/** Master switch. Off = the previous behaviour (MM selects a start, CMC drives with impulse). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart")
+	bool bRootMotionStarts = true;
+
+	/** Only launch an RM start from (near) rest — above this the character is already moving and the
+	 *  event is a pivot or a gait change, not a start. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart", meta = (ForceUnits = "cm/s"))
+	float RootMotionStartMaxSpeed = 50.f;
+
+	/** Blend in/out for the dynamic montage. Short in: the start owns the pose immediately. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart", meta = (ForceUnits = "s"))
+	float RootMotionStartBlendIn = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart", meta = (ForceUnits = "s"))
+	float RootMotionStartBlendOut = 0.25f;
+
+	/** Refuse to relaunch within this of the last start — stops a stutter loop if a start ends with the
+	 *  character still under the speed threshold. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart", meta = (ForceUnits = "s"))
+	float RootMotionStartCooldown = 0.35f;
+
+	/** Slot the start montage plays on. Must match the AnimGraph's slot node and the anim instance's
+	 *  MontageSlotName, or OffsetRootBone will not release and the mesh will fight the montage. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStart")
+	FName RootMotionStartSlot = TEXT("DefaultSlot");
+
+	/** Try to launch an RM start for this input direction. Returns true if a montage was played. */
+	bool TryPlayRootMotionStart(const FVector& WorldInputDir);
+
+	// RM start runtime state
+	float LastRootMotionStartTime = -1.f;
+
+	// ========================================
+	// ROOT-MOTION STOPS — same mechanism as starts, plus an entry-speed band (see FAZ_RootMotionStopClip).
+	// ========================================
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStop")
+	TArray<FAZ_RootMotionStopClip> RootMotionStopClips;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStop")
+	bool bRootMotionStops = true;
+
+	/** Try to launch an RM stop. Called on the stop EDGE (input released while moving). */
+	bool TryPlayRootMotionStop();
+
+	/** True while an RM stop montage owns the capsule — the curve-driven stop contract stands down,
+	 *  because two controllers solving the same deceleration fight each other. */
+	bool bRootMotionStopActive = false;
+
+	float LastRootMotionStopTime = -1.f;
+	bool bStopActive_LastFrameHero = false;
+
+	// ========================================
+	// CHOOSER-BACKED SELECTION (CHT)
+	//
+	// The TArray tables above are a two-axis chooser hardcoded in C++. They work, and they stop working
+	// the moment a third axis appears (stance, rotation mode, variants, speed bands) — 7 x 3 x 3 is a
+	// table, not a list. A UChooserTable is data: adding an axis is a column, adding a variant is a row,
+	// and neither needs a rebuild. That last point is the practical one; build round-trips are what make
+	// tuning expensive.
+	//
+	// Assign a chooser and it wins; leave it null and the array below is used unchanged. Migration is
+	// therefore reversible at any point, and the PLAYBACK code never changes — only where Clip came from.
+	// ========================================
+
+	/** Chooser returning the start UAnimSequence. Null = use RootMotionStartClips. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Chooser")
+	TObjectPtr<UChooserTable> RootMotionStartChooser;
+
+	/** Chooser returning the stop UAnimSequence. Null = use RootMotionStopClips. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Chooser")
+	TObjectPtr<UChooserTable> RootMotionStopChooser;
+
+	// ---- Chooser-facing axes. Set immediately before evaluation; the chooser's columns bind to these
+	// by property name, so ADDING AN AXIS is: one property here, one column in the asset, no playback
+	// change. BlueprintReadOnly because chooser property bindings resolve through reflection. ----
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	EAZ_Gait ChooserGait = EAZ_Gait::Walk;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	EAZ_StartDirection ChooserDirection = EAZ_StartDirection::Fwd;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	EAZ_Stance ChooserStance = EAZ_Stance::Standing;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	EAZ_RotationMode ChooserRotationMode = EAZ_RotationMode::OrientToMovement;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	float ChooserSpeed = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AZ|Movement|Chooser")
+	bool bChooserLeftFootDown = true;
+
+	/** Fill the chooser axes from live state, then evaluate. Returns null if no table or no match. */
+	UAnimSequence* EvaluateLocomotionChooser(UChooserTable* Table);
 
 	// ---- Turn-in-place lock: plant, rotate, THEN move ----
 	//
@@ -351,6 +474,20 @@ protected:
 	 *  smoothing — but our AnimGraph has no OffsetRootBone yet (Stage C), so instant reads as a snap
 	 *  AND spikes the trajectory. Keep these finite until that node lands. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|Feel", meta = (ForceUnits = "deg/s"))
+	// 180 -> 100 (2026-08-24 night). Not taste: this value is one of FOUR rates that must agree, and
+	// the other three are now 100 deg/s too — the predictor's RotateTowardsMovementSpeed (1.745 rad/s)
+	// and MaxControllerYawRate on both TrajectoryGenerationData structs. Before they were matched the
+	// capsule turned at 165, the PREDICTED trajectory at 573 (10 rad/s, Epic's default, tuned for snap
+	// rotation) and the camera path was clamped at 70: three different turns, which is why turn content
+	// never matched what the body did no matter what got tuned.
+	//
+	// The C++ default is set to the shipped value deliberately. A BP override of this property silently
+	// reverted THREE times in one session (a git revert of the uasset, a class-layout rebuild that
+	// invalidated the serialized delta, and once mid-session), and each time the character went back to
+	// 180 with nobody touching it — an 80% rotation increase that looks like a regression out of nowhere.
+	// With the default equal to the intended value, losing the override is harmless.
+	// ★ If you change this, change all four together: degrees here and in MaxControllerYawRate,
+	//   degrees/57.3 for RotateTowardsMovementSpeed (it is RADIANS per second — QInterpConstantTo).
 	float GroundedRotationRateYaw = 180.f;
 
 	/** Run gait yaw rate — matches RunArchLoop_L/R (93 / 116 deg/s). */

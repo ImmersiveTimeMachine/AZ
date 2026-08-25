@@ -137,6 +137,70 @@ enum class EAZ_StartDirection : uint8
 	R180	= 6		// about-face, lead right
 };
 
+/**
+ * One root-motion start clip, keyed by gait and turn bucket.
+ *
+ * A start is a DISCRETE event whose content IS the motion, so it is played as a dynamic montage and its
+ * authored root motion drives the capsule directly, rather than MM selecting a pose and an impulse
+ * approximating the travel. Buckets come from UAZ_LocomotionStateMachine::BucketStartDirection so the
+ * movement layer and the anim layer read the same thresholds (45 / 112.5 / 157.5 degrees).
+ *
+ * Rows are editor-assigned: no /Game/ paths in C++.
+ */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_RootMotionStartClip
+{
+	GENERATED_BODY()
+
+	/** Which gait this row serves. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAZ_Gait Gait = EAZ_Gait::Walk;
+
+	/** Which turn bucket this row serves (Fwd / L90 / R90 / L135 / R135 / L180 / R180). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAZ_StartDirection Direction = EAZ_StartDirection::Fwd;
+
+	/** The clip. Must have bEnableRootMotion — without it the montage plays but the capsule never moves. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TObjectPtr<UAnimSequence> Clip = nullptr;
+};
+
+/**
+ * One root-motion stop clip, keyed by gait and planted foot, with the speed band it is authored for.
+ *
+ * Stops differ from starts in the one way that matters: a start begins at ~0 and the clip also begins at
+ * ~0, so montage root motion takes over invisibly. A stop begins at FULL SPEED, and RM overrides velocity
+ * with the clip's authored delta on frame one — so if the body is at 80 cm/s and the clip depicts 147,
+ * that is a visible jolt. Hence the band: RM plays only when the body is travelling at roughly what the
+ * clip was animated for, and everything outside falls through to the curve-driven stop contract, which
+ * already handles off-nominal releases well.
+ *
+ * Measured entry speeds (2026-08-24): walk stops peak 147, run stops 353-388.
+ */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_RootMotionStopClip
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAZ_Gait Gait = EAZ_Gait::Walk;
+
+	/** Which foot is planted at the stop. Matched against the anim layer's bLeftFootDown so the clip
+	 *  starts on the foot the body is actually on — a stop on the wrong foot reads as a stumble. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bLeftFootDown = true;
+
+	/** Inclusive speed band this clip serves. Outside it, the stop contract handles the deceleration. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ForceUnits = "cm/s"))
+	float MinEntrySpeed = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ForceUnits = "cm/s"))
+	float MaxEntrySpeed = 220.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TObjectPtr<UAnimSequence> Clip = nullptr;
+};
+
 /** What the forward obstacle sensor (UAZ_ObstacleSensorComponent) decided the pawn just ran into. ONE enum
  *  replaces the old bWallImpact/bBlocked bools so reactions scale by adding a value + a chooser row, not a
  *  column. Drives the obstacle-reaction chooser rows (and, later, gameplay consequences — damage / stagger /
