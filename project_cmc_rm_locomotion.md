@@ -1,6 +1,6 @@
 ---
 name: project-cmc-rm-locomotion
-description: "★★★ LIVE: the RM architecture pivot (commit 343d553) — discrete loco events play as dynamic montages so authored root motion drives the capsule. Hand-back contract at 60%, entry-speed bands for stops, the foot-curve/suffix bugs and their measurements, MM gating under montages, CHT hooks. START HERE for locomotion work on spike/cmc-backport."
+description: "★ SUPERSEDED 2026-08-26 by [[project-cmc-velocity-master-verdict]] — RM montages retired for locomotion (toggle bRootMotionStarts/Stops), mechanism keeps for committed actions. Was: the RM architecture pivot (commit 343d553) — discrete loco events play as dynamic montages so authored root motion drives the capsule. Hand-back contract at 60%, entry-speed bands for stops, the foot-curve/suffix bugs and their measurements, MM gating under montages, CHT hooks. START HERE for locomotion work on spike/cmc-backport."
 metadata: 
   node_type: memory
   type: project
