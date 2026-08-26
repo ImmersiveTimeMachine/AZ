@@ -1,6 +1,7 @@
 // Copyright Artur. AZ project.
 
 #include "Character/Cmc/AZ_CmcHeroCharacter.h"
+#include "Animation/AnimMontage.h"   // FMontageBlendSettings — the inertial hand-back
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GA_HitReact.h"
@@ -74,6 +75,21 @@ namespace AZ::RmMontage
 	// File-scope so this is testable under Live Coding; single locally-controlled hero.
 	// TODO promote to EditDefaultsOnly members at the next editor-closed build.
 	static constexpr float ReleaseFraction   = 0.60f;
+
+	/** Stops release far later than starts, because the two clips pay out at OPPOSITE ends. A start's
+	 *  content is rotation, delivered by 50-60% — the tail is run-out the player should own. A stop's
+	 *  content is the PLANT AND SETTLE, which is entirely in the tail: releasing at 60% left the body at
+	 *  23 cm/s in a Moving state where Idle is not even addressable, and MM's least-bad candidate was a
+	 *  fresh stop clip at frame 0 — fast walking feet on a standing body (measured 2026-08-26:
+	 *  step=+110 on the engage line right after every completed stop). The reversal interrupts still
+	 *  apply, so a cancelled stop loses nothing. */
+	static constexpr float StopReleaseFraction = 0.92f;
+
+	/** A stop EDGE that arrives while a montage still plays (input released mid-start) may not launch
+	 *  that frame — held here and retried, instead of being consumed. Before this, whether a stop ran on
+	 *  RM or on the curve contract depended on whether the release landed inside a start montage —
+	 *  same input, two different stop behaviours, chosen by milliseconds (measured 2026-08-26). */
+	static bool bStopEdgePending = false;
 	static constexpr float InterruptAngleDeg = 60.f;
 	static constexpr float BlendOutSeconds   = 0.15f;
 
@@ -109,13 +125,32 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	// against the speed that gait implies.
 	ResolveGaitAndStanceFromTags();
 	UpdateSelectionGait();   // owns the stop-band latch that braking and pool selection both read
-	// RM STOP on the stop EDGE. UpdateSelectionGait latched bStopActive this frame if the stick was
-	// released while moving; that edge is the only moment a stop clip can start at its own frame 0.
+	// RM STOP on the stop EDGE — held as PENDING until it can actually be tried. The edge often lands
+	// on the exact frame the stick was released inside a START montage; TryPlayRootMotionStop refuses
+	// while any montage plays, and the first version consumed the edge on that refusal — so whether a
+	// stop ran on RM or on the curve contract was a race with the montage's hand-back. Pending + retry
+	// makes it deterministic: the hand-back below stops the start montage this same frame, and the stop
+	// launches 1-2 frames later. ONE attempt per edge — if the band or cooldown declines, the curve
+	// contract owns that stop, by design, and the pending is spent.
 	if (bStopActive && !bStopActive_LastFrameHero)
 	{
-		TryPlayRootMotionStop();
+		AZ::RmMontage::bStopEdgePending = true;
 	}
 	bStopActive_LastFrameHero = bStopActive;
+
+	if (!bStopActive)
+	{
+		AZ::RmMontage::bStopEdgePending = false;   // stop over or cancelled — the edge died with it
+	}
+	else if (AZ::RmMontage::bStopEdgePending)
+	{
+		const UAnimInstance* EdgeAnim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+		if (!EdgeAnim || !EdgeAnim->IsAnyMontagePlaying())
+		{
+			TryPlayRootMotionStop();
+			AZ::RmMontage::bStopEdgePending = false;
+		}
+	}
 
 	// RM HAND-BACK: release the montage once it has delivered what only it can deliver, or the moment
 	// the player asks for something else. Without this the clip owns the character to its last frame.
@@ -136,7 +171,9 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 			const bool bInputHeld = ((Now2 - LastMoveInputTime) <= 0.1f) && !LastMoveInputDir.IsNearlyZero();
 
 			const TCHAR* Why = nullptr;
-			if (Frac >= AZ::RmMontage::ReleaseFraction)
+			const float ReleaseAt = AZ::RmMontage::bIsStop
+				? AZ::RmMontage::StopReleaseFraction : AZ::RmMontage::ReleaseFraction;
+			if (Frac >= ReleaseAt)
 			{
 				Why = TEXT("delivered");
 			}
@@ -162,7 +199,22 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 
 			if (Why)
 			{
-				RmAnim->Montage_Stop(AZ::RmMontage::BlendOutSeconds, Mtg);
+				// ★ INERTIAL RELEASE, not a crossfade (D2, 2026-08-26). A crossfade blends the montage
+				// down onto the UNDERLYING MM output — which at this exact moment is mid-inertialization
+				// from a stale mid-montage pose toward the phase the release-edge re-search just picked
+				// (0.4-0.5s of MMBlendTime). Two blends, opposite directions, disagreeing about the
+				// target: that mismatch was the residual hand-back jerk that survived four selection-layer
+				// fixes. An inertial stop cuts the montage THIS FRAME (the engine forces blend time to 0,
+				// AnimMontage.cpp:1576-1586) and posts one inertialization request for BlendOutSeconds —
+				// and since the release edge invalidates the continuing pose on this same frame, the
+				// offset decays from the montage's last frame straight onto the CORRECT phase. One blend,
+				// one target. Requires the Inertialization node between the slot and OffsetRootBone in
+				// AZ_ABP_CmcAnimInstance — the pre-slot node only sees MM's own pose and cannot absorb a
+				// montage discontinuity.
+				FMontageBlendSettings StopSettings;
+				StopSettings.Blend.BlendTime = AZ::RmMontage::BlendOutSeconds;
+				StopSettings.BlendMode = EMontageBlendMode::Inertialization;
+				RmAnim->Montage_StopWithBlendSettings(StopSettings, Mtg);
 				AZ::RmMontage::bActive = false;
 				bRootMotionStopActive = false;
 				UE_LOG(LogTemp, Display, TEXT("[CmcRmEnd] %s at %.0f%% vel=%.0f"), Why, Frac * 100.f,
@@ -762,6 +814,21 @@ void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 
 	AddMovementInput(Forward, Axis.Y * RampScale);
 	AddMovementInput(Right, Axis.X * RampScale);
+}
+
+bool AAZ_CmcHeroCharacter::OwnsRootMotionStarts(EAZ_Gait InGait) const
+{
+	if (!bRootMotionStarts)
+	{
+		return false;
+	}
+	// Content decides ownership, not a hardcoded gait list: author a sprint start row and MM's sprint
+	// starts retire on their own, delete the walk rows and MM takes walk back. One owner, one fact.
+	return RootMotionStartClips.ContainsByPredicate(
+		[InGait](const FAZ_RootMotionStartClip& Row)
+		{
+			return Row.Clip != nullptr && Row.Gait == InGait;
+		});
 }
 
 bool AAZ_CmcHeroCharacter::TryPlayRootMotionStart(const FVector& WorldInputDir)

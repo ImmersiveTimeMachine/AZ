@@ -3,6 +3,7 @@
 #include "Animation/AZ_CmcAnimInstance.h"
 
 #include "Character/Cmc/AZ_CmcCharacterBase.h"
+#include "Character/Cmc/AZ_CmcHeroCharacter.h"   // OwnsRootMotionStarts — the D1 one-owner strip
 #include "Engine/EngineTypes.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -74,9 +75,14 @@ void UAZ_CmcAnimInstance::NativeInitializeAnimation()
 
 namespace
 {
-	// See the MONTAGE-ENDED EDGE comment at the write site in NativeUpdateAnimation.
-	bool GCmcMontageWasActive = false;
-	bool GCmcMontageJustEnded = false;
+	// See the MONTAGE EDGES comment at the write site in NativeUpdateAnimation.
+	bool GCmcMontageWasActive    = false;
+	bool GCmcMontageJustReleased = false;
+
+	// D1 snapshot: the RM launcher owns starts for the CURRENT gait (enabled + content authored).
+	// Written on the game thread in NativeUpdateAnimation, read by the worker in Get_DatabasesToSearch
+	// — same discipline as the montage snapshot above.
+	bool GCmcRmOwnsStarts = false;
 }
 
 void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -703,8 +709,35 @@ void UAZ_CmcAnimInstance::Update_States()
 	// promote to a member pair at the next editor-closed build.
 	{
 		const bool bMontageNow = (GetCurrentActiveMontage() != nullptr);
-		GCmcMontageJustEnded = (GCmcMontageWasActive && !bMontageNow);
+
+		// ★ THIS true->false EDGE **IS** THE RELEASE, not the end of the blend-out.
+		//
+		// Corrected 2026-08-26 against the engine source. GetCurrentActiveMontage() walks MontageInstances
+		// and returns the first that IsActive() — and FAnimMontageInstance::IsActive() is defined as
+		// IsValid() && !IsStopped() (AnimMontage.h:535), where IsStopped() is Blend.GetDesiredValue()==0.
+		// Montage_Stop sets that desired blend to zero immediately, so this getter goes NULL on the
+		// release frame and stays null for the whole blend-out.
+		//
+		// Two consequences, both measured: the mtg= flag reads 0 during the blend-out (so the RM strip
+		// stops applying there), and an edge built on GetActiveMontageInstance()->IsStopped() can NEVER
+		// fire — that getter filters out stopped instances by the same predicate, so the test is false by
+		// construction. It logged zero [CmcRmRelease] lines in a full session.
+		GCmcMontageJustReleased = (GCmcMontageWasActive && !bMontageNow);
+
+		// The acceptance test for the freeze. [CmcSel] only logs on an asset CHANGE, and this edge exists
+		// precisely to re-pick the SAME asset at a different phase — so without this line a working fix
+		// and an edge that never fires produce identical traces.
+		if (GCmcMontageJustReleased)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[CmcRmRelease] invalidate | spd=%.0f state=%d"),
+				Speed2D, static_cast<int32>(MovementState));
+		}
+
 		GCmcMontageWasActive = bMontageNow;
+
+		// D1: one owner per start. Refreshed every frame because gait changes at runtime.
+		const AAZ_CmcHeroCharacter* RmHero = Cast<AAZ_CmcHeroCharacter>(TryGetPawnOwner());
+		GCmcRmOwnsStarts = RmHero && RmHero->OwnsRootMotionStarts(Gait);
 	}
 }
 
@@ -930,10 +963,31 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// rows. The engine node AddUniques on ingest, so overlap between rows is harmless.
 	MatchedGateLabels.Reset();
 
+	// ★ WHILE AN RM MONTAGE OWNS THE POSE, ADDRESS THE TABLE AS MOVING.
+	//
+	// MovementState is derived from actual Speed2D, and a 180 start drives the body THROUGH ZERO on its
+	// way round. So mid-clip the state flips Moving -> Idle, the gate row flips WalkMove -> StandIdle, and
+	// the pool becomes the Idles database ALONE. MM then has no other candidate and elects AnimPro_Idle —
+	// measured twice on 2026-08-26 (#9 and #15, both spd=0 under a playing start) — and that idle pose is
+	// what the montage blended out onto at 123-124 cm/s, with a 0.5s inertialization back to the walk loop
+	// arriving 38ms later. Two frames of standing idle under a hand-back at full walk speed.
+	//
+	// The character is not idle: it is mid-start, and it is about to be moving. A stationary FRAME inside a
+	// locomotion event is not an idle STATE, and letting one frame of speed redefine the state is what put
+	// idle in the pool at all. Interrupt mode cannot fix this — MM searches every frame no matter what, so
+	// the only durable answer is to stop offering idle as a candidate.
+	//
+	// Scoped to the montage's life, which ends AT the release (not at the end of the blend-out), so the
+	// frame the clip lets go the real state applies again — and the release edge in Get_MMInterruptMode
+	// invalidates on that same frame. A stop therefore still settles into Idle normally, one frame later,
+	// through the ordinary path.
+	const EAZ_MovementState GateState =
+		GCmcMontageWasActive ? EAZ_MovementState::Moving : MovementState;
+
 	TArray<UPoseSearchDatabase*> Result;
 	for (const FAZ_DatabaseGate& Gate : DatabaseGates)
 	{
-		if (!Gate.Matches(MovementMode, Stance, MovementState, Gait))
+		if (!Gate.Matches(MovementMode, Stance, GateState, Gait))
 		{
 			continue;
 		}
@@ -1075,14 +1129,50 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	// frames gated correctly. The snapshot is written once per frame in NativeUpdateAnimation (game
 	// thread, same discipline as every _GT member in this file) and covers the montage's whole life
 	// including both blend phases.
-	if (GCmcMontageWasActive)
 	{
 		static const FName RmStartsTag(TEXT("Starts"));
 		static const FName RmStopsTag(TEXT("Stops"));
-		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+
+		// ★ D1 (2026-08-26): ONE OWNER PER START. While the launcher has content for this gait, the MM
+		// Starts pools are not searchable AT ALL — montage playing or not. Before this, the two selectors
+		// raced every start: MM elected a Starts clip 40-120ms before the launcher fired (double-start
+		// blends, and divergent picks — MM chose Start180_L while the launcher played Start135_R), and
+		// when the launcher DECLINED (cooldown, speed gate), MM's un-driven start played with no capsule
+		// RM at CmcRatio 1.61 — the exact slide class the RM pivot exists to kill. Where the launcher has
+		// no content (sprint today) MM keeps the event, so nothing is ever left uncovered.
+		if (GCmcRmOwnsStarts || GCmcMontageWasActive)
 		{
-			return Db && (Db->Tags.Contains(RmStartsTag) || Db->Tags.Contains(RmStopsTag));
-		});
+			Result.RemoveAll([](const UPoseSearchDatabase* Db)
+			{
+				return Db && Db->Tags.Contains(RmStartsTag);
+			});
+		}
+
+		// ★ PIVOTS JOIN THE STRIP where RM owns the gait's discrete events (2026-08-26). The pivot
+		// window only opens above PivotSearchMinSpeed2D=200, so walk never reached it — but every RUN
+		// reversal did, and an MM-served pivot is UNDRIVEN: the MM path has no capsule root motion, so
+		// the clip rotates 180 while the capsule does friction-reversal physics (measured: CmcRatio
+		// 0.37-1.27, max 2.37, RED on every pivot window). Then the RM start launched mid-pivot ~120ms
+		// later and cut it — three systems per reversal. With pivots stripped, a run reversal takes the
+		// walk shape the user signed off: stop-cancel -> decelerate -> RM start. Sprint (no RM content)
+		// keeps MM pivots. Proper pivots-on-RM is the curve-driven-turns plan, not a gate tweak.
+		if (GCmcRmOwnsStarts || GCmcMontageWasActive)
+		{
+			Result.RemoveAll([this](const UPoseSearchDatabase* Db)
+			{
+				return Db && Db->Tags.Contains(PivotDatabaseTag);
+			});
+		}
+
+		// Stops keep DUAL ownership by design — RM serves only its entry-speed band, the curve-driven
+		// contract owns the rest — so MM's Stops pools drop out only while a montage actually plays.
+		if (GCmcMontageWasActive)
+		{
+			Result.RemoveAll([](const UPoseSearchDatabase* Db)
+			{
+				return Db && Db->Tags.Contains(RmStopsTag);
+			});
+		}
 	}
 
 	static const FName StanceTransTag(TEXT("StanceTrans"));
@@ -1164,6 +1254,26 @@ namespace AZ::CmcAnim
 void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
 	const FMotionMatchingAnimNodeReference& MotionMatchingNode, TArray<UPoseSearchDatabase*>& Pool) const
 {
+	// ★ THE HOLE IN THE RM STRIP. Get_DatabasesToSearch removes the Starts/Stops pools while a montage
+	// owns the pose — and then this function ran after it (Update_MotionMatching) and put the playing
+	// one-shot's database straight back via the AddUnique below. Measured 2026-08-25: six elections from
+	// PSD_AZ_Stand_Walk_Starts with mtg=1, the clearest being one logged as gates=[StandIdle,StanceTrans]
+	// — a row whose only database is Idles, so the Starts pool could only have arrived by this re-add.
+	//
+	// The churn itself was invisible (the montage sits above the graph). The COST is what MM had latched
+	// when the montage let go: it searched against mid-montage state (spd=17, turn=18) and held that pose
+	// into a hand-back at 117-151 cm/s, giving CmcRatio 0.42 on WalkArchLoop_L and 3.06 on
+	// WalkFwdStart90_L before correcting to the forward loop ~40ms later. Those 2-3 frames are the jerk.
+	//
+	// Keep-alive exists to stop a clip being yanked out from under ITSELF while it plays. While the slot
+	// drives, nothing is playing that needs protecting, so the honest answer is to not protect anything.
+	// This also skips the idle suppression below, correctly: that rule guards a VISIBLE stop clip, and
+	// under a montage there isn't one. Both resume the moment the snapshot clears.
+	if (GCmcMontageWasActive)
+	{
+		return;
+	}
+
 	FPoseSearchBlueprintResult Current;
 	bool bIsResultValid = false;
 	UMotionMatchingAnimNodeLibrary::GetMotionMatchingSearchResult(MotionMatchingNode, Current, bIsResultValid);
@@ -1497,6 +1607,25 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 			|| (Stance != Stance_LastFrame))
 		&& (MovementMode == EAZ_MovementMode::OnGround);
 
+	// ===================== RM MONTAGE RELEASE: ONE SEARCH, AT THE TRUTHFUL FRAME =====================
+	//
+	// Fires the frame Montage_Stop is called — see the write site, where the engine's IsActive() predicate
+	// makes the true->false transition of GCmcMontageWasActive coincide exactly with the release. This is
+	// the old montage-ended edge, renamed to say what it actually does; the measurement that justified it
+	// (hand-back costs 6.99 -> 0.42) still holds.
+	//
+	// ⚠ A DoNotInterrupt "freeze" for the montage's duration was tried here on 2026-08-26 and REMOVED the
+	// same evening: EPoseSearchInterruptMode does not gate whether MM searches, only whether the continuing
+	// pose survives. MM runs a full search every frame regardless, so DoNotInterrupt cannot stop it electing
+	// a cheaper pose — measured, it changed nothing (elections at mtg=1 with costs 2.74-3.87 persisted). The
+	// churn has to be prevented where the CANDIDATES are chosen, which is the pool: see the Moving-row
+	// override in Get_DatabasesToSearch. Interrupt mode is the wrong layer for this and always was.
+	if (GCmcMontageJustReleased)
+	{
+		GCmcMontageJustReleased = false;
+		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+	}
+
 	// THE STOP EDGE INVALIDATES THE CONTINUING POSE.
 	//
 	// BlockTransition cannot cover this case: it is applied through FSearchFilters, built only in the
@@ -1523,13 +1652,6 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 	// no-selection grace until the watchdog released it. Edge only, not the whole lock, as above.
 	if (bTurnInPlaceActive && !bTurnInPlaceActive_LastFrame)
 	{
-		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
-	}
-
-	// The montage-ended edge (see NativeUpdateAnimation). Consumed on read so it fires exactly once.
-	if (GCmcMontageJustEnded)
-	{
-		GCmcMontageJustEnded = false;
 		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
 	}
 

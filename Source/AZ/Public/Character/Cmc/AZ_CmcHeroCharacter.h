@@ -81,6 +81,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	UCameraComponent* GetCamera() const { return Camera; }
 
+	/** True when the RM launcher owns starts for this gait — enabled AND at least one clip authored.
+	 *  The anim layer reads this (via a game-thread snapshot) to remove the MM Starts pools outright:
+	 *  ONE owner per start. Where this is false (sprint today), MM remains the start selector. */
+	bool OwnsRootMotionStarts(EAZ_Gait InGait) const;
+
 protected:
 	void InitAbilitySystem();
 
