@@ -697,16 +697,54 @@ FString UAZ_AnimGraphNodeUtils::AddBlendStackGraphAnimNodeRef(const FString& Blu
 	UEdGraph* BSGraph = FindBlendStackBoundGraph(ABP, BlendStackNodeGUID);
 	if (!BSGraph) return FString();
 
+	// Resolve the tag from the graph's BlendStack Input node. A tag-less K2Node_AnimNodeReference
+	// resolves to nothing at runtime and fails CLOSED (silently) — the docstring always promised
+	// this copy, the code never did it.
+	FName InputTag = NAME_None;
+	for (UEdGraphNode* GraphNode : BSGraph->Nodes)
+	{
+		UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(GraphNode);
+		if (AnimNode && AnimNode->GetClass()->GetName() == TEXT("AnimGraphNode_BlendStackInput"))
+		{
+			InputTag = AnimNode->GetTag();
+			break;
+		}
+	}
+	if (InputTag.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AZ_AnimGraphUtils: BS graph has no tagged BlendStackInput node — AnimNodeRef would be unbound"));
+	}
+
+	// Repair mode: an untagged AnimNodeReference already in this graph is a broken earlier add —
+	// tag it in place and return it instead of stacking a duplicate.
+	for (UEdGraphNode* GraphNode : BSGraph->Nodes)
+	{
+		UK2Node_AnimNodeReference* Existing = Cast<UK2Node_AnimNodeReference>(GraphNode);
+		if (Existing && Existing->GetTag().IsNone() && !InputTag.IsNone())
+		{
+			Existing->Modify();
+			Existing->SetTag(InputTag);
+			UE_LOG(LogTemp, Log, TEXT("AZ_AnimGraphUtils: BS repaired untagged AnimNodeRef GUID=%s -> tag '%s'"),
+				*Existing->NodeGuid.ToString(), *InputTag.ToString());
+			return Existing->NodeGuid.ToString();
+		}
+	}
+
 	BSGraph->Modify();
 	UK2Node_AnimNodeReference* Node = NewObject<UK2Node_AnimNodeReference>(BSGraph);
 	Node->CreateNewGuid();
 	Node->NodePosX = PosX;
 	Node->NodePosY = PosY;
+	if (!InputTag.IsNone())
+	{
+		Node->SetTag(InputTag);
+	}
 	BSGraph->AddNode(Node, false, false);
 	Node->PostPlacedNewNode();
 	Node->ReconstructNode();  // Triggers AllocateDefaultPins (which is private)
 
-	UE_LOG(LogTemp, Log, TEXT("AZ_AnimGraphUtils: BS added AnimNodeRef GUID=%s"), *Node->NodeGuid.ToString());
+	UE_LOG(LogTemp, Log, TEXT("AZ_AnimGraphUtils: BS added AnimNodeRef GUID=%s tag='%s'"),
+		*Node->NodeGuid.ToString(), *InputTag.ToString());
 	return Node->NodeGuid.ToString();
 #else
 	return FString();
@@ -944,6 +982,44 @@ bool UAZ_AnimGraphNodeUtils::SetAnimNodeProperty(const FString& BlueprintPath, c
 	}
 
 	return bSuccess;
+#else
+	return false;
+#endif
+}
+
+bool UAZ_AnimGraphNodeUtils::ExposeAnimNodePin(const FString& BlueprintPath, const FString& NodeGUID,
+	const FString& PropertyName, const FString& BlendStackNodeGUID)
+{
+#if WITH_EDITOR
+	UAnimBlueprint* ABP = LoadAnimBP(BlueprintPath);
+	if (!ABP) return false;
+
+	UEdGraphNode* RawNode = FindNodeInGraphOrBS(ABP, NodeGUID, BlendStackNodeGUID);
+	UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(RawNode);
+	if (!AnimNode)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: ExposeAnimNodePin — node %s not found or not an AnimGraphNode"),
+			*NodeGUID.Left(8));
+		return false;
+	}
+
+	for (FOptionalPinFromProperty& OptPin : AnimNode->ShowPinForProperties)
+	{
+		if (OptPin.PropertyName == FName(*PropertyName))
+		{
+			// NOTE: Do NOT call ReconstructNode() here — GC crash from Python. The pin
+			// materializes on the next in-editor compile of the ABP.
+			AnimNode->Modify();
+			OptPin.bShowPin = true;
+			UE_LOG(LogTemp, Log, TEXT("AZ_AnimGraphUtils: Exposed pin %s.%s (compile the ABP to materialize it)"),
+				*NodeGUID.Left(8), *PropertyName);
+			return true;
+		}
+	}
+
+	UE_LOG(LogTemp, Error, TEXT("AZ_AnimGraphUtils: No optional-pin entry '%s' on node %s"),
+		*PropertyName, *NodeGUID.Left(8));
+	return false;
 #else
 	return false;
 #endif

@@ -135,4 +135,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|AnimGraph")
 	static bool SetAnimNodeProperty(const FString& BlueprintPath, const FString& NodeGUID,
 		const FString& PropertyName, const FString& Value, const FString& BlendStackNodeGUID = TEXT(""));
+
+	/** Flip bShowPin on a PinHiddenByDefault optional pin (main graph or BlendStack inner graph).
+	 *  The pin materializes on the next in-editor ABP compile — wire to it in a second pass. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|AnimGraph")
+	static bool ExposeAnimNodePin(const FString& BlueprintPath, const FString& NodeGUID,
+		const FString& PropertyName, const FString& BlendStackNodeGUID = TEXT(""));
 };

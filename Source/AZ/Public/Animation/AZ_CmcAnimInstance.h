@@ -91,7 +91,7 @@ public:
 	FVector2D Get_AOValue() const;
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
-	float Get_DynamicPlayRate(float MinPlayRate = 0.8f, float MaxPlayRate = 1.2f) const;
+	double Get_DynamicPlayRate(FAnimNodeReference BlendStackInput) const;
 
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
@@ -502,6 +502,16 @@ protected:
 	float FootPlantedSpeedThreshold = 1.f;
 
 
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|PlayRate", meta = (ClampMin = "0.1", ClampMax = "1"))
+	float DynamicPlayRateMin = 0.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|PlayRate", meta = (ClampMin = "1", ClampMax = "3"))
+	float DynamicPlayRateMax = 1.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|PlayRate", meta = (ClampMin = "0", ForceUnits = "cm/s"))
+	float DynamicPlayRateMinDepictedSpeed = 10.f;
+
+
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Databases")
 	TArray<FAZ_DatabaseGate> DatabaseGates;
 
@@ -637,10 +647,10 @@ protected:
 	TWeakObjectPtr<UObject> LastLoggedSelectedAnim;
 	float SecondsSinceSelectionChange = 0.f;
 	int32 SelectionChangeIndex = 0;
-	float RatioSum = 0.f;
-	int32 RatioCount = 0;
-	float RatioMin = 0.f;
-	float RatioMax = 0.f;
+	TArray<float> RatioSamplesRaw;
+	TArray<float> RatioSamplesEff;
+
+	double ComputeDynamicPlayRate(const UAnimSequenceBase* Anim, float AnimTime) const;
 
 	void PublishSelection(UObject* InAnim, const UPoseSearchDatabase* InDatabase, float InTime,
 		bool bInLoop, float InCost, const TArray<FName>& InFallbackTags);

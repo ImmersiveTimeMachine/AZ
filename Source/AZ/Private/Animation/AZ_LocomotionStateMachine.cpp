@@ -308,6 +308,20 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		}
 		return EAZ_StateMachineState::TransitionStance;
 
+	// Aborted start: input released while the start transition still plays but the body is still moving —
+	// the same moving→idle edge as a loop stop, so it must route through TransitionToIdle (the machine's
+	// invariant: every moving→idle passes through the stop). Without this case the dispatch fell through
+	// to default → SM=IdleLoop at 130-170 cm/s → the Stops pool never opened and the loop walked in place
+	// over the brake (2026-08-27 tap bug). Gated so the Mover backend keeps its legacy dispatch unchanged.
+	case EAZ_StateMachineState::TransitionToLocomotion:
+		if (In.bStopOnAbortedStart)
+		{
+			bLatchedJustLanded = false;
+			TransitionEndTime  = Now + 1.0f;   // overridden by the stop clip's real length
+			return EAZ_StateMachineState::TransitionToIdle;
+		}
+		[[fallthrough]];
+
 	// IdleLoop / fresh entry into idle. Schedule + fire idle breaks.
 	default:
 		// Stance changed while idle -> play the in-place lower/rise clip. The chooser keys on

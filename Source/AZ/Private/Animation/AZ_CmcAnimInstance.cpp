@@ -17,6 +17,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
+#include "AnimationWarpingLibrary.h"
 #include "PoseSearch/MotionMatchingAnimNodeLibrary.h"
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "BoneControllers/AnimNode_OffsetRootBone.h"
@@ -57,7 +58,8 @@ void UAZ_CmcAnimInstance::NativeInitializeAnimation()
 	LastPushedTransitionSerial = 0;
 	LastPushedSMState          = EAZ_StateMachineState::IdleLoop;
 	LatchedReaction            = EAZ_ObstacleReaction::None;
-	RatioMin                   = TNumericLimits<float>::Max();
+	RatioSamplesRaw.Reset();
+	RatioSamplesEff.Reset();
 
 	if (RootMotionMode != ERootMotionMode::RootMotionFromMontagesOnly)
 	{
@@ -324,35 +326,40 @@ void UAZ_CmcAnimInstance::Update_Logic(float DeltaSeconds)
 				static constexpr float RatioMinSpeed = 20.f;
 
 				float DepictedSpeed = 0.f;
-				if (const UAnimSequenceBase* SelectedSeq = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get()))
+				const UAnimSequenceBase* SelectedSeq = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get());
+				if (SelectedSeq)
 				{
 					DepictedSpeed = SelectedSeq->EvaluateCurveData(MoveDataSpeedCurve, CurrentSelectedTime);
 				}
-				if (DepictedSpeed > UE_KINDA_SMALL_NUMBER && Speed2D > RatioMinSpeed)
+				if (DepictedSpeed > DynamicPlayRateMinDepictedSpeed && Speed2D > RatioMinSpeed)
 				{
-					const float Ratio = Speed2D / DepictedSpeed;
-					RatioSum += Ratio;
-					++RatioCount;
-					RatioMin = FMath::Min(RatioMin, Ratio);
-					RatioMax = FMath::Max(RatioMax, Ratio);
+					const float Raw  = Speed2D / DepictedSpeed;
+					const float Rate = static_cast<float>(ComputeDynamicPlayRate(SelectedSeq, CurrentSelectedTime));
+					RatioSamplesRaw.Add(Raw);
+					RatioSamplesEff.Add(Raw / FMath::Max(Rate, 0.01f));
 				}
 
 				if (CurrentSelectedAnim.Get() != LastLoggedSelectedAnim.Get())
 				{
-					if (RatioCount > 0)
+					if (RatioSamplesRaw.Num() > 0)
 					{
-						const float Mean = RatioSum / RatioCount;
+						RatioSamplesRaw.Sort();
+						RatioSamplesEff.Sort();
+						const int32 N      = RatioSamplesRaw.Num();
+						const int32 IdxMed = N / 2;
+						const int32 IdxP90 = FMath::Min(N - 1, FMath::FloorToInt(static_cast<float>(N) * 0.9f));
+						const float EffMed = RatioSamplesEff[IdxMed];
 						const TCHAR* Band =
-							(Mean >= 0.85f && Mean <= 1.15f) ? TEXT("GREEN") :
-							(Mean >= 0.75f && Mean <= 1.25f) ? TEXT("YELLOW") : TEXT("RED");
+							(EffMed >= 0.85f && EffMed <= 1.15f) ? TEXT("GREEN") :
+							(EffMed >= 0.75f && EffMed <= 1.25f) ? TEXT("YELLOW") : TEXT("RED");
 						UE_LOG(LogTemp, Display,
-							TEXT("[CmcRatio] %-32s n=%3d mean=%.2f min=%.2f max=%.2f  %s"),
-							*GetNameSafe(LastLoggedSelectedAnim.Get()), RatioCount, Mean, RatioMin, RatioMax, Band);
+							TEXT("[CmcRatio] %-32s n=%3d raw med=%.2f p90=%.2f | eff med=%.2f p90=%.2f  %s"),
+							*GetNameSafe(LastLoggedSelectedAnim.Get()), N,
+							RatioSamplesRaw[IdxMed], RatioSamplesRaw[IdxP90],
+							EffMed, RatioSamplesEff[IdxP90], Band);
 					}
-					RatioSum = 0.f;
-					RatioCount = 0;
-					RatioMin = TNumericLimits<float>::Max();
-					RatioMax = 0.f;
+					RatioSamplesRaw.Reset();
+					RatioSamplesEff.Reset();
 
 					FString ChangeGates;
 					for (const FName& GateLabel : MatchedGateLabels)
@@ -1146,31 +1153,54 @@ bool UAZ_CmcAnimInstance::AllowFootPinning() const
 	return (MovementMode == EAZ_MovementMode::OnGround) && IsMoving();
 }
 
-float UAZ_CmcAnimInstance::Get_DynamicPlayRate(float MinPlayRate, float MaxPlayRate) const
+double UAZ_CmcAnimInstance::ComputeDynamicPlayRate(const UAnimSequenceBase* Anim, float AnimTime) const
 {
-	const float MoveDataSpeed = GetCurveValue(MoveDataSpeedCurve);
-	if (MoveDataSpeed <= UE_KINDA_SMALL_NUMBER)
+	if (!Anim)
 	{
-		return 1.f;
+		return 1.0;
 	}
 
-	const bool bStopSelected = CurrentDatabaseTags.Contains(AZ::CmcAnim::StopsTagName);
-
-	if (bStopSelected && Speed2D <= AZ::CmcAnim::StoppedSpeedTolerance)
+	float AlphaCurve = 0.f;
+	if (!UAnimationWarpingLibrary::GetCurveValueFromAnimation(Anim, PlayRateWarpingCurve, AnimTime, AlphaCurve))
 	{
-		return 1.f;
+		return 1.0;
 	}
 
-	if (bStopSelected && CharacterProperties.bStopActive && CharacterProperties.bStopIsAnimated)
+	float SpeedCurve = 0.f;
+	UAnimationWarpingLibrary::GetCurveValueFromAnimation(Anim, MoveDataSpeedCurve, AnimTime, SpeedCurve);
+	if (SpeedCurve <= DynamicPlayRateMinDepictedSpeed)
 	{
-		return 1.f;
+		return 1.0;
 	}
 
-	const float EffectiveMin = bStopSelected ? AZ::CmcAnim::StopsMinPlayRate : MinPlayRate;
+	const bool bStopSelected = Anim == CurrentSelectedAnim.Get()
+		&& CurrentDatabaseTags.Contains(AZ::CmcAnim::StopsTagName);
+	if (bStopSelected)
+	{
+		if (Speed2D <= AZ::CmcAnim::StoppedSpeedTolerance)
+		{
+			return 1.0;
+		}
+		if (CharacterProperties.bStopActive && CharacterProperties.bStopIsAnimated)
+		{
+			return 1.0;
+		}
+	}
 
-	const float Ratio = FMath::Clamp(Speed2D / MoveDataSpeed, EffectiveMin, MaxPlayRate);
-	const float WarpAlpha = FMath::Clamp(GetCurveValue(PlayRateWarpingCurve), 0.f, 1.f);
-	return FMath::Lerp(1.f, Ratio, WarpAlpha);
+	const double MinRate = bStopSelected
+		? static_cast<double>(AZ::CmcAnim::StopsMinPlayRate)
+		: static_cast<double>(DynamicPlayRateMin);
+	const double Ratio = FMath::Clamp(
+		static_cast<double>(Speed2D) / static_cast<double>(SpeedCurve),
+		MinRate, static_cast<double>(DynamicPlayRateMax));
+	return FMath::Lerp(1.0, Ratio, static_cast<double>(FMath::Clamp(AlphaCurve, 0.f, 1.f)));
+}
+
+double UAZ_CmcAnimInstance::Get_DynamicPlayRate(FAnimNodeReference BlendStackInput) const
+{
+	UAnimationAsset* Asset = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAsset(BlendStackInput);
+	const float AnimTime = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAssetTime(BlendStackInput);
+	return ComputeDynamicPlayRate(Cast<UAnimSequenceBase>(Asset), AnimTime);
 }
 
 void UAZ_CmcAnimInstance::PublishSelection(UObject* InAnim, const UPoseSearchDatabase* InDatabase,
@@ -1303,6 +1333,7 @@ void UAZ_CmcAnimInstance::Update_LocomotionStateMachine(float DeltaSeconds)
 	SMIn.bStrafe              = ChooserContext.bStrafe;
 	SMIn.MovementDirection    = ChooserContext.MovementDirection;
 	SMIn.bObstacleReacting    = (ChooserContext.Reaction != EAZ_ObstacleReaction::None);
+	SMIn.bStopOnAbortedStart  = true;
 	SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 	SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
 

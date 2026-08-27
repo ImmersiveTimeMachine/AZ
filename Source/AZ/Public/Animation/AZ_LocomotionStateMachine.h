@@ -70,6 +70,12 @@ struct FAZ_LocoSMInputs
 	 *  the reaction does (you turn off the wall) -> normal dispatch resumes. See project_obstacle_reaction_system. */
 	bool bObstacleReacting = false;
 
+	/** Aborted-start stop edge: input released while the start transition still plays but the body is still
+	 *  moving. True routes it through TransitionToIdle (the machine's moving→idle invariant) so a stop clip
+	 *  serves the brake; false keeps the legacy fall-to-IdleLoop dispatch (2026-08-27 tap bug on CMC).
+	 *  Default false = the Mover backend stays bit-identical; the CMC backend opts in. */
+	bool bStopOnAbortedStart = false;
+
 	// ---- Tunables (kept CDO-editable on the AnimInstance, passed in rather than duplicated here) ----
 	float IdleBreakMinTime = 5.f;
 	float IdleBreakMaxTime = 15.f;
