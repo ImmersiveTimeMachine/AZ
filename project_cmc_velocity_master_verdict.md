@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-26T01:37:16.240Z
+  modified: 2026-08-27T03:37:34.476Z
 ---
 
 # The velocity-master verdict — locomotion architecture settled (2026-08-26, `9362c22`)
@@ -160,6 +160,54 @@ capsule speed) and the numbers above are the quantified case for building it —
 Loops stay on MM (proven ~1.00 fidelity); discrete events (starts/pivots/stops) move to chooser→
 BlendStack. Read `scratchpad/v2_parity_port_report.md` (seam table, τ table) and
 `scratchpad/cmc_v2_inplace_phase1_report.md` (Phase-2 runbook, struct field reference) first.
+
+## ★★★ PHASE 2b LANDED + MM BASELINE FROZEN (commits `f61741f`, `69c1a6e`, 2026-08-26 night)
+
+**Dynamic play rate, per-sample (`f61741f`):** `Get_DynamicPlayRate(FAnimNodeReference)` reads
+`MoveData_Speed`/`Enable_PlayRateWarping` off the SOURCE clip at its own time (the old form read the
+blended output pose — wrong exactly during blends, where every RED lived). Wired into the MM node's
+inner blend-stack graph: `bOverridePlayRate=true` + PlayRate pin exposed + fed off the
+MMBlendStackInput-tagged node ref. Content was never the blocker: the same 77 clips carry BOTH curves.
+Tunables live on the ABP: `DynamicPlayRateMin` **0.6** (A/B'd: 0.8 floor was binding on run pivots at
+exactly 0.67/0.8=0.84) / Max 1.5 / MinDepictedSpeed 10.
+**Meter fixed same commit**: `[CmcRatio]` divisor floored (the 9569× readings were divide-by-near-zero
+artifacts) and prints raw + eff (post-warp) median/p90 — band judged on eff median.
+**Measured**: walk starts 90/135/180, walk pivots, run starts → eff 1.00 GREEN (were 1.4-1.6 RED /
+88° mesh-behind); stops GREEN with raw==eff under the contract (rate 1.0, no double-drive).
+
+**The pick-once chapter (`69c1a6e`) — mechanism lessons, hard-won in one night:**
+1. "Mover looks better" root cause was NOT capsule RM (census reconfirmed): the Mover's chooser picks
+   ONCE and BlendStack plays the WHOLE clip; CMC's MM free-search cut every start at ~450ms (half the
+   authored push-off) because the loop out-costs the start's continuing pose mid-transition.
+2. **Pool narrowing is NOT pick-once** — MM still re-searches every frame; narrowed to Pivots-only it
+   ping-ponged L→R at cost ~6.8 (the other pivot's entry frames depict straight running). Reverted.
+3. **Interrupt mode is NOT pick-once** — the default path already returned DoNotInterrupt and starts
+   were cut anyway; the mode gates continuing-pose invalidation, never the search.
+4. **`UPoseSearchDatabase::ContinuingPoseCostBias` IS pick-once** — set **-5.0** on the six one-shot
+   DBs (Walk/Run × Starts/Pivots/Stops; Stops already had -0.3, right idea too weak). The bias only
+   protects the continuing pose WITHIN the searched pool, so SM pool-strips still interrupt instantly
+   (abort→stop, re-press→loop). Composes with everything by construction.
+5. Scripted `set_editor_property` + save on PSDs re-indexes cleanly (unlike the AZ bridge adds).
+
+**SM gained the aborted-start edge** (`f61741f`): release during a start fell to IdleLoop at 160 cm/s
+(no case for Previous==TransitionToLocomotion in the not-moving dispatch) → walk-in-place over the
+brake. New case routes it through TransitionToIdle, gated `FAZ_LocoSMInputs::bStopOnAbortedStart`
+(default false = Mover backend bit-identical; CMC opts in). Tooling fixed en route:
+`AddBlendStackGraphAnimNodeRef` never set the tag its docstring promised (untagged ref = silent
+fail-closed; now resolves + repairs), new `ExposeAnimNodePin` (pin materializes on in-editor node
+REFRESH — a BP compile never re-allocates existing nodes' pins).
+
+**Baseline frozen — USER DECISION (emphatic): that was the LAST MM-tuning attempt.** Residuals kept
+unfixed to keep the comparison honest: reversal stop-blip (~2 frames of stop between loop and pivot;
+designed fix = strip Stops outside TransitionToIdle, UNAPPLIED), deep-brake run pivots at the 0.6
+floor (capsule braking profile — ladder step 3), rare RunFwdStart180 mis-election, InAir gate union
+empty at spawn (elects Idle2Crouch flicker).
+
+**⇒ NEXT SESSION: build the full BlendStack+CHT spine on `AZ_ABP_CmcAnimInstance` — Mover-identical
+mechanism (SM → chooser picks once → BlendStack plays) — then A/B against this frozen MM baseline
+and let the comparison decide.** Runbook: `scratchpad/cmc_v2_inplace_phase1_report.md` §P2-a (graph),
+§P2-c (CHT_CMC built FRESH, never duplicated). The Mover ABP .uasset byte-stamp is still dirty in the
+working tree (editor file lock) — `git checkout --` it on next editor close.
 
 ## The retest roadmap (next session — order matters)
 
