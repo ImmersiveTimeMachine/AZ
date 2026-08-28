@@ -123,6 +123,24 @@ namespace AZ::CmcStop
 	static constexpr float MinStopTime = 0.05f;
 }
 
+namespace AZ::CmcJump
+{
+	// ★ CONTENT-DERIVED. Authored apex height of each takeoff clip, measured 2026-08-27 at 120 Hz from
+	// the clip's root-Z peak (AnimationLibrary.get_bone_pose_for_time(seq,"root",t,true)):
+	//   AnimPro_JumpIdleStart    apex 0.467 s -> 100.1 cm
+	//   AnimPro_JumpWalkStart_*  apex 0.367 s ->  60.0 cm
+	//   AnimPro_JumpRunStart_LU  apex 0.433 s ->  70.1 cm   (_RU apex 0.333 s, same height)
+	// We store the HEIGHT, not the launch velocity, and solve v = sqrt(2*g*h) against LIVE gravity — so
+	// the capsule keeps matching the animation even if GravityScale is retuned. Re-measure if the clips
+	// are re-authored; see project_cmc_jump_build_order.
+	static constexpr float ApexIdle = 100.1f;
+	static constexpr float ApexWalk =  60.0f;
+	static constexpr float ApexRun  =  70.1f;
+
+	/** Below this ground speed the idle takeoff clip is the one that plays, so use its arc. */
+	static constexpr float IdleJumpMaxSpeed = 50.f;
+}
+
 float AAZ_CmcCharacterBase::GetStopRemainingDistance() const
 {
 	if (!bStopActive)
@@ -188,7 +206,20 @@ void AAZ_CmcCharacterBase::UpdateSelectionGait()
 	const bool bAnimDrivesMovement = IsAnimDrivingMovement();
 	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero() || bAnimDrivesMovement;
 
-	if (!bHasInput)
+	// ★ GROUND GUARD — the stop contract is a GROUNDED contract. Without this, a jump with no stick
+	// input reads exactly like a release: bStopActive latches mid-air, SelectionGait is forced to
+	// LatchedStopBand, and the hero's curve braking writes velocity while the capsule is in Falling —
+	// two owners on one velocity, airborne. Same failure class as the turn bugs fixed 2026-08-27
+	// (see project_cmc_input_gap_doctrine): "no input" is not "the player stopped".
+	// Airborne, SelectionGait falls through to the speed-band path below, which keeps the horizontal
+	// speed the character took off with — so a run-jump still lands on run-gait land clips.
+	if (!Move->IsMovingOnGround())
+	{
+		bStopBandLatched = false;
+		bStopActive      = false;
+		bStopIsAnimated  = false;
+	}
+	else if (!bHasInput)
 	{
 		if (!bStopBandLatched)
 		{
@@ -338,14 +369,62 @@ bool AAZ_CmcCharacterBase::HasAnyMatchingGameplayTags(const FGameplayTagContaine
 
 void AAZ_CmcCharacterBase::SetJumpPressed(bool bPressed)
 {
-	if (bPressed)
+	if (!bPressed)
 	{
-		Jump();
+		// ★ DO NOT clear a press the movement tick has not consumed yet — this is why space did nothing.
+		// UAZ_GA_PawnJump ends through WaitInputRelease(bTestAlreadyReleased=true), which can fire the
+		// release in the SAME frame as the press. StopJumping() sets bPressedJump=false outright
+		// (Character.cpp), so the press was destroyed before CheckJumpInput ever saw it and the
+		// character silently never left the ground — measured 2026-08-28: 16x
+		// "[CmcJump] SetJumpPressed(1) canJump=1 jumpAllowed=1 onGround=1" with no jump.
+		// The Mover hero hit exactly this and worked around it with a one-shot latch: "clearing on
+		// release silently dropped those jumps (audit P2-18)".
+		// bPressedJump still true => not yet consumed, so leave it alone. Nothing leaks: the engine
+		// clears it itself in ClearJumpInput once JumpKeyHoldTime >= JumpMaxHoldTime (0 here), and
+		// landing calls ResetJumpState(), so JumpCurrentCount still recovers for the next jump.
+		if (!bPressedJump)
+		{
+			StopJumping();
+		}
+		return;
 	}
-	else
+
+	// ★ ONE OWNER for jump height. Derive it from the SAME state that will select the takeoff clip, at
+	// the moment of the jump, so the physics arc and the authored arc agree BY CONSTRUCTION.
+	// Measured 2026-08-27: GravityScale is 1.5 (effective g = 1470 cm/s^2), and the flat
+	// JumpZVelocity = 420 produced a 60 cm apex — exactly right for the WALK clip and 40 cm short for
+	// idle, so the body played a big jump while the capsule did a small one. Solving for the authored
+	// apex removes that mismatch and, with it, the main argument for an RM-driven rise: no montage root
+	// motion has to fight gravity for ownership of the capsule.
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
-		StopJumping();
+		const float Speed2D = Move->Velocity.Size2D();
+		const float Apex = (Speed2D <= AZ::CmcJump::IdleJumpMaxSpeed)
+			? AZ::CmcJump::ApexIdle
+			: ((SelectionGait == EAZ_Gait::Walk) ? AZ::CmcJump::ApexWalk : AZ::CmcJump::ApexRun);
+
+		// GetGravityZ() on CMC already folds in GravityScale (CharacterMovementComponent.cpp:3582-3585).
+		const float GravityZ = FMath::Abs(Move->GetGravityZ());
+		if (GravityZ > KINDA_SMALL_NUMBER && Apex > 0.f)
+		{
+			Move->JumpZVelocity = FMath::Sqrt(2.f * GravityZ * Apex);
+		}
+
+		// DIAGNOSTIC: this line is the split point for "space does nothing". Every static link was
+		// verified correct (SpaceBar -> AZ_IA_RT_Jump -> Input.Action.Jump -> BP_AZ_GA_PawnJump, granted
+		// in StartupAbilities, JumpMaxCount=1, NavAgentProps.bCanJump=true) — so the failure is runtime.
+		//   line PRESENT  -> the GA reached the pawn; the problem is CanJump()/CMC below.
+		//   line ABSENT   -> input never became an ability activation; the problem is upstream
+		//                    (IMC not applied, PC not binding, or the ASC never granted the spec).
+		UE_LOG(LogTemp, Warning,
+			TEXT("[CmcJump] SetJumpPressed(1) | canJump=%d jumpAllowed=%d onGround=%d falling=%d "
+			     "crouched=%d maxCount=%d apex=%.1f jumpZ=%.1f"),
+			CanJump() ? 1 : 0, Move->IsJumpAllowed() ? 1 : 0,
+			Move->IsMovingOnGround() ? 1 : 0, Move->IsFalling() ? 1 : 0,
+			bIsCrouched ? 1 : 0, JumpMaxCount, Apex, Move->JumpZVelocity);
 	}
+
+	Jump();
 }
 
 void AAZ_CmcCharacterBase::SetGait(EAZ_Gait NewGait)

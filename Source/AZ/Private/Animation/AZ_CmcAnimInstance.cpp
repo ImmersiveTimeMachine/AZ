@@ -25,6 +25,13 @@
 
 namespace AZ::CmcAnim
 {
+	/** How long after touchdown the land databases own the MM pool outright, so a land clip cannot lose a
+	 *  cost contest to idle/loops (at touchdown the character IS standing still, so AnimPro_Idle is a
+	 *  near-perfect match and wins every time). Long enough to cover entry, short enough that a missing
+	 *  land does not strand the character. Promote to an EditDefaultsOnly UPROPERTY at the next
+	 *  editor-closed build. */
+	static constexpr float LandExclusiveSeconds = 0.25f;
+
 	static float SignedYawTo(const FVector& WorldDir, float BaseYawDeg)
 	{
 		const FVector Dir = WorldDir.GetSafeNormal2D();
@@ -630,7 +637,14 @@ void UAZ_CmcAnimInstance::Update_MovementDirection()
 
 bool UAZ_CmcAnimInstance::IsMoving() const
 {
-	return !Velocity.Equals(FVector::ZeroVector, IsMovingVelocityTolerance);
+	// ★ HORIZONTAL ONLY. "Moving" is a LOCOMOTION fact — it selects walk/run/sprint content — and jumping
+	// straight up is not locomotion. This used to test the full 3D velocity, so a standing jump
+	// (velZ=513, spd=0) reported Moving, MovementState flipped to Moving, and the gate row for a MOVING
+	// takeoff matched instead of the idle one: measured 2026-08-28,
+	//   "AnimPro_Idle -> AnimPro_JumpWalkStart_LU | spd=0 velZ=513 | pool=[PSD_AZ_Stand_WalkAndRun_Jump]"
+	// — PSD_AZ_Stand_Idle_Jump was never even a candidate, so a standing jump played the WALK takeoff.
+	// Grounded behaviour is unchanged: Velocity.Z is ~0 on the floor, so this only differs airborne.
+	return !FVector(Velocity.X, Velocity.Y, 0.f).Equals(FVector::ZeroVector, IsMovingVelocityTolerance);
 }
 
 bool UAZ_CmcAnimInstance::IsPivoting() const
@@ -912,6 +926,94 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 		});
 	}
 
+	// ★ LANDS — entry AND hold, one mechanism, the same shape the STOPS already prove works.
+	// Two measured failures shaped this block:
+	//   1) ENTRY: a land cannot win a cost contest against idle — at touchdown the character IS
+	//      standing still, so AnimPro_Idle is a near-perfect match ("JumpIdleStart -> AnimPro_Idle |
+	//      justLanded=1 | pool=[Idles,Idle_Lands]"). Lands own the pool outright for the entry window.
+	//   2) HOLD: the continuing land was then stolen mid-clip the moment competition resumed
+	//      (AnimPro_Idle at cost -0.09, 292 ms into a 1.03 s land). The continuing-pose exemption keeps
+	//      a clip SEARCHABLE, not SELECTED (rule R1) — so the pool stays lands-only while the land is
+	//      the current selection and not almost finished, releasing at 85% so the exit blend happens on
+	//      the settled tail. Same mechanism KeepPlayingOneShotSearchable uses to keep Idles from
+	//      stealing a playing stop.
+	// Deliberately NOT BlockTransition-on-the-land: verified in engine source that BlockTransition
+	// marks poses as INVALID ENTRY CANDIDATES (FBlockTransitionFilter discards them,
+	// PoseSearchFilter.h:195; excluded from the kdtree by construction, PoseSearchDatabase.cpp:2137).
+	// Putting it on [0,85%] of the lands made the impact poses unselectable — the "silent window, then
+	// idle" bug. Its correct use is entry-window restriction (the stops' 10%->100% layout).
+	// Outside landing/hold, lands leave the pool: their gate rows key on TransitionToIdle /
+	// TransitionToLocomotion, which are also the ordinary stop/start states (FAZ_DatabaseGate cannot
+	// express bJustLanded).
+	static const FName JumpLandsTag(TEXT("JumpLands"));
+
+	bool bLandPlayingUnfinished = false;
+	if (CurrentDatabaseTags.Contains(JumpLandsTag))
+	{
+		if (const UAnimSequenceBase* LandSeq = Cast<UAnimSequenceBase>(CurrentSelectedAnim.Get()))
+		{
+			// Release at 60%, not 85%: the exclusive lands-only pool must end BEFORE the impact
+			// poses age out of PoseReselectHistory (measured flip at ~0.69s on the 1.03s land —
+			// past that, a forced lands-only search can ONLY re-enter the entry window, which is
+			// the "legs dip forward and back" end artifact). With the pool open at the settle,
+			// idle (-0.10) always beats re-entry (+8), so the snap is impossible; the absorb
+			// portion (~first 0.5s) is already over by the release point.
+			const float LandLen = LandSeq->GetPlayLength();
+			bLandPlayingUnfinished = (LandLen > KINDA_SMALL_NUMBER)
+				&& (CurrentSelectedTime < 0.60f * LandLen);
+		}
+	}
+
+	const bool bLandEntryWindow = ChooserContext.bJustLanded
+		&& (SMStateElapsed < AZ::CmcAnim::LandExclusiveSeconds);
+
+	if (!ChooserContext.bJustLanded && !bLandPlayingUnfinished)
+	{
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && Db->Tags.Contains(JumpLandsTag);
+		});
+	}
+	else if ((bLandEntryWindow || bLandPlayingUnfinished)
+		&& Result.ContainsByPredicate([](const UPoseSearchDatabase* Db)
+			{ return Db && Db->Tags.Contains(JumpLandsTag); }))
+	{
+		// Guarded on a land DB being present so an unhandled case (e.g. crouch land, no content)
+		// falls through to the normal pool instead of emptying it.
+		Result.RemoveAll([](const UPoseSearchDatabase* Db)
+		{
+			return Db && !Db->Tags.Contains(JumpLandsTag);
+		});
+	}
+
+	// ★ AIRBORNE: RISING and FALLING are different pools, never a contest between them.
+	// A takeoff cannot win a cost comparison. At spd=0 there is no horizontal signal, so the search
+	// falls back to pose distance — and the crouched launch frame of AnimPro_JumpIdleStart sits FURTHER
+	// from a standing idle than AnimPro_FallingLoop's neutral pose does. Measured 2026-08-28: every idle
+	// jump picked "AnimPro_FallingLoop | db=PSD_AZ_Stand_InAir cost=+0.03" and the takeoff clip was never
+	// selected at all. Re-indexing the rise (BranchIn from the launch frame) did not change it, because
+	// the problem is the contest, not the index.
+	// Mover avoided this by making the takeoff DETERMINISTIC (chooser direct-play, bUseMM=False). We have
+	// no direct-play path, so we make the pool single-candidate instead — which is the same guarantee.
+	// Velocity.Z is the exact physical discriminator and needs no extra state:
+	//   rising  -> a jump just launched      -> takeoff DBs only
+	//   falling -> apex passed, OR a ledge drop with no takeoff at all -> fall loop only
+	// A jump's start clip keeps playing past apex regardless: PoseSearch exempts the CONTINUING pose
+	// from database filtering, and BlockTransition holds it until apex+0.35.
+	if (MovementMode == EAZ_MovementMode::InAir)
+	{
+		static const FName JumpStartsTag(TEXT("JumpStarts"));
+		static const FName InAirTag(TEXT("InAir"));
+		// Reuse the threshold that already defines "rising" for MM blend-time selection — one owner.
+		const bool bRising = (Velocity.Z > MMRisingVelocityZ);
+
+		Result.RemoveAll([bRising](const UPoseSearchDatabase* Db)
+		{
+			if (!Db) { return false; }
+			return bRising ? Db->Tags.Contains(InAirTag) : Db->Tags.Contains(JumpStartsTag);
+		});
+	}
+
 	return Result;
 }
 
@@ -956,6 +1058,24 @@ void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
 	if (!bIsResultValid || !Current.SelectedDatabase || Current.bLoop)
 	{
 		return;
+	}
+
+	// ★ NEVER re-add a TAKEOFF database once the character has stopped rising.
+	// This function runs AFTER Get_DatabasesToSearch in Update_MotionMatching, so it can undo the
+	// rising/falling split — and it did, every frame. A takeoff clip is 3.5-4.0 s and its tail is a
+	// multi-second FALL, so at the 0.7 keep-alive fraction it stayed searchable for ~2.5 s of clip time
+	// while the actual flight lasts ~0.73 s. With the continuing-pose bias on top, JumpIdleStart stayed
+	// selected through apex, the fall, and the ENTIRE ~1 s land window — measured 2026-08-28: the SM
+	// opened TransitionToIdle at 04:37:06.439 and closed it at :07.455 with no [CmcPick] in between,
+	// and the clip only released at :08.300 (~2.6 s, matching 0.7 x 3.533 s).
+	// The keep-alive exists so a stop/start one-shot can finish; a takeoff's job ends at apex.
+	{
+		static const FName JumpStartsKeepTag(TEXT("JumpStarts"));
+		if (Current.SelectedDatabase->Tags.Contains(JumpStartsKeepTag)
+			&& Velocity.Z <= MMRisingVelocityZ)
+		{
+			return;
+		}
 	}
 
 	const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(Current.SelectedAnim);
@@ -1018,40 +1138,40 @@ void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
 	KeepPlayingOneShotSearchable(MotionMatchingNode, Pool);
 	if (Pool.IsEmpty())
 	{
-		for (const FAZ_DatabaseGate& Gate : DatabaseGates)
-		{
-			if (!Gate.Matches(EAZ_MovementMode::OnGround, Stance, MovementState, Gait))
-			{
-				continue;
-			}
-			for (const TObjectPtr<UPoseSearchDatabase>& Database : Gate.Databases)
-			{
-				if (Database)
-				{
-					Pool.AddUnique(Database);
-				}
-			}
-		}
-
-		if (!bWarnedEmptyGateUnion)
+		// ★ NEVER SUBSTITUTE. This used to fall back to the GROUNDED gate rows, which is a lie: when the
+		// union is empty because the character is AIRBORNE, handing MM the grounded pool makes a jump
+		// play ground clips. Measured 2026-08-27, 5x in one PIE:
+		//   [CmcAnim] DatabaseGates union is EMPTY for mode=1 ... fell back to the GROUNDED rows (5 db)
+		// and the resulting pick was AnimPro_Idle2Crouch_new from PSD_AZ_StanceTransitions at
+		// SM=TransitionToInAir. A missing gate row must LOOK missing, not quietly become a wrong one.
+		//
+		// Returning without calling SetDatabasesToSearch leaves the node's existing pool alone, and
+		// PoseSearch exempts the CONTINUING pose from database filtering — so the character holds the
+		// anim it is already playing instead of snapping to whatever the grounded pool happened to
+		// contain. Least-wrong behaviour, and loud.
+		const UWorld* GateWorld = GetWorld();
+		const double GateNow = GateWorld ? GateWorld->GetTimeSeconds() : 0.0;
+		static double LastEmptyGateLog = -100.0;
+		if (!bWarnedEmptyGateUnion || (GateNow - LastEmptyGateLog) > 2.0)
 		{
 			bWarnedEmptyGateUnion = true;
-			UE_LOG(LogTemp, Warning,
-				TEXT("[CmcAnim] DatabaseGates union is EMPTY for mode=%d stance=%d state=%d gait=%d — ")
-				TEXT("fell back to the GROUNDED rows (%d db). Add a matching gate row."),
-				static_cast<int32>(MovementMode), static_cast<int32>(Stance),
-				static_cast<int32>(MovementState), static_cast<int32>(Gait), Pool.Num());
-		}
+			LastEmptyGateLog = GateNow;
 
-		if (Pool.IsEmpty())
-		{
-			return;
+			const UEnum* SMEnumG = StaticEnum<EAZ_StateMachineState>();
+			const FString GateSM = SMEnumG
+				? SMEnumG->GetNameStringByValue(static_cast<int64>(ChooserContext.SMState))
+				: FString::FromInt(static_cast<int32>(ChooserContext.SMState));
+
+			UE_LOG(LogTemp, Error,
+				TEXT("[CmcAnim] NO GATE ROW matches mode=%d stance=%d state=%d gait=%d SM=%s — ")
+				TEXT("holding the current anim. Add a DatabaseGates row for this combination."),
+				static_cast<int32>(MovementMode), static_cast<int32>(Stance),
+				static_cast<int32>(MovementState), static_cast<int32>(Gait), *GateSM);
 		}
+		return;
 	}
-	else
-	{
-		bWarnedEmptyGateUnion = false;
-	}
+
+	bWarnedEmptyGateUnion = false;
 
 	// DIAGNOSTIC: name the pool actually handed to MM whenever a one-shot database survives into
 	// LocomotionLoop. Three separate guesses at why stops kept being picked at LocomotionLoop were
@@ -1120,11 +1240,62 @@ void UAZ_CmcAnimInstance::Update_MotionMatching_PostSelection(const FAnimNodeRef
 			const FString PickSM = SMEnumT
 				? SMEnumT->GetNameStringByValue(static_cast<int64>(ChooserContext.SMState))
 				: FString::FromInt(static_cast<int32>(ChooserContext.SMState));
+
+			// The chosen DB alone cannot explain a bad pick — it never shows what was AVAILABLE.
+			// Re-run the (const) gate so the line carries the actual candidate pool plus bJustLanded,
+			// which is what decides whether the land DBs were stripped.
+			FString PoolNames;
+			for (const UPoseSearchDatabase* Db : Get_DatabasesToSearch())
+			{
+				if (!PoolNames.IsEmpty()) { PoolNames += TEXT(","); }
+				PoolNames += GetNameSafe(Db);
+			}
+
+			// t= is the ENTRY TIME into the clip — MM can enter at ANY indexed pose. "Right clip,
+			// wrong visual" is indistinguishable from "entered mid-clip" without this field.
+			float PickLen = 0.f;
+			if (const UAnimSequenceBase* PickSeq = Cast<UAnimSequenceBase>(Result.SelectedAnim))
+			{
+				PickLen = PickSeq->GetPlayLength();
+			}
+
 			UE_LOG(LogTemp, Warning,
-				TEXT("[CmcPick] %s -> %s | db=%s SM=%s accel=%.3f mtg=%d spd=%.0f cost=%+.2f"),
+				TEXT("[CmcPick] %s -> %s | db=%s SM=%s accel=%.3f mtg=%d spd=%.0f velZ=%.0f cost=%+.2f ")
+				TEXT("| t=%.2f/%.2f rate=%.2f | justLanded=%d falling=%d | pool=[%s]"),
 				*GetNameSafe(CurrentSelectedAnim.Get()), *GetNameSafe(Result.SelectedAnim),
 				*GetNameSafe(Result.SelectedDatabase.Get()), *PickSM,
-				AccelerationAmount, bMontageActive_GT ? 1 : 0, Speed2D, Result.SearchCost);
+				AccelerationAmount, bMontageActive_GT ? 1 : 0, Speed2D, Velocity.Z, Result.SearchCost,
+				Result.SelectedTime, PickLen, Result.WantedPlayRate,
+				ChooserContext.bJustLanded ? 1 : 0,
+				(MovementMode == EAZ_MovementMode::InAir) ? 1 : 0, *PoolNames);
+		}
+
+		// Same-asset TIME SNAPS are invisible to [CmcPick] — it fires only when the ASSET changes.
+		// A re-search that lands on a different pose inside the SAME clip restarts the blend
+		// mid-clip: the logged name stays "right" while the motion no longer resembles the clip.
+		if (bDebugAnim && Result.SelectedAnim && Result.SelectedAnim == CurrentSelectedAnim.Get())
+		{
+			const float Advance = Result.SelectedTime - CurrentSelectedTime;
+			bool bSnap = (Advance < -0.05f) || (Advance > 0.25f);
+			if (bSnap && Result.bLoop)
+			{
+				if (const UAnimSequenceBase* LoopSeq = Cast<UAnimSequenceBase>(Result.SelectedAnim))
+				{
+					const float LoopLen = LoopSeq->GetPlayLength();
+					if (CurrentSelectedTime > LoopLen - 0.3f && Result.SelectedTime < 0.3f)
+					{
+						bSnap = false; // loop wrap, not a snap
+					}
+				}
+			}
+			if (bSnap)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[CmcSnap] %s in-clip time snap %.2f -> %.2f | db=%s velZ=%.0f justLanded=%d"),
+					*GetNameSafe(Result.SelectedAnim), CurrentSelectedTime, Result.SelectedTime,
+					*GetNameSafe(Result.SelectedDatabase.Get()), Velocity.Z,
+					ChooserContext.bJustLanded ? 1 : 0);
+			}
 		}
 
 		PublishSelection(Result.SelectedAnim, Result.SelectedDatabase, Result.SelectedTime,
@@ -1227,6 +1398,31 @@ EPoseSearchInterruptMode UAZ_CmcAnimInstance::Get_MMInterruptMode() const
 	if (bTurnInPlaceActive && !bTurnInPlaceActive_LastFrame)
 	{
 		return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+	}
+
+	// ★ LANDING — the case this function was missing, and the reason three attempts at pool narrowing
+	// all failed. The CONTINUING POSE bypasses database filtering entirely, so no amount of narrowing
+	// the pool can evict a takeoff clip that is still playing: at touchdown MM re-searched the
+	// continuing AnimPro_JumpIdleStart and kept choosing it, and by the time its cost degraded the
+	// land window had expired and Stand_Idles was back in the pool.
+	// Measured 2026-08-28: "JumpIdleStart -> AnimPro_Idle | justLanded=1 | pool=[Idles,Idle_Lands]" on
+	// every landing. The land only ever appeared when JumpIdleLandHard happened to be cheap enough to
+	// beat the continuing pose — an accident, not the mechanism working.
+	// An unconditional ForceInterrupt for the whole window would ALSO invalidate the just-selected LAND
+	// every frame (impact-frame restarts / LU-RU flip-flop), so gate on the continuing pose still being
+	// a takeoff/fall clip: the moment a land is selected, CurrentDatabaseTags flips to JumpLands and
+	// this stops firing — self-limiting by construction. InterruptOnDatabaseChange&Invalidate (not
+	// Force): the takeoff DB is already out of the pool at touchdown (rising/falling split +
+	// land-exclusive window), which is exactly the condition that mode interrupts on; once the land is
+	// in, its own DB IS in the pool, so even repeated calls cannot disturb it.
+	{
+		static const FName JumpStartsTagIM(TEXT("JumpStarts"));
+		static const FName InAirTagIM(TEXT("InAir"));
+		if (ChooserContext.bJustLanded
+			&& (CurrentDatabaseTags.Contains(JumpStartsTagIM) || CurrentDatabaseTags.Contains(InAirTagIM)))
+		{
+			return EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose;
+		}
 	}
 
 	return (bModeChanged || bGroundedStateChanged)
