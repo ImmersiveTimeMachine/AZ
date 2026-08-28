@@ -52,16 +52,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Movement")
 	EAZ_Gait GetCurrentGait() const { return CurrentGait; }
 
-	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
-	UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
-
 	virtual void Landed(const FHitResult& Hit) override;
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Movement")
-	bool IsJustLanded() const { return bJustLanded; }
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Movement")
-	FVector GetLandVelocity() const { return LandVelocity; }
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
 	FRotator GetAimRotation() const;
@@ -69,6 +60,17 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Anim")
 	virtual void FillAnimContract(FAZ_CmcAnimContract& Out) const;
+
+	/**
+	 * True while an animation owns the capsule's movement — engine root motion OR a movement-owning
+	 * slot montage. ONE OWNER for that fact; everything that must stand down while an animation drives
+	 * (the stop contract, the gait band latch) asks this, never IsPlayingRootMotion() directly.
+	 *
+	 * IsPlayingRootMotion() alone is NOT sufficient: it does not report a clip started with
+	 * PlaySlotAnimationAsDynamicMontage, which is how the hero's turn montage plays. Using it directly
+	 * is what let the stop contract latch mid-turn — see the override on AAZ_CmcHeroCharacter.
+	 */
+	virtual bool IsAnimDrivingMovement() const;
 
 protected:
 	void WireModularMeshFollowers();

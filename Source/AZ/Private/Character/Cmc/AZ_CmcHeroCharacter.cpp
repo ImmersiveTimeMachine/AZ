@@ -19,6 +19,8 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
+#include "MotionWarpingComponent.h"
+#include "RootMotionModifier_SkewWarp.h"
 #include "Player/AZ_PlayerState.h"
 
 AAZ_CmcHeroCharacter::AAZ_CmcHeroCharacter(const FObjectInitializer& ObjectInitializer)
@@ -62,6 +64,10 @@ namespace AZ::RmMontage
 	static double  LaunchTime = -1.0;
 	static bool    bIsStop = false;
 	static FVector LaunchDir = FVector::ZeroVector;
+
+	// How stale LastMoveInputTime may be and still count as "the stick is held". Matches the existing
+	// bInputHeld idiom in Tick; named here so the turn-exit hand-back and that check cannot drift apart.
+	static constexpr float InputHeldWindow = 0.1f;
 }
 
 void AAZ_CmcHeroCharacter::PostInitializeComponents()
@@ -83,6 +89,7 @@ void AAZ_CmcHeroCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	ResolveGaitAndStanceFromTags();
+	TickTurnMontage();
 	UpdateSelectionGait();
 	if (bStopActive && !bStopActive_LastFrameHero)
 	{
@@ -273,7 +280,16 @@ void AAZ_CmcHeroCharacter::ApplyMovementFeelParams(float DeltaSeconds)
 	float NoInputBraking = BrakingDecelNoInput;
 
 	bool bCurveDriven = false;
-	if (bStopCurveBraking && bStopActive && bStopIsAnimated && DeltaSeconds > KINDA_SMALL_NUMBER)
+	// ★ A turn montage owns velocity outright. bTurnMontageActive is OUR flag, not an engine query:
+	// the earlier guard used ACharacter::IsPlayingRootMotion(), which measurably did NOT report true
+	// for a PlaySlotAnimationAsDynamicMontage clip — the stop curve still engaged 800 ms into a turn
+	// (`curve ENGAGED body=341 clip=257 step=-84 braking=840`) and wrote the STOP clip's velocity over
+	// the turn's root motion. That double-write is the spike on the transition to idle.
+	if (bTurnMontageActive)
+	{
+		bStopCurveEngaged = false;
+	}
+	else if (bStopCurveBraking && bStopActive && bStopIsAnimated && DeltaSeconds > KINDA_SMALL_NUMBER)
 	{
 		if (const UAZ_CmcAnimInstance* CmcAnim =
 			GetMesh() ? Cast<UAZ_CmcAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr)
@@ -640,6 +656,20 @@ void AAZ_CmcHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 	}
 
 	const FVector WorldInputDir = (Forward * Axis.Y + Right * Axis.X).GetSafeNormal2D();
+
+	// A turn montage owns the capsule while it runs: its root motion supplies rotation AND travel, so
+	// adding movement input on top would fight it. Input is still READ every frame (this handler runs),
+	// it is simply not applied — which is what makes the exit contract "complete, then snap" rather than
+	// "complete while drifting toward the new stick".
+	if (bTurnMontageActive)
+	{
+		return;
+	}
+	if (TryPlayTurnMontage(WorldInputDir))
+	{
+		return;
+	}
+
 	if (TryPlayRootMotionStart(WorldInputDir))
 	{
 		return;
@@ -741,6 +771,196 @@ bool AAZ_CmcHeroCharacter::TryPlayRootMotionStart(const FVector& WorldInputDir)
 		static_cast<int32>(Gait), Move->Velocity.Size2D(), Clip->GetPlayLength());
 
 	return true;
+}
+
+bool AAZ_CmcHeroCharacter::TryPlayTurnMontage(const FVector& WorldInputDir)
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	UAnimInstance* Anim = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+
+	// Rate-limited "why not" trace: this fires at most 2x/sec and names the gate that blocked, so a
+	// single PIE answers it instead of another round of reasoning about which condition is false.
+	auto Veto = [this](const TCHAR* Why) -> bool
+	{
+		static double LastLog = -1.0;
+		const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		if (Now - LastLog > 0.5)
+		{
+			LastLog = Now;
+			UE_LOG(LogTemp, Display, TEXT("[CmcTurnVeto] %s"), Why);
+		}
+		return false;
+	};
+
+	if (!bTurnMontages)                 { return Veto(TEXT("bTurnMontages is FALSE")); }
+	if (!Anim)                          { return Veto(TEXT("no AnimInstance")); }
+	if (!Move)                          { return Veto(TEXT("no CharacterMovement")); }
+	if (!MotionWarpingComponent)        { return Veto(TEXT("no MotionWarpingComponent")); }
+	if (WorldInputDir.IsNearlyZero())   { return Veto(TEXT("WorldInputDir is zero")); }
+	if (bTurnMontageActive)             { return false; }
+	if (Anim->IsAnyMontagePlaying())    { return Veto(TEXT("another montage is already playing")); }
+	if (!Move->IsMovingOnGround())      { return Veto(TEXT("not moving on ground")); }
+
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	if (LastTurnMontageTime >= 0.f && (Now - LastTurnMontageTime) < TurnMontageCooldown)
+	{
+		return false;
+	}
+
+	// Heading error the turn has to deliver. Latched here, at frame 0 of the clip, and never revised —
+	// that latch plus frame-0 entry is what makes the delivered heading exact instead of "whatever was
+	// left of the clip" (measured: mid-entry gives a 180 asset only ~100-140 deg).
+	const float SignedAngle = static_cast<float>(FRotator::NormalizeAxis(
+		WorldInputDir.Rotation().Yaw - GetActorRotation().Yaw));
+	if (FMath::Abs(SignedAngle) < TurnMontageMinAngleDeg)
+	{
+		return false;   // ordinary: most frames are not a turn
+	}
+
+	const EAZ_StartDirection Bucket = UAZ_LocomotionStateMachine::BucketStartDirection(SignedAngle);
+	const EAZ_Gait Gait = GetCurrentGait();
+
+	bool bLeftFoot = true;
+	if (const UAZ_CmcAnimInstance* CmcAnim = Cast<UAZ_CmcAnimInstance>(Anim))
+	{
+		bLeftFoot = CmcAnim->bLeftFootDown;
+	}
+
+	const FAZ_TurnMontageClip* Row = TurnMontageClips.FindByPredicate(
+		[Gait, Bucket, bLeftFoot](const FAZ_TurnMontageClip& Entry)
+		{
+			return Entry.Clip && Entry.Gait == Gait && Entry.Direction == Bucket
+				&& Entry.bLeftFootDown == bLeftFoot;
+		});
+	if (!Row)
+	{
+		// Foot variant is a refinement, not a requirement — take either foot rather than drop the turn.
+		Row = TurnMontageClips.FindByPredicate(
+			[Gait, Bucket](const FAZ_TurnMontageClip& Entry)
+			{
+				return Entry.Clip && Entry.Gait == Gait && Entry.Direction == Bucket;
+			});
+	}
+	if (!Row || !Row->Clip)
+	{
+		const UEnum* DE = StaticEnum<EAZ_StartDirection>();
+		UE_LOG(LogTemp, Warning,
+			TEXT("[CmcTurnVeto] no clip row for gait=%d bucket=%s (angle %+.0f) — %d rows loaded"),
+			static_cast<int32>(Gait),
+			DE ? *DE->GetNameStringByValue(static_cast<int64>(Bucket)) : TEXT("?"),
+			SignedAngle, TurnMontageClips.Num());
+		return false;
+	}
+
+	UAnimSequence* Clip = Row->Clip;
+	const float Length = Clip->GetPlayLength();
+
+	// Warp target FIRST: the modifier resolves the target by name on its first tick.
+	TurnMontageTargetYaw = static_cast<float>(FRotator::NormalizeAxis(GetActorRotation().Yaw + SignedAngle));
+	MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+		TurnMontageWarpTarget, GetActorLocation(), FRotator(0.f, TurnMontageTargetYaw, 0.f));
+
+	UAnimMontage* Played = Anim->PlaySlotAnimationAsDynamicMontage(
+		Clip, RootMotionStartSlot, TurnMontageBlendIn, TurnMontageBlendOut, 1.f, 1);
+	if (!Played)
+	{
+		MotionWarpingComponent->RemoveWarpTarget(TurnMontageWarpTarget);
+		UE_LOG(LogTemp, Warning, TEXT("[CmcTurn] FAILED to play %s on slot %s"),
+			*GetNameSafe(Clip), *RootMotionStartSlot.ToString());
+		return false;
+	}
+
+	// ROTATION-ONLY warp over the whole clip. bWarpTranslation=false leaves the authored travel intact
+	// (in-place turns stay in place, pivots keep their arc); RotationMethod::Scale lets a 180 asset serve
+	// a smaller request; MaxRotationRate clamps the authored spike at the warp layer instead of letting
+	// the capsule desync from the mesh.
+	URootMotionModifier_SkewWarp::AddRootMotionModifierSkewWarp(
+		MotionWarpingComponent, Clip, 0.f, Length,
+		TurnMontageWarpTarget, EWarpPointAnimProvider::None, FTransform::Identity, NAME_None,
+		/*bWarpTranslation*/ false, /*bIgnoreZAxis*/ true, /*bWarpRotation*/ true,
+		EMotionWarpRotationType::Default, EMotionWarpRotationMethod::Scale,
+		/*WarpRotationTimeMultiplier*/ 1.f, TurnMontageMaxRotationRate);
+
+	bTurnMontageActive  = true;
+	LastTurnMontageTime = Now;
+
+	// CANCEL any stop already in flight. The stand-down in UpdateSelectionGait only stops a NEW stop
+	// from latching; one that latched BEFORE the turn keeps writing velocity from its own clip curve
+	// right through it (measured: `curve ENGAGED body=329 clip=246 step=-84 braking=835` mid-turn,
+	// which dragged that turn's residual to -10.8 deg against ~0 for the clean ones).
+	// One owner per fact: while the turn montage runs, the turn clip owns velocity.
+	bStopActive         = false;
+	bStopBandLatched    = false;
+	bStopIsAnimated     = false;
+	bStopCurveEngaged   = false;
+	bStopCurveRejected  = false;
+	bRootMotionStopActive = false;
+
+	const UEnum* DirEnum = StaticEnum<EAZ_StartDirection>();
+	UE_LOG(LogTemp, Display,
+		TEXT("[CmcTurn] %s | angle=%+.0f bucket=%s gait=%d Lfoot=%d spd=%.0f dur=%.2fs -> target yaw %.0f"),
+		*GetNameSafe(Clip), SignedAngle,
+		DirEnum ? *DirEnum->GetNameStringByValue(static_cast<int64>(Bucket)) : TEXT("?"),
+		static_cast<int32>(Gait), bLeftFoot ? 1 : 0, Move->Velocity.Size2D(), Length, TurnMontageTargetYaw);
+
+	return true;
+}
+
+bool AAZ_CmcHeroCharacter::IsAnimDrivingMovement() const
+{
+	return Super::IsAnimDrivingMovement() || bTurnMontageActive;
+}
+
+void AAZ_CmcHeroCharacter::TickTurnMontage()
+{
+	if (!bTurnMontageActive)
+	{
+		return;
+	}
+
+	const USkeletalMeshComponent* MeshComp = GetMesh();
+	const UAnimInstance* Anim = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (Anim && Anim->IsAnyMontagePlaying())
+	{
+		return;   // COMPLETE: no redirect interrupt, by contract.
+	}
+
+	// SNAP: warping closes most of the gap, but blend-out and the rate clamp can leave a few degrees.
+	// Land exactly on the latched target so the heading error cannot accumulate across turns.
+	const FRotator Current = GetActorRotation();
+	const float Residual = static_cast<float>(FRotator::NormalizeAxis(TurnMontageTargetYaw - Current.Yaw));
+	SetActorRotation(FRotator(Current.Pitch, TurnMontageTargetYaw, Current.Roll));
+
+	if (MotionWarpingComponent)
+	{
+		MotionWarpingComponent->RemoveWarpTarget(TurnMontageWarpTarget);
+	}
+	bTurnMontageActive = false;
+
+	// ★ HAND THE STICK BACK ON THE SAME FRAME — this closes the "stop clip stabbed in on turn exit" bug.
+	// OnMoveTriggered early-returns while the turn owns the capsule, so on the frame this flag clears
+	// there is no AddMovementInput yet: CMC reports acceleration 0 while the anim instance's
+	// bMontageActive_GT has already gone false. ChooserContext.bIsMoving is pure input intent with no
+	// hysteresis (AZ_CmcAnimInstance.cpp:1401), so it reads that single frame as "the player let go":
+	// the SM drops LocomotionLoop -> TransitionToIdle (AZ_LocomotionStateMachine.cpp:264), the Stops
+	// pool opens, and MM correctly picks a stop. Next frame input returns and it bounces straight back
+	// (:244). Measured in AZ.log 2026-08-27: [CmcTurn] complete at frames 209 / 317 / 921 -> a stop
+	// selected at frames 210 / 318 / 922, each one returning to the loop 23-190 ms later.
+	// Re-applying the still-held stick here means no frame exists in which the character is neither
+	// turning nor accelerating. Double-adding is harmless if OnMoveTriggered also runs this frame —
+	// ScaleInputAcceleration clamps the accumulated input vector to unit size.
+	const UWorld* TurnWorld = GetWorld();
+	const float TurnNow = TurnWorld ? static_cast<float>(TurnWorld->GetTimeSeconds()) : 0.f;
+	const bool bStickStillHeld = !LastMoveInputDir.IsNearlyZero()
+		&& (TurnNow - LastMoveInputTime) <= AZ::RmMontage::InputHeldWindow;
+	if (bStickStillHeld)
+	{
+		AddMovementInput(LastMoveInputDir, 1.f);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("[CmcTurn] complete | residual snapped %+.1f deg | handback=%d"),
+		Residual, bStickStillHeld ? 1 : 0);
 }
 
 UAnimSequence* AAZ_CmcHeroCharacter::EvaluateLocomotionChooser(UChooserTable* Table)

@@ -150,6 +150,11 @@ EAZ_Gait AAZ_CmcCharacterBase::BandForSpeed(float Speed2D) const
 	return EAZ_Gait::Walk;
 }
 
+bool AAZ_CmcCharacterBase::IsAnimDrivingMovement() const
+{
+	return IsPlayingRootMotion();
+}
+
 void AAZ_CmcCharacterBase::UpdateSelectionGait()
 {
 	const UCharacterMovementComponent* Move = GetCharacterMovement();
@@ -160,8 +165,28 @@ void AAZ_CmcCharacterBase::UpdateSelectionGait()
 	}
 
 	const float Speed2D = Move->Velocity.Size2D();
-	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero();
 	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+
+	// ★ Root motion owns movement -> the stop contract must stand down.
+	// A turn montage deliberately suppresses AddMovementInput while it plays, which makes
+	// GetCurrentAcceleration() zero — indistinguishable from the player releasing the stick. Without
+	// this guard the stop contract engaged mid-turn and wrote velocity from the STOP clip's curve on
+	// top of the turn's root motion (measured 2026-08-27: `curve ENGAGED body=342 clip=390 step=+48`
+	// 83 ms before the turn started, then `entry=365 -> 0.53s ... err -81`). Two owners writing one
+	// velocity is the spike on the transition to idle.
+	// The player releasing DURING a turn is not lost: acceleration is still zero when the montage
+	// ends, so the stop latches on the very next frame — which is also the exit contract, complete
+	// the turn, then stop.
+	// ★ MEASURED 2026-08-27: this guard was INERT for the turn montage. IsPlayingRootMotion() does not
+	// report a clip started with PlaySlotAnimationAsDynamicMontage, which is exactly how the turn plays,
+	// so bAnimDrivesMovement stayed false, the stop latched mid-turn, and SelectionGait was forced to
+	// LatchedStopBand (:228) — dropping a running character to the WALK databases at ~230 cm/s:
+	//   #13 RunFwdLoop -> WalkFwdLoop | spd=230 mtg=1 | cmd=Run sel=Walk | gates=[WalkMove]
+	//   #14 back to RunFwdLoop 162 ms later
+	// That is the "strange anims during the rotation". IsAnimDrivingMovement() is the one owner of
+	// "an animation drives the capsule" and the hero override includes its turn montage.
+	const bool bAnimDrivesMovement = IsAnimDrivingMovement();
+	const bool bHasInput = !Move->GetCurrentAcceleration().IsNearlyZero() || bAnimDrivesMovement;
 
 	if (!bHasInput)
 	{

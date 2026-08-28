@@ -64,10 +64,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|MotionMatching", meta = (BlueprintThreadSafe))
 	TArray<UPoseSearchDatabase*> Get_DatabasesToSearch() const;
 
-	UFUNCTION(BlueprintCallable, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe, DeprecatedFunction,
-		DeprecationMessage = "RootTransform is read natively now. This setter is dead and will be removed."))
-	void SetOffsetRootTransform(const FTransform& InOffsetRootTransform);
-
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
 	bool IsMoving() const;
@@ -96,12 +92,6 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
 	bool IsStarting() const;
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
-	bool IsOnGround() const { return MovementMode == EAZ_MovementMode::OnGround; }
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
-	bool ShouldSpinTransition() const;
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
 	FQuat Get_DesiredFacing() const;
@@ -136,12 +126,6 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
 	EOrientationWarpingSpace Get_OrientationWarpingWarpingSpace() const;
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|NodeSettings", meta = (BlueprintThreadSafe))
-	bool AllowFootPinning() const;
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim", meta = (BlueprintThreadSafe))
-	AAZ_CmcCharacterBase* GetCmcCharacter() const { return Cached_Character; }
 
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim")
@@ -285,8 +269,6 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "AZ|Cmc|Anim|V2", meta = (BlueprintThreadSafe))
 	UChooserTable* GetLocomotionChooser() const { return LocomotionChooser; }
-
-	bool IsPlayingImpactReaction() const { return LatchedReaction != EAZ_ObstacleReaction::None; }
 
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Cmc|Anim|Lean")
@@ -523,12 +505,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
 	float StartingFutureSpeedMargin = 100.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "deg"))
-	float SpinTransitionAngleThreshold = 130.f;
-
-	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "cm/s"))
-	float SpinTransitionMinSpeed = 150.f;
-
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Thresholds", meta = (ForceUnits = "s"))
 	float DesiredFacingSampleTime = 0.5f;
 
@@ -610,6 +586,34 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|V2", meta = (ClampMin = "0", ClampMax = "1"))
 	float MoveIntentDeadzone = 0.1f;
+
+	/**
+	 * How long TransitionToIdle must persist before the Stops databases may enter the MM pool.
+	 *
+	 * A direction reversal produces a REAL window of zero input (keyboard: W released before S is
+	 * pressed; gamepad: the stick crosses the deadzone). Measured 2026-08-27 over one PIE, the
+	 * LocomotionLoop -> TransitionToIdle -> LocomotionLoop round trips were
+	 * 46/51/91/92/96/99/116/117/136/217/285/778 ms, median ~104. In every one the SM was right and MM
+	 * was right — it picked a run stop at 283-364 cm/s — and then the new direction landed and it all
+	 * unwound. That is the stop/start stab on turns.
+	 *
+	 * Nothing in the character state can tell the two apart AT the moment input goes to zero: during
+	 * the gap a reversal and a real release are physically identical. Measured proof that the Mover
+	 * reference's near-future term (AZ_MoverAnimInstance.cpp:689) cannot discriminate: at every false
+	 * stop futSpd read 304-314 with speed 352-364 — exactly what a genuine stop reads. Only elapsed
+	 * time separates them, so this is a grace window, not a predicate.
+	 *
+	 * The SM still enters TransitionToIdle immediately; only the Stops POOL waits. A reversal never
+	 * stops; a genuine stop starts this much later at a lower entry speed, which MM matches better.
+	 * Cost: the stop clip — and the curve-driven braking it owns — begins this late (~50 cm at
+	 * 363 cm/s at the default). Set to 0 to restore the old immediate behaviour.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|V2", meta = (ClampMin = "0", ForceUnits = "s"))
+	float StopPoolGraceSeconds = 0.14f;
+
+	/** Seconds since ChooserContext.SMState last changed. One owner: Update_LocomotionStateMachine. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|Cmc|Anim|V2")
+	float SMStateElapsed = 0.f;
 
 
 	UPROPERTY(Transient)

@@ -104,7 +104,12 @@ void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Cached_Character->FillAnimContract(CharacterProperties);
 
 	{
-		const bool bMontageNow = (GetCurrentActiveMontage() != nullptr);
+		// GetCurrentActiveMontage() does NOT report a PlaySlotAnimationAsDynamicMontage clip — measured
+		// 2026-08-27: [CmcSel] printed mtg=0 for the entire duration of every turn. OR in the hero's
+		// own flag so "a montage owns movement" is actually true when one does.
+		const AAZ_CmcHeroCharacter* TurnHero = Cast<AAZ_CmcHeroCharacter>(Cached_Character);
+		const bool bMontageNow = (GetCurrentActiveMontage() != nullptr)
+			|| (TurnHero && TurnHero->IsTurnMontageActive());
 		bMontageJustReleased_GT = (bMontageActive_GT && !bMontageNow);
 		if (bMontageJustReleased_GT)
 		{
@@ -113,8 +118,7 @@ void UAZ_CmcAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 		bMontageActive_GT = bMontageNow;
 
-		const AAZ_CmcHeroCharacter* RmHero = Cast<AAZ_CmcHeroCharacter>(Cached_Character);
-		bRmOwnsStarts_GT = RmHero && RmHero->OwnsRootMotionStarts(CharacterProperties.SelectionGait);
+		bRmOwnsStarts_GT = TurnHero && TurnHero->OwnsRootMotionStarts(CharacterProperties.SelectionGait);
 
 		if (!Cached_ObstacleSensor.IsValid())
 		{
@@ -259,6 +263,21 @@ void UAZ_CmcAnimInstance::DrawDebugAnimOverlay() const
 			Lean.X, Get_AO_Yaw(), IsPivoting() ? 1 : 0,
 			ShouldTurnInPlace() ? 1 : 0, IsStarting() ? 1 : 0));
 
+	// The slot montage does NOT go through CurrentSelectedAnim (that is the MM/chooser selection), so
+	// a turn playing on the FullBody/DefaultSlot was invisible in the ANIM line above — the clip on
+	// screen and the clip named on screen were different things. Show it explicitly.
+	{
+		const UAnimMontage* ActiveMontage = GetCurrentActiveMontage();
+		const float MontagePos = ActiveMontage ? Montage_GetPosition(ActiveMontage) : 0.f;
+		const float MontageLen = ActiveMontage ? ActiveMontage->GetPlayLength() : 0.f;
+		GEngine->AddOnScreenDebugMessage(KeyBase + 7, 0.f,
+			ActiveMontage ? FColor::Emerald : FColor::Silver,
+			ActiveMontage
+				? FString::Printf(TEXT("MONTAGE %s   %.2f/%.2fs   slot %s   (owns capsule)"),
+					*GetNameSafe(ActiveMontage), MontagePos, MontageLen, *MontageSlotName.ToString())
+				: FString::Printf(TEXT("MONTAGE none   (anim above is the rendered clip)")));
+	}
+
 	if (Speed2D > 40.f)
 	{
 		UE_LOG(LogTemp, Display,
@@ -278,12 +297,6 @@ void UAZ_CmcAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	}
 
 	Update_Logic(DeltaSeconds);
-}
-
-void UAZ_CmcAnimInstance::SetOffsetRootTransform(const FTransform& InOffsetRootTransform)
-{
-	OffsetRootTransform = InOffsetRootTransform;
-	bHasOffsetRootTransform = true;
 }
 
 FAnimNode_OffsetRootBone* UAZ_CmcAnimInstance::FindOffsetRootBoneNode()
@@ -767,8 +780,21 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 	const bool bPivotTransition = bLocoTransition && ChooserContext.bMovingTransition && bReversalBucket;
 	const bool bStartTransition = bLocoTransition && !bPivotTransition;
 
+	// ★ In LocomotionLoop the pool is LOOPS ONLY — no keep-guard, no exceptions.
+	// The `!CurrentDatabaseTags.Contains(Tag)` clauses below were meant to let a one-shot finish, but
+	// they LATCH: once a stop is selected its tag is in CurrentDatabaseTags, so the Stops database
+	// stays in the pool afterwards. And the first ~10% of every stop clip is still a full-speed
+	// running stride (BlockTransition only covers 10%→100%), so at LocomotionLoop it is frequently the
+	// cheapest pose match for a running character — measured 2026-08-27:
+	//   #24 RunFwdLoop -> RunFwdStop_RU  SM=LocomotionLoop accel=1.00 spd=281 cost=+1.28
+	//   #25 RunFwdStop_RU -> RunFwdLoop  182 ms later
+	// i.e. MM entering a stop while the player is running flat out, on foot-phase cost alone.
+	// Dropping the guard is safe: PoseSearch exempts the CONTINUING pose from database filtering, so
+	// a one-shot already playing still plays to its end — MM simply cannot newly ENTER one from a loop.
+	const bool bLoopStateOnly = (SMPhase == EAZ_StateMachineState::LocomotionLoop);
+
 	static const FName StartsTag(TEXT("Starts"));
-	if (!bStartTransition && !CurrentDatabaseTags.Contains(StartsTag))
+	if (bLoopStateOnly || (!bStartTransition && !CurrentDatabaseTags.Contains(StartsTag)))
 	{
 		Result.RemoveAll([](const UPoseSearchDatabase* Db)
 		{
@@ -776,7 +802,7 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 		});
 	}
 
-	if (!bPivotTransition && !CurrentDatabaseTags.Contains(PivotDatabaseTag))
+	if (bLoopStateOnly || (!bPivotTransition && !CurrentDatabaseTags.Contains(PivotDatabaseTag)))
 	{
 		Result.RemoveAll([this](const UPoseSearchDatabase* Db)
 		{
@@ -789,7 +815,39 @@ TArray<UPoseSearchDatabase*> UAZ_CmcAnimInstance::Get_DatabasesToSearch() const
 		&& !ChooserContext.bJustLanded;
 	const bool bSubFloorStop = CharacterProperties.bStopActive && !CharacterProperties.bStopIsAnimated;
 
-	if ((!bStopTransition || bSubFloorStop) && !CurrentDatabaseTags.Contains(StopsTag))
+	// ★ ORDER: the previous comment here claimed the MM node's Update runs BEFORE Update_Logic, so
+	// this gate read LAST frame's phase. That is FALSE — verified in the engine 2026-08-27:
+	// FAnimInstanceProxy::UpdateAnimation_WithRoot calls NativeThreadSafeUpdateAnimation
+	// (AnimInstanceProxy.cpp:1350) and only THEN traverses the graph via UpdateAnimationNode (:1395).
+	// So Update_Logic — and with it SMState and AccelerationAmount — is already current when the MM
+	// node's binding calls us. Both reads below are same-frame; the gates do fire.
+	//
+	// What actually produced "#37 RunFwdLoop -> RunFwdStop_RU SM=LocomotionLoop accel=1.00" is a
+	// LOGGING SKEW, not a gate miss: [CmcSel] prints from Update_Logic (step 1), so it pairs LAST
+	// frame's published selection with THIS frame's freshly recomputed SMState/accel. On the frame the
+	// stop was really selected the SM was in TransitionToIdle. That is consistent with [CmcPool]
+	// firing 0x across the whole session, and it is why the round trips are 23-190 ms (1-8 frames).
+	// The real defect is upstream, in ChooserContext.bIsMoving — see Update_LocomotionStateMachine.
+	const bool bHasMoveInput = (AccelerationAmount > MoveIntentDeadzone);
+
+	// ★ STOP GRACE — the fix for the stop/start stab on direction reversals.
+	// A reversal produces a REAL window of zero input (keyboard: W released before S is pressed;
+	// gamepad: the stick crosses the deadzone), so the SM correctly reaches TransitionToIdle and MM
+	// correctly picks a run stop — then the new direction lands and it all unwinds. Measured
+	// 2026-08-27: round trips of 46/51/91/92/96/99/116/117/136/217/285/778 ms, median ~104, every one
+	// of them at spd 283-364 with accel exactly 0.
+	// Nothing in the character state separates a reversal from a real release AT the moment input goes
+    // to zero — the two are physically identical. Measured: futSpd read 304-314 on every false stop
+	// with speed 352-364, i.e. exactly what a genuine stop reads, which is why the Mover reference's
+	// near-future term (AZ_MoverAnimInstance.cpp:689) cannot be used as a predicate here. Only elapsed
+	// time separates them, so hold the Stops POOL — not the SM state — for StopPoolGraceSeconds.
+	// Guarded on the keep-clause so a stop already playing is never yanked mid-clip.
+	const bool bStopGrace = bStopTransition
+		&& !CurrentDatabaseTags.Contains(StopsTag)
+		&& (SMStateElapsed < StopPoolGraceSeconds);
+
+	if (bLoopStateOnly || bHasMoveInput || bStopGrace
+		|| ((!bStopTransition || bSubFloorStop) && !CurrentDatabaseTags.Contains(StopsTag)))
 	{
 		Result.RemoveAll([](const UPoseSearchDatabase* Db)
 		{
@@ -874,6 +932,20 @@ void UAZ_CmcAnimInstance::KeepPlayingOneShotSearchable(
 	const FMotionMatchingAnimNodeReference& MotionMatchingNode, TArray<UPoseSearchDatabase*>& Pool) const
 {
 	if (bMontageActive_GT)
+	{
+		return;
+	}
+
+	// ★ Never re-add a one-shot database once the SM has settled into LocomotionLoop.
+	// This function keeps a PLAYING one-shot searchable so it can finish during a TRANSITION state.
+	// But it re-adds unconditionally, so once a stop was selected it put PSD_*_Stops back into the
+	// pool every frame — proven by [CmcPool] "holds PSD_AZ_Stand_Run_Stops | poolSize=2 ... curTags=1"
+	// while SMState was LocomotionLoop. With both Loops and Stops in the pool, and the first ~10% of a
+	// stop clip being a full-speed running stride, MM flip-flopped between them on foot-phase cost:
+	// `RunFwdLoop -> RunFwdStop_RU -> RunFwdLoop` in ~120-180 ms, at accel=1.00.
+	// Nothing is lost by returning here: PoseSearch exempts the CONTINUING pose from database
+	// filtering, so a one-shot mid-play still plays on — it simply stops being re-selectable.
+	if (ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
 	{
 		return;
 	}
@@ -981,6 +1053,43 @@ void UAZ_CmcAnimInstance::Update_MotionMatching(const FAnimNodeReference& Node)
 		bWarnedEmptyGateUnion = false;
 	}
 
+	// DIAGNOSTIC: name the pool actually handed to MM whenever a one-shot database survives into
+	// LocomotionLoop. Three separate guesses at why stops kept being picked at LocomotionLoop were
+	// wrong; this prints the ground truth (which DB, and which stage put it back) instead.
+	if (bDebugAnim && ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
+	{
+		static const FName OneShotTags[] = { FName(TEXT("Stops")), FName(TEXT("Starts")), FName(TEXT("Pivots")) };
+		FString Offenders;
+		for (const UPoseSearchDatabase* Db : Pool)
+		{
+			if (!Db) { continue; }
+			for (const FName& Tag : OneShotTags)
+			{
+				if (Db->Tags.Contains(Tag))
+				{
+					if (!Offenders.IsEmpty()) { Offenders += TEXT(","); }
+					Offenders += GetNameSafe(Db);
+					break;
+				}
+			}
+		}
+		if (!Offenders.IsEmpty())
+		{
+			static double LastPoolLog = -1.0;
+			const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+			if (Now - LastPoolLog > 0.5)
+			{
+				LastPoolLog = Now;
+				UE_LOG(LogTemp, Warning,
+					TEXT("[CmcPool] LocomotionLoop pool still holds one-shot DB(s): %s | poolSize=%d ")
+					TEXT("mtg=%d stopActive=%d stopAnimated=%d curTags=%d"),
+					*Offenders, Pool.Num(), bMontageActive_GT ? 1 : 0,
+					CharacterProperties.bStopActive ? 1 : 0, CharacterProperties.bStopIsAnimated ? 1 : 0,
+					CurrentDatabaseTags.Num());
+			}
+		}
+	}
+
 	UMotionMatchingAnimNodeLibrary::SetDatabasesToSearch(
 		MotionMatchingNode, Pool, Get_MMInterruptMode());
 }
@@ -1001,6 +1110,23 @@ void UAZ_CmcAnimInstance::Update_MotionMatching_PostSelection(const FAnimNodeRef
 
 	if (bIsResultValid)
 	{
+		// TRUTH AT THE MOMENT OF SELECTION. This runs inside the graph update, right after the search,
+		// so SMState/accel here are what the gate in Get_DatabasesToSearch actually saw. [CmcSel] is a
+		// frame later and pairs this selection with the NEXT frame's state — that skew is what made
+		// "stop chosen at SM=LocomotionLoop accel=1.00" look like a gate failure when it was not.
+		if (bDebugAnim && Result.SelectedAnim != CurrentSelectedAnim.Get())
+		{
+			const UEnum* SMEnumT = StaticEnum<EAZ_StateMachineState>();
+			const FString PickSM = SMEnumT
+				? SMEnumT->GetNameStringByValue(static_cast<int64>(ChooserContext.SMState))
+				: FString::FromInt(static_cast<int32>(ChooserContext.SMState));
+			UE_LOG(LogTemp, Warning,
+				TEXT("[CmcPick] %s -> %s | db=%s SM=%s accel=%.3f mtg=%d spd=%.0f cost=%+.2f"),
+				*GetNameSafe(CurrentSelectedAnim.Get()), *GetNameSafe(Result.SelectedAnim),
+				*GetNameSafe(Result.SelectedDatabase.Get()), *PickSM,
+				AccelerationAmount, bMontageActive_GT ? 1 : 0, Speed2D, Result.SearchCost);
+		}
+
 		PublishSelection(Result.SelectedAnim, Result.SelectedDatabase, Result.SelectedTime,
 			Result.bLoop, Result.SearchCost, TArray<FName>());
 	}
@@ -1020,16 +1146,6 @@ bool UAZ_CmcAnimInstance::IsStarting() const
 {
 	return IsMoving()
 		&& (Trj_FutureVelocity.Size2D() >= Velocity.Size2D() + StartingFutureSpeedMargin)
-		&& !CurrentDatabaseTags.Contains(PivotDatabaseTag);
-}
-
-bool UAZ_CmcAnimInstance::ShouldSpinTransition() const
-{
-	const float OffsetYaw = FMath::Abs(static_cast<float>(
-		(CharacterTransform.Rotator() - RootTransform.Rotator()).GetNormalized().Yaw));
-
-	return (OffsetYaw >= SpinTransitionAngleThreshold)
-		&& (Speed2D >= SpinTransitionMinSpeed)
 		&& !CurrentDatabaseTags.Contains(PivotDatabaseTag);
 }
 
@@ -1146,11 +1262,6 @@ EOrientationWarpingSpace UAZ_CmcAnimInstance::Get_OrientationWarpingWarpingSpace
 	return bOffsetRootBoneEnabled
 		? EOrientationWarpingSpace::RootBoneTransform
 		: EOrientationWarpingSpace::ComponentTransform;
-}
-
-bool UAZ_CmcAnimInstance::AllowFootPinning() const
-{
-	return (MovementMode == EAZ_MovementMode::OnGround) && IsMoving();
 }
 
 double UAZ_CmcAnimInstance::ComputeDynamicPlayRate(const UAnimSequenceBase* Anim, float AnimTime) const
@@ -1299,7 +1410,27 @@ void UAZ_CmcAnimInstance::Update_LocomotionStateMachine(float DeltaSeconds)
 	ChooserContext.RotationOffset = FRotator::NormalizeAxis(
 		CharacterProperties.AimingRotation.Yaw - CharacterTransform.Rotator().Yaw);
 
-	ChooserContext.bIsMoving = (AccelerationAmount > MoveIntentDeadzone);
+	// ★ A montage that owns movement must read as MOVING, or the SM concludes the player let go.
+	// The turn montage suppresses AddMovementInput, so AccelerationAmount falls to 0 and the SM went
+	// TransitionToIdle mid-turn — picking a STOP clip — then TransitionToLocomotion on release,
+	// picking a START. That is the "stop/start instead of straight back to the run loop" on the turn
+	// exit. bMontageActive_GT is the game-thread snapshot already used to gate the MM pool, so the
+	// two now agree on one fact.
+	// ★ bMontageJustReleased_GT is the RELEASE FRAME of a montage that owned movement (the turn montage).
+	// Without it there is a one-frame hole: the hero clears bTurnMontageActive in TickTurnMontage, so
+	// bMontageActive_GT is already false here, but the input handler early-returned that frame so CMC
+	// still reports acceleration 0. bIsMoving is pure intent with no hysteresis, so that single frame
+	// reads as "the player let go": SM drops LocomotionLoop -> TransitionToIdle, the Stops pool opens,
+	// and MM correctly picks a stop clip — which is the stop/start stab seen on every turn exit.
+	// MEASURED in AZ.log 2026-08-27: [CmcTurn] complete at frames 209 / 317 / 921 and a stop published
+	// on those same frames, each bouncing back to the loop 23-190 ms later.
+	// Holding the moving claim for exactly the release frame closes it and cannot delay a genuine stop:
+	// a real release is not preceded by a montage ending. The hero also re-applies the held stick in
+	// TickTurnMontage; that fix depends on CMC ticking after the character (no engine prerequisite
+	// enforces it), this one does not depend on tick order at all.
+	ChooserContext.bIsMoving = (AccelerationAmount > MoveIntentDeadzone)
+		|| bMontageActive_GT
+		|| bMontageJustReleased_GT;
 
 	if (ChooserContext.bIsMoving)
 	{
@@ -1350,9 +1481,53 @@ void UAZ_CmcAnimInstance::Update_LocomotionStateMachine(float DeltaSeconds)
 
 	ChooserContext.FromStance = StateMachine->GetSettledStance();
 
+	// One owner for "how long have we been in this SM state". Read by the stop-pool grace in
+	// Get_DatabasesToSearch; nothing else may write it.
+	const float PrevStateDwell = SMStateElapsed;
+	SMStateElapsed = (ChooserContext.SMState == PreviousSMState) ? (SMStateElapsed + DeltaSeconds) : 0.f;
+
 	if (ChooserContext.SMState != PreviousSMState)
 	{
 		++TransitionSerial;
+
+		// GROUND TRUTH for the "stop while running" bug. [CmcSel] cannot answer this: it prints from
+		// step 1 of the frame, so it pairs LAST frame's selection with THIS frame's SM state. This line
+		// prints the SM edge AT the frame it happens, with the exact inputs that caused it.
+		// bIsMoving is pure input intent (accel > deadzone) with NO hysteresis, so a single sub-deadzone
+		// frame flips LocomotionLoop -> TransitionToIdle, which opens the Stops pool for that frame.
+		// The Mover reference (AZ_MoverAnimInstance.cpp:689) ORs in a near-future speed term the CMC
+		// port dropped; futSpd below measures what that term would have read, so the threshold can be
+		// chosen from data instead of copied blind.
+		if (bDebugAnim)
+		{
+			const UEnum* SMEnumT = StaticEnum<EAZ_StateMachineState>();
+			auto SMName = [SMEnumT](EAZ_StateMachineState S) -> FString
+			{
+				return SMEnumT ? SMEnumT->GetNameStringByValue(static_cast<int64>(S))
+				               : FString::FromInt(static_cast<int32>(S));
+			};
+
+			FVector NearFutureVel = FVector::ZeroVector;
+			UPoseSearchTrajectoryLibrary::GetTransformTrajectoryVelocity(
+				Trajectory, 0.1f, 0.3f, NearFutureVel, false);
+
+			// dwell = how long the state we are LEAVING lasted. On a TransitionToIdle -> LocomotionLoop
+			// edge, dwell < StopPoolGraceSeconds means the grace swallowed a reversal that would
+			// otherwise have stabbed a stop clip in — that is the acceptance metric for this fix.
+			const bool bGraceSaved = (PreviousSMState == EAZ_StateMachineState::TransitionToIdle)
+				&& (ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
+				&& (PrevStateDwell < StopPoolGraceSeconds);
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[CmcSM] t=%.3f %s -> %s | dwell=%.0fms grace=%.0fms saved=%d | accel=%.3f (dz=%.2f) ")
+				TEXT("mtg=%d | spd=%.0f futSpd=%.0f predFut=%.0f | turn=%.0f dir=%d Lfoot=%d"),
+				Now, *SMName(PreviousSMState), *SMName(ChooserContext.SMState),
+				PrevStateDwell * 1000.f, StopPoolGraceSeconds * 1000.f, bGraceSaved ? 1 : 0,
+				AccelerationAmount, MoveIntentDeadzone, bMontageActive_GT ? 1 : 0,
+				Speed2D, NearFutureVel.Size2D(), PredictedFutureVelocity.Size2D(),
+				Get_TrajectoryTurnAngle(), static_cast<int32>(ChooserContext.MovementDirection),
+				ChooserContext.bLeftFootDown ? 1 : 0);
+		}
 	}
 
 	{

@@ -39,16 +39,21 @@ public:
 	virtual void SetGrabIKReleased(bool bInReleased) override { bGrabIKReleased = bInReleased; }
 	virtual bool IsGrabIKReleased() const override { return bGrabIKReleased; }
 
-	UFUNCTION(BlueprintPure, Category = "AZ|Input")
-	UInputMappingContext* GetDefaultMappingContext() const { return DefaultMappingContext; }
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
-	USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-
-	UFUNCTION(BlueprintPure, Category = "AZ|Pawn")
-	UCameraComponent* GetCamera() const { return Camera; }
-
 	bool OwnsRootMotionStarts(EAZ_Gait InGait) const;
+
+	/** True while a turn montage owns the capsule. The anim layer must use THIS, not
+	 *  GetCurrentActiveMontage()/IsPlayingRootMotion() — measured 2026-08-27: neither reports a
+	 *  PlaySlotAnimationAsDynamicMontage clip (`mtg=0` in [CmcSel] throughout every turn), so guards
+	 *  built on them silently never fired. */
+	bool IsTurnMontageActive() const { return bTurnMontageActive; }
+
+	/**
+	 * The turn montage plays through PlaySlotAnimationAsDynamicMontage, which IsPlayingRootMotion()
+	 * does NOT report — so the base implementation alone leaves every "stand down, an animation is
+	 * driving" guard inert for turns. Include our own flag here; this is the same OR the anim instance
+	 * applies to bMontageActive_GT, so the two agree on one fact.
+	 */
+	virtual bool IsAnimDrivingMovement() const override;
 
 protected:
 	void InitAbilitySystem();
@@ -84,6 +89,47 @@ protected:
 
 	float LastRootMotionStartTime = -1.f;
 
+
+	/** ── TURN MONTAGES: animation leads, capsule follows ───────────────────────────────────────
+	 *  A committed turn plays its clip as a root-motion dynamic montage from frame 0; the montage's
+	 *  root motion rotates the capsule (RootMotionMode is already RootMotionFromMontagesOnly), and a
+	 *  ROTATION-ONLY SkewWarp closes the remainder to the yaw latched at onset.
+	 *  Exit contract: COMPLETE AND SNAP — no redirect interrupt. Input during the turn is buffered by
+	 *  the normal input path, so the snap lands on the finished heading, never a partial one.
+	 *  While the montage is active Get_DatabasesToSearch() already strips Starts/Pivots/Stops from the
+	 *  MM pool (bMontageActive_GT), so motion matching cannot fight it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage")
+	bool bTurnMontages = false;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage")
+	TArray<FAZ_TurnMontageClip> TurnMontageClips;
+
+	/** Only commit a turn montage past this heading error; below it the normal facing spring handles it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage", meta = (ForceUnits = "deg"))
+	float TurnMontageMinAngleDeg = 100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage", meta = (ForceUnits = "s"))
+	float TurnMontageBlendIn = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage", meta = (ForceUnits = "s"))
+	float TurnMontageBlendOut = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage", meta = (ForceUnits = "s"))
+	float TurnMontageCooldown = 0.25f;
+
+	/** Clamp for the authored spike (measured up to 727 deg/s). 0 = no clamp. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage", meta = (ForceUnits = "deg/s"))
+	float TurnMontageMaxRotationRate = 540.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|TurnMontage")
+	FName TurnMontageWarpTarget = TEXT("TurnTarget");
+
+	bool TryPlayTurnMontage(const FVector& WorldInputDir);
+	void TickTurnMontage();
+
+	bool  bTurnMontageActive = false;
+	float TurnMontageTargetYaw = 0.f;
+	float LastTurnMontageTime = -1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Movement|RootMotionStop")
 	TArray<FAZ_RootMotionStopClip> RootMotionStopClips;

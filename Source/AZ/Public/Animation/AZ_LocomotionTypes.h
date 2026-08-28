@@ -166,6 +166,42 @@ struct AZ_API FAZ_RootMotionStartClip
 };
 
 /**
+ * One turn clip played as a root-motion montage, keyed by gait, turn bucket and planted foot.
+ *
+ * THE POINT: the animation leads and the capsule follows, instead of the capsule rotating and the mesh
+ * being warped to catch up. Measured 2026-08-23: a turn entered mid-clip only delivers what is LEFT of it
+ * (entry at clipTime 0.10-0.33 with 830-1018 ms survival against 1.27-1.53 s clips means a 180 pivot
+ * actually delivers ~100-140 deg), and unlike a stop a turn has no attractor, so that heading error is
+ * permanent and re-rolled every turn. A montage starts at frame 0 by construction, which deletes that
+ * whole class of error rather than compensating for it.
+ *
+ * Rotation-only Motion Warping then closes the remainder to the latched target EXACTLY, so a 180 asset
+ * can also serve a 90 request (EMotionWarpRotationMethod::Scale).
+ *
+ * Rows are editor-assigned: no /Game/ paths in C++.
+ */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_TurnMontageClip
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAZ_Gait Gait = EAZ_Gait::Run;
+
+	/** Turn bucket from UAZ_LocomotionStateMachine::BucketStartDirection (L90/R90/L135/R135/L180/R180). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAZ_StartDirection Direction = EAZ_StartDirection::L180;
+
+	/** Planted foot this variant is authored for; matched against the anim layer's bLeftFootDown. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bLeftFootDown = true;
+
+	/** Must have bEnableRootMotion, else the montage plays and the capsule never turns. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TObjectPtr<UAnimSequence> Clip = nullptr;
+};
+
+/**
  * One root-motion stop clip, keyed by gait and planted foot, with the speed band it is authored for.
  *
  * Stops differ from starts in the one way that matters: a start begins at ~0 and the clip also begins at
