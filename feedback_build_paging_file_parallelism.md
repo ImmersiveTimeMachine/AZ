@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 787f844b-69e1-48c0-8b39-9a9264829d57
+  modified: 2026-08-27T16:57:30.368Z
 ---
 
 # Build failure "paging file too small" → cap parallelism, it's not your code
@@ -36,5 +37,22 @@ Result: Failed (OtherCompilationError)
 Re-run the same `LiveCoding.Compile` / CLI build — slower but completes (`Result: Succeeded`, `Using Unreal Build Accelerator local executor`). Editing the XML invalidates UBT's `XmlConfigCache.bin`, so it takes effect immediately. Raise the numbers (or remove the file) after enlarging the system paging file (System → Advanced → Performance → Virtual Memory).
 
 **Proper long-term fix:** enlarge the Windows paging file (system-managed or a large fixed size). UE builds are memory-hungry; a small/fixed paging file throttles them.
+
+## ★ NEVER kill the LiveCodingConsole process to force a CLI build (2026-08-27)
+
+Cost an hour and produced a "you changed nothing" round with the user. `Stop-Process LiveCodingConsole`
+while the editor is RUNNING permanently breaks Live Coding for that editor session:
+- The editor respawns a console (log shows `Registered process`, module loads, `Live coding ready`) so it
+  LOOKS healthy, but `LiveCoding.Compile` is then a **silent no-op** — the Python call returns success, the
+  editor log records `LiveCoding.Compile fired`, and `LiveCodingConsole.log` never gets
+  `Manual recompile triggered`. No patch, no error.
+- The CLI build still refuses (`Unable to build while Live Coding is active`) because the EDITOR holds the
+  lock, not the console — so killing the console buys nothing and loses the only working compile path.
+
+**Verification rule: a Live Coding compile is only real if `LiveCodingConsole.log` gains
+`Manual recompile triggered` AND `Patch creation for module ...-AZ.dll successful`.** Never report a change
+as landed on the strength of the console command returning success — check the console log for both lines.
+Recovery is a full editor close + CLI build (only the user closes the editor). `Ctrl+Alt+F11` in the editor
+is the lighter alternative when only body-level changes are pending.
 
 **Related gotcha (same session):** Live Coding patches do NOT survive an editor restart — on reopen the editor loads the last FULL-build binary, so a session's worth of Live-Coding-only changes vanish. A reflected change (new `UPROPERTY`/`UFUNCTION`) needs a full CLI build with the editor CLOSED anyway (Live Coding holds a lock → CLI build fails with "Unable to build while Live Coding is active"); that full build re-bakes ALL pending source changes into the base `.dll`. See [[project_v2_locomotion_progress]], skill `cpp-build-livecoding`.
