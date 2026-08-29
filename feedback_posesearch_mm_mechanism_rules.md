@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-28T05:10:07.293Z
+  modified: 2026-08-28T16:09:03.699Z
 ---
 
 # MM mechanism rules — written after getting the same things wrong twice in one session
@@ -81,9 +81,20 @@ the takeoff's BlockTransition was not the mechanism, my fix note for it was wron
 
 A fixed-time exclusive window (`0.25 s`) expired mid-clip on 0.90-1.40 s lands and idle stole the clip at
 292 ms. The proven in-project mechanism (the stops, via `KeepPlayingOneShotSearchable`) is:
-**while the one-shot is the CURRENT selection and `SelectedTime < ~0.85 × PlayLength`, strip the competing
-databases; release at the tail so the exit blend happens on settled frames.** Time windows are for entry;
-progress-based pool exclusivity is for holding.
+**while the one-shot is the CURRENT selection and `SelectedTime < FRACTION × PlayLength`, strip the competing
+databases.** Time windows are for entry; progress-based pool exclusivity is for holding.
+
+**★ The release FRACTION must land BEFORE the clip's own entry poses age out of `PoseReselectHistory`
+(node default 0.30 s).** Measured on the 1.03 s idle land: with the release at 0.85 an exclusive lands-only
+search at ~0.69 s had NO legal candidate except re-entering the clip's own entry window — the pick snapped
+`0.70 -> 0.13` and the legs visibly dipped forward and back at the end of the landing. At 0.60 the pool is
+already open when that moment arrives, idle wins on cost (−0.10 vs +8), and the snap is not merely
+discouraged but impossible. **An exclusive pool with only one legal answer will re-enter its own clip
+forever; always ask what the search is allowed to pick at the moment the window closes.**
+
+Corollary instrument: `[CmcPick]` only fires when the ASSET changes, so a same-clip time snap is INVISIBLE
+to it. `[CmcSnap]` (log when `SelectedTime` jumps backwards or forwards more than a frame's worth, excluding
+loop wrap) is what made this diagnosable in one PIE.
 
 ## R6 — Know what runs AFTER your strip. `KeepPlayingOneShotSearchable` re-adds. ★★
 
@@ -114,6 +125,36 @@ impact-speed gate yet.
 
 **Rule: do not put a variant in the pool before the condition that selects it exists. Keep it out until
 its gate is built.**
+
+## R9 — An MM-selected clip can only fire notifies while it is the NEWEST blend-stack player ★★★
+
+`FAnimNode_BlendStack_Standalone::UpdateAssetPlayer` (`AnimNode_BlendStack.cpp:893-898`) gives the ACTIVE
+context to the newest player only, then `bLocalIsContextActive &= !bIsPlayerContextActive` — every
+blending-out player is updated with `AnimPlayerContext.AsInactive()`.
+
+**Consequence: a notify placed after the hand-back point of a one-shot NEVER FIRES.** An "end of the land
+clip" gameplay-event notify is dead on arrival in this architecture, because the whole point of the design
+is that idle takes over before the clip ends.
+
+`bShouldFilterNotifies` is NOT this mechanism — it is only de-duplication (suppresses the same notify NAME
+within `NotifyRecencyTimeOut`, 0.2 s), which matters because the stack can hold several copies of one clip.
+
+**Rule: if something must be signalled when a one-shot FINISHES, the signal belongs to whoever owns the
+clip's progress (the anim instance's game-thread snapshot), not to a notify near its end.** Notifies are
+reliable only in the part of a clip where it is the newest player.
+
+## R10 — Entry window = BranchIn opens indexing, BlockTransition closes entry after it
+
+The working jump layout, and the general shape for any "must be entered at a specific moment" clip:
+
+| clip | BranchIn | BlockTransition | result |
+|---|---|---|---|
+| takeoff `AnimPro_JumpIdleStart` | `[0.175, end]` | `[0.325, +3.208]` | enterable only in `[0.175, 0.325]` |
+| land `AnimPro_JumpIdleLand` | none (explicit DB member) | `[0.150, +0.883]` | enterable only at impact `[0, 0.15]` |
+
+Measured effect: takeoff entry `t=0.67 -> 0.20`, land entry `t=0.67 -> 0.00` (of 1.03 s). Before this, MM
+entered the land 65% in and the impact was simply never seen — the clip name in the log was RIGHT the whole
+time, which is why "correct name, wrong motion" must always be checked with an ENTRY TIME in the log.
 
 Related: [[feedback_verify_never_presume]], [[project_cmc_input_gap_doctrine]],
 [[project_cmc_jump_build_order]], [[project_jump_system_status]], [[project_cmc_mm_content_verdict]].
