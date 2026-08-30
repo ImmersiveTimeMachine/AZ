@@ -338,6 +338,14 @@ struct AZ_API FAZ_GameplayTags
                                                     //  the hit; contact timing is physics, not authored data
     FGameplayTag Event_Montage_Melee_WindowEnd;     // strike phase closes: sweep stops; anything not touched
                                                     //  was a legitimate whiff
+    FGameplayTag Event_Movement_LandComplete; // anim -> GA_PawnJump: the jump animation cycle
+                                            //  (takeoff -> air -> land) handed the body back to ordinary
+                                            //  locomotion. The ability owns Movement.Jumping for the WHOLE
+                                            //  cycle, so this event is what lets a landing finish before a
+                                            //  re-jump is allowed. It cannot come from an end-of-clip anim
+                                            //  notify: the blend stack updates every blending-out player
+                                            //  with an inactive context (AnimNode_BlendStack.cpp:893-898),
+                                            //  so notifies past the hand-back point never fire.
     FGameplayTag Event_Death;               // sent to the dying actor's ASC when Vitals Health hits 0
     FGameplayTag Event_Grabbed;             // sent to the PLAYER's ASC to trigger GA_PlayerGrabbed (like Event_Death->GA_Death)
     FGameplayTag Event_GrabEscaped;         // player -> grabber ASC: mash won, shove me off (GA_ChalkieGrab plays GrabEscapeMontage)

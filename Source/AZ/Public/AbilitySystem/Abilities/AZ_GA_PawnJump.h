@@ -42,12 +42,38 @@ protected:
 		const FGameplayTagContainer* TargetTags,
 		OUT FGameplayTagContainer* OptionalRelevantTags) const override;
 
-	/** WaitInputRelease task callback — the ONLY end path for natural release. The task replicates the
-	 *  release to the server instance (ServerSetReplicatedEvent); the old raw InputReleased virtual was
-	 *  invoked only on the owning client, so the LocalPredicted server instance stayed Active forever and
-	 *  rejected every subsequent jump from a remote client (audit P1-8). Same pattern as GA_Crouch. */
+	/** WaitInputRelease task callback. Releases the PRESS only — it does NOT end the ability. Holding the
+	 *  press past the release would keep CMC applying jump velocity for JumpMaxHoldTime and re-jump the
+	 *  moment the character lands (bPressedJump is still set), so the press must drop on release; but the
+	 *  ability lives until the landing finishes (see OnLandComplete).
+	 *  The task, not the raw InputReleased virtual, is what replicates the release to the server instance:
+	 *  the ASC invokes the virtual only on the owning client, so a LocalPredicted server instance stayed
+	 *  Active forever and rejected every later jump from a remote client (audit P1-8). */
 	UFUNCTION()
 	void OnJumpInputReleased(float TimeHeld);
+
+	/** The jump animation cycle (takeoff -> air -> land) handed the body back — the landing has finished
+	 *  and the ability may end, releasing Movement.Jumping so the next jump can activate. The anim
+	 *  instance owns this fact; the ability never guesses a recovery duration. */
+	UFUNCTION()
+	void OnLandComplete(FGameplayEventData Payload);
+
+	/** Watchdog: events drive, timers guard. If the completion event never arrives — no jump animation
+	 *  played, the pawn was teleported, movement mode changed under us — the ability must not stay Active
+	 *  forever, because Movement.Jumping would then block every future jump. Generous by design: this is a
+	 *  failsafe, not the normal end path. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Jump", meta = (ClampMin = "0.5", ForceUnits = "s"))
+	float LandWatchdogSeconds = 5.f;
+
+private:
+	void OnLandWatchdogExpired();
+
+	UPROPERTY()
+	class UAbilityTask_WaitGameplayEvent* WaitLandTask = nullptr;
+
+	FTimerHandle LandWatchdogTimer;
+
+protected:
 
 	virtual void EndAbility(
 		const FGameplayAbilitySpecHandle Handle,

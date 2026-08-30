@@ -330,6 +330,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("RETIRED single-frame contact event (socket-sweep windows replaced it); registered so old data still resolves"));
     AddTag(GameplayTags.Event_Montage_Melee_WindowBegin, FName("Event.Montage.Melee.WindowBegin"), TEXT("Strike window opens — melee ability starts the fist socket sweep"));
     AddTag(GameplayTags.Event_Montage_Melee_WindowEnd, FName("Event.Montage.Melee.WindowEnd"), TEXT("Strike window closes — socket sweep stops; untouched targets = whiff"));
+    AddTag(GameplayTags.Event_Movement_LandComplete, FName("Event.Movement.LandComplete"), TEXT("Anim -> jump ability: the jump animation cycle (takeoff/air/land) handed the body back to locomotion — the landing has finished"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
     AddTag(GameplayTags.Event_Grabbed,           FName("Event.Grabbed"),           TEXT("Sent to the player's ASC by a Chalkie's grab — triggers GA_PlayerGrabbed (mirrors Event.Death -> GA_Death)"));
     AddTag(GameplayTags.Event_GrabEscaped,       FName("Event.GrabEscaped"),       TEXT("Player -> grabber ASC: the mash won — GA_ChalkieGrab plays the GrabEscapeMontage stagger"));

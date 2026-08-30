@@ -408,6 +408,15 @@ protected:
 	float StopClipSpeed_GT = 0.f;
 	float StopClipSampleTime_GT = 0.f;
 
+	/** Jump-cycle ownership, game thread. The anim instance is the one owner of "the jump animation still
+	 *  has the body": takeoff, air and land are all its databases, and only it knows when the land has
+	 *  handed back. GA_PawnJump waits on the completion event instead of guessing a duration. */
+	bool bJumpCycleActive_GT = false;
+
+	/** True once the cycle has been through a takeoff database, so a ledge fall (which also goes
+	 *  InAir -> land) does not fire a JUMP-completion event at an ability that never jumped. */
+	bool bJumpCycleFromTakeoff_GT = false;
+
 	bool bTurnInPlaceActive = false;
 	bool bTurnInPlaceActive_LastFrame = false;
 
@@ -610,6 +619,26 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|V2", meta = (ClampMin = "0", ForceUnits = "s"))
 	float StopPoolGraceSeconds = 0.14f;
+
+	/**
+	 * How long after touchdown the land databases own the pool exclusively. This is the ENTRY window:
+	 * at touchdown the character genuinely IS standing still, so idle is a near-perfect pose match and
+	 * wins every cost contest a land can enter (measured idle −0.10 vs land +8). Narrowing the pool is
+	 * the only thing that gets the impact frame on screen; tuning costs cannot.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Jump", meta = (ClampMin = "0", ForceUnits = "s"))
+	float LandEntryWindowSeconds = 0.25f;
+
+	/**
+	 * Fraction of the land clip during which the land databases stay exclusive.
+	 * ★ Must stay BELOW the point where the clip's own entry poses age out of the MM node's
+	 * PoseReselectHistory (0.30 s). Measured on the 1.03 s idle land: at 0.85 the search reached ~0.69 s
+	 * with no legal candidate except re-entering the clip's own entry window, snapped 0.70 -> 0.13, and
+	 * the legs visibly dipped forward and back. At 0.60 the pool is already open, idle wins on cost, and
+	 * the snap cannot happen. Raising this past ~0.65 reintroduces the artifact.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Cmc|Anim|Jump", meta = (ClampMin = "0.1", ClampMax = "0.95"))
+	float LandExclusiveHoldFraction = 0.60f;
 
 	/** Seconds since ChooserContext.SMState last changed. One owner: Update_LocomotionStateMachine. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|Cmc|Anim|V2")
