@@ -10,6 +10,35 @@ metadata:
 
 # Grab / Grapple ("caught") — design, grounded 2026-07-22
 
+## ★★★ PIVOT 2 (2026-08-31): PoseSearch INTERACTION (PSI) replaces the hand-rolled selection/alignment — STEP 1 DONE
+GASP's takedown demo, read node-by-node (details in [[project_gasp58_update_audit]] § Interaction DRIVER): pawn-side
+`MotionMatchMulti(queries, "PoseHistory")` → per-actor result {PSIA, Role, SelectedTime, WantedPlayRate,
+ActorRootTransforms[]} → `CustomTeleport` each actor to its aligned transform → play the role's montage at
+SelectedTime/WantedPlayRate → tick prerequisite + capsule ignore. NAAT's shared-origin doctrine maps 1:1
+(attacker warp-translation 0 = he travels; victim 1.0 = hero never moved).
+
+**Step 1 content (created + saved 2026-08-31 03:54, all under `/Game/AZ/Blueprints/Animation/PSI/`):**
+- `PSS_AZ_Catch` = dup of GASP `PSS_CharacterInteraction` (2 cross-role root Position channels, sample 30 Hz,
+  Normalize) with role skeletons **Attacker → `/Game/Zombie_01/.../UE4_Mannequin_Skeleton`, Victim → `SKEL_SurvivalMan`**
+  (= the montages' skeletons; the MetaHuman hero body runs SurvivalMan anims through CompatibleSkeletons).
+- `AZ_Catch_Fight` (PoseSearchInteractionAsset): items [0] `AM_Grab_Chalkie` role Attacker wT 0 wR 0 origin identity;
+  [1] `AM_Grab_Hero` role Victim wT 1.0 wR 0 origin identity (NAAT = shared origin, victim yaw-180 baked in clips).
+- `PSD_AZ_Catch` = dup of GASP `PSD_Interaction_takedown_stand`, cleared, schema `PSS_AZ_Catch`, BruteForce,
+  bias −0.01, ONE entry = `AZ_Catch_Fight`. **BuildIndex Succeeded** on first build (skeletons/roles consistent).
+- The DB entry array is a private `UPROPERTY()` (`DatabaseAnimationAssets`, no scriptable add) and
+  `UAZ_PoseSearchUtils::AddSequenceToDatabase` only takes `UAnimSequence*` → added through a TEMPORARY body on
+  `AddBlockTransitionToDatabase` (reverted the same minute). ★ TODO next closed-editor build: proper
+  `AddAnimAssetToDatabase(UPoseSearchDatabase*, UObject*)` UFUNCTION (the modern `FPoseSearchDatabaseAnimationAsset
+  .AnimAsset` is a `TObjectPtr<UObject>`, so it takes a UMultiAnimAsset).
+- Folder is git-untracked (new) — commit with the driver.
+
+**Step 2 (not started):** C++ driver on the Chalkie AI — editor-assigned `PSD_AZ_Catch` property (no /Game/ paths),
+`MotionMatchMulti([{DB, [(Chalkie AnimInstance, "Attacker"), (Hero AnimInstance, "Victim")]}], "PoseHistory")`,
+log cost + ActorRootTransforms first (no montage) → then teleport (hero offset by its authored t=0 pelvis) + play
+role montages via the Mover montage route + keep `MontageSync_Follow` for the sectioned struggle branches.
+Open detail: who writes GASP's `"WarpTarget"` for `BP_NotifyState_MMI_MotionWarping` (not in the pawn's FNames);
+with RM-off NAAT clips the teleport alone gives frame-1 contact, so warping is not needed for v1.
+
 ## ★★ PIVOT 2026-08-01 — NAAT PAIRED MONTAGES (supersedes the socket-anchor approach below)
 User rejected the socket-anchor/IK route ("we will not achieve cinematic grab fight") and retargeted the
 **NAAT interactive pack** (`/Game/BSP_ZombieAnims/Animations/Interactive`) to BOTH skeletons:

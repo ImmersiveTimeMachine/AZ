@@ -1,11 +1,11 @@
 ---
 name: feedback_posesearch_mm_mechanism_rules
-description: "★★★ MUST RULES for PoseSearch/MM selection — the mechanism facts I got wrong REPEATEDLY in one session (continuing-pose exemption twice, BranchIn = indexed range, cost contests, BlockTransition sizing, keep-alive undoing gate strips). Read before changing any MM pool, notify or gate."
+description: "★★★ MUST RULES R1-R14 for PoseSearch/MM selection — continuing-pose exemption, BranchIn = indexed range, cost contests, BlockTransition sizing, keep-alive undoing strips, R11 inert guards, R12 reindex = no result, R13 PHASE-LOCKED start->loop seam (content ends on loop frame 0), R14 BranchIn-less clip = silent empty search. Read before changing any MM pool, notify, gate or seam."
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-28T16:09:03.699Z
+  modified: 2026-08-31T01:00:33.378Z
 ---
 
 # MM mechanism rules — written after getting the same things wrong twice in one session
@@ -156,5 +156,62 @@ Measured effect: takeoff entry `t=0.67 -> 0.20`, land entry `t=0.67 -> 0.00` (of
 entered the land 65% in and the impact was simply never seen — the clip name in the log was RIGHT the whole
 time, which is why "correct name, wrong motion" must always be checked with an ENTRY TIME in the log.
 
+## R11 — Every continuing-pose guard is INERT until the search is told what is playing ★★★
+
+`ContinuingPoseCostBias`, `bDisableReselection` and `PoseJumpThresholdTime` all key off
+`FPoseSearchContinuingProperties::PlayingAsset`. A `MotionMatch` call with a default-constructed
+`FPoseSearchContinuingProperties()` (the Mover spine, until 2026-08-31) has NO continuing pose — every
+tick is a fresh argmin and none of the three can engage. Measured: the walk loop re-cut itself every 1–2
+frames between half-cycle phases, and two "fixes" (a −10 bias, `PoseJumpThresholdTime`) changed nothing
+because there was nothing to bias. Pass the BlendStack's REAL playhead (outer node
+`GetAnimAsset/GetAccumulatedTime/GetMirror`, never dead-reckoned), loops only. Full chain:
+[[feedback_mover_spine_search_continuity]].
+
+## R12 — After a database save: `PreCancelled` + FLT_MAX cost = no index, not a result
+
+Saving a database with changed entry flags rebuilds derived data and cancels the others
+(`LogPoseSearch: … PreCancelled because of PSD_X`). Until it completes, searches return NOTHING
+(`cost=+3.4e38`, `entry=0.00`). A "clean" run in that state proves nothing; and a spine that falls
+back to "push at frame 0" on an empty result turns it into a per-frame restart. Treat an empty result
+with the same loop still playing as "continue" — **but only when the playing loop is a CANDIDATE of the
+row that searched** (array member or `UPoseSearchDatabase::Contains`). An unconditional keep held the
+STANDING walk loop for 513 crouched frames when crouch was pressed mid-walk (row change + empty search,
+2026-08-31 03:00): a row change with an empty result must still take the row's clip at frame 0.
+
+## R13 — A transition clip that ends ON the loop's frame 0 must hand over PHASE-LOCKED, not searched ★★★
+
+Content fact (measured 2026-08-31, pelvis-space pose distance vs every loop frame at 30 Hz): **every**
+MovementAnimsetPro transition — all Walk/Run/Strafe/Bwd/Crouch starts, all directional starts, all
+`Land2Walk/Land2Run`, `JumpIdleLand2Walk` — ends within d≈1–5 of its loop's **frame 0**, and at
+end−0.15 s sits at loop phase 0.87–0.93 (walk, 1.0 s loops) / 0.50–0.67 (run, 0.767 s), d≈50–100 from
+frame 0. The SM flips to `LocomotionLoop` `TransitionAlmostCompleteThreshold` (0.15 s) early, and MM then
+picked **frame 0** on 8/8 `WalkFwdStart -> WalkFwdLoop` handoffs (entry=1.00/1.00, cost +9…+99): the pose
+the start WILL reach, not the one it is at. Under a 0.2 s crossfade that reads as "the leg plays from the
+start" — reported as an idle-jump bug, it was on EVERY start (three "fixes" to jump/land code changed
+nothing: the landing was never the fault).
+
+**Rule: MM decides WHICH loop; the OUTGOING clip decides the entry PHASE.** At a LocomotionLoop push,
+if the outgoing blend-stack player is a non-looping sequence with `Remaining ≤ threshold + 0.1 s`, set
+`StartTime = (LoopLen − Remaining) mod LoopLen` and clamp the crossfade to `Remaining` (a non-looping
+player past its end holds its last frame; a longer blend drifts the streams apart again). Verified:
+`entry=0.86 seam=lock rem=0.14 blend=0.14`, 0 `[v2 Snap]`, run 0.62/0.77, crouch 0.76/0.90, user
+confirmed the artifact gone. Stops re-pressed mid-clip (Remaining large) keep MM ownership.
+Owner: `UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser`, MM branch, `SeamLockRemaining`.
+
+Corollary instrument: `[v2 Pick]` prints `seam=lock|mm rem= blend=` — `seam=mm` on a start->loop line
+means the gate did not fire; read `rem`.
+
+## R14 — A raw clip with NO BranchIn is a SILENT empty search (no log line at all)
+
+`UPoseSearchLibrary::MotionMatch` over a sequence adds databases only through that sequence's
+`UAnimNotifyState_PoseSearchBranchIn` notifies (`PoseSearchLibrary.cpp` `AddToSearch`). A null
+`Database` on the notify logs an Error; a clip with **no notify** adds nothing and returns nothing —
+no LogPoseSearch line, `cost=FLT_MAX`. Measured 2026-08-31: `AnimPro_Crouch_WalkFwd_new` (explicit
+entry in `PSD_v2_StrafeCrouch`, no BranchIn) — the strafe-mode crouch row passes the DATABASE and
+works (+0.05); the orientation-mode crouch row passes the raw clip and every search was empty
+(7× `[v2 MMFallback]`, stop->loop resumes at frame 0). AssetRegistry check: a DB with only ABPs as
+referencers has NO BranchIn clips pointing at it. Fix recipe: [[feedback_posesearch_branchin_db_sync]].
+
 Related: [[feedback_verify_never_presume]], [[project_cmc_input_gap_doctrine]],
-[[project_cmc_jump_build_order]], [[project_jump_system_status]], [[project_cmc_mm_content_verdict]].
+[[project_cmc_jump_build_order]], [[project_jump_system_status]], [[project_cmc_mm_content_verdict]],
+[[feedback_mover_spine_search_continuity]].

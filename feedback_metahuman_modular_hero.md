@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-18T01:53:16.982Z
+  modified: 2026-08-31T01:00:41.095Z
 ---
 
 Two traps hit while porting `MHC_Hero` onto `BP_CMC_Hero` (2026-08-16). Both fail SILENTLY.
@@ -77,5 +77,26 @@ the face by that exact string.
 Leave `UMetaHumanComponentUE.BodyComponentName` as **"Body"**: it fails to match `CharacterMesh0` and
 falls through to Epic's documented pawn fallback ("parent component of the face"). `LODSyncComponent`
 has NO such fallback — its drive entry must be `CharacterMesh0` literally (it matches on `GetFName()`).
+
+## Mover-side transplant (2026-08-31) — the same rules, second implementation
+
+The MetaHuman body now also runs on the Mover hero (`AZ_BP_PawnMoverHero_MHC`, see
+[[project_mover_metahuman_2026-08-31]]). Facts verified while doing it:
+- The body is on **`metahuman_base_skel`**, NOT `SKEL_SurvivalMan`; it animates under SurvivalMan ABPs
+  only because `metahuman_base_skel.CompatibleSkeletons = [SKEL_SurvivalMan]` (one-directional). That
+  registration lives in gitignored `Content/MetaHumans/` — disk only, and re-assembly wipes it.
+- Setting `leader_pose_component` on the duplicated BP's components reproduced the frozen-cloth symptom
+  exactly as §2 predicts; the runtime `SetLeaderPoseComponent(Leader, /*bForceUpdate*/ true)` is
+  mandatory. Mover owner: file-local `WireModularMeshFollowers_Mover` in
+  `AZ_PawnMoverHeroCharacter.cpp::BeginPlay` (no header change → LC-safe); logs `[MoverMesh] … wired 6 …
+  (1 excluded)`. The stock hero has no followers and logs `wired 0` — a no-op, so the shared class is safe.
+- `BP_CMC_Hero`'s `Cloth_Hoodie` carries BOTH a leader pose AND `AZ_ABP_CmcAnimInstance_C` — the ABP is
+  dead weight under a leader pose and contradicts the "no garment ABP" rule; the other five are clean.
+  The Mover duplicate gives all six `anim_class=None`.
+- Cloth components are `NoCollision`; the body mesh on the CMC hero uses profile `Custom` (QUERY_ONLY).
+  The `COLLISION PROFILE [Custom] is not found` spam (thousands/run) is pre-existing and NOT from the
+  cloth — a red herring I chased for one round.
+- Mesh bounds: MetaHuman body 149 cm vs SKM_SurvivalMan 184 cm; both heroes use relLoc Z=-92 on a
+  90 cm half-height capsule. Feet-on-ground and garment fit on the smaller body are still unverified.
 
 Related: [[project-cmc-backport-spike]], [[feedback-no-hardcoded-asset-paths]]
