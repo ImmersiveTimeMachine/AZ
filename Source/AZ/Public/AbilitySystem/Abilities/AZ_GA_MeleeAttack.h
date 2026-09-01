@@ -258,6 +258,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
 	float WarpApproachDistance = 100.f;
 
+	/** BOUNDED BACK-STEP: how far (cm) the warp may move the attacker AWAY from the target to reach
+	 *  WarpApproachDistance when the swing starts inside it. 0 = the previous behaviour (hold position,
+	 *  bury the fist). The old unbounded Max() moonwalked because it could retreat 40+cm; a ceiling this
+	 *  small reads as a weight-shift. Measured 2026-09-01: a standing jab from 60cm puts the knuckle 18cm
+	 *  past the victim's CENTRE — the everyday close-range case that no stand-off value can fix. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
+	float MaxBackstepDistance = 15.f;
+
+	/** How far (cm) an IN-PLACE clip (a standing jab, 0-0.3cm of travel) may be warped TOWARD the target.
+	 *  Travelling clips (Move / lunge) approach without limit — their speed is capped by the SkewWarp
+	 *  MaxSpeedClampRatio on their notify. In-place clips take SkewWarp's lerp branch, where that clamp is
+	 *  DEAD, so without this bound a standing jab thrown at a target 250cm away would lerp 120cm in the
+	 *  0.17s before contact: a dash-punch. A jab may CORRECT its distance, never close it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
+	float MaxInPlaceApproachDistance = 15.f;
+
 	/** Nearest hostile in front within WarpSearchDistance, or null. Mirrors the hit sweep's filters so the
 	 *  thing we lunge at is the thing the damage window would hit. */
 	AActor* FindWarpTarget() const;

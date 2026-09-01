@@ -172,6 +172,14 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		return;
 	}
 
+	// Does this clip TRAVEL? Read once here — the warp clamp below needs it (an in-place jab may only
+	// correct its distance) and the root-motion drive further down needs it (driving a clip that goes
+	// nowhere pins the pawn). The flag says nothing; the measured displacement does — the jabs move
+	// 0.0-0.3cm, the moving punches 70cm, the heavy 202cm.
+	const FTransform ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(
+		0.f, Montage->GetPlayLength(), FAnimExtractContext());
+	const bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+
 	// Warp target BEFORE the montage starts: a warp window opening on frame 0 resolves its target the
 	// moment it becomes relevant, so registering after would race the first frame of the lunge.
 	// Finding nothing is a legitimate outcome — the clip then plays its authored distance unwarped.
@@ -200,7 +208,24 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 						// prevent. Min approaches when there is room (200 -> 100) and holds position when
 						// there is not (60 -> 60), which is the whole intent: never retreat to reach a
 						// stand-off we are already inside.
-						const float ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched);
+						//
+						// ★ BOUNDED BACK-STEP (2026-09-01): "never retreat" left the everyday case unfixed —
+						// a standing jab from 60cm buries the knuckle 18cm past the victim's centre, and no
+						// stand-off value changes that because the clamp holds at 60. So: retreat IS
+						// allowed, but only by MaxBackstepDistance (60 -> 75 with 15), which is what makes
+						// it a weight-shift instead of the unbounded moonwalk. With the property at 0 this
+						// is exactly the old Min(). And an IN-PLACE clip may only CORRECT its distance
+						// (±MaxInPlaceApproachDistance): SkewWarp's lerp branch has no speed clamp, so an
+						// unbounded approach would turn a standing jab at 250cm into a 120cm dash.
+						float ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched + MaxBackstepDistance);
+						if (!bClipTravels)
+						{
+							ClampedApproach = FMath::Max(ClampedApproach, TargetGapLatched - MaxInPlaceApproachDistance);
+						}
+						UE_LOG(LogTemp, Display, TEXT("[MeleeWarp] %s clip=%s gap=%.0f standoff=%.0f -> dest=%.0f (%s %.0fcm, inPlace=%d)"),
+							*GetNameSafe(Avatar), *Montage->GetName(), TargetGapLatched, WarpApproachDistance, ClampedApproach,
+							(ClampedApproach > TargetGapLatched) ? TEXT("back") : TEXT("fwd"),
+							FMath::Abs(ClampedApproach - TargetGapLatched), !bClipTravels);
 						Warping->AddOrUpdateWarpTargetFromComponent(WarpTargetName, TargetRoot, NAME_None,
 							/*bFollowComponent*/ true,
 							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
@@ -277,9 +302,7 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// an OverrideAll layered move that transports nothing for the clip's whole length, and OverrideAll
 	// applying a ~zero delta PINS the pawn. That is felt as "I still have to wait after punching", for no
 	// transport in return.
-	const FTransform ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(
-		0.f, Montage->GetPlayLength(), FAnimExtractContext());
-	const bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+	// (ClipRootMotion / bClipTravels are read once, right after SelectMontage — the warp clamp uses them too.)
 
 	// ...BUT "does the clip travel" is the wrong question on its own, because WARPING SYNTHESISES TRAVEL
 	// A CLIP DOES NOT CONTAIN. The Chalkie's claws are in-place by design and get their entire approach
