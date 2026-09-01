@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-03T02:33:24.025Z
+  modified: 2026-09-01T04:32:56.072Z
 ---
 
 # Motion Warping in AZ (built 2026-08-02, branch `feature/NPC`)
@@ -131,7 +131,41 @@ scale/shear branch — but a poor primary attack: it moves the camera 2m through
 victim's 25cm stumble. `AM_Fists_Punch_L` (0.3cm travel) is the working left click. If the heavy clip is
 wanted, give it its own input/ability at range.
 
-Related: [[feedback-seam-trace-before-pie]], [[project-chalkie-fight-rules]], [[project-grab-grapple-design]]
+## ★★ BOUNDED BACK-STEP (2026-09-01) — the close-range fix the Min() clamp could not make
+
+`Min(WarpApproachDistance, TargetGapLatched)` fixed the moonwalk but froze the everyday case: a standing
+jab from gap 60 holds at 60 and buries the knuckle 18cm past the victim's centre, and NO stand-off value
+changes that. New clamp in `UAZ_GA_MeleeAttack::ActivateAbility`:
+`dest = Min(standoff, gap + MaxBackstepDistance)`; for IN-PLACE clips also `dest = Max(dest, gap −
+MaxInPlaceApproachDistance)`. Both properties default 15cm; at 0 it is exactly the old Min().
+Why the in-place bound exists: in-place clips take SkewWarp's LERP branch where `MaxSpeedClampRatio` is
+DEAD, and `BP_GA_Punch_R` has no lunge slot, so a standing jab could be selected at 250cm and would lerp
+120cm in 0.17s. A jab may CORRECT its distance, never close it. `ClipRootMotion`/`bClipTravels` are now
+hoisted to right after `SelectMontage()` so the clamp and the RM drive read one value.
+Log line = the pass/fail: `[MeleeWarp] <hero> clip=… gap=60 standoff=130 -> dest=75 (back 15cm, inPlace=1)`.
+Content that went with it (all via `AZ_MontageUtils`, hit+cancel windows verified intact):
+`AM_Fists_Punch_Move_L/R` warp windows 0→contact (0.275 / 0.300, translation ON, clamp 2.0 — these
+TRAVEL 70cm, scale/shear branch); `AM_Fists_Punch_L/R` warp windows 0→contact (0.168 / 0.184, HermiteCubic
+easing — in-place, lerp branch). Stand-offs derived from the clips that now warp: `BP_GA_Punch_L` 120
+(Move_L ∩ Heavy_L = 116.8..124.7), `BP_GA_Punch_R` 130 (Move_R 124.6..136.6). Heavy hit window trimmed
+0.25→1.95 to 0.25→0.55. UNTESTED in PIE at the time of writing.
+
+## ★ 2026-09-01 — READ THIS FILE BEFORE TOUCHING PUNCH CONTENT (it already had the answers)
+
+Two mistakes made in one session by building before reading it:
+1. Claimed the heavy's motion-warping window needed a MANUAL editor drag — false,
+   `AZ_MontageUtils::AddMotionWarpingNotify` / `RemoveMotionWarpingNotifies` are listed above.
+2. Added a second `AddGameplayEventNotify` to `UAZ_PoseSearchUtils` (burning a closed-editor build) when
+   `AZ_MontageUtils::AddGameplayEventNotify(Montage, FName EventTagName, ...)` already existed — and it
+   already takes an **FName**, which is exactly what gotcha 2 prescribes. **The AZ_PoseSearchUtils copy is
+   a DUPLICATE and should be deleted**; its "invalid tag = Event.Combat.BeatEnd" bridge is a worse
+   workaround for a solved problem. Use AZ_MontageUtils for ALL notify authoring.
+Also confirmed still true: the "poor primary attack" verdict below — `Heavy2Idle` is currently wired as
+`BP_GA_Punch_L.PunchLunge_L` (gated at `LungeMinDistance` 110), and its warp window (0→1.65) spreads the
+approach across the walk-to-idle tail, so only ~14% of the gap is closed by the 0.34 contact frame.
+
+Related: [[feedback-seam-trace-before-pie]], [[project-chalkie-fight-rules]], [[project-grab-grapple-design]],
+[[reference_punch_reaction_content_inventory]]
 
 **Method note:** three wrong diagnoses this session (BlendListByBool/`Turning` suppression, warp distance
 out of reach, "no slot node") all came from reasoning over graph exports and reach arithmetic instead of

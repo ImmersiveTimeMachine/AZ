@@ -1,11 +1,11 @@
 ---
 name: feedback_posesearch_mm_mechanism_rules
-description: "★★★ MUST RULES R1-R14 for PoseSearch/MM selection — continuing-pose exemption, BranchIn = indexed range, cost contests, BlockTransition sizing, keep-alive undoing strips, R11 inert guards, R12 reindex = no result, R13 PHASE-LOCKED start->loop seam (content ends on loop frame 0), R14 BranchIn-less clip = silent empty search. Read before changing any MM pool, notify, gate or seam."
+description: "★★★ MUST RULES R1-R15 for PoseSearch/MM selection — continuing-pose exemption, BranchIn = indexed range, cost contests, BlockTransition sizing, keep-alive undoing strips, R11 inert guards, R12 reindex = no result, R13 PHASE-LOCKED start->loop seam (content ends on loop frame 0), R14 BranchIn-less clip = silent empty search, R15 montage sections are INVISIBLE to PoseSearch (flat SlotAnimTracks[0] timeline; SamplingRange is the lever; 1 slot track only), R16 a REACTION schema must carry NO trajectory channel (else the cost picks the least-moving clip every time). Read before changing any MM pool, notify, gate or seam."
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-31T01:00:33.378Z
+  modified: 2026-09-01T03:27:02.924Z
 ---
 
 # MM mechanism rules — written after getting the same things wrong twice in one session
@@ -211,6 +211,42 @@ entry in `PSD_v2_StrafeCrouch`, no BranchIn) — the strafe-mode crouch row pass
 works (+0.05); the orientation-mode crouch row passes the raw clip and every search was empty
 (7× `[v2 MMFallback]`, stop->loop resumes at frame 0). AssetRegistry check: a DB with only ABPs as
 referencers has NO BranchIn clips pointing at it. Fix recipe: [[feedback_posesearch_branchin_db_sync]].
+
+## R15 — PoseSearch indexes a MONTAGE as one flat timeline; SECTIONS DO NOT EXIST to it
+
+Read in `PoseSearchAssetSampler.cpp` 2026-08-31: pose extraction is
+`AnimMontage->SlotAnimTracks[0].AnimTrack.GetAnimationPose(Out, Ctx)` at an ABSOLUTE montage time
+(:440-451), root motion likewise via `AnimTrack.GetRootMotionExtractionStepsForTrackRange` (:56-71).
+**Zero references to `CompositeSections` / section lookup anywhere in the PoseSearch source.** Therefore:
+1. Montages ARE first-class (`FPoseSearchDatabaseAnimMontage`, `FPoseSearchInteractionAssetItem::Animation`
+   is `TObjectPtr<UAnimationAsset>`) — and GASP's PSIAs point BOTH role items at montages
+   (`AM_*_A` / `AM_*_V`, verified on Walk_L / Run_F / stand_B / tackle_F_Lfoot; `PSIA_..._stand_F` is
+   missing its Attacker ref — a broken sample asset, don't copy it).
+2. A PSIA item / DB entry addresses the WHOLE montage, never "section X". The index covers every segment
+   laid end to end, INCLUDING the segment seams that never play back-to-back at runtime, and a search may
+   return `SelectedTime` anywhere in the full length.
+3. **The lever is `SamplingRange`** (`FPoseSearchDatabaseAnimMontage::SamplingRange`, and the same field on
+   the MultiAnimAsset DB entry; `[0,0]` = whole asset, readonly when a BranchIn drives it). Trim it to the
+   window you actually want selectable.
+4. `SlotAnimTracks.Num() != 1` → `UE_LOGF(Error, "so far we support only montages with one SlotAnimTracks")`
+   and ref pose / identity root. **Silent-ish failure — check the count before indexing.**
+5. R14 does NOT bite interactions: `MotionMatchMulti` takes the DATABASE via the availability/query, so no
+   BranchIn notify is involved.
+
+## R16 — A REACTION schema must NOT carry a trajectory channel (measured 2026-08-31)
+
+Selecting a one-shot the character does not *choose* (hit reaction, knockback, any imposed motion): the
+DB's trajectory samples are the CLIP's future = the reaction itself (flying backwards); the query's
+future is the character's own predicted intent, which is never that. The cost then systematically
+favours **whichever clip moves least**, not the one whose body state matches.
+Measured on `PSD_AZ_ChalkieReactions` (9 knockbacks): with the cloned locomotion schema's Trajectory
+channel, EVERY hit returned `AM_Zombie_KB_Chase_5` — the smallest-travel clip in the pool (85cm vs
+118-224) — cost 0.5-0.8. Removing the Trajectory channel (pose channels only: Position foot_l,
+Velocity foot_l/r, Heading pelvis) → Chase_1 / Atk_1 / Chase_1 / Atk_4 across four hits, cost 0.0-0.4.
+⇒ **Locomotion schema = trajectory (where am I GOING). Reaction/interaction schema = pose only (what is
+my body DOING).** GASP's `PSS_CharacterInteraction` has no trajectory channel either — same reason.
+Gotcha while iterating: touching the SCHEMA cancels the DB index (`PreCancelled because of PSS_...`);
+close the schema tab, reopen the DB alone, wait for a NEW `BuildIndex Succeeded` key.
 
 Related: [[feedback_verify_never_presume]], [[project_cmc_input_gap_doctrine]],
 [[project_cmc_jump_build_order]], [[project_jump_system_status]], [[project_cmc_mm_content_verdict]],

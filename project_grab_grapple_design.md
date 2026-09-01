@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-01T21:50:30.461Z
+  modified: 2026-08-31T21:48:33.189Z
 ---
 
 # Grab / Grapple ("caught") — design, grounded 2026-07-22
@@ -21,8 +21,23 @@ SelectedTime/WantedPlayRate → tick prerequisite + capsule ignore. NAAT's share
 - `PSS_AZ_Catch` = dup of GASP `PSS_CharacterInteraction` (2 cross-role root Position channels, sample 30 Hz,
   Normalize) with role skeletons **Attacker → `/Game/Zombie_01/.../UE4_Mannequin_Skeleton`, Victim → `SKEL_SurvivalMan`**
   (= the montages' skeletons; the MetaHuman hero body runs SurvivalMan anims through CompatibleSkeletons).
-- `AZ_Catch_Fight` (PoseSearchInteractionAsset): items [0] `AM_Grab_Chalkie` role Attacker wT 0 wR 0 origin identity;
-  [1] `AM_Grab_Hero` role Victim wT 1.0 wR 0 origin identity (NAAT = shared origin, victim yaw-180 baked in clips).
+- `AZ_Catch_Fight` (PoseSearchInteractionAsset) — **RECORD CORRECTED 2026-08-31 by fresh ObjectTools read;
+  the earlier "items = the montages, origin identity" note was WRONG.** Actual contents:
+  [0] `RTX_RT_AS_NAAT_Zombie_Idle_To_Grab` role Attacker wT 0 wR 0 origin identity (raw 0.6s entry clip,
+  UE4_Mannequin_Skeleton ✔ = AM_Grab_Chalkie segment 0);
+  [1] `RTX_RT_AS_NAAT_Human_Idle_To_Grab` role Victim wT 1.0 wR 0 origin (x −2.50, y 83.40, yaw −180) —
+  **WRONG-SKELETON BUG: that clip is on UE4_Mannequin_Skeleton (verified), but the schema's Victim role is
+  SKEL_SurvivalMan; the hero montage's real segment-0 clip is `RTG_RM_AS_NAAT_Human_Idle_To_Grab`
+  (SKEL_SurvivalMan ✔).** BuildIndex succeeded ANYWAY (03:54/03:55) — skeleton mismatch did not fail the
+  index (tolerance unverified; likely compatible-skeleton). **FIX APPLIED + VERIFIED later same night:**
+  items repointed to `AM_Grab_Chalkie` / `AM_Grab_Hero` (ObjectTools set_properties, re-read confirmed;
+  origins/weights/previews kept), SamplingRange [0, 0.6] set on entry 0 via the TEMP-PSI2 injected body
+  (`GetMutableDatabaseAnimationAsset(0)->SetSamplingRange` — the scriptable-API gap again; injection
+  reverted, LC green, `git diff` clean), log `[PSI2] ... SamplingRange now [0.000, 0.600]`, then
+  `46d030ef... PSD_AZ_Catch BuildIndex Succeeded` (new key; rebuild had to be FORCED by opening the DB
+  editor — after a dependency change the index stays Cancelled until something accesses the DB, R12).
+  Both packages left dirty for the user to save. Proper `SetSamplingRangeOnEntry` +
+  `AddAnimAssetToDatabase` UFUNCTIONs remain queued for the closed-editor build.
 - `PSD_AZ_Catch` = dup of GASP `PSD_Interaction_takedown_stand`, cleared, schema `PSS_AZ_Catch`, BruteForce,
   bias −0.01, ONE entry = `AZ_Catch_Fight`. **BuildIndex Succeeded** on first build (skeletons/roles consistent).
 - The DB entry array is a private `UPROPERTY()` (`DatabaseAnimationAssets`, no scriptable add) and
@@ -31,6 +46,162 @@ SelectedTime/WantedPlayRate → tick prerequisite + capsule ignore. NAAT's share
   `AddAnimAssetToDatabase(UPoseSearchDatabase*, UObject*)` UFUNCTION (the modern `FPoseSearchDatabaseAnimationAsset
   .AnimAsset` is a `TObjectPtr<UObject>`, so it takes a UMultiAnimAsset).
 - Folder is git-untracked (new) — commit with the driver.
+
+## ★★ STEP-2 DRIVER DESIGN (written 2026-08-31, awaiting user go)
+
+**Scope (Stage A): replace ONLY the close-in placement + montage entry frame in `UAZ_GA_ChalkieGrab::
+ActivateAbility`.** Sections, MontageSync_Follow, escape/timeout/shove flow, collision carve-out, pack
+step-back: untouched. Verified API (fresh header read): `UPoseSearchInteractionLibrary::MotionMatchMulti(
+TArray<FPoseSearchMotionMatchMultiQuery>, FName PoseHistoryName, FPoseSearchContinuingProperties,
+TArray<FPoseSearchBlueprintResult>&)` — game thread, explicit-query path (no availability/subsystem);
+query = {Database, AnimContextsRoles[{AnimContext=UAnimInstance, Roles[]}]}; result per actor =
+{SelectedAnim(PSIA), SelectedTime, WantedPlayRate, SearchCost, Role, RoleIndex, ActorRootTransforms[],
+ActorRootBoneTransforms[], bIsInteraction}; map back via `UPoseSearchLibrary::GetActor/GetActorForRole`
+(PoseSearchLibrary.h:299-302). Aligned targets via `CalculateFullAlignedTransforms(Result, TimeOffset,
+bWarpUsingRootBone=false, Out)` (honors item warp weights: attacker wT0=moves fully, victim wT1=stays —
+matches current behavior "attacker travels"). Stage-B hook (unused now): `GetMontageContinuingProperties`.
+
+**Plan:** (1) editor now, no build: add PoseSearchHistoryCollector tagged "PoseHistory" to `AZ_ABP_Chalkie`
+main pose path (VERIFIED absent — 0 name-table hits; hero ABP has it, tag proven by the working v2 MM call
+`MotionMatch(this, ..., FName("PoseHistory"))`); user compiles. (2) closed-editor build: GA gains
+`UPROPERTY(EditDefaultsOnly) TObjectPtr<UPoseSearchDatabase> CatchDatabase` (null = legacy path, same
+convention as PairedGrabMontage) + private `TryCatchSearch()` quarantining every PSI call in ONE function
+(Experimental-API quarantine, same doctrine as CAS) + StartLoopMontage grows (StartPosition, PlayRate)
+params — leader only, follower syncs. (3) editor: assign PSD_AZ_Catch on the GRANTED BP child's CDO
+(doctrine rule 1). Close-in mechanism KEPT: same FLayeredMove_LinearVelocity over GrabCloseSeconds, target
+now = aligned transform for the Chalkie instead of GrabHoldDistance math; yaw via orientation intent, never
+SetActorLocation. **Fallback funnel:** any invalid result (null anim / cost=MAX_flt / t>0.6 / montage
+mismatch) → log `[PSI Drive] FALLBACK reason=` → current GrabHoldDistance path. One owner per fact: GA's
+editor-assigned montages own WHAT plays (validate PSIA GetAnimationAsset(Role) == them, else fallback);
+PSI owns WHERE/WHEN (align + entry time + rate).
+
+**Named pass/fail lines (before any PIE):** PASS = two `[PSI Drive] actor=%s role=%s anim=AZ_Catch_Fight
+t≤0.60 cost=<finite>` + hero displacement ≈0 + chalkie displacement sane (<400cm) + montages start at t.
+FAIL modes: cost=MAX_flt ⇒ PoseHistory missing (Chalkie!) or index unbuilt (R12); t>0.6 ⇒ SamplingRange
+not in runtime index; hero d>10cm ⇒ warp weights not honored ⇒ STOP re-model (two-strike).
+
+**Failure axes:** (1) empty search: missing collector / R12 unbuilt index / role mismatch → fallback;
+(2) pose-history cold on activation frame (mid-combat = warm; spawn-frame grab → fallback); (3)
+ActorRootTransforms pre-vs-post-alignment ambiguity → use CalculateFullAlignedTransforms + first-run log
+dumps BOTH arrays, never assume; (4) two-writers on Chalkie transform (layered move vs AI focus yaw vs
+Mover FinalizeFrame) → position through sim only, yaw through intent only, bob ⇒ OnEndFrame sampler;
+(5) montage blend-in (0.25 default) eats the 0.6s catch when starting at t>0 → keep authored blend, ONE
+variable if mushy; (6) first-search DDC hitch → measure, prewarm at BeginPlay if >5ms; (7) Experimental
+API removal → quarantined in TryCatchSearch.
+
+## ★★★ STEP 2 STAGE A = GREEN (2026-08-31 21:45 PIE, measured)
+
+`[PSI Drive] cost=236` (was 5.7M), both roles AZ_Catch_Fight t=0.00 rate=1.00, raw
+ActorRootTransforms real (mesh yaw = actor yaw − 90 ✔), align chalkie d=23cm dyaw=−9 (the hand-tuned
+GrabHoldDistance 92 was ~the authored spacing — PSI now DERIVES it), hero d=10cm (stays), montages +
+sections + MontageSync_Follow unchanged past the catch. **The Chalkie trajectory fix that finally worked:
+UAZ_InfectedAnimInstance builds `Trajectory` (1s mesh-world ring ≤30Hz + 4 const-velocity future samples)
+and PUSHES it directly into its own collector each NativeUpdateAnimation:
+`const_cast<FPoseHistory*>(FindPoseHistoryNode("PoseHistory", this)->GetPoseHistoryPtr())->SetTrajectory(...)`.
+The UAZ_AnimGraphNodeUtils::SetPinBinding-made TransformTrajectory binding serialized correctly
+(bIsBound=True, survives compile) but NEVER delivered at runtime (node trajSamples=0 vs hero's
+editor-made binding = 21) — treat util-made ANIM-NODE pin bindings as UNPROVEN until runtime-verified;
+the direct push is the one writer (node's own SetTrajectory(empty pin) is a no-op, no stomp).
+Also: bGenerateTrajectory=true SHADOWS the input pin (if/else in Update_AnyThread) — keep it FALSE.**
+Stage-A visual delta is deliberately small (same montages/sections, t=0 from a standing hero); the A/B
+proof is GrabHoldDistance=30 → legacy buries the bodies, PSI ignores the property. Remaining Stage-A
+polish: apply the searched yaw (currently log-only), retire the probe logs, commit.
+
+## ★ PSI needs a TRAJECTORY on EVERY participant — and bGenerateTrajectory is CMC-ONLY (2026-08-31 PIE)
+
+Step-2 first PIE chain, in order: (1) BP-CDO-write-needs-recompile ([[feedback_bp_cdo_write_needs_recompile]]);
+(2) hero anim instance found by CLASS (UAZ_MoverAnimInstance across components), not GetMainMesh — the MHC
+hero's main mesh accessor is not the ABP-bearing body; (3) search RAN (AZ_Catch_Fight t=0.00 both roles,
+hero d=10cm ✔) but `cost≈5.8M` and `raw ActorRootTransforms[Attacker]=identity` → align d≈180cm dyaw≈-135,
+bodies apart. **Mechanism (engine-read):** MotionMatchMulti fills ActorRootTransforms from
+`PoseHistory->GetTransformAtTime(0, …, WorldSpace)` = the collector's TRAJECTORY; the Chalkie collector had
+none. Flipping `bGenerateTrajectory=true` did NOTHING: `FPoseSearchTrajectoryData::UpdateData`
+(PoseSearchTrajectoryLibrary.cpp:48-71) hard-requires `Cast<ACharacter>` + `UCharacterMovementComponent`
+and returns false → silent empty trajectory. **On Mover pawns the ONLY path is the node's
+TransformTrajectory INPUT PIN** (hero: bound to UAZ_MoverAnimInstance's Mover-built Trajectory).
+Cost signature of a missing participant trajectory: cost ≈ (distance actor↔world origin)², identity raw
+root, no LogPoseSearch line. NEXT: UAZ_InfectedAnimInstance gets a Transient FTransformTrajectory UPROPERTY
+(ring of past pawn transforms + short constant-velocity prediction from Mover velocity), bind the Chalkie
+collector's TransformTrajectory pin to it (closed-editor build + pin bind + user ABP compile).
+
+## ★★ How the FIGHT BEATS work under PSI (design answered 2026-08-31)
+
+**The reframe: PSI selects a VARIANT and ALIGNS the pair. It cannot choose push-vs-kick.**
+`PSS_CharacterInteraction`'s only channels are two cross-role root Positions (Attacker-rel-Victim and the
+inverse, weight 1.0, InputQueryPose=UseContinuingPose). That scores RELATIVE PLACEMENT — which is exactly
+what picks a takedown variant by approach direction/gait, and is exactly USELESS for branching mid-hold,
+where Push / Kick / TakeDown all start from the identical clinch pose and would score identically.
+That is rule R2 ("a moment must not be a cost contest") in interaction form.
+⇒ **Branch = gameplay (mash meter, input, AI intent). Pool narrowing = chooser. Variant + alignment +
+entry frame = the search.** Same CHT×MM doctrine as our locomotion spine, one level up.
+
+**THE PAIR'S ACTUAL LAYOUT — read off both montages 2026-08-31 (ObjectTools `SlotAnimTracks`, verified):**
+ONE slot track each ✔ (PoseSearch requires exactly 1 — see R15), **7 segments** each (NOT 6: the glob for
+"Grab" misses `TakeDown_To_Munching`), identical `startPos` on both sides ⇒ the two role timelines are
+frame-aligned, which is exactly what a PSIA needs.
+| # | startPos | len | Hero (`AM_Grab_Hero`, slot **FullBody**) | Chalkie (`AM_Grab_Chalkie`, slot **DefaultSlot**) |
+|---|---|---|---|---|
+| 0 | 0.000 | 0.600 | Idle_To_Grab | Idle_To_Grab |
+| 1 | 0.600 | 1.233 | Grab_To_Wrestle | Grab_To_Wrestle |
+| 2 | 1.833 | 2.300 | Grab_To_Push | Grab_To_Pushed |
+| 3 | 4.133 | 2.300 | Grab_To_Kick | Grab_To_Kicked |
+| 4 | 6.433 | 2.200 | Grab_To_TakeDown | Grab_To_TakeDown |
+| 5 | 8.633 | 2.233 | TakeDown_To_Munching (playRate **1.0149** to match) | TakeDown_To_Munching |
+| 6 | 10.867 | 2.333 | Grab_To_Munching | Grab_To_Munching |
+Total 13.2 s. Sections: Wrestle / Push / Kick / TakeDown / Munch / GroundMunch + `NextSectionName` links;
+Chalkie carries `Event.Grab.OutcomeBegin`. Two content nits: the slot names differ (FullBody vs
+DefaultSlot — harmless to PoseSearch, pick one), and segment 5 is rate-matched, so the raw clips differ
+by 0.033 s.
+⇒ **Stage A concretely = 1 PSIA on this pair + the multi-anim DB entry's `SamplingRange` trimmed to
+[0, 0.6]**, so the only thing a search can ever return is a catch-entry pose + alignment; everything past
+0.6 s keeps branching through sections + `MontageSync_Follow` exactly as today, and the 6 never-played
+segment seams stay out of the index. **Stage B = 7 PSIAs** (one per segment, per-beat montage pairs).
+
+**HOW MANY PSIAs? — GASP's 24 counted on disk 2026-08-31 (file listing, verified):** 24 PSIAs are NOT 24
+actions. They are **3 actions × entry variants**, and every variant axis is something the two cross-role
+Position channels can actually measure:
+| action | PSIAs | axes | PSDs |
+|---|---|---|---|
+| Takedown | 12 | gait(stand/walk/run) × dir(F/B/L/R) | 3 (`PSD_Interaction_takedown_stand/_Walk/_Run`) |
+| Tackle | 8 | dir(F/B/L/R) × plant foot(L/R) | 1 (`PSD_Interaction_Tackle`) |
+| Shove | 4 | dir(F/B/L/R) | 1 (`PSD_Interaction_Shove`) |
+`CHT_CharacterInteractionPSDs` picks the PSD (i.e. the gait/action), so each actual search runs over 4–8
+candidates that differ ONLY in relative placement. (Per-PSD membership inferred from names + the chooser;
+not dumped entry-by-entry.)
+⇒ **Our count = (beats that re-align) + (entry variants − 1), never beats × directions.** With today's
+6 NAAT pairs: Stage A = **1** PSIA (the sectioned pair; search aligns the catch only), Stage B = **6**
+(one per pair, each its own single-entry pool → a 1-candidate "search" whose value is entry frame +
+alignment + play rate, NOT choice). Multiple PSIAs in ONE pool are justified only at the CATCH ENTRY,
+where the hero's relative placement/gait genuinely varies — that is GASP's takedown pattern verbatim, and
+the only place to spend authoring on dir×gait variants. Putting Push/Kick/TakeDown in one pool = R2 breach.
+
+**The beat loop (one iteration per transition):**
+gameplay state → `CHT_AZ_CatchFight{Phase, EscapeOutcome, Speed, RelDir}` → narrowed PSD (ideally ONE
+PSIA per beat) → `MotionMatchMulti([{PSD, [(Chalkie,"Attacker"), (Hero,"Victim")]}], "PoseHistory")` →
+per-actor {PSIA, Role, SelectedTime, WantedPlayRate, ActorRootTransforms[]} → align both actors → play
+each role's montage at SelectedTime/WantedPlayRate → notifies (contact constraints, damage, escape
+window) → beat ends → next gameplay decision → repeat. Exit: interaction ends → undo
+`IgnoreComponentWhenMoving` + tick prerequisite, Chalkie blends back to AI locomotion.
+
+**The 7 NAAT pairs map 1:1 onto beats** (each pair = ONE PSIA, both halves inside it):
+Idle_To_Grab = entry · Grab_To_Wrestle = the LOOP (looping multi-role asset + `bKeepInteractionAlive` +
+continuing-interaction bias re-selects itself while the mash is unresolved) · Grab_To_Push/Pushed,
+Grab_To_Kick/Kicked, Grab_To_TakeDown, Grab_To_Munching, TakeDown_To_Munching = outcomes.
+**"Zombie reaction" is NOT a separate lookup** — the Chalkie's half (`*_Pushed`, `*_Kicked`) is the
+Attacker item of the same PSIA. Reactions that break the pair are the interaction EXIT, not a beat.
+
+**Staging (decided):**
+- **Stage A** (what step 1 built): ONE PSIA = the whole existing 13.2 s sectioned pair. PSI replaces only
+  the catch ENTRY + alignment (kills `GrabHoldDistance` and manual placement, the fragile part);
+  push/kick/takedown keep branching through montage sections + `MontageSync_Follow` exactly as today.
+- **Stage B** (after A is proven): split into per-beat PSIAs, chooser + `MotionMatchMulti` per beat. Each
+  beat then RE-ALIGNS (drift correction for free) and a new outcome is pure content. `MontageSync_Follow`
+  demotes from branch mechanism to per-frame drift guard inside a long beat.
+
+**Unverified, do not assume:** whether a PSIA item can address a montage SECTION (GASP's answer to many
+variants is many PSIAs, not sections — 24 of them); whether `bKeepInteractionAlive` needs the ABP
+availability path rather than the explicit query path; who writes GASP's `"WarpTarget"`. With RM-off
+shared-origin NAAT clips the align-teleport alone gives frame-1 contact, so warping is not needed for v1.
 
 **Step 2 (not started):** C++ driver on the Chalkie AI — editor-assigned `PSD_AZ_Catch` property (no /Game/ paths),
 `MotionMatchMulti([{DB, [(Chalkie AnimInstance, "Attacker"), (Hero AnimInstance, "Victim")]}], "PoseHistory")`,
