@@ -84,6 +84,25 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|Fallback")
 	FAZ_CombatMontage DefaultReactionRight;
 
+	// --- POSE-SELECTED REACTION (tier 1: single-role motion matching over the knockback pool).
+	// The Zombie_01 pack authors its knockbacks by LOCOMOTION STATE (Atk_1..5 / Chase_1..5 / Walk_F_1..6),
+	// never by hit direction — i.e. the authored axis IS "what was the body doing when it was hit", which
+	// is exactly what a pose search selects on. Before this, one montage per variant DA was hard-picked
+	// and ~15 authored reactions never played. When ReactionDatabase is assigned, the descriptor still
+	// owns the gameplay TIMING (ActiveSeconds beat, staggerRecover, root motion) and the search only
+	// swaps WHICH clip and its entry frame. Null = the single hard-picked montage, unchanged.
+
+	/** Knockback pool (PSD_AZ_ChalkieReactions — montage entries, each SamplingRange-trimmed to its
+	 *  impact window so the search picks a CLIP, always near its start). Editor-assigned on the granted
+	 *  class (BP-child CDOs need a recompile to see writes — feedback_bp_cdo_write_needs_recompile). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|MM")
+	TObjectPtr<class UPoseSearchDatabase> ReactionDatabase;
+
+	/** Reject an entry frame past this (seconds) — a reaction must start at its impact, not mid-flight.
+	 *  0.25 = the 0.2 sampling window + quantization slack; a larger value means the DB trim was lost. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|MM", meta = (ClampMin = "0"))
+	float ReactionEntryMaxTime = 0.25f;
+
 	/** Pick this escape's reaction: a random entry of GrabEscapeReactions, else the fallback below. */
 	bool ResolveShoveDescriptor(const AActor* Avatar, FAZ_CombatMontage& Out) const;
 
@@ -96,6 +115,11 @@ public:
 	 *  the hold must never end BEFORE the knockback (it restores pair collision and releases the crowd
 	 *  tokens). Erring long is harmless; erring short strands the Chalkie mid-flight. */
 	static float GetShoveHoldSeconds(const AActor* Avatar);
+
+	/** Pose-select the reaction clip out of ReactionDatabase (the ONLY PoseSearch call in this class —
+	 *  Experimental-API quarantine). On success rewrites Desc.Montage and returns the entry frame; on
+	 *  any invalid result logs "[React MM] FALLBACK reason=..." and leaves Desc untouched. */
+	bool TrySelectReactionByPose(const AActor* Avatar, FAZ_CombatMontage& InOutDesc, float& OutStartPosition) const;
 
 protected:
 	/** GRAB ARMOR (rule 8) + the melee cancel. Damage-lock and scream are NOT here: they live in

@@ -1,6 +1,7 @@
 // Copyright Artur. AZ project.
 
 #include "Character/AZ_PawnMoverHeroCharacter.h"
+#include "MoverComponent.h"   // GetBaseVisualComponentTransform (grab mesh anchor rest Z)
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GameplayAbility.h"
@@ -150,6 +151,75 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 }
 
+namespace
+{
+	/** Register every child skeletal mesh as a leader-pose FOLLOWER of the body mesh.
+	 *
+	 *  Why this exists at all: setting LeaderPoseComponent as a PROPERTY (BP template or Python)
+	 *  serialises fine and reaches the instance, but the garments stay frozen — SetLeaderPoseComponent()
+	 *  is what registers the follower into the leader's FollowerPoseComponents list and rebuilds the bone
+	 *  map. Worse, having the property set ALSO stops the follower ticking its own pose, so it is frozen
+	 *  from both directions. Symptom: cloth moves with the actor but never animates.
+	 *  Second trap: the setter early-outs when the new leader equals the current one
+	 *  (SkinnedMeshComponent.cpp:3181) — and the template already holds that value — so bForceUpdate=true
+	 *  is mandatory or the call is a silent no-op.
+	 *
+	 *  Cross-skeleton is fine: UpdateLeaderBoneMap() maps purely by BONE NAME and never consults
+	 *  CompatibleSkeletons, so SurvivalMan-skinned garments ride the MetaHuman body as long as the names
+	 *  match.
+	 *
+	 *  Followers must not keep their own AnimClass — each instance would run its own motion-matching
+	 *  search, drift out of sync with the body and cost ~6x for a pose the leader already computed.
+	 *
+	 *  "Face" is excluded by name: MetaHuman faces animate independently through RigLogic (ABP_Face) and
+	 *  must NOT be leader-posed. Matching the CMC hero, which uses the same literal.
+	 *
+	 *  A no-op on a pawn with no follower meshes, which is why the stock hero is unaffected: it simply
+	 *  logs "wired 0". Mirrors AAZ_CmcCharacterBase::WireModularMeshFollowers.
+	 */
+	void WireModularMeshFollowers_Mover(USkeletalMeshComponent* LeaderMesh, const AActor* Owner)
+	{
+		if (!LeaderMesh)
+		{
+			return;
+		}
+
+		static const FName FaceComponentName(TEXT("Face"));
+
+		TArray<USceneComponent*> Descendants;
+		LeaderMesh->GetChildrenComponents(/*bIncludeAllDescendants*/ true, Descendants);
+
+		int32 WiredCount = 0;
+		int32 ExcludedCount = 0;
+		for (USceneComponent* Child : Descendants)
+		{
+			USkeletalMeshComponent* Follower = Cast<USkeletalMeshComponent>(Child);
+			if (!Follower || Follower == LeaderMesh || !Follower->GetSkeletalMeshAsset())
+			{
+				continue;
+			}
+
+			if (Follower->GetFName() == FaceComponentName)
+			{
+				++ExcludedCount;
+				continue;
+			}
+
+			if (Follower->GetAnimClass())
+			{
+				Follower->SetAnimInstanceClass(nullptr);
+			}
+
+			Follower->SetLeaderPoseComponent(LeaderMesh, /*bForceUpdate*/ true);
+			++WiredCount;
+		}
+
+		UE_LOG(LogTemp, Display,
+			TEXT("[MoverMesh] %s wired %d modular follower mesh(es) to %s (%d excluded)"),
+			*GetNameSafe(Owner), WiredCount, *LeaderMesh->GetName(), ExcludedCount);
+	}
+}
+
 void AAZ_PawnMoverHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -160,6 +230,10 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 	{
 		DefaultMeshRelativeZ = Mesh->GetRelativeLocation().Z;
 	}
+
+	// Modular MetaHuman body: garments are leader-posed to the body here, at runtime. See the helper above
+	// for why the BP property alone leaves them frozen. "wired 6" vs "wired 0" is the whole diagnosis.
+	WireModularMeshFollowers_Mover(Mesh, this);
 
 	// Physics-driven jump: the engine Walking mode (bHandleJump) consumes bIsJumpJustPressed (packed by the GA
 	// jump via IAZ_JumpRequester), applies the launch impulse, and transitions Walking -> Falling; the engine
@@ -259,7 +333,21 @@ void AAZ_PawnMoverHeroCharacter::UpdateGrabMeshAnchor(float DeltaTime)
 	}
 
 	FVector Relative = Mesh->GetRelativeLocation();
-	float TargetZ = DefaultMeshRelativeZ;
+
+	// ★ The REST offset is whatever Mover currently wants for the visual component, NOT the BeginPlay constant.
+	// The engine stance modifier re-bases the mesh on crouch (-92 -> -57, see FStanceModifier::AdjustCapsule ->
+	// SetBaseVisualComponentTransform) and UMoverComponent::FinalizeFrame snaps the mesh back to that base every
+	// sim tick. Easing toward DefaultMeshRelativeZ (-92) here pulled the crouched mesh ~4 cm down every frame
+	// (35 cm x speed x dt), Mover restored it, and the dt jitter became a +/-0.6 cm whole-body bob — measured
+	// 2026-08-31 03:25 ([v2 CrouchEnd]: relZ -61.2 +/- 0.6 at end of frame vs -57 at start; 394 direction
+	// flips / 2363 frames). Feet sank into the floor by the same 4 cm. Standing was a no-op only because the
+	// base happened to equal the constant.
+	float RestZ = DefaultMeshRelativeZ;
+	if (const UMoverComponent* MoverComp = FindComponentByClass<UMoverComponent>())
+	{
+		RestZ = static_cast<float>(MoverComp->GetBaseVisualComponentTransform().GetLocation().Z);
+	}
+	float TargetZ = RestZ;
 
 	if (GrabAnchorMesh.IsValid())
 	{
@@ -273,9 +361,9 @@ void AAZ_PawnMoverHeroCharacter::UpdateGrabMeshAnchor(float DeltaTime)
 
 		// Capsule has no pitch/roll, so relative Z is world Z — no basis conversion needed.
 		TargetZ = FMath::Clamp(Relative.Z + (DesiredWorld.Z - CurrentWorld.Z),
-			DefaultMeshRelativeZ + GrabMeshLiftMin, DefaultMeshRelativeZ + GrabMeshLiftMax);
+			RestZ + GrabMeshLiftMin, RestZ + GrabMeshLiftMax);
 	}
-	else if (FMath::IsNearlyEqual(Relative.Z, DefaultMeshRelativeZ, 0.05f))
+	else if (FMath::IsNearlyEqual(Relative.Z, RestZ, 0.05f))
 	{
 		return;   // settled and no anchor — the common case, costs nothing
 	}

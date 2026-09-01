@@ -27,6 +27,15 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 
+// PSI catch driver (TryCatchSearch ONLY — Experimental API quarantine)
+#include "Animation/AZ_MoverAnimInstance.h"
+#include "Character/AZ_HeroPawn.h"   // GetMainMesh — the victim's PoseHistory-bearing body mesh
+#include "PoseSearch/AnimNode_PoseSearchHistoryCollector.h"   // [PSI Probe] collector introspection
+#include "PoseSearch/MultiAnimAsset.h"
+#include "PoseSearch/PoseSearchDatabase.h"
+#include "PoseSearch/PoseSearchInteractionLibrary.h"
+#include "PoseSearch/PoseSearchLibrary.h"
+
 UAZ_GA_ChalkieGrab::UAZ_GA_ChalkieGrab()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
@@ -126,6 +135,8 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	bResolvedEscaped = false;
 	bOutcomeHandedToHero = false;
 	ChosenEscapeIndex = 0;
+	CatchStartPosition = 0.f;
+	CatchPlayRate = 1.f;
 
 	// Publish the prey to the pawn so the anim layer can aim the grab hand-IK at the victim's grip
 	// sockets. The anim instance must not reach into GAS or the AI tree for this — same reason the hero
@@ -173,22 +184,30 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// CLOSE-IN: slide the grabber onto the prey THROUGH the Mover sim (a short layered velocity move,
 	// the same mechanism the knockback uses). The ATTACKER travels; the player keeps their position.
 	//
-	// Stops at GrabHoldDistance, which is ~92 and NOT 0 — the two actors are rotationally OPPOSED here,
-	// so co-locating them puts the clips' baked body offsets back to back. See the property's comment
-	// before changing it; this was tested and reverted on 2026-08-04.
-	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+	// PSI route first (Stage A): the close-in TARGET and the montage entry frame come from one
+	// MotionMatchMulti over CatchDatabase; the layered-move mechanism below stays either way (position
+	// through the sim only — Mover owns the transform, never SetActorLocation). On any invalid result
+	// TryCatchSearch logs [PSI Drive] FALLBACK and we run the hand-tuned math unchanged.
+	//
+	// Legacy target stops at GrabHoldDistance, which is ~92 and NOT 0 — the two actors are rotationally
+	// OPPOSED here, so co-locating them puts the clips' baked body offsets back to back. See the
+	// property's comment before changing it; this was tested and reverted on 2026-08-04.
+	if (!TryCatchSearch(Target))
 	{
-		const FVector HeroLoc = Target->GetActorLocation();
-		const FVector DirToChalkie = (Avatar->GetActorLocation() - HeroLoc).GetSafeNormal2D();
-		const FVector ContactPoint = HeroLoc + DirToChalkie * GrabHoldDistance;
-		const FVector Displacement = (ContactPoint - Avatar->GetActorLocation()) * FVector(1.f, 1.f, 0.f);
-		if (!Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
+		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
-			const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
-			CloseMove->Velocity = Displacement / GrabCloseSeconds;
-			CloseMove->DurationMs = GrabCloseSeconds * 1000.f;
-			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
-			Mover->QueueLayeredMove(CloseMove);
+			const FVector HeroLoc = Target->GetActorLocation();
+			const FVector DirToChalkie = (Avatar->GetActorLocation() - HeroLoc).GetSafeNormal2D();
+			const FVector ContactPoint = HeroLoc + DirToChalkie * GrabHoldDistance;
+			const FVector Displacement = (ContactPoint - Avatar->GetActorLocation()) * FVector(1.f, 1.f, 0.f);
+			if (!Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
+			{
+				const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
+				CloseMove->Velocity = Displacement / GrabCloseSeconds;
+				CloseMove->DurationMs = GrabCloseSeconds * 1000.f;
+				CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
+				Mover->QueueLayeredMove(CloseMove);
+			}
 		}
 	}
 
@@ -293,6 +312,201 @@ void UAZ_GA_ChalkieGrab::SetGrabStage(const FGameplayTag& NewStage)
 	}
 }
 
+bool UAZ_GA_ChalkieGrab::TryCatchSearch(AActor* Target)
+{
+	// ---- Experimental-API quarantine: every PoseSearch interaction call lives HERE and nowhere else.
+	// Role names are the contract with PSS_AZ_Catch's Skeletons array — the schema owns them.
+	static const FName AttackerRole(TEXT("Attacker"));
+	static const FName VictimRole(TEXT("Victim"));
+	static const FName PoseHistoryTag(TEXT("PoseHistory"));
+
+	auto Fallback = [](const TCHAR* Reason) -> bool
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PSI Drive] FALLBACK reason=%s"), Reason);
+		return false;
+	};
+
+	if (!CatchDatabase)
+	{
+		// Names the instance and its class: null here with the value present on the BP CDO = the
+		// instance predates the CDO write or a recompile dropped it (the ActivationOwnedTags scar).
+		UE_LOG(LogTemp, Display, TEXT("[PSI Drive] OFF: CatchDatabase null on %s (class %s CDO value: %s)"),
+			*GetNameSafe(this), *GetNameSafe(GetClass()),
+			*GetNameSafe(Cast<UAZ_GA_ChalkieGrab>(GetClass()->GetDefaultObject())->CatchDatabase));
+		return false;   // legacy path by configuration
+	}
+	if (!CachedPairedMontage)
+	{
+		return Fallback(TEXT("no paired montage (PSI route rides the sectioned pair)"));
+	}
+	AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(GetAvatarActorFromActorInfo());
+	USkeletalMeshComponent* OwnMesh = Infected ? Infected->GetMesh() : nullptr;
+	UAnimInstance* OwnAnim = OwnMesh ? OwnMesh->GetAnimInstance() : nullptr;
+	// The victim's PoseHistory lives on whichever mesh runs UAZ_MoverAnimInstance — on the MetaHuman
+	// hero that is NOT necessarily GetMainMesh() (body + face + garments each carry components, and the
+	// face has its own instance for copy-pose), so find it by ANIM INSTANCE CLASS, not by accessor.
+	UAnimInstance* HeroAnim = nullptr;
+	TInlineComponentArray<USkeletalMeshComponent*> HeroMeshes(Target);
+	for (USkeletalMeshComponent* Mesh : HeroMeshes)
+	{
+		if (Mesh && Cast<UAZ_MoverAnimInstance>(Mesh->GetAnimInstance()))
+		{
+			HeroAnim = Mesh->GetAnimInstance();
+			break;
+		}
+	}
+	if (!OwnAnim || !HeroAnim)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PSI Drive] own=%s heroMeshes=%d (none with UAZ_MoverAnimInstance)"),
+			*GetNameSafe(OwnAnim), HeroMeshes.Num());
+		return Fallback(TEXT("missing anim instance"));
+	}
+
+	// [PSI Probe] two-strike instrumentation: the full trajectory chain per participant — collector found,
+	// trajectory sample count, and the exact read the result-fill performs (component-in-world at t=0).
+	for (const TPair<const TCHAR*, UAnimInstance*>& Probe :
+		{ TPair<const TCHAR*, UAnimInstance*>(TEXT("chalkie"), OwnAnim), TPair<const TCHAR*, UAnimInstance*>(TEXT("hero"), HeroAnim) })
+	{
+		const FAnimNode_PoseSearchHistoryCollector_Base* Node = UPoseSearchLibrary::FindPoseHistoryNode(PoseHistoryTag, Probe.Value);
+		const UE::PoseSearch::IPoseHistory* Hist = Node ? Node->GetPoseHistoryPtr() : nullptr;
+		if (!Hist)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[PSI Probe] %s: node=%d hist=0"), Probe.Key, Node != nullptr);
+			continue;
+		}
+		FTransform T0 = FTransform::Identity;
+		const bool bOk = Hist->GetTransformAtTime(0.f, T0, nullptr,
+			UE::PoseSearch::ComponentSpaceIndexType, UE::PoseSearch::WorldSpaceIndexType);
+		UE_LOG(LogTemp, Display, TEXT("[PSI Probe] %s: trajSamples=%d t0Ok=%d t0=(%.0f,%.0f,%.0f yaw %.0f)"),
+			Probe.Key, Hist->GetTrajectory().Samples.Num(), bOk,
+			T0.GetLocation().X, T0.GetLocation().Y, T0.GetLocation().Z, T0.Rotator().Yaw);
+	}
+	// Attribution probe: the C++ member itself (reflection — it's protected). member>0 while the node
+	// shows 0 = the delivery is broken; member==0 = the fill in NativeUpdateAnimation never ran.
+	if (const FStructProperty* TrajProp = CastField<FStructProperty>(OwnAnim->GetClass()->FindPropertyByName(TEXT("Trajectory"))))
+	{
+		const FTransformTrajectory* MemberTraj = TrajProp->ContainerPtrToValuePtr<FTransformTrajectory>(OwnAnim);
+		UE_LOG(LogTemp, Display, TEXT("[PSI Probe] chalkie member Trajectory samples=%d"),
+			MemberTraj ? MemberTraj->Samples.Num() : -1);
+	}
+
+	// One query, both actors, fixed roles. The pose histories must exist under the "PoseHistory" tag in
+	// BOTH ABPs (hero: the v2 MM collector; Chalkie: the collector added 2026-08-31 before Root).
+	FPoseSearchMotionMatchMultiQuery Query;
+	Query.Database = CatchDatabase;
+	FPoseSearchAnimContextRoles& SelfRoles = Query.AnimContextsRoles.AddDefaulted_GetRef();
+	SelfRoles.AnimContext = OwnAnim;
+	SelfRoles.Roles.Add(AttackerRole);
+	FPoseSearchAnimContextRoles& HeroRoles = Query.AnimContextsRoles.AddDefaulted_GetRef();
+	HeroRoles.AnimContext = HeroAnim;
+	HeroRoles.Roles.Add(VictimRole);
+
+	TArray<FPoseSearchBlueprintResult> Results;
+	UPoseSearchInteractionLibrary::MotionMatchMulti(
+		{ Query }, PoseHistoryTag, FPoseSearchContinuingProperties(), Results);
+
+	// One result per participating AnimContext; map them back by actor, then validate every field we
+	// depend on. Cost=MAX_flt is the R12/R14-shaped silent failure (unbuilt index, missing collector).
+	const FPoseSearchBlueprintResult* SelfResult = nullptr;
+	const FPoseSearchBlueprintResult* HeroResult = nullptr;
+	for (const FPoseSearchBlueprintResult& R : Results)
+	{
+		const AActor* ResultActor = UPoseSearchLibrary::GetActor(R);
+		UE_LOG(LogTemp, Display, TEXT("[PSI Drive] actor=%s role=%s anim=%s t=%.2f rate=%.2f cost=%.1f"),
+			*GetNameSafe(ResultActor), *R.Role.ToString(), *GetNameSafe(R.SelectedAnim),
+			R.SelectedTime, R.WantedPlayRate, R.SearchCost);
+		if (ResultActor == Infected) { SelfResult = &R; }
+		else if (ResultActor == Target) { HeroResult = &R; }
+	}
+	if (!SelfResult || !HeroResult)
+	{
+		return Fallback(TEXT("results did not cover both actors"));
+	}
+	const UMultiAnimAsset* Psia = Cast<UMultiAnimAsset>(SelfResult->SelectedAnim);
+	if (!Psia || SelfResult->SearchCost >= BIG_NUMBER)
+	{
+		return Fallback(TEXT("empty search (no PSIA / cost=MAX) — pose history or index"));
+	}
+	if (SelfResult->SelectedTime > CatchEntryMaxTime)
+	{
+		return Fallback(TEXT("SelectedTime past the catch window — SamplingRange not honored?"));
+	}
+	// One owner per fact: the GA's editor-assigned montage owns WHAT plays; the PSIA must agree with it,
+	// else the align would be computed for content we are not going to run.
+	if (Psia->GetAnimationAsset(AttackerRole) != CachedPairedMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PSI Drive] PSIA attacker anim '%s' != PairedGrabMontage '%s'"),
+			*GetNameSafe(Psia->GetAnimationAsset(AttackerRole)), *GetNameSafe(CachedPairedMontage));
+		return Fallback(TEXT("PSIA/montage mismatch"));
+	}
+
+	// ---- Aligned targets. These are MESH-space world transforms (header contract), honoring the item
+	// warp weights (attacker wT0 = moves fully, victim wT1 = stays). Failure-axis instrumentation: dump
+	// the raw ActorRootTransforms next to the calculated aligned ones — never assume which is which.
+	FTransform SelfAligned = FTransform::Identity;
+	UPoseSearchInteractionLibrary::CalculateFullAlignedTransform(*SelfResult, GrabCloseSeconds, /*bWarpUsingRootBone*/ false, SelfAligned);
+	FTransform HeroAligned = FTransform::Identity;
+	UPoseSearchInteractionLibrary::CalculateFullAlignedTransform(*HeroResult, GrabCloseSeconds, /*bWarpUsingRootBone*/ false, HeroAligned);
+	for (int32 i = 0; i < SelfResult->ActorRootTransforms.Num(); ++i)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[PSI Drive] raw ActorRootTransforms[%d]=(%.0f,%.0f,%.0f yaw %.0f)"), i,
+			SelfResult->ActorRootTransforms[i].GetLocation().X, SelfResult->ActorRootTransforms[i].GetLocation().Y,
+			SelfResult->ActorRootTransforms[i].GetLocation().Z, SelfResult->ActorRootTransforms[i].Rotator().Yaw);
+	}
+
+	// Mesh-space -> actor-space (the mesh rides offset from the capsule: -90 yaw, feet drop), then
+	// XY-only through the SAME layered-move close-in as the legacy path. Z stays with gravity/Mover;
+	// yaw stays with the AI focus for Stage A — we only LOG the delta the search would have applied.
+	const FTransform ActorRelMesh = Infected->GetActorTransform().GetRelativeTransform(OwnMesh->GetComponentTransform());
+	const FTransform SelfActorTarget = ActorRelMesh * SelfAligned;
+	const FTransform HeroActorTarget = ActorRelMesh * HeroAligned;   // same rig offsets on both — good enough for the delta check
+	const float HeroDelta2D = FVector::Dist2D(HeroActorTarget.GetLocation(), Target->GetActorLocation());
+	const FVector SelfFrom = Infected->GetActorLocation();
+	const FVector Displacement = (SelfActorTarget.GetLocation() - SelfFrom) * FVector(1.f, 1.f, 0.f);
+	const float YawDelta = FRotator::NormalizeAxis(
+		static_cast<float>(SelfActorTarget.Rotator().Yaw - Infected->GetActorRotation().Yaw));
+	UE_LOG(LogTemp, Display, TEXT("[PSI Drive] align chalkie (%.0f,%.0f yaw %.0f) -> (%.0f,%.0f yaw %.0f) d=%.0fcm dyaw=%+.0f | hero d=%.0fcm (expect ~0) | entry t=%.2f rate=%.2f"),
+		SelfFrom.X, SelfFrom.Y, Infected->GetActorRotation().Yaw,
+		SelfActorTarget.GetLocation().X, SelfActorTarget.GetLocation().Y, SelfActorTarget.Rotator().Yaw,
+		Displacement.Size2D(), YawDelta, HeroDelta2D, SelfResult->SelectedTime, SelfResult->WantedPlayRate);
+	if (Displacement.Size2D() > 400.f)
+	{
+		return Fallback(TEXT("aligned target implausibly far (>400cm)"));
+	}
+
+	if (UAZ_PawnMoverComponent* Mover = Infected->FindComponentByClass<UAZ_PawnMoverComponent>())
+	{
+		if (!Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
+		{
+			const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
+			CloseMove->Velocity = Displacement / GrabCloseSeconds;
+			CloseMove->DurationMs = GrabCloseSeconds * 1000.f;
+			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
+			Mover->QueueLayeredMove(CloseMove);
+		}
+	}
+
+	// SEARCHED YAW — through the ONE facing owner: the AI controller's override slot (its Tick rewrites
+	// the pawn's desired facing every frame, so writing the pawn/Mover directly would be stomped; the
+	// two-writers rule). No cleanup needed here: the grab runs latent inside AZ_BTTask_ZombieAttack,
+	// whose EVERY exit path calls ClearFacingOverride() — same lifetime the swing's soft-tracking uses.
+	if (AAZ_InfectedAIController* ChalkieAI = Cast<AAZ_InfectedAIController>(Infected->GetController()))
+	{
+		ChalkieAI->SetFacingOverrideWorld(SelfActorTarget.GetRotation().GetForwardVector().GetSafeNormal2D());
+	}
+
+	// Entry frame + rate for StartLoopMontage (runs right after this in ActivateAbility). Both results
+	// share one PSIA timeline, so their times must agree — a mismatch means role mapping is broken.
+	if (!FMath::IsNearlyEqual(SelfResult->SelectedTime, HeroResult->SelectedTime, 0.05f))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PSI Drive] role times diverge: self=%.2f hero=%.2f"),
+			SelfResult->SelectedTime, HeroResult->SelectedTime);
+	}
+	CatchStartPosition = SelfResult->SelectedTime;
+	CatchPlayRate = FMath::Clamp(SelfResult->WantedPlayRate, 0.8f, 1.2f);
+	return true;
+}
+
 void UAZ_GA_ChalkieGrab::StartLoopMontage()
 {
 	LoopMontageTask = nullptr;
@@ -335,10 +549,25 @@ void UAZ_GA_ChalkieGrab::StartLoopMontage()
 		AnimInstance->Montage_SetNextSection(WrestleSection, WrestleSection, CachedPairedMontage);
 		SetGrabStage(FAZ_GameplayTags::Get().State_Grab_Catching);
 
+		// PSI entry (Stage A): the search picked the frame the catch should start on and a play rate.
+		// Position/rate are set on the ALREADY-PLAYING montage (the task above started it at the Catch
+		// section, i.e. t=0); the hero's follower syncs to whatever position the leader holds. Reset to
+		// 0/1 in the per-grab latch block and by TryCatchSearch's fallback path never stamping them.
+		if (CatchStartPosition > KINDA_SMALL_NUMBER || !FMath::IsNearlyEqual(CatchPlayRate, 1.f))
+		{
+			AnimInstance->Montage_SetPosition(CachedPairedMontage, CatchStartPosition);
+			AnimInstance->Montage_SetPlayRate(CachedPairedMontage, CatchPlayRate);
+			UE_LOG(LogTemp, Display, TEXT("[PSI Drive] montage entry t=%.2f rate=%.2f"),
+				CatchStartPosition, CatchPlayRate);
+		}
+
 		// Catching -> Wrestling when the catch clip runs out. A timer rather than a notify: the stage tag
 		// is bookkeeping for other systems, so it must not depend on notify authoring inside the montage.
+		// The window shrinks by the PSI entry offset and rate — the tag must flip when the SECTION ends.
 		const int32 CatchIndex = CachedPairedMontage->GetSectionIndex(CatchSection);
-		const float CatchLength = (CatchIndex != INDEX_NONE) ? CachedPairedMontage->GetSectionLength(CatchIndex) : 0.f;
+		const float CatchSectionLength = (CatchIndex != INDEX_NONE) ? CachedPairedMontage->GetSectionLength(CatchIndex) : 0.f;
+		const float CatchLength = FMath::Max(0.f, CatchSectionLength - CatchStartPosition)
+			/ FMath::Max(0.1f, CatchPlayRate);
 		if (UWorld* World = GetWorld())
 		{
 			World->GetTimerManager().ClearTimer(StageTimer);

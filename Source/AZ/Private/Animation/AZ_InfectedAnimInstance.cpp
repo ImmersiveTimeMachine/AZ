@@ -12,6 +12,14 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayTagAssetInterface.h"
 #include "MoverDataModelTypes.h"
+#include "PoseSearch/AnimNode_PoseSearchHistoryCollector.h"   // PSI: direct SetTrajectory push into our collector
+#include "PoseSearch/PoseSearchLibrary.h"                     // PSI: FindPoseHistoryNode
+
+// ★ IK MASTER SWITCH (user decision 2026-08-31) — mirror of the hero's in AZ_MoverAnimInstance.cpp.
+// Fights move to a different technique, so the Chalkie's grab hand-IK (two TwoBoneIK nodes gated by
+// GrabIKAlpha) is OFF. Holding TargetAlpha at 0 is the single owner: the alpha decays, the nodes become
+// pass-throughs. The reach-clamp instrumentation ([GrabIK] frames/deficit) goes quiet with it.
+static constexpr bool bGrabIKEnabled = false;
 
 void UAZ_InfectedAnimInstance::NativeInitializeAnimation()
 {
@@ -71,6 +79,71 @@ void UAZ_InfectedAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	APawn* AnyPawn = Cached_Pawn ? static_cast<APawn*>(Cached_Pawn.Get()) : static_cast<APawn*>(Cached_CmcPawn.Get());
 
+	// ============================== PSI TRAJECTORY ==============================
+	// Mesh-component world-space samples for the PoseHistory collector's TransformTrajectory pin. The
+	// collector's own bGenerateTrajectory is ACharacter+CMC-only (inert on Mover — see the header
+	// comment on Trajectory), so this member is the ONE trajectory owner for the Chalkie. History =
+	// ~1s ring at ≤30Hz; future = constant-velocity extrapolation — the interaction schema and
+	// MotionMatchMulti's ActorRootTransforms both read placement at t<=0, so this is sufficient.
+	if (const USkeletalMeshComponent* OwnMesh = GetSkelMeshComponent(); OwnMesh && AnyPawn && GetWorld())
+	{
+		const double Now = GetWorld()->GetTimeSeconds();
+		if (Now - LastTrajectorySampleTime >= 0.03)
+		{
+			LastTrajectorySampleTime = Now;
+			FTransformTrajectorySample Sample;
+			Sample.Position = OwnMesh->GetComponentLocation();
+			Sample.Facing = OwnMesh->GetComponentQuat();
+			Sample.TimeInSeconds = static_cast<float>(Now);   // absolute until emission (rebased below)
+			TrajectoryHistoryRing.Add(Sample);
+			while (TrajectoryHistoryRing.Num() > 40
+				|| (TrajectoryHistoryRing.Num() > 0 && Now - TrajectoryHistoryRing[0].TimeInSeconds > 1.05))
+			{
+				TrajectoryHistoryRing.RemoveAt(0);
+			}
+		}
+
+		Trajectory.Samples.Reset(TrajectoryHistoryRing.Num() + 5);
+		for (const FTransformTrajectorySample& Hist : TrajectoryHistoryRing)
+		{
+			FTransformTrajectorySample& Out = Trajectory.Samples.Add_GetRef(Hist);
+			Out.TimeInSeconds = static_cast<float>(Hist.TimeInSeconds - Now);   // history: <= 0
+		}
+		// Guarantee a t=0 sample even on a frame the throttle skipped (the contract: exactly one current).
+		if (Trajectory.Samples.IsEmpty() || Trajectory.Samples.Last().TimeInSeconds < 0.f)
+		{
+			FTransformTrajectorySample& Current = Trajectory.Samples.AddDefaulted_GetRef();
+			Current.Position = OwnMesh->GetComponentLocation();
+			Current.Facing = OwnMesh->GetComponentQuat();
+			Current.TimeInSeconds = 0.f;
+		}
+		const FVector Velocity = AnyPawn->GetVelocity();
+		const FVector BasePos = Trajectory.Samples.Last().Position;
+		const FQuat BaseFacing = Trajectory.Samples.Last().Facing;
+		for (int32 Step = 1; Step <= 4; ++Step)
+		{
+			const float FutureTime = 0.1f * Step;
+			FTransformTrajectorySample& Future = Trajectory.Samples.AddDefaulted_GetRef();
+			Future.Position = BasePos + Velocity * FutureTime;
+			Future.Facing = BaseFacing;
+			Future.TimeInSeconds = FutureTime;
+		}
+
+		// Push DIRECTLY into our own collector (game thread, pre-parallel-eval). The TransformTrajectory
+		// pin binding is kept as documentation, but the util-made binding never reached the compiled
+		// property-access path (probe 2026-08-31: hero's editor-made binding = 21 samples, ours = 0), and
+		// the node's own SetTrajectory(empty pin default) is a no-op — so this push is the ONE writer.
+		if (const FAnimNode_PoseSearchHistoryCollector_Base* Collector =
+			UPoseSearchLibrary::FindPoseHistoryNode(FName(TEXT("PoseHistory")), this))
+		{
+			if (UE::PoseSearch::FPoseHistory* Hist =
+				const_cast<UE::PoseSearch::FPoseHistory*>(Collector->GetPoseHistoryPtr()))
+			{
+				Hist->SetTrajectory(Trajectory, 1.f);
+			}
+		}
+	}
+
 	// ============================== GRAB HAND-IK GATHER ==============================
 	// Mirror of the hero's block in UAZ_MoverAnimInstance. Runs BEFORE the movement early-out below: a grab
 	// pins the body anyway, and the hands must keep their grip even if the movement component is missing.
@@ -89,7 +162,7 @@ void UAZ_InfectedAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			Prey = Cached_CmcPawn->GetGrabTarget();
 		}
 		const USkeletalMeshComponent* PreyMesh = Prey ? Prey->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
-		if (PreyMesh)
+		if (bGrabIKEnabled && PreyMesh)   // bGrabIKEnabled: file-scope master switch, see top of file
 		{
 			TargetAlpha = 1.f;
 			// Reach-clamped grips (shared math, see ResolveGrabIKTarget): the authored socket when the

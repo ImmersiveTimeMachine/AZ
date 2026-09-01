@@ -9,6 +9,7 @@
 class UAZ_AT_PlayMontageAndWaitForEvent;
 class UAbilityTask_WaitGameplayEvent;
 class UGameplayEffect;
+class UPoseSearchDatabase;
 
 /**
  * The TLOU-style GRAB, grabber side. Fired INSTEAD of the melee swing by UAZ_BTTask_ZombieAttack's
@@ -108,6 +109,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0.05"))
 	float GrabCloseSeconds = 0.15f;
 
+	// --- PSI CATCH (step 2 of the PoseSearch Interaction pivot, Stage A). When CatchDatabase is
+	// assigned, the close-in TARGET and the montage ENTRY FRAME come from one MotionMatchMulti search
+	// over it (PSD_AZ_Catch: one PSIA wrapping the two paired montages, SamplingRange-trimmed to the
+	// 0.6s catch entry — see project_grab_grapple_design). The close-in MECHANISM (layered velocity
+	// move over GrabCloseSeconds) and everything from Wrestle on (sections, MontageSync_Follow) are
+	// unchanged. Null = the GrabHoldDistance math — same opt-in convention as PairedGrabMontage.
+
+	/** The catch interaction database (PSD_AZ_Catch). Editor-assigned on the GRANTED class (no /Game/
+	 *  paths in C++; BP-child CDOs don't inherit runtime patches). Null = legacy close-in. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|PSI")
+	TObjectPtr<UPoseSearchDatabase> CatchDatabase;
+
+	/** Reject a search result whose entry time is past the catch window — it would start the pair
+	 *  mid-fight. 0.65 = the 0.6s Idle_To_Grab segment + indexing quantization slack; if the DB entry's
+	 *  SamplingRange is set (it is), anything above this means the runtime index ignored the trim. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab|PSI", meta = (ClampMin = "0"))
+	float CatchEntryMaxTime = 0.65f;
+
 	/** PACK STEP-BACK beat: every other engaged Chalkie recoils (its variant KB montage) for this long
 	 *  when the grab lands, then blends back out. 0 = plays the whole knockback clip (5.5-7.5s). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Grab", meta = (ClampMin = "0"))
@@ -147,6 +166,21 @@ private:
 	void PlayExitMontage(FName MontageProperty);
 	/** Plays CachedLoopMontage self-looped and arms the replay-on-end binding. */
 	void StartLoopMontage();
+
+	/** Stage-A PSI driver — the ONLY function touching the Experimental PoseSearch interaction API
+	 *  (quarantine: if Epic removes it, this one function reverts). One MotionMatchMulti over
+	 *  CatchDatabase with (self=Attacker, Target=Victim); on success queues the close-in layered move
+	 *  toward the ALIGNED transform and stamps CatchStartPosition/CatchPlayRate for StartLoopMontage.
+	 *  Any invalid result logs "[PSI Drive] FALLBACK reason=..." and returns false — the grab must
+	 *  never fail because an Experimental system did. */
+	bool TryCatchSearch(AActor* Target);
+
+	/** Entry frame the PSI search picked on the flat paired-montage timeline (0 = legacy: section
+	 *  start). Reset in the per-grab latch block — InstancedPerActor. */
+	float CatchStartPosition = 0.f;
+	/** Play rate the search suggested (1 = legacy). Applied from the entry; the schema has no velocity
+	 *  channels so expect ~1 — logged either way. */
+	float CatchPlayRate = 1.f;
 
 	/** True once the paired montage resolved and loaded — selects section-driven flow over the v1 pair. */
 	bool IsPaired() const { return CachedPairedMontage != nullptr; }

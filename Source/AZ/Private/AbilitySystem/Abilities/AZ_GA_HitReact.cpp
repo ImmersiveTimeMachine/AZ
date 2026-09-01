@@ -10,8 +10,13 @@
 #include "Animation/AnimMontage.h"
 #include "AZ_GameplayTags.h"
 #include "Character/AZ_PawnMoverComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+
+// Pose-selected reaction (TrySelectReactionByPose ONLY — Experimental API quarantine)
+#include "PoseSearch/PoseSearchDatabase.h"
+#include "PoseSearch/PoseSearchLibrary.h"
 
 UAZ_GA_HitReact::UAZ_GA_HitReact()
 {
@@ -165,6 +170,72 @@ void UAZ_GA_HitReact::DeclareAbilityTags()
 	CancelAbilitiesWithTag.AddTag(T.Ability_Combat_Melee);
 }
 
+bool UAZ_GA_HitReact::TrySelectReactionByPose(const AActor* Avatar, FAZ_CombatMontage& InOutDesc, float& OutStartPosition) const
+{
+	OutStartPosition = 0.f;
+	if (!ReactionDatabase || !Avatar)
+	{
+		return false;   // legacy single-montage path by configuration
+	}
+	// The pose history lives on whichever mesh runs the Chalkie's ABP.
+	UAnimInstance* Anim = nullptr;
+	TInlineComponentArray<USkeletalMeshComponent*> Meshes(Avatar);
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		if (Mesh && Mesh->GetAnimInstance())
+		{
+			Anim = Mesh->GetAnimInstance();
+			break;
+		}
+	}
+	if (!Anim)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[React MM] FALLBACK reason=no anim instance"));
+		return false;
+	}
+
+	TArray<UObject*> AssetsToSearch;
+	AssetsToSearch.Add(ReactionDatabase);
+	FPoseSearchBlueprintResult Result;
+	UPoseSearchLibrary::MotionMatch(Anim, AssetsToSearch, FName(TEXT("PoseHistory")),
+		FPoseSearchContinuingProperties(), FPoseSearchFutureProperties(), Result);
+
+	UAnimMontage* Picked = Cast<UAnimMontage>(Result.SelectedAnim);
+	if (!Picked || Result.SearchCost >= BIG_NUMBER)
+	{
+		// Same silent-failure shape as everywhere else: no pose history, or an unbuilt index (R12/R14).
+		UE_LOG(LogTemp, Warning, TEXT("[React MM] FALLBACK reason=empty search (anim=%s cost=%.1f) — pose history or index"),
+			*GetNameSafe(Result.SelectedAnim), Result.SearchCost);
+		return false;
+	}
+	if (Result.SelectedTime > ReactionEntryMaxTime)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[React MM] FALLBACK reason=entry t=%.2f past the impact window (%.2f) — SamplingRange lost?"),
+			Result.SelectedTime, ReactionEntryMaxTime);
+		return false;
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("[React MM] %s: %s -> %s t=%.2f cost=%.1f (beat %.2fs kept)"),
+		*GetNameSafe(Avatar), *GetNameSafe(InOutDesc.Montage), *Picked->GetName(),
+		Result.SelectedTime, Result.SearchCost, InOutDesc.ActiveSeconds);
+
+	// ONE OWNER PER FACT — refined once the pool became heterogeneous (3.1s..7.5s clips): the search owns
+	// WHICH clip, and the CLIP owns its own beat. The variant descriptor's ActiveSeconds was authored for
+	// one 3.10s montage; left in place it arms a cut timer that fires before a longer clip's authored
+	// BeatEnd (bNotifyOwnsBeat needs Beat >= NotifyBeat - 0.05), truncating every long knockback. Adopt
+	// the picked clip's measured beat so the notify owns the cut — and with RootMotionSeconds at 0
+	// ("match the beat") the capsule follows the recoil for exactly that window too.
+	// staggerRecoverSeconds stays the descriptor's: how long THIS variant is dazed AFTER the animation is
+	// characterisation, and it is the one duration with no clip to read it from.
+	if (const float ClipBeat = UAZ_GA_MeleeAttack::FindBeatEndNotifyTime(Picked); ClipBeat > 0.f)
+	{
+		InOutDesc.ActiveSeconds = ClipBeat;
+	}
+	InOutDesc.Montage = Picked;
+	OutStartPosition = Result.SelectedTime;
+	return true;
+}
+
 void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
@@ -220,6 +291,16 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 		}
 	}
 
+	// POSE-SELECTED CLIP (tier 1) — only on the plain hit-react path: StepBack carries its clip in the
+	// payload and the shove's escape clip is chosen by the grab, so neither is the search's business.
+	// Runs AFTER the descriptor resolve so the beat/recover/root-motion timing is already in hand and
+	// only the montage is swapped; a failed search leaves the hard-picked clip exactly as before.
+	float ReactionStartPosition = 0.f;
+	if (!bStepBack && !bGrabShoved && Desc.IsSet())
+	{
+		TrySelectReactionByPose(Avatar, Desc, ReactionStartPosition);
+	}
+
 	UAnimInstance* AnimInstance = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr;
 	if (!Avatar || !AnimInstance || !Desc.IsSet())
 	{
@@ -255,6 +336,14 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	MontageTask->OnCancelled.AddDynamic(this, &UAZ_GA_HitReact::OnMontageFinished);
 	MontageTask->EventReceived.AddDynamic(this, &UAZ_GA_HitReact::OnMontageEvent);
 	MontageTask->ReadyForActivation();
+
+	// Entry frame from the search (the task has no start-position parameter, so set it on the montage the
+	// task just started — same pattern as the PSI catch). Bounded by ReactionEntryMaxTime, so this only
+	// ever skips a few frames into the impact; the clip's own BeatEnd notify still owns the cut.
+	if (ReactionStartPosition > KINDA_SMALL_NUMBER)
+	{
+		AnimInstance->Montage_SetPosition(Desc.Montage, ReactionStartPosition);
+	}
 
 	// Capsule follows the recoil for the descriptor's RM window (KnockBack_Chase clips walk back in
 	// during their second half — driving past the peak turns a knockback into a stroll-back-at-you).

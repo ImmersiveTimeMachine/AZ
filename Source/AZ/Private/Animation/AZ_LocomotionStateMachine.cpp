@@ -128,7 +128,11 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	// descent), and the land anim is selected HERE on contact — not when a baked clip happens to end.
 	if (Previous == EAZ_StateMachineState::TransitionToInAir || Previous == EAZ_StateMachineState::InAirLoop)
 	{
-		TakeoffEndTime     = -1.f;
+		// TakeoffEndTime is vestigial (written, never read) — it now doubles as the LAND-ENTRY STAMP so the
+		// standing-land resume rule below can hold the impact before a from-rest start may cut it.
+		// Reusing it avoids a new member (a layout change Live Coding cannot apply); rename at the next
+		// editor-closed build.
+		TakeoffEndTime     = Now;
 		NextIdleBreakTime  = -1.f;
 		IdleBreakEndTime   = -1.f;
 		bLatchedJustLanded = true;          // surfaced as bJustLanded for the land transition (chooser land rows)
@@ -189,6 +193,11 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		// land clip (Land2Walk / Land2Run) stays selected for the whole transition. A fresh moving start also
 		// passes through TransitionToLocomotion but enters from IdleLoop (flag already false), so this never
 		// leaks a stale land flag onto a normal start.
+		// Captured BEFORE the clear below: a TransitionToIdle that was a standing LAND (JumpIdleLand), not a
+		// stop, needs a different resume rule — see the TransitionToIdle case.
+		const bool bResumingFromStandingLand =
+			(Previous == EAZ_StateMachineState::TransitionToIdle) && bLatchedJustLanded;
+
 		if (Previous != EAZ_StateMachineState::TransitionToLocomotion)
 		{
 			bLatchedJustLanded = false;
@@ -240,6 +249,46 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 
 		// Stop re-pressed → resume the loop (residual momentum, no from-rest start).
 		case EAZ_StateMachineState::TransitionToIdle:
+			// ★ EXCEPT a standing LAND. TransitionToIdle is shared by the stop clips and JumpIdleLand, and
+			// "resume the loop" is right for a stop (the body still carries momentum) but wrong for a land:
+			// the character is at REST in a landing crouch (spd=0), and no frame of a walk cycle is near
+			// that pose. Measured 2026-08-31, identical in every session: "JumpIdleLand -> WalkFwdLoop |
+			// cost=+894 entry=0.30" ~0.3 s after touchdown — a mid-stride loop popping out of a crouch,
+			// read by the user as "the leg plays from the start". A from-rest START is the same physical
+			// situation as leaving idle, so route it exactly like the IdleLoop case: direct-play
+			// WalkFwdStart* by bucketed direction, no cost contest. bLatchedJustLanded was already cleared
+			// above, so the chooser sees a plain start (justLanded rows = Land2Walk are NOT wanted here).
+			if (bResumingFromStandingLand)
+			{
+				// ★ HOLD THE IMPACT FIRST. Measured 2026-08-31 with input held through an idle jump: the land
+				// was entered and the start replaced it ONE FRAME later (f357 -> f358, 14 ms) — a 90° start
+				// from a landing crouch, which is what "the leg plays from the start" looked like on screen.
+				// A standing land is a committed impact: let its absorb portion play before the from-rest
+				// start is allowed to take over. 0.40 s of the 1.03 s JumpIdleLand = the impact + absorb
+				// (the CMC side measured the impact window at [0, 0.15] and held the clip to 60%; 0.40 is
+				// the responsive end of that range). Until then, stay in the land.
+				static constexpr float StandingLandMinDwellSeconds = 0.40f;
+				const float LandElapsed = (TakeoffEndTime > 0.f) ? (Now - TakeoffEndTime) : StandingLandMinDwellSeconds;
+				if (LandElapsed < StandingLandMinDwellSeconds)
+				{
+					// Re-arm the latch: the generic clear above (`Previous != TransitionToLocomotion`) already
+					// wiped bLatchedJustLanded on this first moving frame, so without this the NEXT tick sees
+					// a plain TransitionToIdle and takes the stop-resume branch straight into the loop.
+					// Measured 2026-08-31 01:14: dwell held 0.405 s, then "JumpIdleLand -> WalkFwdLoop
+					// cost=+202 entry=0.00" — the start rule never fired because its own precondition had
+					// been cleared one frame earlier. The latch also keeps the chooser on the land row
+					// (bJustLanded is surfaced for TransitionToIdle) for the whole dwell.
+					bLatchedJustLanded = true;
+					return EAZ_StateMachineState::TransitionToIdle;   // the land keeps playing; re-checked next tick
+				}
+				const bool bStrafeNonForwardStart = In.bStrafe && In.MovementDirection != EAZ_MovementDirection::F;
+				LatchedStartDirection = bStrafeNonForwardStart
+					? EAZ_StartDirection::Fwd
+					: BucketStartDirection(In.PendingStartAngleDeg);
+				bLatchedMovingTransition = false;   // from rest → from-rest start clips
+				TransitionEndTime = Now + 1.0f;     // overridden by the real clip length
+				return EAZ_StateMachineState::TransitionToLocomotion;
+			}
 			TransitionEndTime = -1.f;
 			return EAZ_StateMachineState::LocomotionLoop;
 

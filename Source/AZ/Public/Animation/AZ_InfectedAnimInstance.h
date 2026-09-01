@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/TrajectoryTypes.h"   // FTransformTrajectory — PSI collector feed
 #include "AZ_InfectedAnimInstance.generated.h"
 
 class AAZ_CmcInfectedCharacter;
@@ -51,6 +52,27 @@ protected:
 	/** Speed (cm/s) below which the infected is considered idle. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Infected|Locomotion", meta = (ClampMin = "0", ForceUnits = "cm/s"))
 	float MoveSpeedThreshold = 5.f;
+
+	// ========================================
+	// PSI trajectory — feed for the AnimGraph PoseHistory collector
+	// ========================================
+	/** Mesh-component world-space trajectory: ~1s of sampled history + a few constant-velocity future
+	 *  samples. The AZ_ABP_Chalkie PoseHistory collector binds its TransformTrajectory pin to this —
+	 *  on a Mover pawn the collector's own bGenerateTrajectory is INERT (the engine path hard-requires
+	 *  ACharacter + UCharacterMovementComponent, PoseSearchTrajectoryLibrary.cpp:48-71), and without a
+	 *  trajectory every MotionMatchMulti this Chalkie joins reads identity root transforms and costs of
+	 *  ~(distance-to-origin)^2. Built each NativeUpdateAnimation; see project_grab_grapple_design. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|Infected|PSI")
+	FTransformTrajectory Trajectory;
+
+private:
+	/** History ring for Trajectory. TimeInSeconds holds ABSOLUTE game-time seconds until emission
+	 *  (rebased to <=0 when copied out; float absolute drifts ~2ms after 8h — irrelevant here). */
+	TArray<FTransformTrajectorySample> TrajectoryHistoryRing;
+	/** Last game time a ring sample was taken (throttles to ~30Hz independent of anim tick rate). */
+	double LastTrajectorySampleTime = -1.0;
+
+protected:
 
 	// AI phase, mirrored from the pawn's ASC State.Infected.* tags (NOT the AI controller — controllers exist
 	// only on the server; the ASC tags replicate, so these bools are valid on client-side Chalkies in co-op).
