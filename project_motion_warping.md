@@ -170,3 +170,51 @@ Related: [[feedback-seam-trace-before-pie]], [[project-chalkie-fight-rules]], [[
 **Method note:** three wrong diagnoses this session (BlendListByBool/`Turning` suppression, warp distance
 out of reach, "no slot node") all came from reasoning over graph exports and reach arithmetic instead of
 instrumenting. The `[MeleeHit]` / `[Flinch]` log lines settled it in one PIE run. Add the log first.
+
+## Rotation budget (2026-09-01, verified `RootMotionModifier.cpp:550-620`)
+
+With `SlerpWithClampedRate`, the window can correct at most **`MaxRotationRate × window seconds`** —
+`AddMotionWarpingNotify` defaults (180°/s) on a 0.17s jab = **30°**, which read in PIE as "a little
+rotation angle off the front vector". The slerp spreads the turn over the REMAINING window (converges at
+EndTime); the rate clamp only bites when the needed per-frame step exceeds it. So: shortening a window
+without raising the rate silently shrinks the budget; `WarpRotationTimeMultiplier` < 1 makes rotation
+finish earlier inside the window (TimeRemaining is multiplied by it). Rotation reaches Mover pawns through
+`FLayeredMove_RootMotionAttribute` → `AngularVelocityDegrees` (yaw-constrained); the OverrideAll drive
+suppresses the strafe-facing spring for the drive's duration.
+
+## ★ Facing reads the TARGET'S LOCATION — the stand-off point, not the victim (2026-09-02)
+
+`RotationType=Facing` turns the character toward `CachedTargetTransform.GetLocation()`
+(`RootMotionModifier.cpp:527-541`) — i.e. the warp target WITH its location offset applied. With
+`VectorFromTargetToOwner` + `LocationOffset.X = stand-off`, that point is:
+- in front (approach, `fwd N`) → between attacker and victim → faces the victim ✓
+- BEHIND the attacker (`back N`, the bounded back-step) → **turns 180° away from the victim**
+- ≈ on the attacker (`fwd 0–1cm`) → zero vector → degenerate
+
+This is the ROTATION half of the "point behind us" problem whose TRANSLATION half (the moonwalk) is
+recorded in `AZ_BTTask_ZombieAttack.cpp:449` — both were masked by the `Min()` clamp, which never
+produces `back`. The bounded back-step exposed it; raising MaxRotationRate 180→720 made it a full
+turn ("weird positioning before punch, looks a different direction, random" = which row you land on).
+
+FIX (2026-09-02): split the modifiers. `MeleeTarget` = offset point, **translation-only** window;
+`MeleeTarget_Facing` = victim root, NO offset, **rotation-only** window (`FacingWarpTargetName()` in
+`AZ_GA_MeleeAttack.cpp`, registered/cleared beside the main target). `AddMotionWarpingNotify` now only
+replaces an overlapping window that names the SAME target, so the pair coexists. SkewWarp's
+`if (bWarpTranslation)` / `if (bWarpRotation)` branches are independent (`RootMotionModifier_SkewWarp.cpp:157/248`).
+RULE: any warp target that carries a stand-off offset must never be the Facing target. The Chalkie
+task is safe only because of its Min clamp — give it the same split before it ever gets a back-step.
+
+## ★ Two warp windows on one montage MUST differ in (Start, End) — engine de-dups (2026-09-02)
+
+`UMotionWarpingComponent` (`MotionWarpingComponent.cpp:496`) only calls a montage warp notify's
+`OnBecomeRelevant` when `!ContainsModifier(Montage, StartTime, EndTime)` — exact float compare on the
+window. The translation-only + rotation-only split with IDENTICAL windows ran ONLY the first notify in
+the array (rotation): `a.MotionWarping.Debug 1` printed one SkewWarp line per frame with `Delta == FDelta`
+and `Dist2D` = raw gap. Fix: the rotation window starts 5ms later (`s + 0.005`). RULE: paired windows on
+one clip need distinct start or end times. `a.MotionWarping.Debug 1` (ECVF_Cheat, set from console) is
+THE isolating instrument for "did the hero itself move" — `[MeleeWin] gap` includes the Chalkie's motion
+and misled two sessions of retreat tuning.
+
+Travelling clips must NEVER be asked to retreat: SkewWarp's projected scale is SIGNED
+(`RootMotionModifier_SkewWarp.cpp:66`) → forward root motion played backwards = moonwalk.
+`MaxBackstepDistance` now applies to in-place clips only (`AZ_GA_MeleeAttack.cpp` clamp).

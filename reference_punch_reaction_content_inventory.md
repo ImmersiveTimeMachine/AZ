@@ -129,3 +129,26 @@ knockbacks from Zombie_01 — two unrelated packs, single-character clips, never
 
 Related: [[reference_noweapon_anim_catalog]], [[project_combat_fist_build_plan]],
 [[project_grab_grapple_design]], [[feedback_posesearch_mm_mechanism_rules]].
+
+## REASSESSMENT 2026-09-02 — PSIA for the HEAVY with the walk-state knockbacks (user: "why can't we?")
+
+The "do NOT use PSIA for free-flow strikes" decision stands for JABS. For the HEAVY it is a design
+option, not a blocker, and tonight's catch work removed the mechanism risks (two-body alignment,
+root-first ordering, weights understood). Measured facts on the candidate victim clips
+(`Zombie_Walk_F_1..6_KnockBack_Walk`, /Game/Zombie_01/Animations, GITIGNORED):
+- 4.8–7.2s each, `enable_root_motion=False` (same trap as KB_Atk_2..5 — flip before use), net root
+  travel +100..+180cm FORWARD; the knockback is in the torso, the root keeps walking. NO clean root
+  reversal → my script detectors could not find the impact frame reliably (pelvis-jerk gave f0-f2
+  artifacts on F_4/5/6, f33/f74/f13 on F_1/2/3). Impact frames must be located BY EYE in the editor.
+- Usable form = a SEGMENT: [impact − 0.34s (hero contact), impact + reaction], as a victim montage.
+What it takes (~1 day, 2/3 content): (a) impact frames by eye + RM on; (b) heavy trimmed to ~0.9s
+(its 160cm walk-off would carry through the victim) — needs a segment-range util (closed build);
+(c) PSIA `AZ_Strike_Heavy_*` {Attacker=hero heavy, Victim=KB segment, Origin=yaw-180 + measured
+contact stand-off}, weights: attacker translation AND rotation 1.0 (player anchors both; the Chalkie
+is placed on the hero's forward axis → the hero's warp rotation sees zero error, no second writer);
+(d) NEW schema (roles bind to skeletons; the catch schema is the reverse pair) + new PSD, one PSIA per
+walk variant = variety by the Chalkie's state, chosen BEFORE contact; (e) driver = TryCatchSearch with
+roles swapped in the GA_MeleeAttack lunge slot: root the Chalkie first, align, start the heavy at
+SelectedTime, event → Chalkie GA plays its half with RM drive; fallback = today's warp path.
+Trade: for the heavy only, the reaction is the authored pair clip (pose-selected reactions stay for
+jabs); the Chalkie commits at swing start (invisible: its first 0.34s is walking anyway).

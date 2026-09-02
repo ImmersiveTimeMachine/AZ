@@ -561,3 +561,65 @@ mid-engagement. NOT predictable, NOT often, NO telegraph (no wind-up entry — b
 Related: [[project_chalkie_fight_rules]] (rule 8 flinch-cancel — needs grab carve-out),
 [[project_crowd_engagement_design]] (Locked/Active fork), [[feedback_seam_trace_before_pie]],
 [[project_combat_fist_build_plan]] (montage-vs-SM rail doctrine).
+
+## ★ CATCH ALIGNMENT VARIANCE — root cause + fix (2026-09-02)
+
+Screenshot bug: Chalkie behind the hero, both facing the same way, on the face-to-face pair. Measured per
+catch (hero actor yaw vs the hero→Chalkie-target line; mesh yaw+90): **60° / 4° / 28°** — the Chalkie was
+8–9° off every time. ENGINE (`PoseSearchInteractionAsset.cpp::CalculateWarpTransforms`): AZ_Catch_Fight
+weights = translation victim 1.0/attacker 0.0, ROTATION 0.0/0.0 → zero sum = homogeneous → the reference
+orientation comes from the LINE BETWEEN THE ACTORS' POSITIONS (`FindReferenceOrientation` uses item
+positions), facings ignored; both roles get an aligned yaw along that line. `ActorRootTransforms` in the
+result are the RAW INPUT transforms (hero == actual is not "anchoring", it is the query). The driver
+applied only the Chalkie's aligned yaw; the hero's was discarded and left to the walking-mode spring via
+`OrientationIntent` — which starts after the catch clips are already playing.
+FIX (Live-Coded, `Result: Succeeded` 02:02): `FLayeredMove_AZ_GrabAnchor` now `OverrideAll` and proposes
+`AngularVelocityDegrees` toward the grabber's capsule from the SYNC STATE, capped 720°/s (file constexpr
+`GrabFaceTurnRateDeg` — promote to a UPROPERTY at the next CLI build; USTRUCT layout under LC). One
+owner for the held body's position AND facing for the whole hold. LOG: `[Grab] face <hero>: start
+err=+60deg -> aligned in 0.08s`, then `@0.3s err=+2deg (pass: |err| < 5)`. UNTESTED.
+Content follow-up (the part a mechanism can't fix): only ONE pair (face-to-face) — a fleeing hero is spun
+180°. Author a from-behind pair; PSI then picks by relative pose.
+
+**CORRECTION (2026-09-02 02:20):** the GrabAnchor facing change above was INERT — `GA_PlayerGrabbed` only
+calls `StartGrabAnchor()` when NO paired montage is assigned ("the animation owns placement completely");
+on the paired/PSI route the hero's facing is the walking mode's spring on `OrientationIntent`, and in
+STRAFE that spring is the turn-clip ramp (`AZ_PawnMovementMode_Walking.cpp:190-204`): 0.10s at ≤45° →
+0.50s at ≥135°. THAT is the variance. Second screenshot (hero 39° off) = same bug, unchanged.
+REAL FIX — BUILT `Result: Succeeded` 2026-09-02 02:2x (editor closed), UNTESTED, UNCOMMITTED: `FAZ_MoverCustomInputs.bGrabbed` (field + reconcile +
+interpolate + merge + NetSerialize + ToString; `AZ_LocomotionTypes.h`), hero ships it in ProduceInput next
+to RotationMode, `UAZ_PawnMovementMode_Walking::GrabbedFacingTime` (default 0.04s) overrides both facing
+branches when set. Instrumentation moved to `GA_PlayerGrabbed::ActivateAbility`: `[Grab] face <hero>: at
+catch err=+60deg` then `@0.3s err=… (pass: |err| < 5)` via a 0.3s timer. The anchor's facing code stays
+(v1 fallback route only; harmless, untested). Also in this build: back-step doc comment corrected.
+
+**2026-09-02 02:31 PIE — facing fix PASSED (`at catch err=+8deg` → `@0.3s err=-3deg`), bodies STILL
+coincident, user discriminator: "only when I run or move".** Cause: momentum. The input layer zeroes the
+move INTENT at the catch, but the body brakes at StoppingDeceleration — at sprint the stopping distance
+is ~the whole PSI spacing (86cm) — so a running hero slides INTO the Chalkie the search just placed.
+FIX (Live-Coded): `AZ_PawnMovementMode_Walking::GenerateWalkMove` zeroes planar `InOutVelocity` when
+`bGrabbed` (after the parent call; layered moves still mix after). `[Grab] face` lines now carry
+`dist=`; PASS = `|err| < 5` AND `@0.3s dist` within ~10cm of the at-catch dist.
+
+**2026-09-02 03:00 — RE-MODEL after two strikes (probes `[PSI Drive] chalkie@0.15s/0.30s`):** catch dist
+111 → 37. Chalkie moved 32 (its asked 29 ✓) + 12 drift after the override window; the HERO slid ~29cm in the
+2-3 sim ticks between the synchronous search and his own rooting reaching the sim (search ran BEFORE
+`Event.Grabbed`; tag → ProduceInput → sim latency; sprint = 10cm/frame). Both leaks scale with speed =
+"only when I run". FIX (Live-Coded): (1) `GA_ChalkieGrab::ActivateAbility` now ROOTS THE PREY FIRST
+(zero-velocity OverrideVelocity `FLayeredMove_LinearVelocity`, 250ms bridge) and defers everything from the
+search on into `BeginCatch()` via `TryBeginCatchWhenStill(Attempt)` — next-tick retries (≤4) until the hero's
+planar speed < 15 cm/s; montage→Event.Grabbed order preserved inside BeginCatch (MontageSync_Follow needs
+the leader live). (2) `AAZ_PawnMoverInfectedCharacter::ProduceInput` ships `Custom.bGrabbed` from
+`State.Combat.Grabbing`, so the shared walking mode roots the Chalkie for the hold (layered moves — the
+close-in, outcome shoves — still mix in over it). LOG: `[Grab] catch phase 2 after N tick(s): hero speed X`.
+PASS: `chalkie@0.15s moved≈asked`, `@0.30s moved` ≈ same (no drift), `[Grab] face … @0.3s dist` within ~10cm
+of the at-catch dist and both ≈ the PSI spacing (~82-86).
+
+**2026-09-02 03:14 PIE — POSITION FIXED (8/8 catches):** `dist` holds 82-92 through 0.3s, `chalkie@0.30s
+moved` == `@0.15s moved` (zero drift), phase-2 wait 0-4 ticks. Two catches hit
+`[PSI Drive] FALLBACK reason=results did not cover both actors` — hero facing AWAY (+178°/+49°): the single
+face-to-face pair has no answer; legacy close-in took over and held distance. = the from-behind content gap.
+FACING STILL SLOW: @0.3s err -19/+11/+77/+18 from -42/+162/+178/+39 → a ~0.25s spring, not 0.04. Both pawns
+verified on `AZ_PawnMovementMode_Walking` with grabbed_facing_time=0.04 (Python CDO dump), so either
+`bGrabbed` never reaches the sim or the spring chases the offset-composed target (strafe RotationOffset).
+`[GrabFace]` sim-side diagnostic added (smooth/errIntent/errTarget/rotOffset/angVel/strafe) — next catch decides.
