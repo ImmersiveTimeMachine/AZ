@@ -1,6 +1,4 @@
 #include "Animation/AZ_PoseSearchUtils.h"
-#include "AbilitySystem/AZ_AnimNotify_SendGameplayEvent.h"   // the beat-clock notify class
-#include "AZ_GameplayTags.h"                                 // Event.Combat.BeatEnd (python-bridge default)
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "PoseSearch/PoseSearchAnimNotifies.h"
 #include "Animation/AnimSequence.h"
@@ -80,77 +78,6 @@ bool UAZ_PoseSearchUtils::AddAnimAssetToDatabase(UPoseSearchDatabase* Database, 
 	NewAsset.AnimAsset = AnimAsset;
 	Database->AddAnimationAsset(NewAsset);
 	Database->MarkPackageDirty();
-	return true;
-}
-
-bool UAZ_PoseSearchUtils::AddGameplayEventNotify(UAnimSequenceBase* Animation, FGameplayTag EventTag, float TriggerTime)
-{
-	// PYTHON BRIDGE: Python cannot construct an FGameplayTag (TagName is read-only, no factory exposed),
-	// so an INVALID tag means "the beat clock's tag" — the only one a scripted pass ever authors here.
-	// C++/BP callers pass a real tag and this is a no-op.
-	if (!EventTag.IsValid())
-	{
-		EventTag = FAZ_GameplayTags::Get().Event_Combat_BeatEnd;
-	}
-	if (!Animation || !EventTag.IsValid() || TriggerTime < 0.f || TriggerTime > Animation->GetPlayLength())
-	{
-		return false;
-	}
-
-	Animation->Modify();
-
-	// IDEMPOTENT: re-running a beat pass must retune, never stack. Two SendGameplayEvent notifies with the
-	// same tag would both fire and the earlier one would win the beat race silently.
-	for (FAnimNotifyEvent& Existing : Animation->Notifies)
-	{
-		if (const UAZ_AnimNotify_SendGameplayEvent* Sender = Cast<UAZ_AnimNotify_SendGameplayEvent>(Existing.Notify))
-		{
-			if (Sender->EventTag == EventTag)
-			{
-				Existing.Link(Animation, TriggerTime);
-				Existing.SetTime(TriggerTime);
-				Animation->PostEditChange();
-				Animation->MarkPackageDirty();
-				UE_LOG(LogTemp, Display, TEXT("[AZ Notify] %s: MOVED %s -> %.3fs"),
-					*Animation->GetName(), *EventTag.ToString(), TriggerTime);
-				return true;
-			}
-		}
-	}
-
-	UAZ_AnimNotify_SendGameplayEvent* Sender =
-		NewObject<UAZ_AnimNotify_SendGameplayEvent>(Animation, NAME_None, RF_Transactional);
-	if (!Sender)
-	{
-		return false;
-	}
-	Sender->EventTag = EventTag;
-
-	FAnimNotifyEvent& NotifyEvent = Animation->Notifies.AddDefaulted_GetRef();
-	NotifyEvent.NotifyName = FName(*EventTag.ToString());
-	NotifyEvent.Notify = Sender;          // a single-frame notify, NOT a notify STATE
-	NotifyEvent.NotifyStateClass = nullptr;
-	NotifyEvent.SetDuration(0.f);
-	NotifyEvent.TriggerTimeOffset = 0.f;
-	NotifyEvent.EndTriggerTimeOffset = 0.f;
-	NotifyEvent.Link(Animation, TriggerTime);
-	NotifyEvent.SetTime(TriggerTime);
-
-	// Editor visibility + track-cache integrity (see RegisterNotifyOnTrackAndRefresh's comment): a notify
-	// appended straight to Notifies works at runtime but is INVISIBLE in the montage editor until a
-	// PostLoad rebuilds the track cache.
-#if WITH_EDITOR
-	if (Animation->AnimNotifyTracks.Num() == 0)
-	{
-		Animation->InitializeNotifyTrack();
-	}
-	NotifyEvent.TrackIndex = 0;
-	Animation->RefreshCacheData();
-#endif
-	Animation->PostEditChange();
-	Animation->MarkPackageDirty();
-	UE_LOG(LogTemp, Display, TEXT("[AZ Notify] %s: ADDED %s @ %.3fs"),
-		*Animation->GetName(), *EventTag.ToString(), TriggerTime);
 	return true;
 }
 

@@ -4,6 +4,7 @@
 #include "AZ/AZ.h"
 #include "AZ/Public/AbilitySystem/Abilities/AZ_GameplayAbility.h"
 #include "AbilitySystemLog.h"
+#include "UObject/UnrealType.h"   // FindFProperty / FBoolProperty — retrigger flag read by reflection
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Net/UnrealNetwork.h"
@@ -65,20 +66,138 @@ void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& Inpu
 	}
 }
 
-void UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag)
+namespace
 {
-	if (!InputTag.IsValid()) return;
-	FScopedAbilityListLock ActiveScopeLoc(*this);
-	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
+	/** The engine's own retrigger criterion (InternalTryActivateAbility): InstancedPerActor AND
+	 *  bRetriggerInstancedAbility. The flag is protected with no getter, and UGameplayAbility's friend
+	 *  grant is to the base ASC only (not inherited) — it IS a UPROPERTY, so read it by reflection. */
+	bool WantsRetriggerWhileActive(const UGameplayAbility* Ability)
 	{
-		if (AbilitySpec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
+		if (!Ability || Ability->GetInstancingPolicy() != EGameplayAbilityInstancingPolicy::InstancedPerActor)
 		{
-			if (!AbilitySpec.IsActive())
+			return false;
+		}
+		static const FBoolProperty* RetriggerProp =
+			FindFProperty<FBoolProperty>(UGameplayAbility::StaticClass(), TEXT("bRetriggerInstancedAbility"));
+		return RetriggerProp && RetriggerProp->GetPropertyValue_InContainer(Ability);
+	}
+}
+
+bool UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused)
+{
+	if (!InputTag.IsValid()) return false;
+	bool bActivated = false;
+	bool bRefusedMelee = false;
+	{
+		FScopedAbilityListLock ActiveScopeLoc(*this);
+		for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
+		{
+			if (!AbilitySpec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
 			{
-				TryActivateAbility(AbilitySpec.Handle);
+				continue;
+			}
+			// Inactive: plain activation. ACTIVE and the ability opted into retrigger: hand the press to
+			// the ability's own gate instead of swallowing it. Engine order (InternalTryActivateAbility)
+			// is CanActivateAbility FIRST, retrigger-EndAbility second — so a refused press changes
+			// nothing about the swing in flight, and an accepted one chains on the SAME hand. Before
+			// this, UAZ_GA_MeleeAttack's recovery gate only ever governed cross-hand chains: same-button
+			// mash was blocked for the whole montage because this loop never asked (measured 2026-09-01:
+			// 0.800s per punch on one button vs 0.500s alternating). Mirrors the engine's own branch:
+			// InstancedPerActor + bRetriggerInstancedAbility. That flag is protected with no getter and
+			// the friend grant is to the base ASC only, hence reflection — it is a UPROPERTY.
+			if (!AbilitySpec.IsActive() || WantsRetriggerWhileActive(AbilitySpec.Ability))
+			{
+				if (TryActivateAbility(AbilitySpec.Handle))
+				{
+					bActivated = true;
+					continue;
+				}
+			}
+			// Refused (or active without retrigger). Only ATTACK presses are worth remembering.
+			if (AbilitySpec.Ability && AbilitySpec.Ability->GetAssetTags().HasTag(FAZ_GameplayTags::Get().Ability_Combat_Melee))
+			{
+				bRefusedMelee = true;
 			}
 		}
 	}
+	if (!bActivated && bRefusedMelee && bBufferIfRefused && InputBufferSeconds > 0.f)
+	{
+		LatchBufferedInput(InputTag);
+	}
+	return bActivated;
+}
+
+void UAZ_AbilitySystemComponent::LatchBufferedInput(const FGameplayTag& InputTag)
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const double Now = World->GetTimeSeconds();
+	// Held fires every frame while the button is down: refresh silently, log only a NEW latch so the line
+	// means "a click was refused" and not "the button is still down".
+	if (BufferedInputTag != InputTag || Now - BufferedInputTime > InputBufferSeconds)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[InputBuffer] %s latched %s"), *GetNameSafe(GetAvatarActor()), *InputTag.ToString());
+	}
+	BufferedInputTag = InputTag;
+	BufferedInputTime = Now;
+}
+
+void UAZ_AbilitySystemComponent::OnCancelWindowTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	if (NewCount > 0)
+	{
+		ScheduleBufferedInputReplay();
+	}
+}
+
+void UAZ_AbilitySystemComponent::OnAnyAbilityEnded(const FAbilityEndedData& EndedData)
+{
+	ScheduleBufferedInputReplay();
+}
+
+void UAZ_AbilitySystemComponent::ScheduleBufferedInputReplay()
+{
+	if (!BufferedInputTag.IsValid())
+	{
+		return;
+	}
+	if (UWorld* World = GetWorld())
+	{
+		// Next tick, never inline: the callers are a notify handler and EndAbility — ability code.
+		World->GetTimerManager().SetTimerForNextTick(this, &UAZ_AbilitySystemComponent::ReplayBufferedInput);
+	}
+}
+
+void UAZ_AbilitySystemComponent::ReplayBufferedInput()
+{
+	if (!BufferedInputTag.IsValid())
+	{
+		return;
+	}
+	const UWorld* World = GetWorld();
+	const double Age = World ? (World->GetTimeSeconds() - BufferedInputTime) : TNumericLimits<double>::Max();
+	const FGameplayTag Tag = BufferedInputTag;
+	if (Age > InputBufferSeconds)
+	{
+		// Stale: the player let go of the intent long before anything could accept it.
+		BufferedInputTag = FGameplayTag();
+		BufferedInputTime = -1.0;
+		UE_LOG(LogTemp, Display, TEXT("[InputBuffer] %s dropped %s (%.2fs old)"), *GetNameSafe(GetAvatarActor()), *Tag.ToString(), Age);
+		return;
+	}
+	// bBufferIfRefused=false: a refusal here (an unrelated ability ended while the swing is still committed)
+	// keeps the ORIGINAL latch and its original timestamp — the next trigger, or expiry, decides.
+	const bool bActivated = AbilityInputTagHeld(Tag, /*bBufferIfRefused*/ false);
+	if (bActivated)
+	{
+		BufferedInputTag = FGameplayTag();
+		BufferedInputTime = -1.0;
+	}
+	UE_LOG(LogTemp, Display, TEXT("[InputBuffer] %s replay %s after %.2fs -> %s"),
+		*GetNameSafe(GetAvatarActor()), *Tag.ToString(), Age, bActivated ? TEXT("activated") : TEXT("refused, holding"));
 }
 
 void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
@@ -727,6 +846,12 @@ bool UAZ_AbilitySystemComponent::BatchRPCTryActivateAbility(FGameplayAbilitySpec
 void UAZ_AbilitySystemComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Input-buffer triggers (see InputBufferSeconds): the live attack opening its cancel window, and any
+	// ability ending. Both fire from inside ability code, so the handlers only SCHEDULE a next-tick replay.
+	RegisterGameplayTagEvent(FAZ_GameplayTags::Get().State_Combat_CancelWindow, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &UAZ_AbilitySystemComponent::OnCancelWindowTagChanged);
+	OnAbilityEnded.AddUObject(this, &UAZ_AbilitySystemComponent::OnAnyAbilityEnded);
 }
 
 void UAZ_AbilitySystemComponent::EffectApplied(UAbilitySystemComponent* SourceAbilitySystemComponent, const FGameplayEffectSpec& Spec, FActiveGameplayEffectHandle Handle)

@@ -258,11 +258,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "40", ForceUnits = "cm"))
 	float WarpApproachDistance = 100.f;
 
-	/** BOUNDED BACK-STEP: how far (cm) the warp may move the attacker AWAY from the target to reach
-	 *  WarpApproachDistance when the swing starts inside it. 0 = the previous behaviour (hold position,
-	 *  bury the fist). The old unbounded Max() moonwalked because it could retreat 40+cm; a ceiling this
-	 *  small reads as a weight-shift. Measured 2026-09-01: a standing jab from 60cm puts the knuckle 18cm
-	 *  past the victim's CENTRE — the everyday close-range case that no stand-off value can fix. */
+	/** BOUNDED BACK-STEP — IN-PLACE CLIPS ONLY: how far (cm) the warp may move the attacker AWAY from the
+	 *  target to reach WarpApproachDistance when a standing jab starts inside it. 0 = hold position (bury the
+	 *  fist). Travelling clips (Move / lunge) NEVER retreat: SkewWarp's projected scale is signed, so a target
+	 *  behind the start point plays their forward root motion BACKWARDS — feet sliding back under a forward
+	 *  step, the moonwalk (measured 2026-09-02 with a.MotionWarping.Debug). They keep plain Min(stand-off,
+	 *  gap); a too-close lunge collapses to zero travel. A ceiling this small reads as a weight-shift on a jab.
+	 *  Measured 2026-09-01: a standing jab from 60cm puts the knuckle 18cm past the victim's CENTRE — the
+	 *  everyday close-range case that no stand-off value can fix. NOTE the bound is on the destination GAP
+	 *  (the warp target follows the victim): against a victim walking in, the actual step can exceed it. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Warp", meta = (EditCondition = "bUseMotionWarping", ClampMin = "0", ForceUnits = "cm"))
 	float MaxBackstepDistance = 15.f;
 

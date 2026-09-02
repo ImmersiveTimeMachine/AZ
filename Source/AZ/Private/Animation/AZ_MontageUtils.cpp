@@ -416,13 +416,32 @@ bool UAZ_MontageUtils::AddMotionWarpingNotify(
 		TrackIndex = Montage->AnimNotifyTracks.Add(FAnimNotifyTrack(WarpTrackName, FLinearColor::White));
 	}
 
-	// Replace any overlapping warp window rather than stacking a second one - running two modifiers over
-	// the same span is how you get a swing that fights itself.
+	// Replace an overlapping window that names the SAME warp target rather than stacking a second one —
+	// two modifiers steering the same component over the same span is a swing that fights itself. A window
+	// naming a DIFFERENT target may coexist: since 2026-09-02 a clip carries a translation-only window on
+	// "<Target>" and a rotation-only window on "<Target>_Facing" (Facing reads the target's LOCATION, and
+	// the stand-off point can sit behind the attacker — see UAZ_GA_MeleeAttack's warp registration).
 	for (int32 i = Montage->Notifies.Num() - 1; i >= 0; --i)
 	{
 		const FAnimNotifyEvent& Existing = Montage->Notifies[i];
-		if (Existing.NotifyStateClass && Existing.NotifyStateClass->IsA(UAnimNotifyState_MotionWarping::StaticClass())
-			&& Existing.GetTriggerTime() < EndTime && Existing.GetEndTriggerTime() > TriggerTime)
+		if (!Existing.NotifyStateClass || !Existing.NotifyStateClass->IsA(UAnimNotifyState_MotionWarping::StaticClass())
+			|| Existing.GetTriggerTime() >= EndTime || Existing.GetEndTriggerTime() <= TriggerTime)
+		{
+			continue;
+		}
+
+		bool bSameTarget = true;
+		if (const UAnimNotifyState_MotionWarping* ExistingWarp = Cast<UAnimNotifyState_MotionWarping>(Existing.NotifyStateClass))
+		{
+			if (const URootMotionModifier_Warp* ExistingModifier = Cast<URootMotionModifier_Warp>(ExistingWarp->RootMotionModifier))
+			{
+				bSameTarget = (ExistingModifier->WarpTargetName == WarpTargetName);
+			}
+			// else: modifier missing/wrong type - can't tell the target apart, so treat as same-target
+			// (removed) to preserve the old malformed-window cleanup behaviour.
+		}
+
+		if (bSameTarget)
 		{
 			Montage->Notifies.RemoveAt(i);
 		}

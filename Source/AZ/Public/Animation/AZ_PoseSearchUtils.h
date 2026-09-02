@@ -32,13 +32,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static bool AddAnimAssetToDatabase(UPoseSearchDatabase* Database, UObject* AnimAsset);
 
-	/** Author a UAZ_AnimNotify_SendGameplayEvent (the class GA beat clocks look for) on a montage or
-	 *  sequence at TriggerTime. IDEMPOTENT: an existing notify with the same tag is MOVED, not doubled —
-	 *  two BeatEnd notifies would race the beat. Python cannot do this (Notifies is protected).
-	 *  Returns false only on bad input. */
-	UFUNCTION(BlueprintCallable, Category = "AZ|Anim")
-	static bool AddGameplayEventNotify(UAnimSequenceBase* Animation, FGameplayTag EventTag, float TriggerTime);
-
 	/** Set the SamplingRange (indexed window, seconds; [0,0] = whole asset) on one DB entry — the array
 	 *  is private with no scriptable API (second TEMP-hack replacement). Editor only; marks dirty and
 	 *  PostEditChange()s so the async reindex is requested; the rebuild still needs an ACCESS (open the

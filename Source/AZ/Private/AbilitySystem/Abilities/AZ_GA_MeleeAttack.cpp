@@ -27,6 +27,19 @@
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Character/AZ_PawnMoverComponent.h"
 
+namespace
+{
+	/** The rotation-only warp target that pairs with WarpTargetName. Facing reads the target's LOCATION,
+	 *  and MeleeTarget's location is the stand-off point — behind the attacker whenever the bounded
+	 *  back-step asks to retreat, which turned the hero AWAY from the victim (2026-09-02). So rotation
+	 *  gets the victim's root with no offset, under this derived name; the clips' rotation-only warp
+	 *  windows name it. Derived rather than a second UPROPERTY so this ships without a closed-editor build. */
+	FName FacingWarpTargetName(const FName& WarpTargetName)
+	{
+		return FName(*(WarpTargetName.ToString() + TEXT("_Facing")));
+	}
+}
+
 UAZ_GA_MeleeAttack::UAZ_GA_MeleeAttack()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
@@ -217,9 +230,16 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 						// is exactly the old Min(). And an IN-PLACE clip may only CORRECT its distance
 						// (±MaxInPlaceApproachDistance): SkewWarp's lerp branch has no speed clamp, so an
 						// unbounded approach would turn a standing jab at 250cm into a 120cm dash.
-						float ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched + MaxBackstepDistance);
+						// ★ BACK-STEP IS FOR IN-PLACE CLIPS ONLY (2026-09-02). A travelling clip asked to land
+						// BEHIND where it stands gets its forward root motion played backwards — SkewWarp's
+						// projected scale is signed (RootMotionModifier_SkewWarp.cpp:66) — feet sliding back
+						// under a forward step: the moonwalk. So travelling clips keep the plain Min (never
+						// retreat; a too-close lunge collapses to zero travel), and only in-place clips may step
+						// back by MaxBackstepDistance / correct forward by MaxInPlaceApproachDistance.
+						float ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched);
 						if (!bClipTravels)
 						{
+							ClampedApproach = FMath::Min(WarpApproachDistance, TargetGapLatched + MaxBackstepDistance);
 							ClampedApproach = FMath::Max(ClampedApproach, TargetGapLatched - MaxInPlaceApproachDistance);
 						}
 						UE_LOG(LogTemp, Display, TEXT("[MeleeWarp] %s clip=%s gap=%.0f standoff=%.0f -> dest=%.0f (%s %.0fcm, inPlace=%d)"),
@@ -230,6 +250,11 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 							/*bFollowComponent*/ true,
 							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
 							FVector(ClampedApproach, 0.f, 0.f), FRotator::ZeroRotator);
+						// Rotation-only twin: the victim's root, NO offset (see FacingWarpTargetName).
+						Warping->AddOrUpdateWarpTargetFromComponent(FacingWarpTargetName(WarpTargetName), TargetRoot, NAME_None,
+							/*bFollowComponent*/ true,
+							EWarpTargetLocationOffsetDirection::TargetsForwardVector,
+							FVector::ZeroVector, FRotator::ZeroRotator);
 					}
 				}
 				else
@@ -237,6 +262,7 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 					// Nothing to lunge at — clear any stale target from a previous swing so this punch
 					// cannot warp toward whoever the LAST one was aimed at.
 					Warping->RemoveWarpTarget(WarpTargetName);
+					Warping->RemoveWarpTarget(FacingWarpTargetName(WarpTargetName));
 				}
 			}
 		}
@@ -421,6 +447,7 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 			if (UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
 			{
 				Warping->RemoveWarpTarget(WarpTargetName);
+				Warping->RemoveWarpTarget(FacingWarpTargetName(WarpTargetName));
 			}
 		}
 	}

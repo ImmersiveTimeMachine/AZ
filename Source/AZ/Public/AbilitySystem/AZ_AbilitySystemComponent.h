@@ -123,9 +123,26 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	void AbilityInputTagPressed(const FGameplayTag& InputTag);
-	void AbilityInputTagHeld(const FGameplayTag& InputTag);
+	/** Returns true if any spec carrying InputTag activated. bBufferIfRefused=false marks the call as the
+	 *  buffer's own replay, so a second refusal cannot re-latch and hold the press forever. */
+	bool AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused = true);
 	void AbilityInputTagReleased(const FGameplayTag& InputTag);
 	void ForEachAbility(const FForEachAbility& Delegate);
+
+	/**
+	 * INPUT BUFFER for attack presses. Designed alongside the melee recovery gate (see
+	 * UAZ_GA_MeleeAttack's constructor comment), built 2026-09-02 after measuring that a click landing in
+	 * the committed part of a swing was simply discarded — "I clicked and nothing happened".
+	 *
+	 * A press whose matching spec carries Ability.Combat.Melee and was REFUSED (mid-commitment, or the other
+	 * hand committed) is remembered for this long and replayed the moment the live attack opens its cancel
+	 * window (State.Combat.CancelWindow rising) or any ability ends. Only melee presses are buffered, so a
+	 * jump or interact pressed mid-swing never fires half a second late. Replays are deferred a tick: both
+	 * triggers fire from inside ability code (a notify handler, EndAbility), and re-entering
+	 * TryActivateAbility there is how retrigger loops start. 0 disables the buffer.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Input", meta = (ClampMin = "0", ForceUnits = "s"))
+	float InputBufferSeconds = 0.5f;
 
 	void OnWeaponEquipped(const FGameplayTag& NewWeaponTag);
 	void OnMovementStateChanged(const FGameplayTag& NewMovementStateTag);
@@ -145,6 +162,15 @@ protected:
 
 	FGameplayTag CurrentWeaponTag;
 	FGameplayTag CurrentMovementStateTag;
+
+	// --- input buffer state (see InputBufferSeconds) ---
+	FGameplayTag BufferedInputTag;
+	double BufferedInputTime = -1.0;
+	void LatchBufferedInput(const FGameplayTag& InputTag);
+	void OnCancelWindowTagChanged(const FGameplayTag Tag, int32 NewCount);
+	void OnAnyAbilityEnded(const FAbilityEndedData& EndedData);
+	void ScheduleBufferedInputReplay();
+	void ReplayBufferedInput();
 
 public:
 
