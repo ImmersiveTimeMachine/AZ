@@ -4,14 +4,21 @@
 
 #include "AZ_GameplayTags.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Actor.h"   // grabber actor location for the facing turn
 #include "MoverSimulationTypes.h"
 #include "MoverTypes.h"
 
 FLayeredMove_AZ_GrabAnchor::FLayeredMove_AZ_GrabAnchor()
 {
-	// Replace the mode's own velocity, keep its angular: the victim must still turn to face the grabber
-	// (GA_PlayerGrabbed drives OrientationIntent) while we own where the body goes.
-	MixMode = EMoveMixMode::OverrideVelocity;
+	// ONE OWNER for the held body — position AND facing (2026-09-02). This used to be OverrideVelocity,
+	// leaving facing to the walking mode's spring via GA_PlayerGrabbed's OrientationIntent. That spring
+	// starts AFTER the paired catch clips are already playing and turns at its own leisurely rate, so a
+	// hero caught 60° off the line was still turning while the catch section played out — the Chalkie
+	// behind him, both facing the same way (measured: hero 60°/4°/28° off the line at three catches,
+	// Chalkie 8-9° every time). The PSI search already places the pair along the actors' line; the one
+	// thing nothing guaranteed was the victim's yaw before frame one. Now this move turns him too, capped
+	// fast enough to finish inside the grabber's close-in.
+	MixMode = EMoveMixMode::OverrideAll;
 	// Backstop only — the ability cancels by tag on every exit. Must outlive the grabber's MaxHoldSeconds.
 	DurationMs = 20000.f;
 }
@@ -46,6 +53,45 @@ bool FLayeredMove_AZ_GrabAnchor::GenerateMove(const FMoverTickStartData& StartSt
 	if (MaxCorrectionSpeed > 0.f)
 	{
 		Velocity = Velocity.GetClampedToMaxSize(MaxCorrectionSpeed);
+	}
+
+	// FACING: turn the held body toward the grabber's capsule, capped. Read from the sync state, not the
+	// actor, so a replay sees the same numbers. GrabFaceTurnRateDeg is a file constant for now — this ships
+	// through Live Coding, and a new member on a USTRUCT would change its layout; promote it to a UPROPERTY
+	// at the next closed-editor build.
+	constexpr float GrabFaceTurnRateDeg = 720.f;   // 60° in 0.08s, 180° in 0.25s — inside GrabCloseSeconds for the common case
+	float YawErrorDeg = 0.f;
+	if (const FMoverDefaultSyncState* Sync = StartState.SyncState.SyncStateCollection.FindDataByType<FMoverDefaultSyncState>())
+	{
+		if (const AActor* Grabber = AnchorMesh->GetOwner())
+		{
+			const FVector ToGrabber = (Grabber->GetActorLocation() - Sync->GetLocation_WorldSpace()).GetSafeNormal2D();
+			if (!ToGrabber.IsNearlyZero())
+			{
+				YawErrorDeg = FRotator::NormalizeAxis(
+					static_cast<float>(ToGrabber.Rotation().Yaw - Sync->GetOrientation_WorldSpace().Yaw));
+				const float YawRate = FMath::Clamp(YawErrorDeg / DeltaSeconds, -GrabFaceTurnRateDeg, GrabFaceTurnRateDeg);
+				OutProposedMove.AngularVelocityDegrees = FVector(0.f, 0.f, YawRate);
+			}
+		}
+	}
+
+	// Instrumentation: the error we start with (and how long the cap needs), then a single sample at 0.3s —
+	// the catch section is well under way by then, so this is "was the body aligned when it mattered".
+	{
+		const double SinceStartMs = TimeStep.BaseSimTimeMs - StartSimTimeMs;
+		const bool bFirstTick = SinceStartMs < TimeStep.StepMs * 0.5;
+		const bool bCross300 = SinceStartMs < 300.0 && (SinceStartMs + TimeStep.StepMs) >= 300.0;
+		if (bFirstTick)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[Grab] face %s: start err=%+.0fdeg -> aligned in %.2fs at %.0fdeg/s"),
+				*GetNameSafe(GrabbedMesh->GetOwner()), YawErrorDeg, FMath::Abs(YawErrorDeg) / GrabFaceTurnRateDeg, GrabFaceTurnRateDeg);
+		}
+		else if (bCross300)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[Grab] face %s: @0.3s err=%+.0fdeg (pass: |err| < 5)"),
+				*GetNameSafe(GrabbedMesh->GetOwner()), YawErrorDeg);
+		}
 	}
 
 	OutProposedMove.MixMode = MixMode;

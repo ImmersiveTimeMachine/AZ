@@ -231,7 +231,40 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		FacingSmoothingTime = FMath::Max(0.f, FacingSmoothingTime - SnapShorten);
 	}
 
+	// GRABBED overrides both branches above: the held body must reach the grabber's line inside the catch
+	// close-in from ANY start angle. ProduceInput points OrientationIntent at the grabber; this only makes the
+	// spring fast enough to matter before the paired clips' first frame (see GrabbedFacingTime).
+	if (FacingInputs && FacingInputs->bGrabbed)
+	{
+		FacingSmoothingTime = GrabbedFacingTime;
+	}
+
 	// Phase 4: pass OverridenDesiredFacing (raw DesiredFacing + aim offset) to the parent spring-damper.
 	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity,
 		OverridenDesiredFacing, CurrentFacing, InOutAngularVelocityDegrees, InOutVelocity);
+
+	// GRABBED = ROOTED. The input layer zeroes the move intent at the catch, but a running body keeps its
+	// momentum and brakes at StoppingDeceleration — at sprint that is on the order of the whole PSI catch
+	// spacing (~86cm), so a hero caught mid-run slid INTO the grabber the search had just placed in front
+	// of him (measured 2026-09-02: facing squared to -3° by 0.3s, bodies still coincident — and only when
+	// caught moving). Kill the planar velocity here, in the sim, the frame the hold starts. Z stays with
+	// the floor snap; layered moves (the v1 socket anchor, hit-react root motion) still mix in after this.
+	if (FacingInputs && FacingInputs->bGrabbed)
+	{
+		InOutVelocity.X = 0.f;
+		InOutVelocity.Y = 0.f;
+
+		// Diagnostic ([GrabFace], sim-side, only while the held body is still off its target): proves the
+		// grabbed flag reached the sim, which smoothing time the spring got, and WHAT it is chasing — the
+		// raw intent (the grabber) vs the offset-composed target the parent is actually handed. Measured
+		// 2026-09-02: the @0.3s error stalled at -19/+18/+77 with GrabbedFacingTime=0.04 — either the flag is
+		// not here or the target is not the grabber.
+		const float ErrToIntent = static_cast<float>(FRotator::NormalizeAxis((CurrentFacing.Inverse() * DesiredFacing).Rotator().Yaw));
+		const float ErrToTarget = static_cast<float>(FRotator::NormalizeAxis((CurrentFacing.Inverse() * OverridenDesiredFacing).Rotator().Yaw));
+		if (FMath::Abs(ErrToIntent) > 5.f)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[GrabFace] smooth=%.3f errIntent=%+.0f errTarget=%+.0f rotOffset=%+.0f angVelZ=%+.0f strafe=%d"),
+				FacingSmoothingTime, ErrToIntent, ErrToTarget, CachedRotationOffsetDegrees, InOutAngularVelocityDegrees.Z, bStrafeFacing ? 1 : 0);
+		}
+	}
 }

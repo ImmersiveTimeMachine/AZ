@@ -123,6 +123,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Strafe", meta = (ClampMin = "0", ForceUnits = "s"))
 	float StrafeTurnFacingTime = 0.50f;
 
+	// ---- Grabbed facing ----
+	/** Facing time while the body is HELD (FAZ_MoverCustomInputs.bGrabbed). A caught hero must be square to
+	 *  the grabber before the paired catch clips' first frame — the PoseSearch Interaction search already
+	 *  places the pair along the actors' line, and this is the only thing that decides whether the victim's
+	 *  yaw gets there in time. Overrides BOTH the strafe ramp (0.10→0.50s by angle, tuned to match turn-start
+	 *  CLIPS, which is exactly wrong here: measured 2026-09-02, a hero caught 60° off the line was still
+	 *  turning while the catch section played) and the explore idle time. Angle-independent on purpose:
+	 *  the grabber's close-in is ~0.15s, so this must converge inside that from any start angle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing", meta = (ClampMin = "0", ForceUnits = "s"))
+	float GrabbedFacingTime = 0.04f;
+
 	// ---- Rotation-offset clamp ----
 	/** Max delta (degrees) the new RotationOffset can move per tick away from the prior frame's
 	 *  cached offset. 179° guarantees the spring damper always picks the short arc — without

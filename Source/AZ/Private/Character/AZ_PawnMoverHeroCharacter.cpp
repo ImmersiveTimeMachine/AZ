@@ -950,6 +950,9 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		// explore lag-then-snap. Reuses the existing (replicated/reconciled) RotationMode field; same
 		// Movement.Strafe source as OrientationIntent above. GenerateWalkMove reads it.
 		CustomInputs.RotationMode = bStrafe ? EAZ_RotationMode::Strafe : EAZ_RotationMode::OrientToMovement;
+		// Held: the walking mode swaps its facing spring for GrabbedFacingTime so the body squares up to the
+		// grabber before the paired catch clips' first frame (OrientationIntent already points at it above).
+		CustomInputs.bGrabbed = bGrabbed;
 	}
 
 	// Jump is EXPLORE-ONLY for now — suppress jump input while strafing (combat-ready). The one-shot 0->1

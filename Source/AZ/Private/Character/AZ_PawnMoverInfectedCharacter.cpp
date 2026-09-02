@@ -475,6 +475,15 @@ void AAZ_PawnMoverInfectedCharacter::ProduceInput_Implementation(int32 SimTimeMs
 	FAZ_MoverCustomInputs& Custom =
 		InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
 
+	// HELD (grabbing): the walking mode zeroes planar velocity while this is set. A Chalkie that just sprinted
+	// into a catch otherwise coasts ~12cm past the PSI-aligned spot once its 0.15s close-in ends (measured
+	// 2026-09-02: chalkie@0.15s moved=32 → @0.30s moved=44). The close-in is a layered move and still mixes
+	// in over this; so do the outcome shoves (root-motion drives).
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		Custom.bGrabbed = ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Grabbing);
+	}
+
 	// NavMesh path-follow first: MoveTo/MoveToActor requests land in the NavMoverComponent (RequestPathMove caches
 	// a unit-ish intent; RequestDirectMove caches a full velocity). Both collapse to a unit DIRECTION here — the
 	// gait remains the single speed authority (our walking modes read GetMoveInput_WorldSpace as 0..1 intent), so

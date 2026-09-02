@@ -326,6 +326,11 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bWantsToCrouch = false;
 
+	/** The body is HELD (State.Grabbed). Produced from the ASC on the game thread, shipped in the InputCmd so
+	 *  the walking mode can swap its facing spring for GrabbedFacingTime inside the deterministic sim. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bGrabbed = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double ControlRotationRate = 0.0;
 
@@ -339,6 +344,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 			|| (Auth.RotationMode != RotationMode)
 			|| !FMath::IsNearlyEqual(Auth.RotationOffset, RotationOffset)
 			|| (Auth.bWantsToCrouch != bWantsToCrouch)
+			|| (Auth.bGrabbed != bGrabbed)
 			|| !FMath::IsNearlyEqual(Auth.ControlRotationRate, ControlRotationRate);
 	}
 
@@ -351,6 +357,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		Gait                = Source.Gait;
 		RotationMode        = Source.RotationMode;
 		bWantsToCrouch      = Source.bWantsToCrouch;
+		bGrabbed            = Source.bGrabbed;
 		RotationOffset      = FMath::Lerp(TypedFrom.RotationOffset, TypedTo.RotationOffset, LerpFactor);
 		ControlRotationRate = FMath::Lerp(TypedFrom.ControlRotationRate, TypedTo.ControlRotationRate, LerpFactor);
 	}
@@ -359,6 +366,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 	{
 		const FAZ_MoverCustomInputs& TypedFrom = static_cast<const FAZ_MoverCustomInputs&>(From);
 		bWantsToCrouch |= TypedFrom.bWantsToCrouch;
+		bGrabbed       |= TypedFrom.bGrabbed;
 	}
 
 	virtual FMoverDataStructBase* Clone() const override
@@ -376,6 +384,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		Ar.SerializeBits(&G,  2);
 		Ar.SerializeBits(&RM, 2);
 		Ar.SerializeBits(&bWantsToCrouch, 1);
+		Ar.SerializeBits(&bGrabbed, 1);
 		Ar << RotationOffset;
 		Ar << ControlRotationRate;
 		if (Ar.IsLoading())
@@ -397,6 +406,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		Out.Appendf("Gait: %u\n", static_cast<uint32>(Gait));
 		Out.Appendf("RotationMode: %u\n", static_cast<uint32>(RotationMode));
 		Out.Appendf("bWantsToCrouch: %i\n", bWantsToCrouch);
+		Out.Appendf("bGrabbed: %i\n", bGrabbed);
 	}
 
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override { Super::AddReferencedObjects(Collector); }

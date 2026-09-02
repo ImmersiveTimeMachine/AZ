@@ -143,6 +143,35 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
 	{
 		Hero->SetGrabFacingTarget(Grabber.Get());
+
+		// Instrumentation ([Grab] face): the victim's yaw error to the grabber at the catch, and again 0.3s
+		// later — by then the catch section is well under way, so the second number is "was the body square
+		// when it mattered". Pass line: |err| < 5 at 0.3s from any start angle (GrabbedFacingTime).
+		auto FaceErrorDeg = [](const AActor* Victim, const AActor* Holder) -> float
+		{
+			if (!Victim || !Holder) { return 0.f; }
+			const FVector ToHolder = (Holder->GetActorLocation() - Victim->GetActorLocation()).GetSafeNormal2D();
+			return ToHolder.IsNearlyZero() ? 0.f
+				: FRotator::NormalizeAxis(static_cast<float>(ToHolder.Rotation().Yaw - Victim->GetActorRotation().Yaw));
+		};
+		auto Dist2D = [](const AActor* A, const AActor* B) -> float
+		{
+			return (A && B) ? static_cast<float>(FVector::Dist2D(A->GetActorLocation(), B->GetActorLocation())) : -1.f;
+		};
+		UE_LOG(LogTemp, Display, TEXT("[Grab] face %s: at catch err=%+.0fdeg dist=%.0fcm"),
+			*GetNameSafe(Hero), FaceErrorDeg(Hero, Grabber.Get()), Dist2D(Hero, Grabber.Get()));
+		if (UWorld* World = GetWorld())
+		{
+			const TWeakObjectPtr<const AActor> WeakHero = Hero;
+			const TWeakObjectPtr<const AActor> WeakHolder = Grabber.Get();
+			FTimerHandle FaceProbe;
+			World->GetTimerManager().SetTimer(FaceProbe, FTimerDelegate::CreateLambda([WeakHero, WeakHolder, FaceErrorDeg, Dist2D]()
+			{
+				// Pass: |err| < 5 AND dist within ~10cm of the at-catch value (the rooted body must not slide).
+				UE_LOG(LogTemp, Display, TEXT("[Grab] face %s: @0.3s err=%+.0fdeg dist=%.0fcm (pass: |err| < 5, dist ~= at catch)"),
+					*GetNameSafe(WeakHero.Get()), FaceErrorDeg(WeakHero.Get(), WeakHolder.Get()), Dist2D(WeakHero.Get(), WeakHolder.Get()));
+			}), 0.3f, false);
+		}
 	}
 
 	// PAIRED route: our half of the shared-origin montage, bound to the grabber's as the follower. The

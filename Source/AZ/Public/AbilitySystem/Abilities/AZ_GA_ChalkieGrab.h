@@ -175,6 +175,14 @@ private:
 	 *  never fail because an Experimental system did. */
 	bool TryCatchSearch(AActor* Target);
 
+	/** CATCH PHASE 2 (2026-09-02). ActivateAbility roots the prey and defers here; this re-checks the prey's
+	 *  planar speed each sim tick (≤4) and only then runs BeginCatch — the PSI search aligns the pair to
+	 *  where the hero IS, and a sprinting hero moved 20-30cm between the old synchronous search and the
+	 *  tick his own rooting reached the sim (measured: catch dist 111 → 37, hero 29cm of it). */
+	void TryBeginCatchWhenStill(int32 Attempt);
+	/** The search (or legacy close-in), our paired montage, the Event.Grabbed handshake, hold bookkeeping. */
+	void BeginCatch();
+
 	/** Entry frame the PSI search picked on the flat paired-montage timeline (0 = legacy: section
 	 *  start). Reset in the per-grab latch block — InstancedPerActor. */
 	float CatchStartPosition = 0.f;

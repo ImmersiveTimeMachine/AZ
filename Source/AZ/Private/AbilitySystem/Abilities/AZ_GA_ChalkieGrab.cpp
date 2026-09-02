@@ -181,6 +181,70 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 	bAppliedMoveIgnore = true;
 
+	// ROOT THE PREY NOW, BEFORE THE SEARCH (2026-09-02). The hero's own rooting (State.Grabbed → bGrabbed →
+	// walking mode) only begins once GA_PlayerGrabbed activates, which is AFTER the search+montage handshake in
+	// BeginCatch; at sprint the 2-3 sim ticks in between are 20-30cm, so the search aligned the pair to where
+	// the hero WAS (measured: catch dist 111 → 37, the hero 29cm of it, the Chalkie's post-close-in drift the
+	// rest). A short zero-velocity override bridges until his own rooting takes over; a failed catch costs
+	// him at most this long standing still.
+	if (UAZ_PawnMoverComponent* HeroMover = Target->FindComponentByClass<UAZ_PawnMoverComponent>())
+	{
+		const TSharedPtr<FLayeredMove_LinearVelocity> RootPrey = MakeShared<FLayeredMove_LinearVelocity>();
+		RootPrey->Velocity = FVector::ZeroVector;
+		RootPrey->DurationMs = 250.f;
+		RootPrey->MixMode = EMoveMixMode::OverrideVelocity;
+		HeroMover->QueueLayeredMove(RootPrey);
+	}
+	CachedLoopMontage = Loop;   // v1 fallback montage, consumed by BeginCatch
+
+	// CATCH PHASE 2 runs once the prey is actually still — see TryBeginCatchWhenStill.
+	TryBeginCatchWhenStill(0);
+}
+
+void UAZ_GA_ChalkieGrab::TryBeginCatchWhenStill(int32 Attempt)
+{
+	if (!IsActive())
+	{
+		return;
+	}
+	const AActor* Target = GrabTarget.Get();
+	if (!Target)
+	{
+		EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, true);
+		return;
+	}
+	constexpr float StillSpeed = 15.f;   // cm/s: below this the search sees a stationary hero
+	constexpr int32 MaxWaitTicks = 4;    // the zero-velocity bridge above lasts 250ms; this is well inside it
+	const float HeroSpeed = Target->GetVelocity().Size2D();
+	if (HeroSpeed > StillSpeed && Attempt < MaxWaitTicks)
+	{
+		GetWorld()->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this, Attempt]()
+		{
+			TryBeginCatchWhenStill(Attempt + 1);
+		}));
+		return;
+	}
+	UE_LOG(LogTemp, Display, TEXT("[Grab] catch phase 2 after %d tick(s): hero speed %.0f cm/s"), Attempt, HeroSpeed);
+	BeginCatch();
+}
+
+void UAZ_GA_ChalkieGrab::BeginCatch()
+{
+	const FGameplayAbilitySpecHandle Handle = GetCurrentAbilitySpecHandle();
+	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+	const FGameplayAbilityActivationInfo ActivationInfo = GetCurrentActivationInfo();
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	const APawn* AvatarPawn = Cast<APawn>(Avatar);
+	AActor* Target = GrabTarget.Get();
+	UAbilitySystemComponent* TargetASC = Target ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target) : nullptr;
+	if (!Avatar || !Target || !TargetASC)
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	UAnimMontage* Loop = CachedLoopMontage;
+
 	// CLOSE-IN: slide the grabber onto the prey THROUGH the Mover sim (a short layered velocity move,
 	// the same mechanism the knockback uses). The ATTACKER travels; the player keeps their position.
 	//
@@ -484,6 +548,30 @@ bool UAZ_GA_ChalkieGrab::TryCatchSearch(AActor* Target)
 			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
 			Mover->QueueLayeredMove(CloseMove);
 		}
+	}
+
+	// Instrumentation ([PSI Drive] chalkie@): where the Chalkie's CAPSULE actually is at the end of the
+	// close-in and 0.3s in, with its Mover velocity — the [Grab] face dist collapsed 94->43 on a catch where
+	// the HERO was proven rooted (spd=0), so this says WHO moves and WHEN. Expected: at 0.15s the capsule
+	// sits ~|Displacement| closer and the velocity is ~0; anything larger is a second mover.
+	if (UWorld* ProbeWorld = GetWorld())
+	{
+		const TWeakObjectPtr<const AActor> WeakSelf = Infected;
+		const TWeakObjectPtr<const AActor> WeakHero = Target;
+		const FVector CatchLoc = Infected->GetActorLocation();
+		auto Probe = [WeakSelf, WeakHero, CatchLoc](const TCHAR* Tag)
+		{
+			const AActor* Self = WeakSelf.Get();
+			const AActor* Hero = WeakHero.Get();
+			if (!Self || !Hero) { return; }
+			UE_LOG(LogTemp, Display, TEXT("[PSI Drive] chalkie@%s moved=%.0fcm dist=%.0fcm vel=%.0fcm/s"), Tag,
+				FVector::Dist2D(Self->GetActorLocation(), CatchLoc),
+				FVector::Dist2D(Self->GetActorLocation(), Hero->GetActorLocation()),
+				Self->GetVelocity().Size2D());
+		};
+		FTimerHandle H1, H2;
+		ProbeWorld->GetTimerManager().SetTimer(H1, FTimerDelegate::CreateLambda([Probe]() { Probe(TEXT("0.15s")); }), GrabCloseSeconds, false);
+		ProbeWorld->GetTimerManager().SetTimer(H2, FTimerDelegate::CreateLambda([Probe]() { Probe(TEXT("0.30s")); }), 0.3f, false);
 	}
 
 	// SEARCHED YAW — through the ONE facing owner: the AI controller's override slot (its Tick rewrites
