@@ -1,109 +1,160 @@
 ---
 name: project_psia_heavy_strike_plan
-description: "★★★ NEXT SESSION PLAN (2026-09-02): PSIA heavy strike on the R key — hero heavy + Zombie_Walk_F_x_KnockBack_Walk segment as a PoseSearch Interaction pair. Prereqs, 5 phases with pass/fail lines, failure axes, open decisions. Reuses the catch driver pattern (TryCatchSearch, root-first, bGrabbed rooting). Task #17."
+description: "★★★ PSIA strikes — END OF SESSION 2026-09-03: heavy punch/kick on R (weighted random, fallback = drawn variant), paired jabs L/R, all COMMITTED + PUSHED. Next: CLI build before reopen (LC patch), verify double-punch fix + kick pair origin, obstacle-aware unpaired strikes, heavy length decision. PSIA principle + geometry model inside. Task #17."
 metadata:
   type: project
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-09-02T04:19:46.965Z
+  modified: 2026-09-03T02:00:00.796Z
 ---
 
-# PSIA heavy strike on "R" — plan (written 2026-09-02 04:20, NOTHING BUILT YET)
+# PSIA strikes (heavy on R, paired jabs, punch-or-kick variants) — running state 2026-09-03
 
-**Goal.** A dedicated heavy strike (key **R**) that, when a Chalkie is inside the search window, aligns
-BOTH bodies through a PoseSearch Interaction pair (hero heavy + a walk-in knockback), plays both halves
-in sync so the fist meets the chest at the authored frame, and otherwise falls back to today's warped
-heavy. Deterministic contact; the reaction is chosen BEFORE contact by the Chalkie's gait and pose.
-Decision context: [[reference_punch_reaction_content_inventory]] § REASSESSMENT (why this is allowed
-for the heavy and not for jabs). Machinery already proven on the catch: [[project_grab_grapple_design]]
-tail (two-body alignment, root-first ordering, weight semantics).
+Goal unchanged: a dedicated heavy (key R) that, when a Chalkie is in the search window, aligns BOTH bodies
+through a PoseSearch Interaction pair, plays both halves in sync so the fist meets the chest on the authored
+frame, else falls back to today's warped heavy. Context: [[reference_punch_reaction_content_inventory]]
+§ REASSESSMENT; machinery = the catch driver ([[project_grab_grapple_design]] tail).
 
-**"R" = its own input.** Interpreted as the 2026-08-02 verdict ("give the heavy its own input/ability at
-range"): new IA `AZ_IA_RT_HeavyStrike` (RT mirror convention, [[project_input_stack_rt_mirror]]) mapped to
-R in `AZ_IMC_RT_PawnInputs`, tag `Input.Action.HeavyStrike` as a row in `AZ_InputConfig`, granted with the
-fists (QuickBar equip seeds InputTag exactly like BP_GA_Punch_L/R). LMB/RMB jabs untouched. If "R" meant
-something else, this is the one line to change.
+## STATE 2026-09-03 03:00 — heavy COMMITTED (991fb8b), jab pairs BUILT (uncommitted), kick variant CODED (needs closed build)
+- **PIE 02:21 (4 heavy pairs):** search/align/sync/gate/knockback all held (cost ~96, entry 0.00, close-in
+  32-40cm, hero moved 45 = his authored travel, Chalkie flew 242cm, `HitReact ignored` fired) but the hook
+  WHIFFED 4/4: `[MeleeWin] OPEN swingT=0.45 gap=162` and no `[MeleeHit]`. Cause (timing, not alignment): the
+  250ms zero-velocity ROOTING move I queued on the victim before the search was still live when the close-in
+  (also OverrideVelocity) arrived and the EARLIER move won — victim@0.25s moved 0, then half the close-in.
+  Two velocity overrides on ONE body = the first wins. Fix (Live-Coded, in 991fb8b, NOT re-verified): no
+  rooting on the strike path, search + close-in in the press tick. Also: a StruckPair victim is strikeable
+  again (HitReact retriggers on Event.Strike.Victim) so chained jabs re-pair.
+- **Jab pairs (user: "implement all punches like left right"):** `BP_GA_Punch_L/R` REPARENTED to
+  `UAZ_GA_StrikeInteraction` (Tools/strike_jab_content_build.py; BlueprintEditorLibrary.reparent_blueprint
+  keeps CDO values + references), StrikeDatabase PSD_AZ_Punch_L/R (schema PSS_AZ_Strike, sampling [0,0.10]),
+  StrikeMontage = the jab montage itself (its warp windows are inert on the pair path), MaxCloseInDistance
+  25, entry ≤0.15. Victim montages `Strike/AM_Zombie_Strike_Jab_L/R_F_5` = [WalkIn 0.17/0.19 | React = KB
+  [0,0.6] ≈37cm recoil], BeatEnd at contact+0.55. Measured: Punch_L knuckle 83.8 @0.17 (x0.3), Punch_R 78.2
+  @0.19 (x7.7) → victim origin Y 110.8 / 105.9 → pair window ≈95-145cm actor gap; closer = the old warped
+  jab (fallback). **The warped heavy is GONE from LMB** (BP_GA_Punch_L.PunchLunge_L = None); R only.
+  Design cost to compare: a paired jab decides the hit at the press (no whiff at range) and the pair's
+  HitReact cancels the Chalkie's own swing ~0.2s BEFORE the fist lands.
+- **Kick variant (user: heavy punch OR kick at random on R):** `FAZ_StrikeVariant {Database, Montage,
+  StrikeSockets, Weight}` + `StrikeVariants` array on the strike GA; `ShuffledVariants()` = weighted draw
+  without replacement per press, `BeginStrike` tries them in order, first valid alignment wins (two PSIAs in
+  ONE DB would be picked by cost = never random); `UAZ_GA_MeleeAttack::GetStrikeSockets()` is now virtual
+  so the kick sweeps ball_r/foot_r. Lint clean, NOT BUILT. Kick measured: `RTG_RM_Fists_Kick_Front_Move_R`
+  1.5s, 165cm walk-off, ball_r peaks 105.6cm @0.45 (z115, x-4), root adv 89.5 → montage [0,0.85], hit
+  0.38-0.52, cancel 0.60-0.85, victim origin Y 232 → kick window ≈180-300cm, punch 125-245 (overlap =
+  random). `Tools/strike_kick_content_build.py` builds it + sets BP_GA_HeavyStrike.StrikeVariants.
+- **"UPoseSearchInteractionAsset::CalculateWarpTransforms unsupported non identity root bone" is BENIGN**
+  (verified in PoseSearchInteractionAsset.cpp:375-399): a `#if ENABLE_ANIM_DEBUG && WITH_EDITOR` check that
+  samples the root BONE pose and `Equals(Identity)` it at 1e-4 — it only logs. The alignment uses
+  `Sampler.ExtractRootTransform` (root motion), which is what the runtime drives; the root bone is locked
+  (RefPose) at runtime. Fires for our walk-in sections (root bone at Y≈83 mid-loop) AND for the heavy at
+  Pos(0.00002,0.00004,0.0004). Ignore it; the earlier plan line "must not appear" was wrong.
+- **Double punch (user 02:45):** every right click = 2 jabs. `[InputBuffer] latched` 0.14s after the click,
+  replay at the cancel window. Cause: Held (Triggered) runs every frame the button is down; a click lasts
+  several frames; refused frames 2..N latched as a new press. FIX (built 03:15): `DownInputTags` on the
+  ASC — only the first Held frame of a press may latch (Pressed clears, Released removes).
+- **Jab pair, hero drift:** `hero moved=20cm` by contact on an in-place jab (no RM drive → the player's own
+  walk continued) → root-root 90 vs authored 116. FIX (same build): in-place hero clips get a zero-velocity
+  OverrideVelocity for CloseSeconds (the victim's close-in is on the OTHER body — no overlap); only
+  travelling clips get DriveRootMotion (driving an in-place clip is the ~zero-delta pin).
+- **03:20 state (uncommitted since 991fb8b):** kick variant BUILT + LIVE (`AM_Fists_Kick_Strike` = clip [0.25,0.85],
+  contact 0.20, blend-in 0.10, hit 0.13-0.27 on ball_r/foot_r, victim origin Y 164.7 after a −12 hero-travel-loss
+  correction; PSD_AZ_Strike_Kick indexed). Punch pairs land (3/3 at swingT 0.50-0.51); kick pairs landed 3/6 before
+  the −12 correction (root-root 143-153 vs modelled 137) — re-verify. **Fallback = the press's drawn variant**
+  (`SelectMontage` override, sockets follow; both trimmed montages carry warp windows again for target-present-
+  no-fit; Live-Coded, in the source). Weights are the USER's (BP editor: punch 0.6 / kick 0.4, verified by the
+  11:9 draw); the kick script now preserves existing weights. Jab blend-in 0.10 (was 0.25: contact 0.17 under a
+  0.25 blend = ~67cm reach, not 84). Still unverified: double-punch fix (no jab clicks in 4 sessions), corrected
+  kick origin. User verdict so far: "heavy hits are shorter than original" = the 0.9s trim (no non-walking
+  recovery exists in Heavy2Idle; options: trim to 1.2 + cap the drive at contact, or a FightingAnimsetPro heavy).
+- Python traps hit tonight → [[feedback_python_save_only_if_dirty]] (map_key not dirty; import_text for
+  tags/keys; Rotator(roll,pitch,yaw); EditDefaultsOnly struct fields → export_text/import_text;
+  open_editor_for_assets plural; AnimMontage has no post_edit_change).
 
-## Prerequisites (do first, in order)
-1. **CLI build before the editor reopens** — six Live Coding patches from 2026-09-02 die on restart.
-2. **Read one `[GrabFace]` catch** and close the grabbed-facing question (0.04 spring measures ~0.25).
-3. **Impact frames BY EYE** on `Zombie_Walk_F_1..6_KnockBack_Walk` (scrub in the editor, note the frame
-   the torso is struck). Script detectors FAILED (torso jerk 1-5cm, root keeps walking). Start with F_5.
-   Also note the walk-in root speed and how far the root moves during the reaction. Flip
-   `EnableRootMotion` ON on each used sequence (all six are OFF; /Game/Zombie_01 is gitignored — this
-   machine only; record the flags in memory).
+## NEXT STEPS (in order) — session end 2026-09-03 03:30
+1. **CLI build BEFORE the editor reopens**: the fallback-by-variant change (`SelectMontage` override +
+   sockets in the two fallback paths) is a Live Coding patch on top of the 03:15 DLL — it dies on restart.
+2. PIE to close the two unverified items: single jab clicks (double-punch fix: no `[InputBuffer] latched`
+   right after an activation) and kick pairs at 1.3-2.4m (`[MeleeHit] BP_GA_HeavyStrike` at swingT
+   0.14-0.25, `victim@0.20s … root-root` ≈131-141 with origin 164.7).
+3. Open design items the user raised: (a) obstacle-aware unpaired strikes — obstacle sweep in the
+   no-hostile branch registering `MeleeTarget` at the hit point minus stand-off (the trimmed montages
+   carry warp windows again), plus a clearance trace on the aligned victim transform on the pair path;
+   (b) heavy length — 0.9s trim vs 1.2s + drive capped at contact vs a FightingAnimsetPro heavy;
+   (c) variety = more PSIAs per database (walk/run/idle victim), the search selects.
+4. Weights are the user's (punch 0.6 / kick 0.4 in the BP); Tools/strike_kick_content_build.py preserves them.
 
-## Phase 1 — content (editor + Python, ~2h)
-- **Heavy trim:** `AM_Fists_Punch_Heavy_L` segment end to ~0.90s (contact 0.34 + follow-through). Needs
-  `AZ_MontageUtils::SetSegmentRange(Montage, SegmentIndex, StartTime, EndTime)` — FAnimSegment
-  AnimStartTime/AnimEndTime are public fields; new UFUNCTION = closed build. Re-author its warp windows
-  afterwards (they currently end at 1.65).
-- **Victim montage(s):** `AM_Zombie_KB_Walk_F_5_Strike` = segment [impact − 0.34s, impact + reaction] of
-  the sequence (same util). Contact must sit at t=0.34 on the shared timeline = the heavy's contact.
-- **Beat notify** on the victim montage at reaction end (`AZ_MontageUtils::AddGameplayEventNotify`,
-  Event.Combat.BeatEnd) so the Chalkie's ability ends by the clip, not a timer.
-- **Measure the CONTACT STAND-OFF:** pose both clips at their contact frames, knuckle to victim chest
-  gap ~5cm (knuckle reach measured 78cm from the hero root; expect ~85-95cm root-to-root — GASP shove
-  85.6, our catch 83.4). That number is the PSIA victim Origin (yaw −180, X = stand-off).
+## What is WRITTEN (uncommitted, unbuilt) — `git status` shows it
+- `AZ_GameplayTags`: `State.Combat.StruckPair`, `Event.Strike.Victim`.
+- `AZ_MontageUtils::BuildSectionedMontageRanged(..., SegmentStartTimes, SegmentEndTimes, ...)` (old builder
+  forwards). EVIDENCE the util is needed: Python CAN write FAnimSegment.anim_end_time but the montage length
+  never recomputes (2.667 stays; no post_edit_change on AnimMontage; sequence_length read-only).
+- `UAZ_GA_StrikeInteraction : UAZ_GA_MeleeAttack` (new .h/.cpp): precheck → parent's warped heavy;
+  pair path: commit, root the victim (zero-vel OverrideVelocity 250ms), `TryBeginStrikeWhenStill` (≤4
+  ticks, <15cm/s), `TryStrikeSearch` (MotionMatchMulti self=Attacker/target=Victim, validates PSIA attacker
+  == StrikeMontage, victim montage has a "React" section = CONTACT, entry ≤ StrikeEntryMaxTime 0.20,
+  CalculateFullAlignedTransform(TimeOffset = contact − entry) per actor with EACH actor's own mesh offset,
+  close-in ≤ MaxCloseInDistance 60), `PlayPairedStrike` (warp targets removed, close-in layered move ending
+  AT contact, our montage at entry + RM drive, `Event.Strike.Victim` payload {montage, EventMagnitude=entry,
+  Instigator=hero}, probes), `EndAbility` cancels the victim's HitReact if the pair ends BEFORE contact.
+  Fallback anywhere = `Super::ActivateAbility` (double commit harmless).
+- `UAZ_GA_HitReact`: 4th trigger `Event.Strike.Victim` (ConfigureOnCDO); pair path = payload montage,
+  entry position, RM drive DEFERRED to the React section start (timer), StruckPair loose tag 1/0, faces the
+  Instigator via `AAZ_InfectedAIController::SetFacingOverrideWorld` (cleared in EndAbility),
+  `StrikePairRecoverSeconds` 0.5; **`ShouldAbilityRespondToEvent` refuses every non-strike trigger while
+  StruckPair is up** (runs BEFORE the retrigger's EndAbility — the contact hit's Event.Combat.HitReact would
+  otherwise replace the authored knockback with a pose-picked flinch).
+- `AZ_InputConfig.h`: rows EditAnywhere (EditDefaultsOnly made Python refuse "cannot be edited on instances").
+- Content DONE (saved): `Strike/AS_Zombie_Walk_F_5_Loop_RM`, `Strike/AS_Zombie_Walk_F_5_KnockBack_RM`
+  (dups with EnableRootMotion ON — the /Game/Zombie_01 originals untouched & unreferenced),
+  `RT/AZ_IA_RT_HeavyStrike` (dup of IA_RT_Melee) mapped to **R** in AZ_IMC_RT_PawnInputs (R ALSO maps
+  AZ_IA_RT_Reload — fists ignore it; decide later), `PSI/PSS_AZ_Strike` (dup of PSS_AZ_Catch with skeletons
+  swapped: Attacker=SKEL_SurvivalMan, Victim=UE4_Mannequin_Skeleton; 2 cross-role root Position channels).
 
-## Phase 2 — PoseSearch assets (Python via AZ_PoseSearchUtils, ~1h)
-- `PSS_AZ_Strike` = dup of `PSS_AZ_Catch` with the ROLES' SKELETONS SWAPPED (Attacker = hero MetaHuman
-  skeleton, Victim = UE4_Mannequin). Channels: the 2 cross-role root-Position channels only (GASP's
-  strike schema). NO trajectory channel on the victim (rule R16); no pose channels needed for v1.
-- `PSIA_AZ_Strike_Heavy_F5` (UPoseSearchInteractionAsset): items [{Attacker, heavy montage, wT=1, wR=1},
-  {Victim, KB segment montage, Origin = (X=stand-off, yaw=−180), wT=0, wR=0}]. The attacker anchors BOTH
-  translation and rotation (the player is never moved; the Chalkie is placed on the hero's forward axis,
-  so the existing MeleeTarget_Facing warp sees ~0 error — no second writer).
-- `PSD_AZ_Strike` (BruteForce, schema PSS_AZ_Strike): one entry per PSIA, `SamplingRange` = [0, 0.15]
-  (entry only inside the wind-up). Build the index; check `BuildIndex Succeeded` and that the
-  "unsupported non identity root bone" error from CalculateWarpTransforms does NOT appear.
-- Variety later: one PSIA per walk variant (F_1..6); the search picks by the Chalkie's current arrangement.
+## MEASURED FACTS that changed the plan
+- **All six `Zombie_Walk_F_1..6_KnockBack_Walk` START ON THE IMPACT**: head-lead drops 15-22cm over frames
+  0-6, root flies BACKWARD from 0.1-0.37s (F_5: −267cm by 2.78s, then walks forward again from 3.5s; net
+  −134). Memory's f33/f74/f13 "impacts" were stumble artifacts. The old detector had the axis sign inverted.
+  → no pre-impact walk exists → victim montage = [walk loop cut | knockback]. Walk cut = best pose match of
+  `Zombie_Walk_F_5_Loop` to KB frame 0 (frame 92, rms 16cm) → WalkIn = [2.567, 3.067] (17.6cm, 35cm/s).
+- Rigs: BOTH clips face +Y in anim space (hand_r at −X), mesh yaw −90 on both pawns; Chalkie mesh offset
+  (10, 0, −94), hero (0, 0, −92); capsules r=30 both. (memory's "Chalkie mesh yaw+90" note is WRONG.)
+- Heavy `RTG_RM_Fists_Punch_Heavy2Idle` 2.667s, +Y travel 202: left knuckle peaks 85.4 @0.34 (root adv
+  25.7), **RIGHT knuckle peaks 95.9 @0.50 (root adv 49.1, x=+12.7, z=148)** = THE strike (AT_MeleeSweep
+  header agrees). Existing AM_Fists_Punch_Heavy_L: 2 hit windows (0.25-0.55, 1.70-2.64), warp 0→1.65.
+- KB F_5 frame 0: spine_03 13cm in front of root (z 127). Contact geometry: knuckle 8cm short of the spine
+  axis (≈4cm into the torso) → root-to-root at contact 117cm → victim Origin Y = 117 + 49.1 + 17.6 = 183.6.
+  Sweep check: knuckle 24cm from the capsule axis at 0.50 (< r30+12 hit), 47cm at 0.48 (no hit) → the hit
+  lands at ~0.49-0.50 deterministically IF alignment is exact; the 0.34 jab whiffs by 60cm.
+- Search window: PSIA root-root at t=0 ≈ 184, at 0.15 ≈ 168 → live from ~125 to ~245cm (close-in ≤ 60).
+- Python facts: `PoseSearchInteractionAssetFactory/SchemaFactory/DatabaseFactory` and `BlueprintFactory`
+  exist; no InputActionFactory (duplicate an IA); `unreal.Key().import_text('R')` builds a key;
+  `InputMappingContext.map_key` works; `default_key_mappings.mappings` is the 5.8 IMC storage.
 
-## Phase 3 — code (closed build, ~3h)
-- `UAZ_GA_StrikeInteraction : public UAZ_GA_MeleeAttack` — keeps hit window, cancel window, damage,
-  RM drive and the warp fallback. Overrides the activation front with `TryStrikeSearch(Target)` =
-  TryCatchSearch with the roles swapped (hero AnimContext = Attacker, Chalkie = Victim; `StrikeDatabase`
-  UPROPERTY). On success: (1) ROOT THE VICTIM FIRST — new tag `State.Combat.StruckPair`, the infected
-  ProduceInput sets `Custom.bGrabbed` for it too, defer one tick until its planar speed < 15 (the catch
-  lesson); (2) close-in layered move on the CHALKIE to its aligned transform + `SetFacingOverrideWorld`;
-  (3) play the heavy at SelectedTime; (4) send `Event.Strike.Victim` (payload: montage, start time,
-  rate) — the Chalkie plays its half with DriveRootMotion (RM ON on the segment) and the staggered tag so
-  the BT yields; (5) the normal hit window applies damage at contact. On search failure: the Super path =
-  today's warped heavy (log `[Strike] FALLBACK`).
-- Chalkie half: an "authored pair" entry in `UAZ_GA_HitReact` (already plays reaction montages with RM
-  drive + beat clock) — recommended over a new GA_StrikeVictim. Gate the damage-triggered HitReact by the
-  pair tag so the hit does not fire a SECOND reaction.
-- Input: IA + IMC mapping + InputConfig row + tag; `BP_GA_HeavyStrike` BP child with `StrikeDatabase`,
-  `PunchLunge_L` = trimmed heavy, InputTag = HeavyStrike. Remove the heavy from BP_GA_Punch_L's lunge slot
-  or keep it as a range fallback — decision below.
-- Instrumentation from day one: `[Strike] search cost/entry/align`, `[Strike] victim@0.15s/0.34s
-  moved/dist/vel` (copy the chalkie@ probe), `[Strike] contact fist->chest=Ncm at t=0.34`.
+## Decisions taken (answers to the plan's 4 open questions)
+1. R = dedicated key (new IA), tag REUSED: `Input.Action.MeleeAttack` (existing, unused) — no new input tag.
+2. Victim half = GA_HitReact authored-pair entry (no new GA).
+3. Warped heavy stays on LMB lunge (BP_GA_Punch_L untouched) AND is R's fallback.
+4. v1 = F_5 only. Contact = the 0.50 right hook (not 0.34). Damage 20 (2× jab) — tune.
 
-## Phase 4 — PIE (seam-trace first, [[feedback_seam_trace_before_pie]])
-Trace before pressing R: Chalkie walking in at ~90cm/s, gap 150 → search selects entry t≈0.05 → aligned
-victim transform ~90cm ahead on the hero's forward axis, facing him → close-in 0.15s (asked ≤60cm, else
-FALLBACK "implausibly far") → both play → contact at 0.34: knuckle ~5cm from chest → KB root motion
-carries the Chalkie back N cm (from the by-eye measurement) → BeatEnd ends the victim ability.
-PASS: `[Strike] align ... d<60`; `[Strike] victim@0.34s dist ≈ stand-off ±5`; `[MeleeHit]
-BP_GA_HeavyStrike -> Chalkie` at swingT 0.30-0.38 EVERY time (no whiff, no through-body); the Chalkie's
-root travels backward during the reaction (RM on); `[Strike] FALLBACK` only when no Chalkie is in range.
-FAIL signatures: victim slides during the wind-up → rooting missing (the catch bug again); fist through
-chest → Origin X wrong → re-measure, do NOT tune the warp; double reaction → HitReact also fired on damage
-→ gate by the pair tag; search never selects → schema skeleton/role mismatch (`results did not cover both
-actors`).
+## PIE — seam trace + PASS/FAIL
+Trace: Chalkie walking in ~150cm → R → `[Strike] … victim rooted` → `search after N tick(s)` → `[Strike]
+search actor=… role=Attacker/Victim anim=AZ_Strike_Heavy_F5 t≈0.05-0.15 cost<MAX` → `[Strike] align victim
+(…) -> (…) d≤60 dyaw=… | hero d≈45 (his own travel to contact) | contact=0.50 close≈0.4s | root-root at
+contact≈117` → `[Strike] pair LIVE` → `[Strike] victim …: pair montage … entry=… contact(React)=0.50 →
+root-motion drive in 0.4s for 2.77s` → `[Strike] victim@0.2s moved≈half` → `[Strike] victim@0.4s … root-root
+≈117 vel≈0` + `[Strike] contact@… fist->chest ≈ 8-15cm` + `[Strike] victim …: contact - root-motion drive on`
+→ `[MeleeHit] … BP_GA_HeavyStrike` at swingT 0.49-0.51 → `[Strike] victim …: Event.Combat.HitReact ignored`
+→ Chalkie flies back ~2.6m → BeatEnd 3.20 → `[HitReact] … reaction over — capsule moved ≈260cm`.
+PASS = every line above, every press, no through-body. FAIL signatures: `results did not cover both
+actors` → schema/role/skeleton or PoseHistory missing on one side; `aligned target too far` at 150cm →
+Origin Y wrong (re-measure, don't tune); `pair REFUSED` → HitReact blocked (Grabbing/Dead) or trigger not
+on the granted class CDO; victim slides during the walk-in / root-root ≠ 117 at contact → close-in vs RM
+drive overlap (check the drive fires AT contact, not before); fist through chest → Origin/contact time;
+second reaction after the hit → the ShouldAbilityRespondToEvent gate did not run (check the log line);
+hero spins → a leftover warp target (should be removed on the pair path).
 
-## Failure axes (design-first rule)
-- Two writers on the Chalkie: crowd slot / BT MoveTo vs the pair close-in — the pair tag must yield the
-  BT (as State.Combat.Grabbing does) and root the pawn in the sim.
-- Commit-before-contact: the Chalkie starts its half at swing start; a cancelled heavy (hero hit-react
-  mid-swing) must END the victim's half (attacker ability end → Event.Strike.Abort).
-- Heavy tail: trimmed to 0.9s is a HARD prerequisite — untrimmed, the hero walks 160cm through the victim.
-- Content is gitignored: RM flags and segment choices live only on this machine — record them.
-- Cost: BruteForce over 1-6 entries x 2 roles is trivial; no broad-phase needed (explicit query).
-
-## Open decisions (answer at session start)
-1. "R" = dedicated key (assumed) vs. a hold-LMB / RMB variant.
-2. Victim half: HitReact "authored pair" entry (recommended) vs. a new GA_StrikeVictim.
-3. Keep the warped heavy as the LMB lunge fallback, or R-only.
-4. How many walk variants for v1 (F_5 only, or F_1..6 for variety).
-
-Estimate ~1 day, two-thirds content. Task #17 tracks it.
+## Failure axes still open
+- Hit-stop desync: attacker 0.05 vs victim 0.08 at contact → 30ms pair drift; accepted for v1.
+- The victim's BT MoveTo during the walk-in: Staggered is up from entry, the close-in OverrideVelocity owns
+  the capsule for 0.4s — if the Chalkie still walks, the BT is not yielding on Staggered during MoveTo.
+- Abort semantics: pair ended before contact → victim's HitReact cancelled; after contact it keeps playing.
+- Gitignored content: NONE now (the RM dups live in /Game/AZ/Blueprints/Animation/Strike).
