@@ -80,6 +80,11 @@ protected:
 	void StartHitWindow();
 	void StopHitWindow();
 
+	/** The sockets the hit window sweeps. Default: both fists (wrist + knuckle). A subclass whose clip
+	 *  strikes with something else (the strike pair's kick variant sweeps the foot) overrides this per
+	 *  activation — the animation owns which limb connects, the ability only says which limbs to watch. */
+	virtual TArray<FName> GetStrikeSockets() const;
+
 	/** Mirror bCancellable onto the ASC as State.Combat.CancelWindow. Absolute count (1/0), because
 	 *  loose tags are COUNTED and a cancel-into-attack ends one swing while starting the next — an
 	 *  Add/Remove pair would leave the count at 1 after the chain and mark the pawn permanently

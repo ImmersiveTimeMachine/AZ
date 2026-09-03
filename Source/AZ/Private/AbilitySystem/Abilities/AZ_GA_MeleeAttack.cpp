@@ -754,13 +754,18 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 			*GetNameSafe(Avatar), SwingT, *GetNameSafe(ActiveMontage.Get()), Gap);
 	}
 	SweepTask = UAZ_AT_MeleeSweep::MeleeSweepWindow(this,
-		{ StrikeSocket_L, StrikeSocket_R, KnuckleSocket_L, KnuckleSocket_R }, SweepSphereRadius,
+		GetStrikeSockets(), SweepSphereRadius,
 		/*bHostilesOnly*/ true, /*bSingleTarget*/ true);
 	if (SweepTask)
 	{
 		SweepTask->OnHit.AddDynamic(this, &UAZ_GA_MeleeAttack::OnSweepHit);
 		SweepTask->ReadyForActivation();
 	}
+}
+
+TArray<FName> UAZ_GA_MeleeAttack::GetStrikeSockets() const
+{
+	return { StrikeSocket_L, StrikeSocket_R, KnuckleSocket_L, KnuckleSocket_R };
 }
 
 void UAZ_GA_MeleeAttack::StopHitWindow()

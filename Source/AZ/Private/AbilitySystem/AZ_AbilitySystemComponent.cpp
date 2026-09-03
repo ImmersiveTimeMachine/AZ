@@ -48,6 +48,7 @@ void UAZ_AbilitySystemComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
+	DownInputTags.Remove(InputTag);   // the Started edge: the next Held frame is a fresh press
 
 	FScopedAbilityListLock ActiveScopeLoc(*this);
 	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())
@@ -86,6 +87,15 @@ namespace
 bool UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused)
 {
 	if (!InputTag.IsValid()) return false;
+	// Fresh = the first Held frame since the button went down. Only from real input (bBufferIfRefused);
+	// the buffer's own replay must not mark a key as down.
+	bool bFreshPress = true;
+	if (bBufferIfRefused)
+	{
+		bool bAlreadyDown = false;
+		DownInputTags.Add(InputTag, &bAlreadyDown);
+		bFreshPress = !bAlreadyDown;
+	}
 	bool bActivated = false;
 	bool bRefusedMelee = false;
 	{
@@ -120,7 +130,9 @@ bool UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTa
 			}
 		}
 	}
-	if (!bActivated && bRefusedMelee && bBufferIfRefused && InputBufferSeconds > 0.f)
+	// A HELD button keeps asking (that is how a held LMB re-punches when the window opens), but only the
+	// press itself is worth remembering — frames 2..N of one click are not new intent.
+	if (!bActivated && bRefusedMelee && bBufferIfRefused && bFreshPress && InputBufferSeconds > 0.f)
 	{
 		LatchBufferedInput(InputTag);
 	}
@@ -203,6 +215,7 @@ void UAZ_AbilitySystemComponent::ReplayBufferedInput()
 void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
+	DownInputTags.Remove(InputTag);
 
 	FScopedAbilityListLock ActiveScopeLoc(*this);
 	for (FGameplayAbilitySpec& AbilitySpec : GetActivatableAbilities())

@@ -166,6 +166,13 @@ protected:
 	// --- input buffer state (see InputBufferSeconds) ---
 	FGameplayTag BufferedInputTag;
 	double BufferedInputTime = -1.0;
+	/** Input tags currently held down. The Held handler runs EVERY FRAME the button is down (Enhanced
+	 *  Input's Triggered on a plain Boolean action), and a normal click lasts several frames — so a refused
+	 *  frame 2..N of ONE click used to latch as a "second press" and replay at the cancel window: every
+	 *  right jab came out twice (measured 2026-09-03: latched 0.14s after the click, replayed at 0.38s).
+	 *  Only the first frame of a press may latch; Pressed (the Started edge) clears the tag so the edge
+	 *  always counts as fresh, Released removes it. */
+	TSet<FGameplayTag> DownInputTags;
 	void LatchBufferedInput(const FGameplayTag& InputTag);
 	void OnCancelWindowTagChanged(const FGameplayTag Tag, int32 NewCount);
 	void OnAnyAbilityEnded(const FAbilityEndedData& EndedData);

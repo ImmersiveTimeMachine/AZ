@@ -48,13 +48,10 @@ void UAZ_GA_StrikeInteraction::ActivateAbility(const FGameplayAbilitySpecHandle 
 	AActor* Avatar = GetAvatarActorFromActorInfo();
 	AActor* Target = nullptr;
 	const TCHAR* Skip = nullptr;
-	if (!StrikeDatabase)
+	PendingVariants = ShuffledVariants();
+	if (PendingVariants.Num() == 0)
 	{
-		Skip = TEXT("StrikeDatabase unset");
-	}
-	else if (!StrikeMontage)
-	{
-		Skip = TEXT("StrikeMontage unset");
+		Skip = TEXT("no strike variant configured (StrikeVariants, or StrikeDatabase + StrikeMontage)");
 	}
 	else if (!Avatar || !HasAuthorityOrPredictionKey(ActorInfo, &ActivationInfo))
 	{
@@ -90,7 +87,10 @@ void UAZ_GA_StrikeInteraction::ActivateAbility(const FGameplayAbilitySpecHandle 
 	}
 	if (Skip)
 	{
-		UE_LOG(LogTemp, Display, TEXT("[Strike] %s FALLBACK reason=%s -> warped heavy"), *GetNameSafe(Avatar), Skip);
+		// The parent path plays this press's drawn variant (SelectMontage override) and must sweep its limb.
+		ActiveStrikeSockets = PendingVariants.Num() > 0 ? PendingVariants[0].StrikeSockets : TArray<FName>();
+		UE_LOG(LogTemp, Display, TEXT("[Strike] %s FALLBACK reason=%s -> unpaired %s"), *GetNameSafe(Avatar), Skip,
+			PendingVariants.Num() > 0 ? *GetNameSafe(PendingVariants[0].Montage) : TEXT("(parent slots)"));
 		Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 		return;
 	}
@@ -116,6 +116,7 @@ void UAZ_GA_StrikeInteraction::ActivateAbility(const FGameplayAbilitySpecHandle 
 	SetCancelWindowTag(false);
 	ActiveMontage = nullptr;
 	StrikeTarget = Target;
+	ActiveStrikeSockets.Reset();
 	bPairLive = false;
 	bContactReached = false;
 	PairContactTime = 0.f;
@@ -166,25 +167,87 @@ void UAZ_GA_StrikeInteraction::BeginStrike()
 		return;
 	}
 	AActor* Target = StrikeTarget.Get();
-	FAZ_StrikePair Pair;
-	if (!Target || !TryStrikeSearch(Target, Pair))
+	if (Target)
 	{
-		FallbackToWarpedHeavy(TEXT("search (see the line above)"));
-		return;
+		// Weighted-random order, first valid alignment wins (see FAZ_StrikeVariant).
+		for (const FAZ_StrikeVariant& Variant : PendingVariants)
+		{
+			FAZ_StrikePair Pair;
+			if (TryStrikeSearch(Target, Variant, Pair))
+			{
+				PlayPairedStrike(Pair);
+				return;
+			}
+			UE_LOG(LogTemp, Display, TEXT("[Strike] variant %s did not fit — next"), *GetNameSafe(Variant.Montage));
+		}
 	}
-	PlayPairedStrike(Pair);
+	FallbackToWarpedHeavy(Target ? TEXT("no variant fits (see the lines above)") : TEXT("victim vanished"));
+}
+
+TArray<FAZ_StrikeVariant> UAZ_GA_StrikeInteraction::ShuffledVariants() const
+{
+	TArray<FAZ_StrikeVariant> Pool;
+	for (const FAZ_StrikeVariant& V : StrikeVariants)
+	{
+		if (V.IsSet() && V.Weight > 0.f)
+		{
+			Pool.Add(V);
+		}
+	}
+	if (Pool.Num() == 0 && StrikeDatabase && StrikeMontage)
+	{
+		FAZ_StrikeVariant Single;
+		Single.Database = StrikeDatabase;
+		Single.Montage = StrikeMontage;
+		Pool.Add(Single);
+	}
+	// Weighted draw without replacement: every press gets a fresh order.
+	TArray<FAZ_StrikeVariant> Order;
+	while (Pool.Num() > 0)
+	{
+		float Total = 0.f;
+		for (const FAZ_StrikeVariant& V : Pool) { Total += V.Weight; }
+		float Roll = FMath::FRand() * Total;
+		int32 Pick = Pool.Num() - 1;
+		for (int32 i = 0; i < Pool.Num(); ++i)
+		{
+			Roll -= Pool[i].Weight;
+			if (Roll <= 0.f) { Pick = i; break; }
+		}
+		Order.Add(Pool[Pick]);
+		Pool.RemoveAt(Pick);
+	}
+	return Order;
+}
+
+TArray<FName> UAZ_GA_StrikeInteraction::GetStrikeSockets() const
+{
+	return ActiveStrikeSockets.Num() > 0 ? ActiveStrikeSockets : Super::GetStrikeSockets();
 }
 
 void UAZ_GA_StrikeInteraction::FallbackToWarpedHeavy(const TCHAR* Reason)
 {
-	UE_LOG(LogTemp, Display, TEXT("[Strike] %s FALLBACK reason=%s -> warped heavy"), *GetNameSafe(GetAvatarActorFromActorInfo()), Reason);
 	StrikeTarget = nullptr;
+	ActiveStrikeSockets = PendingVariants.Num() > 0 ? PendingVariants[0].StrikeSockets : TArray<FName>();
+	UE_LOG(LogTemp, Display, TEXT("[Strike] %s FALLBACK reason=%s -> unpaired %s"), *GetNameSafe(GetAvatarActorFromActorInfo()), Reason,
+		PendingVariants.Num() > 0 ? *GetNameSafe(PendingVariants[0].Montage) : TEXT("(parent slots)"));
 	// The parent's whole activation: it re-runs the commit (no cost/cooldown on the fist rail, so harmless)
-	// and plays whichever slot its SelectMontage picks — every slot on the BP child is the warped heavy.
+	// and plays SelectMontage() — overridden below to this press's drawn variant. Its montage carries warp
+	// windows, so with a target that merely did not FIT the pair the approach is still corrected; with no
+	// target at all they are inert and the authored root motion plays out.
 	Super::ActivateAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, nullptr);
 }
 
-bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, FAZ_StrikePair& Out)
+UAnimMontage* UAZ_GA_StrikeInteraction::SelectMontage() const
+{
+	if (PendingVariants.Num() > 0 && PendingVariants[0].Montage)
+	{
+		return PendingVariants[0].Montage;
+	}
+	return Super::SelectMontage();
+}
+
+bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, const FAZ_StrikeVariant& Variant, FAZ_StrikePair& Out)
 {
 	// ---- Experimental-API quarantine: every PoseSearch interaction call lives HERE and nowhere else.
 	// Role names are the contract with PSS_AZ_Strike's Skeletons array — the schema owns them.
@@ -228,7 +291,7 @@ bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, FAZ_StrikePair& O
 	// One query, both actors, fixed roles: we are the Attacker, the Chalkie the Victim (the catch schema is
 	// the reverse pair — PSS_AZ_Strike binds the roles to the swapped skeletons).
 	FPoseSearchMotionMatchMultiQuery Query;
-	Query.Database = StrikeDatabase;
+	Query.Database = Variant.Database;
 	FPoseSearchAnimContextRoles& SelfRoles = Query.AnimContextsRoles.AddDefaulted_GetRef();
 	SelfRoles.AnimContext = HeroAnim;
 	SelfRoles.Roles.Add(AttackerRole);
@@ -245,8 +308,8 @@ bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, FAZ_StrikePair& O
 	for (const FPoseSearchBlueprintResult& R : Results)
 	{
 		const AActor* ResultActor = UPoseSearchLibrary::GetActor(R);
-		UE_LOG(LogTemp, Display, TEXT("[Strike] search actor=%s role=%s anim=%s t=%.2f rate=%.2f cost=%.1f"),
-			*GetNameSafe(ResultActor), *R.Role.ToString(), *GetNameSafe(R.SelectedAnim),
+		UE_LOG(LogTemp, Display, TEXT("[Strike] search[%s] actor=%s role=%s anim=%s t=%.2f rate=%.2f cost=%.1f"),
+			*GetNameSafe(Variant.Montage), *GetNameSafe(ResultActor), *R.Role.ToString(), *GetNameSafe(R.SelectedAnim),
 			R.SelectedTime, R.WantedPlayRate, R.SearchCost);
 		if (ResultActor == Avatar) { SelfResult = &R; }
 		else if (ResultActor == Target) { VictimResult = &R; }
@@ -264,14 +327,17 @@ bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, FAZ_StrikePair& O
 	{
 		return Fallback(TEXT("SelectedTime past the wind-up - SamplingRange not honored?"));
 	}
-	// One owner per fact: our editor-assigned StrikeMontage owns WHAT we play; the PSIA must agree, else
-	// the alignment would be computed for content we are not going to run.
-	if (Psia->GetAnimationAsset(AttackerRole) != StrikeMontage)
+	// One owner per fact: the variant's editor-assigned montage owns WHAT we play; the PSIA must agree,
+	// else the alignment would be computed for content we are not going to run.
+	if (Psia->GetAnimationAsset(AttackerRole) != Variant.Montage)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Strike] PSIA attacker anim '%s' != StrikeMontage '%s'"),
-			*GetNameSafe(Psia->GetAnimationAsset(AttackerRole)), *GetNameSafe(StrikeMontage));
-		return Fallback(TEXT("PSIA/StrikeMontage mismatch"));
+		UE_LOG(LogTemp, Warning, TEXT("[Strike] PSIA attacker anim '%s' != variant montage '%s'"),
+			*GetNameSafe(Psia->GetAnimationAsset(AttackerRole)), *GetNameSafe(Variant.Montage));
+		return Fallback(TEXT("PSIA/montage mismatch"));
 	}
+	Out.HeroMontage = Variant.Montage;
+	Out.StrikeSockets = Variant.StrikeSockets;
+	Out.ProbeSocket = Variant.StrikeSockets.Num() > 0 ? Variant.StrikeSockets[0] : KnuckleSocket_R;
 	UAnimMontage* VictimMontage = Cast<UAnimMontage>(Psia->GetAnimationAsset(VictimRole));
 	if (!VictimMontage)
 	{
@@ -344,11 +410,12 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	AActor* Avatar = GetAvatarActorFromActorInfo();
 	AActor* Target = StrikeTarget.Get();
-	if (!Avatar || !Target || !Pair.VictimMontage)
+	if (!Avatar || !Target || !Pair.VictimMontage || !Pair.HeroMontage)
 	{
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
 		return;
 	}
+	ActiveStrikeSockets = Pair.StrikeSockets;   // read by GetStrikeSockets when the hit window opens
 
 	// 1. NO WARP ON THE PAIR — the PSIA owns the geometry. Clear anything a previous LMB swing registered.
 	if (UMotionWarpingComponent* Warping = Avatar->FindComponentByClass<UMotionWarpingComponent>())
@@ -380,9 +447,10 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	EventTags.AddTag(Tags.Event_Combat_BeatEnd);
 	EventTags.AddTag(Tags.Event_Combat_CancelOpen);
 	EventTags.AddTag(Tags.Event_Combat_CancelClose);
-	ActiveMontage = StrikeMontage;
+	UAnimMontage* HeroMontage = Pair.HeroMontage;
+	ActiveMontage = HeroMontage;
 	MontageTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
-		this, FName("MeleeMontage"), StrikeMontage, EventTags,
+		this, FName("MeleeMontage"), HeroMontage, EventTags,
 		/*Rate*/ 1.f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ true,
 		/*AnimRootMotionTranslationScale*/ 1.f);
 	if (!MontageTask)
@@ -398,12 +466,32 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	UAnimInstance* HeroAnim = CurrentActorInfo ? CurrentActorInfo->GetAnimInstance() : nullptr;
 	if (HeroAnim && Pair.StartTime > KINDA_SMALL_NUMBER)
 	{
-		HeroAnim->Montage_SetPosition(StrikeMontage, Pair.StartTime);
+		HeroAnim->Montage_SetPosition(HeroMontage, Pair.StartTime);
 	}
+	// THE HERO ANCHORS — so he must actually hold still through the close-in. A travelling clip (the heavy,
+	// the kick) is carried by its own root motion under the drive. An IN-PLACE clip (the jabs) has nothing to
+	// drive — driving it is the documented ~zero-delta pin — and without anything the player's own walk
+	// carried him 20cm into the pair (measured 2026-09-03: root-root 90 at contact instead of 116). So an
+	// in-place clip gets a zero-velocity override for exactly the close-in; the victim's close-in is on the
+	// OTHER body, so the two overrides never meet.
 	if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 	{
-		const float Remaining = FMath::Max(0.1f, StrikeMontage->GetPlayLength() - Pair.StartTime);
-		RootMotionGen = Mover->DriveRootMotion(Remaining);
+		const FTransform ClipRootMotion = HeroMontage->ExtractRootMotionFromTrackRange(
+			0.f, HeroMontage->GetPlayLength(), FAnimExtractContext());
+		const bool bHeroClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+		if (bHeroClipTravels)
+		{
+			const float Remaining = FMath::Max(0.1f, HeroMontage->GetPlayLength() - Pair.StartTime);
+			RootMotionGen = Mover->DriveRootMotion(Remaining);
+		}
+		else if (Pair.CloseSeconds > KINDA_SMALL_NUMBER)
+		{
+			const TSharedPtr<FLayeredMove_LinearVelocity> HoldStill = MakeShared<FLayeredMove_LinearVelocity>();
+			HoldStill->Velocity = FVector::ZeroVector;
+			HoldStill->DurationMs = Pair.CloseSeconds * 1000.f;
+			HoldStill->MixMode = EMoveMixMode::OverrideVelocity;
+			Mover->QueueLayeredMove(HoldStill);
+		}
 	}
 
 	// 4. THE VICTIM'S HALF — synchronous, same frame as ours. GA_HitReact takes it from here (montage at
@@ -418,10 +506,11 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 	bPairLive = TargetASC && TargetASC->HasMatchingGameplayTag(Tags.State_Combat_StruckPair);
 	PairContactTime = Pair.ContactTime;
-	UE_LOG(LogTemp, Display, TEXT("[Strike] pair %s: hero %s@%.2f + victim %s@%.2f, contact@%.2f, close-in %.0fcm over %.2fs"),
+	UE_LOG(LogTemp, Display, TEXT("[Strike] pair %s: hero %s@%.2f + victim %s@%.2f, contact@%.2f, close-in %.0fcm over %.2fs, sweep=%s"),
 		bPairLive ? TEXT("LIVE") : TEXT("REFUSED (victim did not take it - it reacts normally on the hit)"),
-		*StrikeMontage->GetName(), Pair.StartTime, *Pair.VictimMontage->GetName(), Pair.StartTime,
-		Pair.ContactTime, Pair.VictimDisplacement.Size2D(), Pair.CloseSeconds);
+		*HeroMontage->GetName(), Pair.StartTime, *Pair.VictimMontage->GetName(), Pair.StartTime,
+		Pair.ContactTime, Pair.VictimDisplacement.Size2D(), Pair.CloseSeconds,
+		Pair.StrikeSockets.Num() > 0 ? *FString::JoinBy(Pair.StrikeSockets, TEXT(","), [](const FName& N) { return N.ToString(); }) : TEXT("fists"));
 
 	// 5. PROBES (the failure-axis instruments): who moved, and where the fist actually is at contact.
 	if (UWorld* World = GetWorld())
@@ -431,7 +520,7 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 		const TWeakObjectPtr<const USkeletalMeshComponent> WeakHeroMesh = GetAvatarMesh();
 		const FVector VictimStart = Target->GetActorLocation();
 		const FVector HeroStart = Avatar->GetActorLocation();
-		const FName Knuckle = KnuckleSocket_R;
+		const FName Knuckle = Pair.ProbeSocket;
 		const FName Chest = VictimChestSocket;
 		auto Probe = [WeakSelf, WeakVictim, WeakHeroMesh, VictimStart, HeroStart, Knuckle, Chest](const TCHAR* Tag, bool bContact)
 		{
@@ -492,5 +581,7 @@ void UAZ_GA_StrikeInteraction::EndAbility(const FGameplayAbilitySpecHandle Handl
 	bPairLive = false;
 	bContactReached = false;
 	StrikeTarget = nullptr;
+	ActiveStrikeSockets.Reset();
+	PendingVariants.Reset();
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
