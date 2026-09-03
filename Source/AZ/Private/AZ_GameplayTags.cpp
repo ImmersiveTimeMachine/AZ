@@ -302,6 +302,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Combat_Staggered, FName("State.Combat.Staggered"), TEXT("A stagger-class reaction owns the body (hit-react flinch or pack step-back) — gates BT attacks; explicit duration set where the reaction starts"));
     AddTag(GameplayTags.State_Combat_Grabbing, FName("State.Combat.Grabbing"), TEXT("Chalkie is mid-grab: holds its Active slot, plays the grab pose, exempt from flinch-cancel while grabbing"));
     AddTag(GameplayTags.State_Grabbed,         FName("State.Grabbed"),         TEXT("Player is caught: movement + camera frozen (ProduceInput / OnLookTriggered gate); struggle-mash to escape"));
+    AddTag(GameplayTags.State_Combat_StruckPair, FName("State.Combat.StruckPair"), TEXT("Chalkie is the victim half of a PoseSearch-Interaction strike pair (GA_HitReact via Event.Strike.Victim): other reaction triggers are ignored until it ends"));
     AddTag(GameplayTags.Mover_GrabAnchor,      FName("Mover.AZ.GrabAnchor"),   TEXT("Mover feature tag on the grab socket-lock layered move — CancelFeaturesWithTag ends the hold's attachment"));
     AddTag(GameplayTags.State_Grab_Catching,   FName("State.Grab.Catching"),   TEXT("Paired grab stage: the catch clip is playing"));
     AddTag(GameplayTags.State_Grab_Wrestling,  FName("State.Grab.Wrestling"),  TEXT("Paired grab stage: hold loop, mash window open, outcome undecided"));
@@ -333,6 +334,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Event_Movement_LandComplete, FName("Event.Movement.LandComplete"), TEXT("Anim -> jump ability: the jump animation cycle (takeoff/air/land) handed the body back to locomotion — the landing has finished"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
     AddTag(GameplayTags.Event_Grabbed,           FName("Event.Grabbed"),           TEXT("Sent to the player's ASC by a Chalkie's grab — triggers GA_PlayerGrabbed (mirrors Event.Death -> GA_Death)"));
+    AddTag(GameplayTags.Event_Strike_Victim,     FName("Event.Strike.Victim"),     TEXT("Hero strike -> Chalkie ASC: play your half of the strike pair (OptionalObject = montage, EventMagnitude = entry time, Instigator = striker) — triggers GA_HitReact"));
     AddTag(GameplayTags.Event_GrabEscaped,       FName("Event.GrabEscaped"),       TEXT("Player -> grabber ASC: the mash won — GA_ChalkieGrab plays the GrabEscapeMontage stagger"));
     AddTag(GameplayTags.Event_GrabTimeout,       FName("Event.GrabTimeout"),       TEXT("Player -> grabber ASC: escape window elapsed — GA_ChalkieGrab lands the attack (GrabEndMontage + damage)"));
     AddTag(GameplayTags.Event_GrabRelease,       FName("Event.GrabRelease"),       TEXT("Grabber -> player ASC: the grab ended abnormally (cancel/death) — GA_PlayerGrabbed frees the player"));

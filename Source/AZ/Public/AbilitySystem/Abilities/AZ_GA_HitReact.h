@@ -10,10 +10,15 @@
 class UAZ_AT_PlayMontageAndWaitForEvent;
 
 /**
- * THE stagger-class reaction ability (arch step A) — one class, two triggers:
+ * THE stagger-class reaction ability (arch step A) — one class, four triggers:
  *   Event.Combat.HitReact  — survivable hit (HandleDamaged; payload Instigator = causer)
  *   Event.Combat.StepBack  — pack recoil beat (horde; payload OptionalObject = montage,
  *                            EventMagnitude = caller beat override, 0 = clip default)
+ *   Event.Combat.GrabShoved — the player broke the grab (our half of the escape)
+ *   Event.Strike.Victim    — the VICTIM half of a PoseSearch-Interaction strike pair (hero
+ *                            GA_StrikeInteraction; payload OptionalObject = the paired montage
+ *                            [walk-in | knockback], EventMagnitude = entry time on the shared timeline,
+ *                            Instigator = the striker). See "STRIKE PAIR" below.
  *
  * Owns exactly three things: the reaction MONTAGE (task), the capsule ROOT MOTION
  * (generation-scoped DriveRootMotion), and the State.Combat.Staggered TAG (ActivationOwnedTags —
@@ -121,7 +126,35 @@ public:
 	 *  any invalid result logs "[React MM] FALLBACK reason=..." and leaves Desc untouched. */
 	bool TrySelectReactionByPose(const AActor* Avatar, FAZ_CombatMontage& InOutDesc, float& OutStartPosition) const;
 
+	// --- STRIKE PAIR (2026-09-03, memory project_psia_heavy_strike_plan). The hero's GA_StrikeInteraction
+	// aligned us through a PoseSearch Interaction pair and starts our half the same frame as its own: the
+	// paired montage's first section is the walk-in (the Zombie_01 knockbacks all begin ON the impact
+	// frame, so the pre-contact time is a walk loop cut in front of it), the second is the knockback.
+	// Contract with the striker: contact = the start of StrikePairReactSection on that montage — the
+	// striker's close-in ends there, our root-motion drive BEGINS there (during the walk-in the capsule is
+	// carried by the striker's close-in move; driving the walk clip on top would fight it), and the
+	// BeatEnd notify authored where the knockback's root comes to rest ends the reaction. While the pair
+	// runs, State.Combat.StruckPair is up and every OTHER trigger is refused in ShouldAbilityRespondToEvent
+	// — the punch that lands at contact fires Event.Combat.HitReact, and a retrigger there would replace
+	// the authored knockback with a pose-picked flinch mid-pair.
+
+	/** Section of the paired victim montage whose start is the CONTACT frame (root-motion drive starts
+	 *  there). Must match GA_StrikeInteraction::ReactSectionName and the montage authoring. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|StrikePair")
+	FName StrikePairReactSection = TEXT("React");
+
+	/** Post-knockback hold (Staggered stays up this long after the clip): a body thrown 2.6m does not
+	 *  resume the chase on the next frame. Per-pair rather than per-clip because the paired montage has no
+	 *  anim-set descriptor to carry it. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Reaction|StrikePair", meta = (ClampMin = "0", ForceUnits = "s"))
+	float StrikePairRecoverSeconds = 0.5f;
+
 protected:
+	/** STRUCK-PAIR GATE: while State.Combat.StruckPair is up, only Event.Strike.Victim may (re)start this
+	 *  ability. Runs BEFORE the retrigger's EndAbility (InternalTryActivateAbility checks it first), which is
+	 *  the whole point — a refused CanActivate/retrigger would already have killed the pair montage. */
+	virtual bool ShouldAbilityRespondToEvent(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayEventData* Payload) const override;
+
 	/** GRAB ARMOR (rule 8) + the melee cancel. Damage-lock and scream are NOT here: they live in
 	 *  HandleDamaged and must fire even for a grabbed Chalkie, whose armor only suppresses the flinch
 	 *  MOTION.
@@ -160,6 +193,10 @@ protected:
 	 *  Staggered tag, and therefore the AI's chase block — outlives the clip by this much. */
 	FTimerHandle RecoverTimer;
 	bool bRecovering = false;
+	/** Strike pair: the root-motion drive is deferred to the React section (see STRIKE PAIR above). */
+	FTimerHandle StrikePairDriveTimer;
+	/** This activation is the victim half of a strike pair (facing override + StruckPair tag to clear). */
+	bool bStrikePair = false;
 	/** TEMP diagnostic ([HitReact], strip with the other combat diags): where the victim stood when the
 	 *  reaction started, so EndAbility can report how far the knockback ACTUALLY moved the capsule. */
 	FVector ReactStartLocation = FVector::ZeroVector;

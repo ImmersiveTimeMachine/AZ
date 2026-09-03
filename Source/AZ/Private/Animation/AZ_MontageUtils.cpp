@@ -42,6 +42,23 @@ UAnimMontage* UAZ_MontageUtils::BuildSectionedMontage(
 	float BlendIn,
 	float BlendOut)
 {
+	// Whole clips = the ranged builder with no ranges.
+	return BuildSectionedMontageRanged(PackagePath, SlotName, SectionNames, Sequences, NextSectionNames,
+		SegmentPlayRates, TArray<float>(), TArray<float>(), BlendIn, BlendOut);
+}
+
+UAnimMontage* UAZ_MontageUtils::BuildSectionedMontageRanged(
+	const FString& PackagePath,
+	FName SlotName,
+	const TArray<FName>& SectionNames,
+	const TArray<UAnimSequence*>& Sequences,
+	const TArray<FName>& NextSectionNames,
+	const TArray<float>& SegmentPlayRates,
+	const TArray<float>& SegmentStartTimes,
+	const TArray<float>& SegmentEndTimes,
+	float BlendIn,
+	float BlendOut)
+{
 	const int32 Num = SectionNames.Num();
 	if (Num == 0)
 	{
@@ -58,6 +75,13 @@ UAnimMontage* UAZ_MontageUtils::BuildSectionedMontage(
 	{
 		UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] '%s': SegmentPlayRates must be empty or %d entries (got %d)."),
 			*PackagePath, Num, SegmentPlayRates.Num());
+		return nullptr;
+	}
+	const bool bRanged = SegmentStartTimes.Num() != 0 || SegmentEndTimes.Num() != 0;
+	if (bRanged && (SegmentStartTimes.Num() != Num || SegmentEndTimes.Num() != Num))
+	{
+		UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] '%s': SegmentStartTimes/EndTimes must both be empty or %d entries (got %d/%d)."),
+			*PackagePath, Num, SegmentStartTimes.Num(), SegmentEndTimes.Num());
 		return nullptr;
 	}
 
@@ -154,9 +178,29 @@ UAnimMontage* UAZ_MontageUtils::BuildSectionedMontage(
 		Segment.AnimPlayRate = FMath::Max(Rate, UE_KINDA_SMALL_NUMBER);  // AFTER: bInitialize resets it to 1
 		Segment.StartPos = Cursor;
 		Segment.LoopingCount = 1;
+
+		// Clip RANGE (ranged builder): End <= Start = whole clip. Clamped into the clip; a range that clamps
+		// to nothing is an authoring error worth failing loudly on.
+		float Duration = SegmentDuration(Sequences[i], Rate);
+		if (bRanged && SegmentEndTimes[i] > SegmentStartTimes[i])
+		{
+			const float ClipLength = Sequences[i]->GetPlayLength();
+			const float ClipStart = FMath::Clamp(SegmentStartTimes[i], 0.f, ClipLength);
+			const float ClipEnd = FMath::Clamp(SegmentEndTimes[i], ClipStart, ClipLength);
+			if (ClipEnd - ClipStart < 0.01f)
+			{
+				UE_LOG(Log_AZ, Error, TEXT("[MontageUtils] '%s': section '%s' range [%.3f, %.3f] is empty inside a %.3fs clip."),
+					*PackagePath, *SectionNames[i].ToString(), SegmentStartTimes[i], SegmentEndTimes[i], ClipLength);
+				return nullptr;
+			}
+			Segment.AnimStartTime = ClipStart;
+			Segment.AnimEndTime = ClipEnd;
+			Duration = (ClipEnd - ClipStart) / FMath::Max(Rate, UE_KINDA_SMALL_NUMBER);
+			UE_LOG(Log_AZ, Log, TEXT("[MontageUtils] '%s': section '%s' = %s [%.3f, %.3f] -> %.3fs on the timeline at %.3f."),
+				*PackagePath, *SectionNames[i].ToString(), *Sequences[i]->GetName(), ClipStart, ClipEnd, Duration, Cursor);
+		}
 		Track.AnimTrack.AnimSegments.Add(Segment);
 
-		const float Duration = SegmentDuration(Sequences[i], Rate);
 		Durations.Add(Duration);
 		Cursor += Duration;
 	}

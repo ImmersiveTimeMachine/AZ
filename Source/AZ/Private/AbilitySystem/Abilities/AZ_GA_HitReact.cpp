@@ -9,9 +9,11 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "AZ_GameplayTags.h"
+#include "AI/AZ_InfectedAIController.h"   // strike pair: face the striker through the ONE facing owner
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "TimerManager.h"
 
 // Pose-selected reaction (TrySelectReactionByPose ONLY — Experimental API quarantine)
@@ -42,7 +44,7 @@ void UAZ_GA_HitReact::ConfigureOnCDO(UClass* GrantClass)
 	}
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 
-	for (const FGameplayTag& TriggerTag : { Tags.Event_Combat_HitReact, Tags.Event_Combat_StepBack, Tags.Event_Combat_GrabShoved })
+	for (const FGameplayTag& TriggerTag : { Tags.Event_Combat_HitReact, Tags.Event_Combat_StepBack, Tags.Event_Combat_GrabShoved, Tags.Event_Strike_Victim })
 	{
 		if (!CDO->AbilityTriggers.ContainsByPredicate(
 			[&TriggerTag](const FAbilityTriggerData& T) { return T.TriggerTag == TriggerTag; }))
@@ -249,7 +251,20 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	bRecovering = false;   // retrigger: a fresh reaction is not a continuation of the last one's recover
 	const bool bStepBack = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Combat_StepBack;
 	const bool bGrabShoved = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Combat_GrabShoved;
-	if (bGrabShoved)
+	bStrikePair = TriggerEventData && TriggerEventData->EventTag == Tags.Event_Strike_Victim;
+	float ReactionStartPosition = 0.f;
+	if (bStrikePair)
+	{
+		// STRIKE PAIR: the montage and its entry frame come from the striker's search — nothing here is
+		// ours to choose. Beat = the whole montage (its authored BeatEnd notify is the cut), root motion =
+		// the beat (drive deferred to the React section below), recover = the pair's own hold.
+		Desc.Montage = const_cast<UAnimMontage*>(Cast<UAnimMontage>(TriggerEventData->OptionalObject.Get()));
+		Desc.ActiveSeconds = 0.f;
+		Desc.RootMotionSeconds = 0.f;
+		Desc.StaggerRecoverSeconds = StrikePairRecoverSeconds;
+		ReactionStartPosition = FMath::Max(0.f, TriggerEventData->EventMagnitude);
+	}
+	else if (bGrabShoved)
 	{
 		ResolveShoveDescriptor(Avatar, Desc);
 	}
@@ -295,8 +310,7 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	// payload and the shove's escape clip is chosen by the grab, so neither is the search's business.
 	// Runs AFTER the descriptor resolve so the beat/recover/root-motion timing is already in hand and
 	// only the montage is swapped; a failed search leaves the hard-picked clip exactly as before.
-	float ReactionStartPosition = 0.f;
-	if (!bStepBack && !bGrabShoved && Desc.IsSet())
+	if (!bStepBack && !bGrabShoved && !bStrikePair && Desc.IsSet())
 	{
 		TrySelectReactionByPose(Avatar, Desc, ReactionStartPosition);
 	}
@@ -348,7 +362,54 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	// Capsule follows the recoil for the descriptor's RM window (KnockBack_Chase clips walk back in
 	// during their second half — driving past the peak turns a knockback into a stroll-back-at-you).
 	UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>();
-	if (Mover)
+	if (Mover && bStrikePair)
+	{
+		// STRIKE PAIR: the drive starts at CONTACT (the React section), not at the entry frame — until then
+		// the striker's close-in move owns the capsule and the walk-in clip only owns the pose. The drive
+		// length is what is left of the beat after contact (= the knockback until its root rests).
+		float ReactStart = 0.f, ReactEnd = 0.f;
+		const int32 ReactIndex = Desc.Montage->GetSectionIndex(StrikePairReactSection);
+		if (ReactIndex != INDEX_NONE)
+		{
+			Desc.Montage->GetSectionStartAndEndTime(ReactIndex, ReactStart, ReactEnd);
+		}
+		const float DriveDelay = FMath::Max(0.f, ReactStart - ReactionStartPosition);
+		const float DriveSeconds = FMath::Max(0.f, Desc.ResolveRootMotion() - ReactStart);
+		UE_LOG(LogTemp, Display, TEXT("[Strike] victim %s: pair montage %s entry=%.2f contact(React)=%.2f -> root-motion drive in %.2fs for %.2fs (section %s)"),
+			*GetNameSafe(Avatar), *GetNameSafe(Desc.Montage), ReactionStartPosition, ReactStart, DriveDelay, DriveSeconds,
+			ReactIndex != INDEX_NONE ? TEXT("found") : TEXT("MISSING - driving from entry"));
+		if (DriveDelay <= KINDA_SMALL_NUMBER)
+		{
+			RootMotionGen = Mover->DriveRootMotion(DriveSeconds);
+		}
+		else
+		{
+			GetWorld()->GetTimerManager().SetTimer(StrikePairDriveTimer,
+				FTimerDelegate::CreateWeakLambda(this, [this, DriveSeconds]()
+				{
+					const AActor* Body = IsActive() ? GetAvatarActorFromActorInfo() : nullptr;
+					UAZ_PawnMoverComponent* BodyMover = Body ? Body->FindComponentByClass<UAZ_PawnMoverComponent>() : nullptr;
+					if (BodyMover)
+					{
+						RootMotionGen = BodyMover->DriveRootMotion(DriveSeconds);
+						UE_LOG(LogTemp, Display, TEXT("[Strike] victim %s: contact - root-motion drive on (gen %llu, %.2fs)"),
+							*GetNameSafe(Body), RootMotionGen, DriveSeconds);
+					}
+				}), DriveDelay, false);
+		}
+		// Face the striker through the ONE facing owner (the AI controller's override slot - its Tick
+		// rewrites the pawn's desired facing every frame). Cleared in EndAbility.
+		const AActor* Striker = TriggerEventData ? TriggerEventData->Instigator.Get() : nullptr;
+		const APawn* AvatarPawn = Cast<APawn>(Avatar);
+		if (AAZ_InfectedAIController* ChalkieAI = AvatarPawn ? Cast<AAZ_InfectedAIController>(AvatarPawn->GetController()) : nullptr)
+		{
+			if (Striker)
+			{
+				ChalkieAI->SetFacingOverrideWorld((Striker->GetActorLocation() - Avatar->GetActorLocation()).GetSafeNormal2D());
+			}
+		}
+	}
+	else if (Mover)
 	{
 		RootMotionGen = Mover->DriveRootMotion(Desc.ResolveRootMotion());
 	}
@@ -364,6 +425,9 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
 	{
 		ASC->SetLooseGameplayTagCount(Tags.State_Combat_Staggered, 1);
+		// STRUCK-PAIR flag: absolute, same counted-tag reasoning. Up only for the pair; a normal reaction
+		// that (legitimately) retriggers afterwards clears it.
+		ASC->SetLooseGameplayTagCount(Tags.State_Combat_StruckPair, bStrikePair ? 1 : 0);
 	}
 
 	ReactStartLocation = Avatar->GetActorLocation();
@@ -390,6 +454,20 @@ void UAZ_GA_HitReact::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
 				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 			}
 		}), Desc.ResolveStaggerHold() + 0.5f, false);   // must outlast the recover hold, or it would cut it short
+}
+
+bool UAZ_GA_HitReact::ShouldAbilityRespondToEvent(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayEventData* Payload) const
+{
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (Payload && ASC && Payload->EventTag != Tags.Event_Strike_Victim
+		&& ASC->HasMatchingGameplayTag(Tags.State_Combat_StruckPair))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Strike] victim %s: %s ignored - the strike-pair reaction owns the body"),
+			*GetNameSafe(ActorInfo->AvatarActor.Get()), *Payload->EventTag.ToString());
+		return false;
+	}
+	return Super::ShouldAbilityRespondToEvent(ActorInfo, Payload);
 }
 
 void UAZ_GA_HitReact::OnMontageEvent(FGameplayTag EventTag, FGameplayEventData EventData)
@@ -441,6 +519,7 @@ void UAZ_GA_HitReact::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 		World->GetTimerManager().ClearTimer(BeatCutTimer);
 		World->GetTimerManager().ClearTimer(Watchdog);
 		World->GetTimerManager().ClearTimer(RecoverTimer);
+		World->GetTimerManager().ClearTimer(StrikePairDriveTimer);
 	}
 	bRecovering = false;
 	// Drop the gate. Absolute 0 for the same counted-tag reason as the set — and it must happen on EVERY
@@ -449,6 +528,16 @@ void UAZ_GA_HitReact::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
 	{
 		ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_Staggered, 0);
+		ASC->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Combat_StruckPair, 0);
+	}
+	if (bStrikePair)
+	{
+		const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+		if (AAZ_InfectedAIController* ChalkieAI = AvatarPawn ? Cast<AAZ_InfectedAIController>(AvatarPawn->GetController()) : nullptr)
+		{
+			ChalkieAI->ClearFacingOverride();
+		}
+		bStrikePair = false;
 	}
 
 	if (const AActor* Avatar = GetAvatarActorFromActorInfo())

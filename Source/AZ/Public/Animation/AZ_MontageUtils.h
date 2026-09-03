@@ -58,6 +58,33 @@ public:
 		float BlendIn = 0.25f,
 		float BlendOut = 0.25f);
 
+	/**
+	 * BuildSectionedMontage with per-segment CLIP RANGES: segment i plays Sequences[i] from
+	 * SegmentStartTimes[i] to SegmentEndTimes[i] (clip seconds). Both arrays must be empty (= whole clips)
+	 * or Num entries; an entry with End <= Start means "whole clip" for that segment. Sections still start
+	 * where their (trimmed) segment starts, so the section table stays paired-montage-safe.
+	 *
+	 * Built for the strike pair (2026-09-03): a PoseSearch Interaction asset shares ONE timeline across its
+	 * roles, so the victim's half has to carry a walk-in BEFORE the impact (the Zombie_01 knockbacks all
+	 * start ON the impact frame) and the hero's heavy has to stop before its 160cm walk-off — neither exists
+	 * as a clip, both are ranges. FAnimSegment::AnimStartTime/AnimEndTime are plain fields Python CAN write,
+	 * but nothing recomputes the montage length afterwards (measured: end 2.667 -> 0.9 leaves GetPlayLength
+	 * at 2.667, and AnimMontage has no post_edit_change binding), so the trim happens where the length is
+	 * laid out.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
+	static UAnimMontage* BuildSectionedMontageRanged(
+		const FString& PackagePath,
+		FName SlotName,
+		const TArray<FName>& SectionNames,
+		const TArray<UAnimSequence*>& Sequences,
+		const TArray<FName>& NextSectionNames,
+		const TArray<float>& SegmentPlayRates,
+		const TArray<float>& SegmentStartTimes,
+		const TArray<float>& SegmentEndTimes,
+		float BlendIn = 0.25f,
+		float BlendOut = 0.25f);
+
 	/** Re-link one section's next-section. NAME_None = stop at the end of that section. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Montage")
 	static bool SetSectionNext(UAnimMontage* Montage, FName SectionName, FName NextSectionName);

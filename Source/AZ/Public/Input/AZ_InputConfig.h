@@ -13,10 +13,13 @@ struct FAZ_InputAction
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditDefaultsOnly)
+	// EditAnywhere, not EditDefaultsOnly: a data asset is only ever edited as an asset, and EditDefaultsOnly
+	// (CPF_DisableEditOnInstance) makes the Python bridge refuse to author rows ("cannot be edited on
+	// instances", 2026-09-03) — the RT input mirror is scripted.
+	UPROPERTY(EditAnywhere)
 	const class UInputAction* InputAction = nullptr;
 
-	UPROPERTY(EditDefaultsOnly)
+	UPROPERTY(EditAnywhere)
 	FGameplayTag InputTag = FGameplayTag();
 };
 
@@ -29,6 +32,6 @@ public:
 
 	const UInputAction* FindAbilityInputActionForTag(const FGameplayTag& InInputTag, bool bLogNotFound = false) const;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FAZ_InputAction> AbilityInputActions;
 };
