@@ -96,9 +96,57 @@ void UAZ_ObstacleSensorComponent::TickComponent(float DeltaTime, ELevelTick Tick
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(AZ_ObstacleSensor), /*bTraceComplex*/ false, Owner);
 
-	// ---- One forward sphere-sweep at a body height. Returns true on a VERTICAL, OPPOSING face (a real obstacle,
-	// not a floor/ramp/back wall) and fills the band's distance / normal / closing speed. ----
-	auto Probe = [&](float HeightAboveFoot, float& OutDist, FVector& OutN, float& OutClose) -> bool
+	// ---- Step-over test: a vertical face is only an OBSTACLE if the pawn could not simply walk/step onto it.
+	// The face test alone cannot tell them apart, because a sphere sweep that clips the TOP EDGE of a box reports
+	// that box's SIDE-face normal — perfectly vertical — even though the "obstacle" is a step you are already
+	// walking up. Measured 2026-09-06 on the L_001 ramp: SM_Ramp (27 deg) delivers onto SM_Cube whose top is Z=200;
+	// with the pawn's feet at Z=191.4 the LOW sphere (centre foot+30, radius 22) reached down to Z=199.4, dipped
+	// 0.6cm below the platform top, and reported n=(0,1,0) -> Stumble, 44cm out, closing 450 — the pawn was tripped
+	// by the top edge of the platform it was about to walk onto, 8.6cm above its own feet.
+	//
+	// So measure the thing's height at ITS OWN BASE (the ground at its foot), NEVER relative to our feet: on stairs
+	// the pawn stands a tread below, so a feet-relative height reads two 18cm risers as one 36cm barrier and would
+	// flinch on every staircase; base-relative reads 18 and steps up. Two ways to still be a real obstacle:
+	//   - it is TALLER than MinObstacleHeight at its base (a crate, a wall), or
+	//   - we struck it well ABOVE the local ground (a knee-height bar with floor beneath it — its "height" measured
+	//     past the face is the floor, so the height test alone would wrongly clear it).
+	auto IsSteppable = [&](const FHitResult& H) -> bool
+	{
+		// Sampled just before / just after the face: far enough to clear it, close enough to stay on the same step.
+		constexpr float Inset  = 8.f;
+		constexpr float ProbeUp   = 250.f;   // start above head height; a wall taller than this starts the trace
+		constexpr float ProbeDown = 120.f;   // inside it -> penetrating hit -> reads as tall -> treated as obstacle
+		const FVector Up(0.f, 0.f, 1.f);
+		const FVector Face = H.ImpactPoint;
+
+		// Ground on OUR side, at the foot of the face = the obstacle's base.
+		float BaseZ = FootZ;
+		const FVector BasePt = Face - Dir * Inset;
+		FHitResult G;
+		if (World->LineTraceSingleByChannel(G, BasePt + Up * ProbeUp, BasePt - Up * ProbeDown,
+			TraceChannel.GetValue(), Params))
+		{
+			BaseZ = G.ImpactPoint.Z;
+		}
+
+		// What is on TOP of it, just past the face.
+		const FVector TopPt = Face + Dir * Inset;
+		FHitResult T;
+		if (!World->LineTraceSingleByChannel(T, TopPt + Up * ProbeUp, TopPt - Up * ProbeDown,
+			TraceChannel.GetValue(), Params))
+		{
+			return false;   // nothing to land on (a drop, or taller than the probe) -> a real obstacle
+		}
+
+		const float ObstacleHeight   = T.ImpactPoint.Z - BaseZ;   // how tall the thing is, at its own base
+		const float ContactAboveBase = Face.Z - BaseZ;            // how far up it we struck
+		return ObstacleHeight <= MinObstacleHeight && ContactAboveBase <= MinObstacleHeight;
+	};
+
+	// ---- One forward sphere-sweep at a body height. Returns true on a VERTICAL, OPPOSING face that is also too
+	// TALL to step onto (a real obstacle, not a floor/ramp/stair/back wall) and fills the band's distance / normal
+	// / closing speed / hit actor. ----
+	auto Probe = [&](float HeightAboveFoot, float& OutDist, FVector& OutN, float& OutClose, AActor*& OutActor) -> bool
 	{
 		const FVector O(Loc.X, Loc.Y, FootZ + HeightAboveFoot);
 		const FVector E = O + Dir * TraceDistance;
@@ -109,9 +157,16 @@ void UAZ_ObstacleSensorComponent::TickComponent(float DeltaTime, ELevelTick Tick
 			&& FMath::Abs(H.ImpactNormal.Z) <= MaxWallNormalZ                       // mostly-horizontal = vertical face
 			&& FVector::DotProduct(H.ImpactNormal, Dir) < 0.f)                       // faces back toward us
 		{
+			if (IsSteppable(H))
+			{
+				// Seen and deliberately ignored — you walk onto this. Green so it reads apart from a real hit.
+				if (bDrawDebug) { DrawDebugSphere(World, H.ImpactPoint, 6.f, 6, FColor::Green, false, 0.f); }
+				return false;
+			}
 			OutDist  = H.Distance;
 			OutN     = H.ImpactNormal;
 			OutClose = FMath::Max(0.f, static_cast<float>(FVector::DotProduct(Vel, -H.ImpactNormal)));
+			OutActor = H.GetActor();
 			if (bDrawDebug) { DrawDebugSphere(World, H.ImpactPoint, 6.f, 6, FColor::Red, false, 0.f); }
 			return true;
 		}
@@ -121,14 +176,15 @@ void UAZ_ObstacleSensorComponent::TickComponent(float DeltaTime, ELevelTick Tick
 
 	float   LowD = 0.f, MidD = 0.f, HighD = 0.f, LowC = 0.f, MidC = 0.f, HighC = 0.f;
 	FVector LowN = FVector::ZeroVector, MidN = FVector::ZeroVector, HighN = FVector::ZeroVector;
+	AActor* LowA = nullptr; AActor* MidA = nullptr; AActor* HighA = nullptr;
 
 	// Cap each band to the CURRENT capsule top so the bands SHRINK when crouched — otherwise the fixed HIGH band
 	// (165 cm) still hits an overhead beam the crouched (shorter) character clears, blocking it. Standing (top ~180)
 	// is unaffected (all bands sit below it); crouched (top ~100-120) drops HIGH/MID below the beam → you pass under.
 	const float BandCap = FMath::Max(10.f, 2.f * HalfHeight - 5.f);   // just under the capsule top
-	const bool bLow  = Probe(FMath::Min(LowProbeHeight,  BandCap), LowD,  LowN,  LowC);
-	const bool bMid  = Probe(FMath::Min(MidProbeHeight,  BandCap), MidD,  MidN,  MidC);
-	const bool bHigh = Probe(FMath::Min(HighProbeHeight, BandCap), HighD, HighN, HighC);
+	const bool bLow  = Probe(FMath::Min(LowProbeHeight,  BandCap), LowD,  LowN,  LowC,  LowA);
+	const bool bMid  = Probe(FMath::Min(MidProbeHeight,  BandCap), MidD,  MidN,  MidC,  MidA);
+	const bool bHigh = Probe(FMath::Min(HighProbeHeight, BandCap), HighD, HighN, HighC, HighA);
 
 	// ---- Classify by WHICH body band is blocked (MID dominant > LOW > HIGH). MID (chest) blocked = a WALL even if
 	// low/high also hit (a full wall blocks all three). Mid clear + low = a low barrier. Mid+low clear + high = an
@@ -137,14 +193,18 @@ void UAZ_ObstacleSensorComponent::TickComponent(float DeltaTime, ELevelTick Tick
 	bool    bPrimary = false;
 	float   PrimD = 0.f, PrimC = 0.f;
 	FVector PrimN = FVector::ZeroVector;
-	if (bMid)        { bPrimary = true; PrimD = MidD;  PrimN = MidN;  PrimC = MidC;  EntryKind = EAZ_ObstacleReaction::Brace;   }
-	else if (bLow)   { bPrimary = true; PrimD = LowD;  PrimN = LowN;  PrimC = LowC;  EntryKind = EAZ_ObstacleReaction::Stumble; }
-	else if (bHigh)  { bPrimary = true; PrimD = HighD; PrimN = HighN; PrimC = HighC; EntryKind = EAZ_ObstacleReaction::HeadHit; }
+	AActor* PrimA = nullptr;
+	if (bMid)        { bPrimary = true; PrimD = MidD;  PrimN = MidN;  PrimC = MidC;  PrimA = MidA;  EntryKind = EAZ_ObstacleReaction::Brace;   }
+	else if (bLow)   { bPrimary = true; PrimD = LowD;  PrimN = LowN;  PrimC = LowC;  PrimA = LowA;  EntryKind = EAZ_ObstacleReaction::Stumble; }
+	else if (bHigh)  { bPrimary = true; PrimD = HighD; PrimN = HighN; PrimC = HighC; PrimA = HighA; EntryKind = EAZ_ObstacleReaction::HeadHit; }
 
 	bObstacleAhead       = bPrimary;
 	ObstacleDistance     = bPrimary ? PrimD : 0.f;
 	ObstacleNormal       = PrimN;
 	ObstacleClosingSpeed = bPrimary ? PrimC : 0.f;
+	// Was declared and cleared but NEVER assigned — every consumer read None (that is why the diagnostic probes
+	// could not name what the pawn hit). The hit actor is the hook for per-obstacle semantics later.
+	ObstacleActor        = PrimA;
 
 	// PEAK approach speed: highest closing speed seen while this obstacle is ahead. The entry gate uses THIS, not
 	// the instantaneous PrimC: the movement-capability clamp decelerates the resolved velocity as you near a wall

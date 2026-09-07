@@ -90,6 +90,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Obstacle|Bands", meta = (ClampMin = "0", ForceUnits = "cm"))
 	float HighProbeHeight = 165.f;
 
+	/** Anything SHORTER than this is walked/stepped onto, not run into -> no reaction. Measured at the obstacle's
+	 *  OWN base (the ground at its foot), NEVER relative to the pawn's feet: on stairs the pawn stands a tread
+	 *  below, so a feet-relative height reads two 18cm risers as one 36cm barrier and would flinch on every
+	 *  staircase; base-relative reads 18 and steps up. Keep >= the movement clamp's StepUpClearance (30) — below
+	 *  that the pawn steps over it silently and a flinch would contradict the movement. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Obstacle|Bands", meta = (ClampMin = "0", ForceUnits = "cm"))
+	float MinObstacleHeight = 35.f;
+
 	// ---- Reaction params ----
 	/** Closing speed (cm/s) above which reaching a WALL fires Brace (below = slow approach -> Blocked). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Obstacle|Impact", meta = (ClampMin = "0", ForceUnits = "cm/s"))
