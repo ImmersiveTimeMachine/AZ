@@ -54,7 +54,11 @@ a.set_editor_property('warping_weight_translation', 1.0); a.set_editor_property(
 a.set_editor_property('origin', unreal.Transform())
 v = unreal.PoseSearchInteractionAssetItem()
 v.set_editor_property('role', 'Victim'); v.set_editor_property('animation', vm)
-v.set_editor_property('warping_weight_translation', 0.0); v.set_editor_property('warping_weight_rotation', 0.0)
+# Victim ROTATION weight must be > 0 (translation may stay 0): PoseSearchInteractionAsset.cpp:54 FindReferenceOrientation
+# sums the rotation weights of every role except the heaviest and ensure()s on a zero sum — victim=0 fired that ensure on
+# every first strike (2026-09-07). 0.01 keeps the hero as the anchor (99%) and, for our yaw-only scenes, gives the same
+# alignment the Identity fallback gave; it only stops the ensure. Do NOT put it back to 0.0.
+v.set_editor_property('warping_weight_translation', 0.0); v.set_editor_property('warping_weight_rotation', 0.01)
 v.set_editor_property('origin', unreal.Transform(location=unreal.Vector(0.0, 183.6, 0.0), rotation=unreal.Rotator(roll=0.0, pitch=0.0, yaw=180.0), scale=unreal.Vector(1, 1, 1)))
 psia.set_editor_property('items', [a, v])
 assert eal.save_loaded_asset(psia)

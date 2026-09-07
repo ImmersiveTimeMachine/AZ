@@ -50,7 +50,9 @@ for hand, bp_name, jab_path, contact, reach in JABS:
     a.set_editor_property('origin', unreal.Transform())
     v = unreal.PoseSearchInteractionAssetItem()
     v.set_editor_property('role', 'Victim'); v.set_editor_property('animation', vm)
-    v.set_editor_property('warping_weight_translation', 0.0); v.set_editor_property('warping_weight_rotation', 0.0)
+    # Victim ROTATION weight must be > 0 (translation may stay 0) — see strike_content_build.py: a zero rotation weight on
+    # the non-anchor role trips the ensure in FindReferenceOrientation (PoseSearchInteractionAsset.cpp:54).
+    v.set_editor_property('warping_weight_translation', 0.0); v.set_editor_property('warping_weight_rotation', 0.01)
     v.set_editor_property('origin', unreal.Transform(location=unreal.Vector(0.0, y0, 0.0), rotation=unreal.Rotator(roll=0.0, pitch=0.0, yaw=180.0), scale=unreal.Vector(1, 1, 1)))
     psia.set_editor_property('items', [a, v])
     assert eal.save_loaded_asset(psia, only_if_is_dirty=False)
