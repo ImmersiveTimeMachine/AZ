@@ -558,282 +558,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		LeanAlpha  = FMath::FInterpTo(LeanAlpha, bForwardLean ? 1.f : 0.f, DeltaSeconds, 10.f);
 	}
 
-#if !UE_BUILD_SHIPPING
-	if (bDebugTrajectory && GEngine)
-	{
-		// ★ On-screen HUD, ported from the CMC anim instance. Same information, same order, so the two
-		// backends can be read side by side. The log lines ([v2 Pick]/[v2 Snap]/[v2 MMFallback]) answer
-		// "what changed and when"; this answers "what is true RIGHT NOW", which is what you need while
-		// actually driving the character.
-		const uint64 KeyBase = reinterpret_cast<uint64>(this);
-
-		auto EnumName = [](const TCHAR* EnumPath, int64 Value) -> FString
-		{
-			if (const UEnum* E = FindObject<UEnum>(nullptr, EnumPath))
-			{
-				return E->GetNameStringByValue(Value);
-			}
-			return FString::Printf(TEXT("%lld"), Value);
-		};
-
-		const UObject* CurAnim = BlendStackInputs.Anim;
-		float CurLen = 0.f;
-		if (const UAnimSequenceBase* CurSeq = Cast<UAnimSequenceBase>(CurAnim))
-		{
-			CurLen = CurSeq->GetPlayLength();
-		}
-
-		GEngine->AddOnScreenDebugMessage(KeyBase + 0, 0.f, FColor::Yellow,
-			FString::Printf(TEXT("ANIM  %s"), *GetNameSafe(CurAnim)));
-		GEngine->AddOnScreenDebugMessage(KeyBase + 1, 0.f, FColor::Orange,
-			FString::Printf(TEXT("PICK  entry %.2f/%.2fs   cost %.1f   useMM %d   loop %d   blend %.2f"),
-				static_cast<float>(BlendStackInputs.StartTime), CurLen, GLastPickCost,
-				GLastPickUsedMM ? 1 : 0, BlendStackInputs.bLoop ? 1 : 0,
-				static_cast<float>(BlendStackInputs.BlendTime)));
-		GEngine->AddOnScreenDebugMessage(KeyBase + 2, 0.f, FColor::Green,
-			FString::Printf(TEXT("state %s   gait %s   dir %s   stance %s"),
-				*EnumName(TEXT("/Script/AZ.EAZ_StateMachineState"), static_cast<int64>(ChooserContext.SMState)),
-				*EnumName(TEXT("/Script/AZ.EAZ_Gait"),              static_cast<int64>(ChooserContext.Gait)),
-				*EnumName(TEXT("/Script/AZ.EAZ_MovementDirection"), static_cast<int64>(ChooserContext.MovementDirection)),
-				*EnumName(TEXT("/Script/AZ.EAZ_Stance"),            static_cast<int64>(ChooserContext.Stance))));
-		GEngine->AddOnScreenDebugMessage(KeyBase + 3, 0.f, FColor::Cyan,
-			FString::Printf(TEXT("spd   %.0f   trj fut %.0f   samples %d   moving %d   justLanded %d"),
-				ChooserContext.Speed2D, PredictedFutureVelocity.Size2D(), Trajectory.Samples.Num(),
-				ChooserContext.bIsMoving ? 1 : 0, ChooserContext.bJustLanded ? 1 : 0));
-		// Foot diagnostic: are the walk loop's contact curves reaching GetCurveValue at runtime?
-		// If cL/cR stay 0.00 while walking, the BlendStack isn't propagating curves (→ bLeftFootDown
-		// always False → always _LU). If they swing 0↔1, the signal works and we look elsewhere.
-		GEngine->AddOnScreenDebugMessage(KeyBase + 4, 0.f, FColor::White,
-			FString::Printf(TEXT("foot  contact_l %.2f  contact_r %.2f  ->  Lfoot %d    strafe %d   movingTrans %d"),
-				GetCurveValue(FName(TEXT("contact_l"))), GetCurveValue(FName(TEXT("contact_r"))),
-				ChooserContext.bLeftFootDown ? 1 : 0, ChooserContext.bStrafe ? 1 : 0,
-				ChooserContext.bMovingTransition ? 1 : 0));
-		GEngine->AddOnScreenDebugMessage(KeyBase + 5, 0.f, FColor::Magenta,
-			FString::Printf(TEXT("lean  %+.2f / %+.2f   alpha %.2f   reaction %d"),
-				LeanAmount.X, LeanAmount.Y, LeanAlpha, static_cast<int32>(ChooserContext.Reaction)));
-
-		// A slot montage does NOT go through BlendStackInputs (that is the chooser/MM selection), so a
-		// turn or attack playing on the slot was invisible in the ANIM line above — the clip on screen
-		// and the clip named on screen were different things. Show it explicitly.
-		{
-			const UAnimMontage* ActiveMontage = GetCurrentActiveMontage();
-			GEngine->AddOnScreenDebugMessage(KeyBase + 6, 0.f,
-				ActiveMontage ? FColor::Emerald : FColor::Silver,
-				ActiveMontage
-					? FString::Printf(TEXT("MONTAGE %s   %.2f/%.2fs   (owns the pose)"),
-						*GetNameSafe(ActiveMontage), Montage_GetPosition(ActiveMontage),
-						ActiveMontage->GetPlayLength())
-					: FString::Printf(TEXT("MONTAGE none   (anim above is the rendered clip)")));
-		}
-
-		// ★ [v2 CrouchTrace] — per-frame trace while CROUCHED and moving/transitioning, to localise a
-		// "small shake / twitching" the user sees only in crouch (2026-08-31). Everything that can move
-		// per frame is printed side by side so the oscillating one is visible in the log: capsule Z/yaw,
-		// mesh world Z + relative Z (the stance modifier's re-based visual offset), capsule half-height,
-		// speed, velocity-vs-facing yaw, the lean signal, and the BODY head bone vs the FACE component's
-		// head bone (a Face that ticks before the body copies LAST frame's pose -> one-frame head lag,
-		// most visible with the closer crouch camera). Bounded: only while crouched & moving.
-		// The Face's tick prerequisites are printed once per instance (does it wait for the body?).
-		// ★ [v2 CrouchEnd] — END-OF-FRAME sample of the same actor/mesh/bones. Every start-of-frame sample so
-		// far is static; if the rendered transform differs (Mover/physics move it after the anim update and
-		// something restores it before the next update), only an end-of-frame sample can see it.
-		{
-			static TMap<const UAZ_MoverAnimInstance*, FDelegateHandle> GEndFrameByInstance;
-			if (!GEndFrameByInstance.Contains(this))
-			{
-				const TWeakObjectPtr<UAZ_MoverAnimInstance> Weak(this);
-				GEndFrameByInstance.Add(this, FCoreDelegates::OnEndFrame.AddLambda([Weak]()
-				{
-					UAZ_MoverAnimInstance* Self = Weak.Get();
-					if (!Self || !Self->GetWorld() || !Self->GetWorld()->IsGameWorld()) { return; }
-					if (Self->ChooserContext.Stance != EAZ_Stance::Crouching) { return; }
-					const USkeletalMeshComponent* Mesh = Self->GetOwningComponent();
-					const AActor* Actor = Self->GetOwningActor();
-					if (!Mesh || !Actor) { return; }
-					const FVector HeadW   = Mesh->GetBoneLocation(FName(TEXT("head")));
-					const FVector PelvisW = Mesh->GetBoneLocation(FName(TEXT("pelvis")));
-					const FVector HandW   = Mesh->GetBoneLocation(FName(TEXT("hand_l")));
-					// Mover: the SIMULATED state vs what the smoothing wrote into the mesh.
-					float SimZ = -999.f; int32 SimFrame = -1; float SimMs = -1.f; float SimVelZ = 0.f;
-					if (const UMoverComponent* MC = Self->Cached_MoverComponent.Get())
-					{
-						if (const FMoverDefaultSyncState* St = MC->GetSyncState().SyncStateCollection.FindDataByType<FMoverDefaultSyncState>())
-						{
-							SimZ = St->GetLocation_WorldSpace().Z; SimVelZ = St->GetVelocity_WorldSpace().Z;
-						}
-						SimFrame = MC->GetLastTimeStep().ServerFrame; SimMs = MC->GetLastTimeStep().BaseSimTimeMs;
-					}
-					UE_LOG(LogTemp, Display, TEXT("[v2 CrouchEnd] f=%llu simZ=%.3f simVelZ=%.2f simFrame=%d simMs=%.1f | actor=(%.2f,%.2f,%.2f) yaw=%.2f | mesh=(%.2f,%.2f,%.2f) relZ=%.3f yaw=%.2f | headW=(%.2f,%.2f,%.2f) pelvisW=(%.2f,%.2f,%.2f) handW=(%.2f,%.2f,%.2f)"),
-						GFrameCounter, SimZ, SimVelZ, SimFrame, SimMs,
-						Actor->GetActorLocation().X, Actor->GetActorLocation().Y, Actor->GetActorLocation().Z, Actor->GetActorRotation().Yaw,
-						Mesh->GetComponentLocation().X, Mesh->GetComponentLocation().Y, Mesh->GetComponentLocation().Z, Mesh->GetRelativeLocation().Z, Mesh->GetComponentRotation().Yaw,
-						HeadW.X, HeadW.Y, HeadW.Z, PelvisW.X, PelvisW.Y, PelvisW.Z, HandW.X, HandW.Y, HandW.Z);
-				}));
-			}
-		}
-
-		// ★ Per-frame crouch diagnostics ([v2 MeshMove] hook, [v2 CrouchEnd] end-of-frame sampler, [v2 CrouchTrace]).
-		// They found the 2026-08-31 crouch bob (UpdateGrabMeshAnchor fighting Mover's visual-component base — see
-		// feedback_mover_visual_component_two_writers) and are kept for the next one, but they cost ~3 log lines per
-		// frame while crouched (p90 frame time 17 -> 38 ms), so they are OFF unless this switch is flipped.
-		static constexpr bool bCrouchDiagnostics = false;
-		if (bCrouchDiagnostics)
-		{
-		// ★ [v2 MeshMove] — WHO moves the mesh inside the frame? Measured 2026-08-31 03:25: the mesh's world Z is
-		// 0.08 at the start of every frame and -4.9 +/- 0.6 at the end (394 direction flips / 2363 frames) while
-		// the actor never moves. Hook the component's TransformUpdated and dump the call stack for the first
-		// few moves while crouched.
-		{
-			static TMap<const UAZ_MoverAnimInstance*, TWeakObjectPtr<UAZ_MoverAnimInstance>> GMeshMoveHooked;   // weak: a reused address is a NEW instance
-			static int32 GMeshMoveDumps = 0;
-			const TWeakObjectPtr<UAZ_MoverAnimInstance>* Existing = GMeshMoveHooked.Find(this);
-			if (USkeletalMeshComponent* HookMesh = GetOwningComponent(); HookMesh && (!Existing || !Existing->IsValid() || Existing->Get() != this))
-			{
-				GMeshMoveHooked.Add(this, TWeakObjectPtr<UAZ_MoverAnimInstance>(this));
-				GMeshMoveDumps = 0;
-				UE_LOG(LogTemp, Display, TEXT("[v2 MeshMove] hooked TransformUpdated on %s (bound=%d)"), *GetNameSafe(HookMesh), HookMesh->TransformUpdated.IsBound() ? 1 : 0);
-				const TWeakObjectPtr<UAZ_MoverAnimInstance> Weak(this);
-				HookMesh->TransformUpdated.AddLambda([Weak](USceneComponent* Comp, EUpdateTransformFlags Flags, ETeleportType Teleport)
-				{
-					UAZ_MoverAnimInstance* Self = Weak.Get();
-					if (!Self || !Comp || Self->ChooserContext.Stance != EAZ_Stance::Crouching) { return; }
-					if (GMeshMoveDumps >= 0) { return; }   // writer found (UpdateGrabMeshAnchor) — dumps disabled
-					++GMeshMoveDumps;
-					UE_LOG(LogTemp, Warning, TEXT("[v2 MeshMove] #%d f=%llu worldZ=%.3f relZ=%.3f flags=%d teleport=%d  <- call stack follows"),
-						GMeshMoveDumps, GFrameCounter, Comp->GetComponentLocation().Z, Comp->GetRelativeLocation().Z,
-						static_cast<int32>(Flags), static_cast<int32>(Teleport));
-					FDebug::DumpStackTraceToLog(ELogVerbosity::Warning);
-				});
-			}
-		}
-
-		if (ChooserContext.Stance == EAZ_Stance::Crouching
-			|| ChooserContext.SMState == EAZ_StateMachineState::TransitionStance)
-		{
-			static TMap<const UAZ_MoverAnimInstance*, TWeakObjectPtr<USkeletalMeshComponent>> GFaceByInstance;
-			static TMap<const UAZ_MoverAnimInstance*, uint64> GAuditFrameByInstance;   // once per PIE (address reuse-safe)
-			USkeletalMeshComponent* Body = GetOwningComponent();
-			const AActor* Owner = GetOwningActor();
-			TWeakObjectPtr<USkeletalMeshComponent>& FaceWeak = GFaceByInstance.FindOrAdd(this);
-			if (!FaceWeak.IsValid() && Owner)
-			{
-				TArray<USkeletalMeshComponent*> Skels;
-				Owner->GetComponents<USkeletalMeshComponent>(Skels);
-				for (USkeletalMeshComponent* C : Skels)
-				{
-					if (C && C->GetFName() == FName(TEXT("Face")))
-					{
-						FaceWeak = C;
-						break;
-					}
-				}
-			}
-			USkeletalMeshComponent* Face = FaceWeak.Get();
-			const uint64 LastAudit = GAuditFrameByInstance.FindRef(this);
-			if (Face && (LastAudit == 0 || GFrameCounter - LastAudit > 600))
-			{
-				GAuditFrameByInstance.FindOrAdd(this) = GFrameCounter;
-				FString Prereqs;
-				for (const FTickPrerequisite& P : Face->PrimaryComponentTick.GetPrerequisites())
-				{
-					Prereqs += GetNameSafe(P.PrerequisiteObject.Get()) + TEXT(",");
-				}
-				UE_LOG(LogTemp, Display, TEXT("[v2 CrouchTrace] Face setup: tickGroup=%d bodyTickGroup=%d prereqs=[%s] animClass=%s leader=%s attachParent=%s"),
-					static_cast<int32>(Face->PrimaryComponentTick.TickGroup),
-					Body ? static_cast<int32>(Body->PrimaryComponentTick.TickGroup) : -1,
-					*Prereqs, *GetNameSafe(Face->GetAnimInstance() ? Face->GetAnimInstance()->GetClass() : nullptr),
-					*GetNameSafe(Face->LeaderPoseComponent.Get()), *GetNameSafe(Face->GetAttachParent()));
-				// Update-rate optimisation / tick-option audit for every skeletal component on the actor.
-				if (Owner)
-				{
-					TArray<USkeletalMeshComponent*> AllSkels;
-					Owner->GetComponents<USkeletalMeshComponent>(AllSkels);
-					for (const USkeletalMeshComponent* C : AllSkels)
-					{
-						if (!C) { continue; }
-						UE_LOG(LogTemp, Display, TEXT("[v2 CrouchTrace] comp %-14s URO=%d tickOpt=%d attachBound=%d renderStatic=%d leader=%s lods=%d | simPhys=%d blendPhys=%d physAsset=%s profile=%s | rel=(%.2f,%.2f,%.2f) relYaw=%.2f"),
-							*C->GetName(), C->bEnableUpdateRateOptimizations ? 1 : 0,
-							static_cast<int32>(C->VisibilityBasedAnimTickOption), C->bUseAttachParentBound ? 1 : 0,
-							C->bRenderStatic ? 1 : 0, *GetNameSafe(C->LeaderPoseComponent.Get()), C->GetNumLODs(),
-							C->IsSimulatingPhysics() ? 1 : 0, C->bBlendPhysics ? 1 : 0,
-							*GetNameSafe(C->GetPhysicsAsset()), *C->GetCollisionProfileName().ToString(),
-							C->GetRelativeLocation().X, C->GetRelativeLocation().Y, C->GetRelativeLocation().Z,
-							C->GetRelativeRotation().Yaw);
-					}
-				}
-			}
-			const float ActorYaw = Cached_Pawn ? Cached_Pawn->GetActorRotation().Yaw : 0.f;
-			const float VelYaw   = Velocity.IsNearlyZero(1.0) ? ActorYaw : Velocity.Rotation().Yaw;
-			float HalfHeight = -1.f;
-			if (Owner)
-			{
-				if (const UCapsuleComponent* Cap = Owner->FindComponentByClass<UCapsuleComponent>())
-				{
-					HalfHeight = Cap->GetScaledCapsuleHalfHeight();
-				}
-			}
-			const FVector BodyHead = Body ? Body->GetBoneLocation(FName(TEXT("head"))) : FVector::ZeroVector;
-			const FVector FaceHead = Face ? Face->GetBoneLocation(FName(TEXT("head"))) : FVector::ZeroVector;
-			// Pelvis in ACTOR space (so walking does not swamp a per-frame wobble), camera in world space.
-			FVector PelvisLocal = FVector::ZeroVector;
-			if (Body && Cached_Pawn)
-			{
-				PelvisLocal = Cached_Pawn->GetActorTransform().InverseTransformPosition(Body->GetBoneLocation(FName(TEXT("pelvis"))));
-			}
-			FVector CamLoc = FVector::ZeroVector; FRotator CamRot = FRotator::ZeroRotator;
-			if (const APlayerCameraManager* PCM = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0))
-			{
-				CamLoc = PCM->GetCameraLocation(); CamRot = PCM->GetCameraRotation();
-			}
-			const FVector ActorLoc = Cached_Pawn ? Cached_Pawn->GetActorLocation() : FVector::ZeroVector;
-			// LOD flicker check: predicted LOD of the body, the face and every other skeletal component on the
-			// actor (garments follow the leader's LOD; a boundary straddled at the closer crouch camera would
-			// alternate LODs every frame and read as the whole body twitching).
-			FString Lods;
-			if (Owner)
-			{
-				TArray<USkeletalMeshComponent*> AllSkels;
-				Owner->GetComponents<USkeletalMeshComponent>(AllSkels);
-				for (const USkeletalMeshComponent* C : AllSkels)
-				{
-					if (!C) { continue; }
-					const FAnimUpdateRateParameters* URO = C->AnimUpdateRateParams;
-					Lods += FString::Printf(TEXT("%s:%d%s%s "), *C->GetName().Left(6), C->GetPredictedLODLevel(),
-						C->bDisableClothSimulation ? TEXT("") : TEXT("c"),
-						(URO && (URO->ShouldSkipUpdate() || URO->ShouldSkipEvaluation())) ? TEXT("!skip") : TEXT(""));
-				}
-			}
-			// Input/GAS/Mover crouch agreement per frame (user hint 2026-08-31: "check the key input, GA tags").
-			const bool bGasCrouch   = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Crouching);
-			const bool bMoverCrouch = Cached_MoverComponent ? Cached_MoverComponent->IsCrouching() : false;
-			// Camera rig state: TWO writers interpolate this rig every tick (UAZ_PawnCameraMovementComponent::
-			// TickComponent and AAZ_PawnMoverHeroCharacter's own camera update) — if their crouch targets differ,
-			// FOV/boom/socket get pulled toward two values on alternate ticks: the picture pulses, the body
-			// "shakes" while every bone and transform is static (all measured 2026-08-31).
-			float CamFOV = -1.f, BoomLen = -1.f; FVector Sock = FVector::ZeroVector;
-			if (Owner)
-			{
-				if (const UCameraComponent* CamComp = Owner->FindComponentByClass<UCameraComponent>()) { CamFOV = CamComp->FieldOfView; }
-				if (const USpringArmComponent* Boom = Owner->FindComponentByClass<USpringArmComponent>()) { BoomLen = Boom->TargetArmLength; Sock = Boom->SocketOffset; }
-			}
-			UE_LOG(LogTemp, Display, TEXT("[v2 CrouchTrace] f=%llu lods= %s| gasCrouch=%d moverCrouch=%d stance=%d | meshRel=(%.2f,%.2f) relYaw=%.2f worldYaw=%.2f | fov=%.3f boom=%.3f sock=(%.2f,%.2f,%.2f)"),
-				GFrameCounter, *Lods, bGasCrouch ? 1 : 0, bMoverCrouch ? 1 : 0, static_cast<int32>(ChooserContext.Stance),
-				Body ? Body->GetRelativeLocation().X : 0.f, Body ? Body->GetRelativeLocation().Y : 0.f,
-				Body ? Body->GetRelativeRotation().Yaw : 0.f, Body ? Body->GetComponentRotation().Yaw : 0.f,
-				CamFOV, BoomLen, Sock.X, Sock.Y, Sock.Z);
-			UE_LOG(LogTemp, Display,
-				TEXT("[v2 CrouchTrace] f=%llu dt=%.4f SM=%d push=%u anim=%s mont=%s | actor=(%.1f,%.1f,%.2f) yaw=%.1f | meshZ=%.2f relZ=%.2f hh=%.1f | spd=%.1f dYaw=%+.1f | pelvisL=(%.2f,%.2f,%.2f) headZ=%.2f faceDz=%+.2f | cam=(%.1f,%.1f,%.1f) pitch=%.2f yaw=%.2f camDist=%.1f"),
-				GFrameCounter, DeltaSeconds, static_cast<int32>(ChooserContext.SMState),
-				GPushCountByInstance.FindRef(this), *GetNameSafe(BlendStackInputs.Anim), *GetNameSafe(GetCurrentActiveMontage()),
-				ActorLoc.X, ActorLoc.Y, ActorLoc.Z, ActorYaw,
-				Body ? Body->GetComponentLocation().Z : 0.f, Body ? Body->GetRelativeLocation().Z : 0.f, HalfHeight,
-				ChooserContext.Speed2D, FRotator::NormalizeAxis(VelYaw - ActorYaw),
-				PelvisLocal.X, PelvisLocal.Y, PelvisLocal.Z, BodyHead.Z, FaceHead.Z - BodyHead.Z,
-				CamLoc.X, CamLoc.Y, CamLoc.Z, CamRot.Pitch, CamRot.Yaw, FVector::Dist(CamLoc, ActorLoc));
-		}
-		}   // bCrouchDiagnostics
-	}
-#endif
+	UpdateDebug();
 
 	// ---- Obstacle reactions (brace / blocked) — from the pawn's forward-trace sensor. Read BEFORE the SM so a
 	// reaction can HOLD the loop (otherwise turning / stick-flicker into the wall fires start/stop/turn
@@ -979,6 +704,149 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// descent (terrain-adaptive) → land on real floor contact. The teardown above kills the RM move on the
 	// apex edge. bUseHybridJump=false: pure physics — gait-scaled impulse, Walking→Falling, no RM move
 	// (the old float-then-drop fix path, kept for A/B).
+}
+
+/**
+ * Per-frame debug HUD: the on-screen readout plus the [v2 CrouchEnd] end-of-frame sampler.
+ *
+ * Extracted VERBATIM from NativeUpdateAnimation (step 1 of the GASP-shaped refactor -
+ * docs/design-briefs/moveraniminstance-gasp-refactor-plan.md) and deliberately CALLED AT THE SAME
+ * POSITION in the update: after the additive-lean work and BEFORE the obstacle/state-machine block.
+ * GASP runs its DebugDraws from BlueprintPostEvaluateAnimation, but moving there changes WHAT is
+ * observable - curves and montage position are sampled at a different point in the frame, and the
+ * event is skipped on frames with no evaluation - so that move is a separate decision, not part of
+ * this extraction.
+ *
+ * Consequence of the current call position, worth knowing when reading the HUD: the SMState printed
+ * here is still LAST frame's, because the state machine runs later in the update. Step 2b changes
+ * that by moving Update_States earlier.
+ *
+ * Deleted with this extraction: the bCrouchDiagnostics branch (155 lines behind a `constexpr false`)
+ * and the TransformUpdated hook nested inside it, which was therefore never even installed. Both are
+ * leftovers of the 2026-08-31 crouch-bob hunt, whose conclusion is recorded in
+ * feedback_mover_visual_component_two_writers and in the commit that fixed it.
+ *
+ * The body is compiled out in Shipping; the DECLARATION is unconditional so the call site needs no
+ * guard. A guarded declaration with an unguarded use is exactly the defect fixed in f2e7d55.
+ */
+void UAZ_MoverAnimInstance::UpdateDebug()
+{
+#if !UE_BUILD_SHIPPING
+	if (bDebugTrajectory && GEngine)
+	{
+		// ★ On-screen HUD, ported from the CMC anim instance. Same information, same order, so the two
+		// backends can be read side by side. The log lines ([v2 Pick]/[v2 Snap]/[v2 MMFallback]) answer
+		// "what changed and when"; this answers "what is true RIGHT NOW", which is what you need while
+		// actually driving the character.
+		const uint64 KeyBase = reinterpret_cast<uint64>(this);
+
+		auto EnumName = [](const TCHAR* EnumPath, int64 Value) -> FString
+		{
+			if (const UEnum* E = FindObject<UEnum>(nullptr, EnumPath))
+			{
+				return E->GetNameStringByValue(Value);
+			}
+			return FString::Printf(TEXT("%lld"), Value);
+		};
+
+		const UObject* CurAnim = BlendStackInputs.Anim;
+		float CurLen = 0.f;
+		if (const UAnimSequenceBase* CurSeq = Cast<UAnimSequenceBase>(CurAnim))
+		{
+			CurLen = CurSeq->GetPlayLength();
+		}
+
+		GEngine->AddOnScreenDebugMessage(KeyBase + 0, 0.f, FColor::Yellow,
+			FString::Printf(TEXT("ANIM  %s"), *GetNameSafe(CurAnim)));
+		GEngine->AddOnScreenDebugMessage(KeyBase + 1, 0.f, FColor::Orange,
+			FString::Printf(TEXT("PICK  entry %.2f/%.2fs   cost %.1f   useMM %d   loop %d   blend %.2f"),
+				static_cast<float>(BlendStackInputs.StartTime), CurLen, GLastPickCost,
+				GLastPickUsedMM ? 1 : 0, BlendStackInputs.bLoop ? 1 : 0,
+				static_cast<float>(BlendStackInputs.BlendTime)));
+		GEngine->AddOnScreenDebugMessage(KeyBase + 2, 0.f, FColor::Green,
+			FString::Printf(TEXT("state %s   gait %s   dir %s   stance %s"),
+				*EnumName(TEXT("/Script/AZ.EAZ_StateMachineState"), static_cast<int64>(ChooserContext.SMState)),
+				*EnumName(TEXT("/Script/AZ.EAZ_Gait"),              static_cast<int64>(ChooserContext.Gait)),
+				*EnumName(TEXT("/Script/AZ.EAZ_MovementDirection"), static_cast<int64>(ChooserContext.MovementDirection)),
+				*EnumName(TEXT("/Script/AZ.EAZ_Stance"),            static_cast<int64>(ChooserContext.Stance))));
+		GEngine->AddOnScreenDebugMessage(KeyBase + 3, 0.f, FColor::Cyan,
+			FString::Printf(TEXT("spd   %.0f   trj fut %.0f   samples %d   moving %d   justLanded %d"),
+				ChooserContext.Speed2D, PredictedFutureVelocity.Size2D(), Trajectory.Samples.Num(),
+				ChooserContext.bIsMoving ? 1 : 0, ChooserContext.bJustLanded ? 1 : 0));
+		// Foot diagnostic: are the walk loop's contact curves reaching GetCurveValue at runtime?
+		// If cL/cR stay 0.00 while walking, the BlendStack isn't propagating curves (→ bLeftFootDown
+		// always False → always _LU). If they swing 0↔1, the signal works and we look elsewhere.
+		GEngine->AddOnScreenDebugMessage(KeyBase + 4, 0.f, FColor::White,
+			FString::Printf(TEXT("foot  contact_l %.2f  contact_r %.2f  ->  Lfoot %d    strafe %d   movingTrans %d"),
+				GetCurveValue(FName(TEXT("contact_l"))), GetCurveValue(FName(TEXT("contact_r"))),
+				ChooserContext.bLeftFootDown ? 1 : 0, ChooserContext.bStrafe ? 1 : 0,
+				ChooserContext.bMovingTransition ? 1 : 0));
+		GEngine->AddOnScreenDebugMessage(KeyBase + 5, 0.f, FColor::Magenta,
+			FString::Printf(TEXT("lean  %+.2f / %+.2f   alpha %.2f   reaction %d"),
+				LeanAmount.X, LeanAmount.Y, LeanAlpha, static_cast<int32>(ChooserContext.Reaction)));
+
+		// A slot montage does NOT go through BlendStackInputs (that is the chooser/MM selection), so a
+		// turn or attack playing on the slot was invisible in the ANIM line above — the clip on screen
+		// and the clip named on screen were different things. Show it explicitly.
+		{
+			const UAnimMontage* ActiveMontage = GetCurrentActiveMontage();
+			GEngine->AddOnScreenDebugMessage(KeyBase + 6, 0.f,
+				ActiveMontage ? FColor::Emerald : FColor::Silver,
+				ActiveMontage
+					? FString::Printf(TEXT("MONTAGE %s   %.2f/%.2fs   (owns the pose)"),
+						*GetNameSafe(ActiveMontage), Montage_GetPosition(ActiveMontage),
+						ActiveMontage->GetPlayLength())
+					: FString::Printf(TEXT("MONTAGE none   (anim above is the rendered clip)")));
+		}
+
+		// ★ [v2 CrouchTrace] — per-frame trace while CROUCHED and moving/transitioning, to localise a
+		// "small shake / twitching" the user sees only in crouch (2026-08-31). Everything that can move
+		// per frame is printed side by side so the oscillating one is visible in the log: capsule Z/yaw,
+		// mesh world Z + relative Z (the stance modifier's re-based visual offset), capsule half-height,
+		// speed, velocity-vs-facing yaw, the lean signal, and the BODY head bone vs the FACE component's
+		// head bone (a Face that ticks before the body copies LAST frame's pose -> one-frame head lag,
+		// most visible with the closer crouch camera). Bounded: only while crouched & moving.
+		// The Face's tick prerequisites are printed once per instance (does it wait for the body?).
+		// ★ [v2 CrouchEnd] — END-OF-FRAME sample of the same actor/mesh/bones. Every start-of-frame sample so
+		// far is static; if the rendered transform differs (Mover/physics move it after the anim update and
+		// something restores it before the next update), only an end-of-frame sample can see it.
+		{
+			static TMap<const UAZ_MoverAnimInstance*, FDelegateHandle> GEndFrameByInstance;
+			if (!GEndFrameByInstance.Contains(this))
+			{
+				const TWeakObjectPtr<UAZ_MoverAnimInstance> Weak(this);
+				GEndFrameByInstance.Add(this, FCoreDelegates::OnEndFrame.AddLambda([Weak]()
+				{
+					UAZ_MoverAnimInstance* Self = Weak.Get();
+					if (!Self || !Self->GetWorld() || !Self->GetWorld()->IsGameWorld()) { return; }
+					if (Self->ChooserContext.Stance != EAZ_Stance::Crouching) { return; }
+					const USkeletalMeshComponent* Mesh = Self->GetOwningComponent();
+					const AActor* Actor = Self->GetOwningActor();
+					if (!Mesh || !Actor) { return; }
+					const FVector HeadW   = Mesh->GetBoneLocation(FName(TEXT("head")));
+					const FVector PelvisW = Mesh->GetBoneLocation(FName(TEXT("pelvis")));
+					const FVector HandW   = Mesh->GetBoneLocation(FName(TEXT("hand_l")));
+					// Mover: the SIMULATED state vs what the smoothing wrote into the mesh.
+					float SimZ = -999.f; int32 SimFrame = -1; float SimMs = -1.f; float SimVelZ = 0.f;
+					if (const UMoverComponent* MC = Self->Cached_MoverComponent.Get())
+					{
+						if (const FMoverDefaultSyncState* St = MC->GetSyncState().SyncStateCollection.FindDataByType<FMoverDefaultSyncState>())
+						{
+							SimZ = St->GetLocation_WorldSpace().Z; SimVelZ = St->GetVelocity_WorldSpace().Z;
+						}
+						SimFrame = MC->GetLastTimeStep().ServerFrame; SimMs = MC->GetLastTimeStep().BaseSimTimeMs;
+					}
+					UE_LOG(LogTemp, Display, TEXT("[v2 CrouchEnd] f=%llu simZ=%.3f simVelZ=%.2f simFrame=%d simMs=%.1f | actor=(%.2f,%.2f,%.2f) yaw=%.2f | mesh=(%.2f,%.2f,%.2f) relZ=%.3f yaw=%.2f | headW=(%.2f,%.2f,%.2f) pelvisW=(%.2f,%.2f,%.2f) handW=(%.2f,%.2f,%.2f)"),
+						GFrameCounter, SimZ, SimVelZ, SimFrame, SimMs,
+						Actor->GetActorLocation().X, Actor->GetActorLocation().Y, Actor->GetActorLocation().Z, Actor->GetActorRotation().Yaw,
+						Mesh->GetComponentLocation().X, Mesh->GetComponentLocation().Y, Mesh->GetComponentLocation().Z, Mesh->GetRelativeLocation().Z, Mesh->GetComponentRotation().Yaw,
+						HeadW.X, HeadW.Y, HeadW.Z, PelvisW.X, PelvisW.Y, PelvisW.Z, HandW.X, HandW.Y, HandW.Z);
+				}));
+			}
+		}
+
+	}
+#endif
 }
 
 void UAZ_MoverAnimInstance::UpdateAnimation_Cmc(float DeltaSeconds)

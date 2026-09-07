@@ -340,6 +340,13 @@ protected:
 	 *  phase pick. The full phase machine + RM transitions wire up in spike P1. */
 	void UpdateAnimation_Cmc(float DeltaSeconds);
 
+	/** Per-frame debug HUD + the [v2 CrouchEnd] end-of-frame sampler. Extracted from
+	 *  NativeUpdateAnimation and called at its HISTORICAL position (before the state machine), so the
+	 *  SMState it prints is still last frame's until step 2b moves Update_States earlier.
+	 *  The body is compiled out in Shipping; this declaration is deliberately UNCONDITIONAL so the call
+	 *  site needs no guard - a guarded declaration with an unguarded use is the defect fixed in f2e7d55. */
+	void UpdateDebug();
+
 	/** One-shot branch announcement so a PIE log always states which backend drives this instance. */
 	bool bLoggedCmcBranch = false;
 
