@@ -291,6 +291,10 @@ ordering contracts. *Prediction:* normalised diff identical. One variable.
 (F1). *Prediction, stated first:* `LeanAmount.X` at the loop→stop edge shifts by exactly one frame and
 nothing else changes. One variable.
 
+> **Concrete work queued against 2a and 3:** [additive-lean-rework.md](additive-lean-rework.md) — port the CMC acceleration model into
+> `Update_AdditiveLean`, restore the never-written `LeanAmount.Y`, and add `MovementState` /
+> `bEnableAO` for the AdditiveLeans layer's unbound gates. Six defects, with a falsifiable check.
+
 **Step 3 — Trackers, additive only.** Add `TAZ_StateTracker<T>` for the six enums. **Do not touch the
 commit cache or the serial.** *Prediction:* push count unchanged; new fields unused by any chooser column
 yet.
