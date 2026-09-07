@@ -7,6 +7,7 @@
 #include "Animation/AZ_LocomotionTypes.h"
 #include "Animation/TrajectoryTypes.h"
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"   // FPoseSearchTrajectoryData (CMC-branch trajectory tuning)
+#include "AnimationWarpingTypes.h"                    // EOffsetRootBoneMode (OffsetRootBone node settings)
 #include "AZ_MoverAnimInstance.generated.h"
 
 class AAZ_CmcCharacterBase;
@@ -248,6 +249,56 @@ public:
 	 *  vehicle enter/exit; passed into the SM every tick. */
 	UPROPERTY(BlueprintReadWrite, Category = "AZ|V2|Anim|StateMachine")
 	bool bSuppressLocomotion = false;
+
+	// ---- OffsetRootBone node settings (AZ_ABP_MoverHero_MHC) — node is NEUTRALISED, pending deletion ----
+	// The OffsetRootBone node was pasted from SandboxCharacter_Mover_ABP on 2026-09-07 (it is in no committed
+	// graph) together with GASP's five pin bindings, which target the functions below. GASP's modes broke this
+	// hero: Accumulate rotation counters capsule yaw and expects a Steering node to restore it — this graph has no
+	// Steering/warping/AimOffset — so turning stopped. The Mover path keeps capsule and animation in agreement by
+	// construction (RM-driven transitions, in-place loops), so the node has nothing to absorb here.
+	//
+	// Both mode getters return Release == engine-level identity (no RM extraction, follows the component, bleeds
+	// any offset). Delete the node in the editor, then remove these five functions + two properties. Full verdict,
+	// retractions and the preconditions under which OFR could ever be useful here:
+	// docs/design-briefs/offsetrootbone-mover-port-plan.md. Memory: feedback_offsetrootbone_mover_graph.
+	// Enum values are Accumulate=0, Interpolate=1, Release=5 — NOT 0/1/2.
+
+	/** Half-life (s) for OffsetRootBone translation catch-up. Bound to the node's TranslationHalflife pin.
+	 *  0.2 == the node's current literal, so the default is a no-op. Step 4 splits this per gait. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Anim|OffsetRootBone", meta = (ClampMin = "0.01", ClampMax = "2.0", ForceUnits = "s"))
+	float OffsetRootTranslationHalfLife = 0.2f;
+
+	/** Max translation error (cm) the offset may accumulate. Bound to the node's MaxTranslationError pin.
+	 *  30 == the node's current literal. NOTE: UAZ_CmcAnimInstance defaults its equivalent to 0.1 and GASP's CVar
+	 *  default is 0 — copying either verbatim would collapse the offset and change every stop, so this stays 30
+	 *  until it is deliberately retuned with its own test. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Anim|OffsetRootBone", meta = (ClampMin = "0", ClampMax = "100", ForceUnits = "cm"))
+	float OffsetRootTranslationRadius = 30.f;
+
+	/** Bound to the node's TranslationMode pin. Returns Release (off) — Interpolate would build a trailing mesh
+	 *  offset every frame against our in-place loops. */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
+	EOffsetRootBoneMode Get_OffsetRootTranslationMode() const;
+
+	/** Bound to the node's RotationMode pin. Returns Release (off) — Accumulate cancels capsule yaw and needs a
+	 *  Steering node to be visible; this graph has none (the 2026-09-07 "no rotation" bug). */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
+	EOffsetRootBoneMode Get_OffsetRootRotationMode() const;
+
+	/** Bound to the node's TranslationHalflife pin. */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootTranslationHalfLife() const;
+
+	/** Bound to the node's MaxTranslationError pin. */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
+	float Get_OffsetRootTranslationRadius() const;
+
+	/** Bound to the node's bClampToTranslationVelocity pin IN THIS GRAPH. (AZ_ABP_HeroPawn binds the same name to
+	 *  bClampToRotationVelocity instead — same function name, different parameter per graph.)
+	 *  STEP 1: returns false, matching the current literal. NOT a general-purpose "am I moving" helper yet — do
+	 *  not call it as one until step 5 swaps in the intent-based signal from PredictedFutureVelocity. */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
+	bool IsMoving() const;
 
 	/** Called from the ABP each tick (after EvaluateChooser2). Populates BlendStackInputs from
 	 *  the chooser result + optionally runs a single-frame MotionMatch over ValidAnims when

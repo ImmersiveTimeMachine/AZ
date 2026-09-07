@@ -1747,3 +1747,58 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		}
 	}
 }
+
+// ============================================================================================================
+// OffsetRootBone node settings — see docs/design-briefs/offsetrootbone-mover-port-plan.md (REVISED 2026-09-07)
+//
+// The OffsetRootBone node in AZ_ABP_MoverHero_MHC was pasted from GASP on 2026-09-07 and is NOT part of any
+// committed graph (git show 229f9b9:<asset> has no AnimGraphNode_OffsetRootBone). Its GASP pin bindings target
+// these five functions. GASP's modes are WRONG for this graph: Accumulate rotation counters capsule yaw and relies
+// on a Steering node to put rotation back — this graph has no Steering / warping / AimOffset — so the character
+// simply stopped turning (PIE 2026-09-07). Our Mover path keeps capsule and animation in agreement by construction
+// (RM-driven transitions via FLayeredMove_RootMotionAttribute, velocity-driven in-place loops), so there is no
+// disagreement for this node to absorb.
+//
+// Both modes therefore return Release, which the engine implements as identity in steady state: no root-motion
+// extraction (ShouldExtractRootMotion=false), the simulated root follows the component
+// (ShouldCounterComponentDelta=true), and any existing offset is bled out (AnimNode_OffsetRootBone.cpp:36-66,
+// 318-344). That neutralises the node WITHOUT an asset edit. Once the node is deleted from the graph these five
+// functions (and the two UPROPERTYs) can go — the bindings will be gone with it.
+// ============================================================================================================
+
+EOffsetRootBoneMode UAZ_MoverAnimInstance::Get_OffsetRootTranslationMode() const
+{
+	// Release == off. Do NOT return Interpolate here while loops are in-place: the simulated root never advances
+	// during a loop, so Interpolate builds a trailing mesh offset every frame (bounded only by MaxTranslationError).
+	return EOffsetRootBoneMode::Release;
+}
+
+EOffsetRootBoneMode UAZ_MoverAnimInstance::Get_OffsetRootRotationMode() const
+{
+	// Release == off. Accumulate cancels the capsule's yaw and needs a rotation driver (Steering) to be visible at
+	// all — this graph has none. This is the value that broke turning on 2026-09-07.
+	return EOffsetRootBoneMode::Release;
+}
+
+float UAZ_MoverAnimInstance::Get_OffsetRootTranslationHalfLife() const
+{
+	// STEP 1: single value, defaulted to the node's 0.2 literal. STEP 4 splits it idle/walk/sprint the way
+	// UAZ_AnimInstance does.
+	return OffsetRootTranslationHalfLife;
+}
+
+float UAZ_MoverAnimInstance::Get_OffsetRootTranslationRadius() const
+{
+	// Defaults to 30 == the node's MaxTranslationError literal. Deliberately NOT copying CMC's 0.1 or GASP's
+	// CVar default of 0 — either would collapse the allowed offset and change every stop in the game.
+	return OffsetRootTranslationRadius;
+}
+
+bool UAZ_MoverAnimInstance::IsMoving() const
+{
+	// STEP 1: the node's bClampToTranslationVelocity literal is False, so this must return false for the port to
+	// stay a no-op. STEP 5 replaces this with the intent-based signal derived from PredictedFutureVelocity
+	// (see the Trajectory block in the header) — until then this is NOT a general "am I moving" helper and
+	// nothing else should call it.
+	return false;
+}

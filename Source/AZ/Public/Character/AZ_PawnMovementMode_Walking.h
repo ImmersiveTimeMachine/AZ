@@ -73,8 +73,12 @@ public:
 	// ---- Decelerations (cm/s²) ----
 	/** Applied when MoveInput is zero (player let go of the stick). 6000 chosen so a Run-entry
 	 *  stop (~400 cm/s) decays in ~65 ms — capsule plants well before the foot plant of the
-	 *  RTG_RM_*Stop_* clips (~400-500 ms), letting OffsetRootBone-Accumulate hide the residual
-	 *  visual offset. Tune in BP CDO if the catch-up swing reads as too snappy. */
+	 *  RTG_RM_*Stop_* clips (~400-500 ms). Tune in BP CDO if the catch-up swing reads as too snappy.
+	 *  NOTE (2026-09-07): an earlier version of this comment credited "OffsetRootBone-Accumulate" with hiding
+	 *  the residual offset. That described the v1 UAZ_AnimInstance graph (OFR + Steering); the Mover/MHC hero
+	 *  has no working OffsetRootBone and the stop clip is RM-driven through the transition move
+	 *  (UAZ_MoverAnimInstance RM bridge), so this value only governs the frames before that move is live and
+	 *  after it expires. See docs/design-briefs/offsetrootbone-mover-port-plan.md. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Decel", meta = (ClampMin = "0", ForceUnits = "cm/s^2"))
 	float StoppingDeceleration = 6000.f;
 
