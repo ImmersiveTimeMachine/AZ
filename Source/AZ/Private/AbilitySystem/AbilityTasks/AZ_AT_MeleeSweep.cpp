@@ -3,6 +3,7 @@
 #include "AbilitySystem/AbilityTasks/AZ_AT_MeleeSweep.h"
 
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
+#include "AbilitySystem/AZ_MeleeEnvironment.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -29,7 +30,7 @@ UAZ_AT_MeleeSweep* UAZ_AT_MeleeSweep::MeleeSweepWindow(UGameplayAbility* OwningA
 			Task->SocketNames.AddUnique(Socket);
 		}
 	}
-	Task->SphereRadius = InSphereRadius;
+	Task->SphereRadius = FMath::Max(0.1f, InSphereRadius);
 	Task->bHostilesOnly = bInHostilesOnly;
 	Task->bSingleTarget = bInSingleTarget;
 	return Task;
@@ -42,6 +43,7 @@ void UAZ_AT_MeleeSweep::Activate()
 	if (const AActor* Avatar = GetAvatarActor())
 	{
 		Mesh = Avatar->FindComponentByClass<USkeletalMeshComponent>();
+		PreviousAvatarLocation = Avatar->GetActorLocation();
 	}
 	USkeletalMeshComponent* MeshComp = Mesh.Get();
 	if (!MeshComp)
@@ -80,9 +82,11 @@ void UAZ_AT_MeleeSweep::Activate()
 
 void UAZ_AT_MeleeSweep::OnDestroy(bool bInOwnerFinished)
 {
-	// Close the trailing gap: WindowEnd (or the ability ending) lands between ticks, so the last stretch
-	// of the fist's path would otherwise never be swept.
-	SweepSinceLastFrame();
+	// Explicit WindowEnd closes the trailing gap. Once the owning ability is finishing, destruction
+	// must not land a new hit; callers can also discard before explicitly ending this task.
+	if (!bInOwnerFinished) SweepSinceLastFrame();
+	bConsumed = true;
+	OnBlocked.Unbind();
 	Super::OnDestroy(bInOwnerFinished);
 }
 
@@ -101,14 +105,20 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 		return;
 	}
 
-	// Gather EVERY socket's hits for this frame before judging any of them. Reporting the first hit the
-	// loop happens to reach would make array order decide which fist landed — left always winning a
-	// two-fisted frame purely for being listed first. Both segments span the same frame, so FHitResult
-	// Time (fraction along its own segment) is comparable between them: the smallest is the contact that
-	// physically happened first.
-	TArray<FHitResult> Candidates;
+	// Pawn and scenery contacts share ONE ordering across all sockets. A later wall contact must not
+	// erase an earlier victim hit, and an earlier wall must not let a pawn-only trace hit through it.
+	struct FContact
+	{
+		FHitResult Hit;
+		bool bEnvironment = false;
+	};
+	TArray<FContact> Candidates;
 	TArray<FHitResult> Hits;
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(AZMeleeSocketSweep), /*bTraceComplex*/ false, Avatar);
+	TArray<AActor*> AttachedActors;
+	Avatar->GetAttachedActors(AttachedActors, true, true);
+	Params.AddIgnoredActors(AttachedActors);
+	const FVector CurrentAvatarLocation = Avatar->GetActorLocation();
 
 	for (int32 i = 0; i < SocketNames.Num(); ++i)
 	{
@@ -119,13 +129,49 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 		Hits.Reset();
 		Avatar->GetWorld()->SweepMultiByObjectType(Hits, Previous, Current, FQuat::Identity,
 			FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(SphereRadius), Params);
-		Candidates.Append(Hits);
+		for (const FHitResult& Hit : Hits)
+		{
+			Candidates.Add({ Hit, false });
+		}
+
+		FHitResult Obstruction;
+		// Foot/ball sockets are also used by kicks. A planted foot touching its supporting floor is
+		// not a blocked attack; upright scenery still participates in the same temporal ordering.
+		if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Previous, Current, SphereRadius, Obstruction, true))
+		{
+			Candidates.Add({ Obstruction, true });
+		}
+		if (bCheckInitialObstruction)
+		{
+			FVector Body = PreviousAvatarLocation;
+			Body.Z = Previous.Z;
+			if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Body, Previous, 2.f, Obstruction, true))
+			{
+				// This limb was already beyond scenery at the window's first sample. Its body-to-limb
+				// trace fraction is spatial, not temporal: the obstruction predates all swept contacts.
+				Obstruction.Time = 0.f;
+				Candidates.Add({ Obstruction, true });
+			}
+		}
 	}
+	bCheckInitialObstruction = false;
+	const FVector FrameStartAvatarLocation = PreviousAvatarLocation;
+	PreviousAvatarLocation = CurrentAvatarLocation;
 
-	Candidates.Sort([](const FHitResult& A, const FHitResult& B) { return A.Time < B.Time; });
-
-	for (const FHitResult& Hit : Candidates)
+	Candidates.Sort([](const FContact& A, const FContact& B)
 	{
+		return A.Hit.Time == B.Hit.Time ? A.bEnvironment && !B.bEnvironment : A.Hit.Time < B.Hit.Time;
+	});
+
+	for (const FContact& Contact : Candidates)
+	{
+		const FHitResult& Hit = Contact.Hit;
+		if (Contact.bEnvironment)
+		{
+			bConsumed = true; // before the callback, which can synchronously destroy this task
+			if (ShouldBroadcastAbilityTaskDelegates()) OnBlocked.ExecuteIfBound(Hit);
+			return;
+		}
 		AActor* Target = Hit.GetActor();
 		if (!Target || Target == Avatar || AlreadyHit.Contains(Target))
 		{
@@ -154,17 +200,28 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 			continue;   // no ASC = nothing to damage
 		}
 
+		// A moving body or very thin obstruction can leave the current hand on the far side without a
+		// new hand sweep intersection. Reject that unreachable victim as well. Interpolate the body to
+		// this candidate's contact time rather than testing it from the end-of-frame actor position.
+		FVector Body = FMath::Lerp(FrameStartAvatarLocation, CurrentAvatarLocation, Hit.Time);
+		Body.Z = Hit.ImpactPoint.Z;
+		FHitResult Obstruction;
+		if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Body, Hit.ImpactPoint, 2.f, Obstruction, true, Target))
+		{
+			continue;
+		}
+
 		// Marked only once it is a REAL hit. Marking rejected actors would make a pawn that was merely
 		// neutral or unresolved for one frame permanently immune for the rest of the swing.
 		AlreadyHit.Add(Target);
+		if (bSingleTarget) bConsumed = true;
 
 		if (ShouldBroadcastAbilityTaskDelegates())
 		{
 			OnHit.Broadcast(Hit);
 		}
-		if (bSingleTarget)
+		if (bConsumed || !ShouldBroadcastAbilityTaskDelegates())
 		{
-			bConsumed = true;   // a punch is not a cleave — and not one hit per fist either
 			return;
 		}
 	}

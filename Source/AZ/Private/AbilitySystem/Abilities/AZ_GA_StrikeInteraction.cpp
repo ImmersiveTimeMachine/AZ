@@ -3,6 +3,7 @@
 #include "AbilitySystem/Abilities/AZ_GA_StrikeInteraction.h"
 
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
+#include "AbilitySystem/AZ_MeleeEnvironment.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -13,7 +14,6 @@
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "DefaultMovementSet/LayeredMoves/BasicLayeredMoves.h"
 #include "Engine/World.h"
 #include "GameplayEffect.h"
 #include "MotionWarpingComponent.h"
@@ -119,7 +119,8 @@ void UAZ_GA_StrikeInteraction::ActivateAbility(const FGameplayAbilitySpecHandle 
 	ActiveStrikeSockets.Reset();
 	bPairLive = false;
 	bContactReached = false;
-	PairContactTime = 0.f;
+	PairedVictimMontage = nullptr;
+	PairedVictimMontageInstanceId = INDEX_NONE;
 
 	// NO ROOTING MOVE HERE (measured 2026-09-03). The catch roots the PREY before its search because the
 	// search and the prey's own rooting live on different actors and different ticks. Here the close-in and
@@ -402,6 +403,56 @@ bool UAZ_GA_StrikeInteraction::TryStrikeSearch(AActor* Target, const FAZ_StrikeV
 		UE_LOG(LogTemp, Warning, TEXT("[Strike] aligned victim target %.0fcm away > MaxCloseInDistance %.0f"), Out.VictimDisplacement.Size2D(), MaxCloseInDistance);
 		return Fallback(TEXT("aligned target too far for the close-in"));
 	}
+
+	// The interaction search knows the authored pair geometry, not level collision. Validate both
+	// capsules before starting either half, so a blocked close-in cannot play a convincing fake hit.
+	FHitResult Obstruction;
+	if (!FAZ_MeleeEnvironment::IsCapsulePathClear(*Infected, VictimFrom, VictimFrom + Out.VictimDisplacement,
+		Obstruction, Avatar))
+	{
+		return Fallback(TEXT("victim close-in or contact position obstructed"));
+	}
+	FVector HeroContactLocation = HeroActorTarget.GetLocation();
+	HeroContactLocation.Z = Avatar->GetActorLocation().Z;
+	if (!FAZ_MeleeEnvironment::IsCapsulePathClear(*Avatar, Avatar->GetActorLocation(), HeroContactLocation,
+		Obstruction, Target))
+	{
+		return Fallback(TEXT("hero approach or contact position obstructed"));
+	}
+
+	// Check the complete authored strike beat too: clear capsules alone do not keep a hook/kick out of
+	// a side wall. The pair owns its geometry, so use authored root motion, never add a second warp.
+	const TArray<FName> Sockets = Variant.StrikeSockets.IsEmpty() ? Super::GetStrikeSockets() : Variant.StrikeSockets;
+	const float BeatEnd = FindBeatEndNotifyTime(Variant.Montage);
+	const float TrajectoryEnd = BeatEnd > Out.StartTime ? BeatEnd : Variant.Montage->GetPlayLength();
+	FAZ_MeleeAttackTrajectory Trajectory;
+	if (!FAZ_MeleeEnvironment::SampleAttackTrajectory(*HeroMesh, *Variant.Montage, Sockets,
+		Out.StartTime, TrajectoryEnd, Trajectory))
+	{
+		return Fallback(TEXT("cannot validate pair strike trajectory"));
+	}
+	const bool bHeroTravels = Variant.Montage->ExtractRootMotionFromTrackRange(
+		0.f, Variant.Montage->GetPlayLength(), FAnimExtractContext()).GetTranslation().Size2D() >= MinRootMotionTravel;
+	TArray<FTransform> PlannedActors;
+	PlannedActors.Reserve(Trajectory.Samples.Num());
+	for (const FAZ_MeleeAttackTrajectorySample& Sample : Trajectory.Samples)
+	{
+		FTransform Planned = bHeroTravels ? Sample.ActorTransform : Avatar->GetActorTransform();
+		if (bHeroTravels && bReleaseRootMotionOnHit && Sample.Time >= Out.ContactTime)
+		{
+			Planned = HeroActorTarget;
+			Planned.SetLocation(HeroContactLocation);
+		}
+		PlannedActors.Add(Planned);
+	}
+	float BlockedTime = 0.f;
+	if (!FAZ_MeleeEnvironment::IsAttackTrajectoryClear(*Avatar, Trajectory, PlannedActors,
+		SweepSphereRadius, Obstruction, BlockedTime, Target))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Strike] %s blocked by %s at montage %.3fs"),
+			*GetNameSafe(Variant.Montage), *GetNameSafe(Obstruction.GetActor()), BlockedTime);
+		return Fallback(TEXT("pair strike or recovery intersects scenery"));
+	}
 	return true;
 }
 
@@ -430,11 +481,9 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	{
 		if (!Pair.VictimDisplacement.IsNearlyZero(1.f) && Pair.CloseSeconds > KINDA_SMALL_NUMBER)
 		{
-			const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
-			CloseMove->Velocity = Pair.VictimDisplacement / Pair.CloseSeconds;
-			CloseMove->DurationMs = Pair.CloseSeconds * 1000.f;
-			CloseMove->MixMode = EMoveMixMode::OverrideVelocity;
-			VictimMover->QueueLayeredMove(CloseMove);
+			VictimAlignmentMover = VictimMover;
+			VictimAlignmentGeneration = VictimMover->DriveMeleeAlignment(
+				Pair.VictimDisplacement / Pair.CloseSeconds, Pair.CloseSeconds);
 		}
 	}
 
@@ -461,8 +510,10 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	MontageTask->OnCompleted.AddDynamic(this, &ThisClass::OnMontageFinished);
 	MontageTask->OnBlendOut.AddDynamic(this, &ThisClass::OnMontageFinished);
 	MontageTask->OnInterrupted.AddDynamic(this, &ThisClass::OnMontageFinished);
+	MontageTask->OnCancelled.AddDynamic(this, &ThisClass::OnMontageFinished);
 	MontageTask->EventReceived.AddDynamic(this, &ThisClass::OnMontageEvent);
 	MontageTask->ReadyForActivation();
+	if (!IsActive()) return;
 	UAnimInstance* HeroAnim = CurrentActorInfo ? CurrentActorInfo->GetAnimInstance() : nullptr;
 	if (HeroAnim && Pair.StartTime > KINDA_SMALL_NUMBER)
 	{
@@ -486,11 +537,8 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 		}
 		else if (Pair.CloseSeconds > KINDA_SMALL_NUMBER)
 		{
-			const TSharedPtr<FLayeredMove_LinearVelocity> HoldStill = MakeShared<FLayeredMove_LinearVelocity>();
-			HoldStill->Velocity = FVector::ZeroVector;
-			HoldStill->DurationMs = Pair.CloseSeconds * 1000.f;
-			HoldStill->MixMode = EMoveMixMode::OverrideVelocity;
-			Mover->QueueLayeredMove(HoldStill);
+			HeroAlignmentMover = Mover;
+			HeroAlignmentGeneration = Mover->DriveMeleeAlignment(FVector::ZeroVector, Pair.CloseSeconds);
 		}
 	}
 
@@ -505,7 +553,14 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Target, Tags.Event_Strike_Victim, Payload);
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 	bPairLive = TargetASC && TargetASC->HasMatchingGameplayTag(Tags.State_Combat_StruckPair);
-	PairContactTime = Pair.ContactTime;
+	if (bPairLive)
+	{
+		PairedVictimMontage = Pair.VictimMontage;
+		const AAZ_PawnMoverInfectedCharacter* Infected = Cast<AAZ_PawnMoverInfectedCharacter>(Target);
+		const UAnimInstance* VictimAnim = Infected && Infected->GetMesh() ? Infected->GetMesh()->GetAnimInstance() : nullptr;
+		const FAnimMontageInstance* VictimInstance = VictimAnim ? VictimAnim->GetActiveInstanceForMontage(Pair.VictimMontage) : nullptr;
+		PairedVictimMontageInstanceId = VictimInstance ? VictimInstance->GetInstanceID() : INDEX_NONE;
+	}
 	UE_LOG(LogTemp, Display, TEXT("[Strike] pair %s: hero %s@%.2f + victim %s@%.2f, contact@%.2f, close-in %.0fcm over %.2fs, sweep=%s"),
 		bPairLive ? TEXT("LIVE") : TEXT("REFUSED (victim did not take it - it reacts normally on the hit)"),
 		*HeroMontage->GetName(), Pair.StartTime, *Pair.VictimMontage->GetName(), Pair.StartTime,
@@ -546,9 +601,8 @@ void UAZ_GA_StrikeInteraction::PlayPairedStrike(const FAZ_StrikePair& Pair)
 		};
 		const float ContactIn = FMath::Max(0.01f, Pair.ContactTime - Pair.StartTime);
 		World->GetTimerManager().SetTimer(ProbeMidTimer, FTimerDelegate::CreateLambda([Probe, ContactIn]() { Probe(*FString::Printf(TEXT("%.2fs"), ContactIn * 0.5f), false); }), ContactIn * 0.5f, false);
-		World->GetTimerManager().SetTimer(ContactProbeTimer, FTimerDelegate::CreateWeakLambda(this, [this, Probe, ContactIn]()
+		World->GetTimerManager().SetTimer(ContactProbeTimer, FTimerDelegate::CreateWeakLambda(this, [Probe, ContactIn]()
 		{
-			bContactReached = true;
 			Probe(*FString::Printf(TEXT("%.2fs"), ContactIn), true);
 		}), ContactIn, false);
 	}
@@ -562,26 +616,69 @@ void UAZ_GA_StrikeInteraction::EndAbility(const FGameplayAbilitySpecHandle Handl
 		World->GetTimerManager().ClearTimer(ProbeMidTimer);
 		World->GetTimerManager().ClearTimer(ContactProbeTimer);
 	}
-	// A pair that ends BEFORE contact (we were hit, grabbed, or died mid-swing) must not leave the victim
-	// playing a knockback for a punch that never landed. From contact on the hit is real and the reaction
-	// stays — it belongs to the victim's ability now.
-	if (bPairLive && !bContactReached)
-	{
-		if (AActor* Target = StrikeTarget.Get())
-		{
-			if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
-			{
-				const FGameplayTagContainer ReactionTags(FAZ_GameplayTags::Get().Ability_Combat_HitReact);
-				TargetASC->CancelAbilities(&ReactionTags);
-				UE_LOG(LogTemp, Display, TEXT("[Strike] ABORT: pair ended before contact (cancelled=%d) - victim %s released"),
-					bWasCancelled, *GetNameSafe(Target));
-			}
-		}
-	}
-	bPairLive = false;
+	ReleasePairedStrike();
 	bContactReached = false;
 	StrikeTarget = nullptr;
 	ActiveStrikeSockets.Reset();
 	PendingVariants.Reset();
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UAZ_GA_StrikeInteraction::ReleasePairAlignment()
+{
+	if (UAZ_PawnMoverComponent* Mover = VictimAlignmentMover.Get())
+	{
+		Mover->ReleaseMeleeAlignment(VictimAlignmentGeneration);
+	}
+	if (UAZ_PawnMoverComponent* Mover = HeroAlignmentMover.Get())
+	{
+		Mover->ReleaseMeleeAlignment(HeroAlignmentGeneration);
+	}
+	VictimAlignmentGeneration = HeroAlignmentGeneration = 0;
+	VictimAlignmentMover.Reset();
+	HeroAlignmentMover.Reset();
+}
+
+void UAZ_GA_StrikeInteraction::ReleasePairedStrike()
+{
+	ReleasePairAlignment();
+	const bool bReleaseVictim = bPairLive && !bContactReached;
+	bPairLive = false; // cancellation below can synchronously call back into abilities
+	if (bReleaseVictim)
+	{
+		AAZ_PawnMoverInfectedCharacter* Victim = Cast<AAZ_PawnMoverInfectedCharacter>(StrikeTarget.Get());
+		UAbilitySystemComponent* VictimASC = Victim ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Victim) : nullptr;
+		const UAnimInstance* Anim = Victim && Victim->GetMesh() ? Victim->GetMesh()->GetAnimInstance() : nullptr;
+		const FAnimMontageInstance* Instance = Anim && PairedVictimMontage.IsValid()
+			? Anim->GetActiveInstanceForMontage(PairedVictimMontage.Get()) : nullptr;
+		if (VictimASC && Instance && Instance->GetInstanceID() == PairedVictimMontageInstanceId
+			&& VictimASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_StruckPair))
+		{
+			const FGameplayTagContainer ReactionTags(FAZ_GameplayTags::Get().Ability_Combat_HitReact);
+			VictimASC->CancelAbilities(&ReactionTags);
+			UE_LOG(LogTemp, Display, TEXT("[Strike] ABORT: no confirmed contact - victim %s released"), *GetNameSafe(Victim));
+		}
+	}
+	PairedVictimMontage.Reset();
+	PairedVictimMontageInstanceId = INDEX_NONE;
+}
+
+void UAZ_GA_StrikeInteraction::OnMeleeContactConfirmed(const FHitResult& Hit)
+{
+	Super::OnMeleeContactConfirmed(Hit);
+	if (bPairLive && Hit.GetActor() == StrikeTarget.Get())
+	{
+		bContactReached = true;
+		ReleasePairAlignment();
+	}
+	else if (bPairLive)
+	{
+		ReleasePairedStrike(); // another victim intercepted the punch; this pair must not fake a hit
+	}
+}
+
+void UAZ_GA_StrikeInteraction::OnMeleeEnvironmentBlocked()
+{
+	ReleasePairedStrike();
+	Super::OnMeleeEnvironmentBlocked();
 }

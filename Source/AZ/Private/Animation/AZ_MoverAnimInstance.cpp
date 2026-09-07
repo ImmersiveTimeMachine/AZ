@@ -1214,12 +1214,19 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			AssetsToSearch.Add(ChosenAnim);
 		}
 
+		// Sprint has its own chooser-selected loop and BranchIn database. Preserve that pool instead of
+		// replacing it with the run-speed vocabulary. Crouching retains its gait-agnostic crouch database.
+		const bool bStandingSprintLoop = ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop
+			&& ChooserContext.Stance == EAZ_Stance::Standing
+			&& ChooserContext.Gait == EAZ_Gait::Sprint;
+
 		// Strafe directional loop: search the full 8-way strafe DB so MM picks the directional clip (incl. the
 		// 45/135 diagonals) by trajectory, instead of refining the entry frame within the single chooser-picked
 		// clip. Keyed off CONTEXT, not the matched row — any bUseMM strafe loco row routes here. Gait-gated:
-		// walk-speed set for Walk, run-speed set for Run/Sprint, so the clip speed matches the Mover's gait-
+		// walk-speed set for Walk, run-speed set for Run, so the clip speed matches the Mover's gait-
 		// driven move speed (no foot-slide). Null DB → falls through to the direct single-clip MM below.
-		if (ChooserContext.bStrafe && ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop)
+		if (ChooserContext.bStrafe && ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop
+			&& !bStandingSprintLoop)
 		{
 			// Crouch takes priority (gait-agnostic — one crouch speed); else gait-gated walk/run. (Strafe DBs
 			// also carry the forward-lean clips, so a forward-curving strafe corner gets the lean too.)
@@ -1251,7 +1258,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			}
 		}
 		else if (ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop
-			&& ChooserContext.Stance == EAZ_Stance::Standing)
+			&& ChooserContext.Stance == EAZ_Stance::Standing && !bStandingSprintLoop)
 		{
 			// EXPLORE forward cornering lean: standing loco searches the per-gait loco DB (Fwd + LeanL/R) so MM
 			// picks the lean variant when the trajectory curves. Gait-gated; crouch falls through to single-clip.
@@ -1320,16 +1327,33 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			}
 		}
 
+		const auto IsAssetInSearchPool = [&AssetsToSearch](const UAnimationAsset* Asset)
+		{
+			if (!Asset) { return false; }
+			if (AssetsToSearch.Contains(Asset)) { return true; }
+			for (const UObject* Candidate : AssetsToSearch)
+			{
+				if (const UPoseSearchDatabase* Database = Cast<UPoseSearchDatabase>(Candidate))
+				{
+					if (Database->Contains(Asset)) { return true; }
+				}
+			}
+			return false;
+		};
+
+		// Raw-clip searches also discover the continuing clip's own BranchIn database. Without this
+		// membership check, an excluded walk/run loop can keep winning after the chooser requests Sprint.
+		// Retain continuity within the selected pool; a gait/stance change owns entry into a new pool.
 		FPoseSearchContinuingProperties Continuing;
-		if (BlendStackInputs.bLoop && BlendStackInputs.Anim && OutgoingAsset)
+		if (BlendStackInputs.bLoop && BlendStackInputs.Anim && IsAssetInSearchPool(OutgoingAsset))
 		{
 			Continuing.PlayingAsset                = OutgoingAsset;
 			Continuing.PlayingAssetAccumulatedTime = OutgoingTime;
 			Continuing.bIsPlayingAssetMirrored     = bOutgoingMirror;
 		}
 #if !UE_BUILD_SHIPPING
-		// Prove the continuity actually reached the search: a null PlayingAsset here means the node
-		// reference did not resolve (or bLoop was false), and every downstream guard is inert again.
+		// Record whether continuity reached the search. It is intentionally absent when changing pools;
+		// within the same pool, null still exposes a failed node reference or a non-looping source.
 		GLastContinuingAsset = Continuing.PlayingAsset;
 		GLastContinuingTime  = Continuing.PlayingAssetAccumulatedTime;
 		// Which link in the chain broke: does the reference we were handed even point at a blend stack?
@@ -1351,6 +1375,38 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		double MMStartTime = MMResult.SelectedTime;
 		PickCost = MMResult.SearchCost;
 
+#if !UE_BUILD_SHIPPING
+		if (ChooserContext.Gait != LastPushedGait || ChooserContext.Stance != LastPushedStance)
+		{
+			FString PoolNames;
+			for (const UObject* Candidate : AssetsToSearch)
+			{
+				if (!PoolNames.IsEmpty()) { PoolNames += TEXT(","); }
+				PoolNames += GetNameSafe(Candidate);
+			}
+			const auto ReadFootContacts = [](const UAnimationAsset* Asset, double Time)
+			{
+				const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(Asset);
+				if (!Sequence || Sequence->GetPlayLength() <= KINDA_SMALL_NUMBER
+					|| !Sequence->HasCurveData(TEXT("contact_l")) || !Sequence->HasCurveData(TEXT("contact_r")))
+				{
+					return FVector2D(-1.f, -1.f);
+				}
+				const double SampleTime = FMath::Fmod(FMath::Max(0.0, Time), Sequence->GetPlayLength());
+				const FAnimExtractContext ExtractContext(SampleTime);
+				return FVector2D(Sequence->EvaluateCurveData(TEXT("contact_l"), ExtractContext),
+					Sequence->EvaluateCurveData(TEXT("contact_r"), ExtractContext));
+			};
+			const FVector2D OutgoingContacts = ReadFootContacts(OutgoingAsset, OutgoingTime);
+			const FVector2D IncomingContacts = ReadFootContacts(MMAnim, MMStartTime);
+			UE_LOG(LogTemp, Display, TEXT("[v2 MMPool] gait=%d stance=%d chosen=%s pool=[%s] outgoing=%s continuing=%s selected=%s cost=%.2f outT=%.3f inT=%.3f outFeet=(%.2f,%.2f) inFeet=(%.2f,%.2f)"),
+				static_cast<int32>(ChooserContext.Gait), static_cast<int32>(ChooserContext.Stance),
+				*GetNameSafe(ChosenAnim), *PoolNames, *GetNameSafe(OutgoingAsset),
+				*GetNameSafe(Continuing.PlayingAsset.Get()), *GetNameSafe(MMAnim), PickCost,
+				OutgoingTime, MMStartTime, OutgoingContacts.X, OutgoingContacts.Y, IncomingContacts.X, IncomingContacts.Y);
+		}
+#endif
+
 		// ★ EMPTY RESULT WHILE THE SAME LOOP IS ALREADY PLAYING = KEEP PLAYING. An empty search is what
 		// the engine returns while a database's derived data is being rebuilt (every "PreCancelled because
 		// of PSD_*" line in LogPoseSearch after a database save), and — by design — what a single-clip
@@ -1371,16 +1427,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		// re-search of the same pool (index rebuild, single-clip reselection) may keep what is playing.
 		if (!MMAnim && BlendStackInputs.bLoop && BlendStackInputs.Anim)
 		{
-			bool bPlayingLoopIsCandidate = AssetsToSearch.Contains(BlendStackInputs.Anim.Get());
-			for (const UObject* Cand : AssetsToSearch)
-			{
-				if (bPlayingLoopIsCandidate) { break; }
-				if (const UPoseSearchDatabase* Db = Cast<UPoseSearchDatabase>(Cand))
-				{
-					bPlayingLoopIsCandidate = Db->Contains(BlendStackInputs.Anim.Get());
-				}
-			}
-			if (bPlayingLoopIsCandidate)
+			if (IsAssetInSearchPool(BlendStackInputs.Anim.Get()))
 			{
 				return;
 			}

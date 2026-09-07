@@ -2,6 +2,7 @@
 
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"
+#include "AbilitySystem/AZ_MeleeEnvironment.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_MeleeSweep.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
@@ -22,6 +23,7 @@
 #include "MotionWarpingComponent.h"
 #include "AnimNotifyState_MotionWarping.h"   // reading each warp window's own modifier off the notify
 #include "RootMotionModifier.h"              // URootMotionModifier_Warp: WarpTargetName + bWarpTranslation
+#include "RootMotionModifier_SkewWarp.h"
 #include "Perception/AISense_Hearing.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
@@ -37,6 +39,103 @@ namespace
 	FName FacingWarpTargetName(const FName& WarpTargetName)
 	{
 		return FName(*(WarpTargetName.ToString() + TEXT("_Facing")));
+	}
+
+	/** Preflight of the existing translation window. Use the engine skew function for travelling
+	 *  clips and the notify's easing for stationary ones; never add another runtime movement writer. */
+	TArray<FTransform> PlanMeleeRootPath(const FAZ_MeleeAttackTrajectory& Trajectory,
+		const UAnimMontage& Montage, FName TargetName, const FVector* Destination)
+	{
+		TArray<FTransform> Result;
+		Result.Reserve(Trajectory.Samples.Num());
+		TArray<FMotionWarpingWindowData> Windows;
+		UMotionWarpingUtilities::GetMotionWarpingWindowsFromAnimation(&Montage, Windows);
+		float Start = 0.f, End = 0.f;
+		EAlphaBlendOption Easing = EAlphaBlendOption::HermiteCubic;
+		UCurveFloat* EasingCurve = nullptr;
+		for (const FMotionWarpingWindowData& Window : Windows)
+		{
+			const URootMotionModifier_Warp* Modifier = Window.AnimNotify
+				? Cast<URootMotionModifier_Warp>(Window.AnimNotify->RootMotionModifier) : nullptr;
+			if (Modifier && Modifier->bWarpTranslation && Modifier->WarpTargetName == TargetName)
+			{
+				Start = Window.StartTime;
+				End = Window.EndTime;
+				if (const URootMotionModifier_SkewWarp* Skew = Cast<URootMotionModifier_SkewWarp>(Modifier))
+				{
+					Easing = Skew->AddTranslationEasingFunc;
+					EasingCurve = Skew->AddTranslationEasingCurve;
+				}
+				break;
+			}
+		}
+		const FTransform MeshWorld = Trajectory.MeshToActor * Trajectory.StartActorTransform;
+		const FTransform RootToStart = Montage.ExtractRootMotionFromTrackRange(0.f, Start, FAnimExtractContext());
+		const FTransform WindowRoot = Montage.ExtractRootMotionFromTrackRange(Start, End, FAnimExtractContext());
+		const FVector WindowStart = Trajectory.StartActorTransform.GetLocation()
+			+ MeshWorld.TransformVector(RootToStart.GetTranslation());
+		for (const FAZ_MeleeAttackTrajectorySample& Sample : Trajectory.Samples)
+		{
+			FTransform Actor = Sample.ActorTransform;
+			if (Destination && End > Start && Sample.Time > Start)
+			{
+				const float Time = FMath::Min(Sample.Time, End);
+				FVector Location;
+				if (WindowRoot.GetTranslation().IsNearlyZero(2.e-4))
+				{
+					const float Alpha = FAlphaBlend::AlphaToBlendOption((Time - Start) / (End - Start), Easing, EasingCurve);
+					Location = FMath::Lerp(WindowStart, *Destination, Alpha);
+				}
+				else
+				{
+					const FVector Partial = Montage.ExtractRootMotionFromTrackRange(Start, Time, FAnimExtractContext()).GetTranslation();
+					const FVector TargetLocal = MeshWorld.InverseTransformVector(*Destination - WindowStart);
+					Location = WindowStart + MeshWorld.TransformVector(URootMotionModifier_SkewWarp::WarpTranslation(
+						FTransform::Identity, Partial, WindowRoot.GetTranslation(), TargetLocal));
+				}
+				if (Sample.Time > End)
+				{
+					Location += MeshWorld.TransformVector(Montage.ExtractRootMotionFromTrackRange(
+						End, Sample.Time, FAnimExtractContext()).GetTranslation());
+				}
+				Actor.SetLocation(Location);
+			}
+			Result.Add(Actor);
+		}
+		return Result;
+	}
+
+	bool IsMeleeBodyPathClear(const AActor& Avatar, TConstArrayView<FTransform> Actors, FHitResult& Hit,
+		const AActor* IgnoreActor = nullptr)
+	{
+		FVector Previous = Avatar.GetActorLocation();
+		for (const FTransform& Actor : Actors)
+		{
+			if (!FAZ_MeleeEnvironment::IsCapsulePathClear(Avatar, Previous, Actor.GetLocation(), Hit, IgnoreActor)) return false;
+			Previous = Actor.GetLocation();
+		}
+		return true;
+	}
+
+	/** The facing modifier is independent of translation. Cover its possible yaw with a conservative
+	 *  radius, so checking the original facing cannot approve an off-axis punch through a side wall. */
+	float MeleeFacingClearanceRadius(const FAZ_MeleeAttackTrajectory& Trajectory,
+		const AActor* Target, float FistRadius)
+	{
+		if (!Target) return FistRadius;
+		const FVector ToTarget = Target->GetActorLocation() - Trajectory.StartActorTransform.GetLocation();
+		const float YawDelta = FMath::Abs(FRotator::NormalizeAxis(static_cast<float>(
+			ToTarget.Rotation().Yaw - Trajectory.StartActorTransform.Rotator().Yaw)));
+		const float RotationScale = 2.f * FMath::Sin(FMath::DegreesToRadians(YawDelta * 0.5f));
+		float Reach = 0.f;
+		for (const FAZ_MeleeAttackTrajectorySample& Sample : Trajectory.Samples)
+		{
+			for (const FVector& Socket : Sample.ComponentSocketLocations)
+			{
+				Reach = FMath::Max(Reach, static_cast<float>(Trajectory.MeshToActor.TransformPosition(Socket).Size2D()));
+			}
+		}
+		return FistRadius + Reach * RotationScale;
 	}
 }
 
@@ -189,9 +288,12 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// correct its distance) and the root-motion drive further down needs it (driving a clip that goes
 	// nowhere pins the pawn). The flag says nothing; the measured displacement does — the jabs move
 	// 0.0-0.3cm, the moving punches 70cm, the heavy 202cm.
-	const FTransform ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(
+	FTransform ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(
 		0.f, Montage->GetPlayLength(), FAnimExtractContext());
-	const bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+	bool bClipTravels = ClipRootMotion.GetTranslation().Size2D() >= MinRootMotionTravel;
+	FVector PlannedWarpDestination = FVector::ZeroVector;
+	bool bHasPlannedWarpDestination = false;
+	bPlayingBlockedResponse = false;
 
 	// Warp target BEFORE the montage starts: a warp window opening on frame 0 resolves its target the
 	// moment it becomes relevant, so registering after would race the first frame of the lunge.
@@ -250,6 +352,10 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 							/*bFollowComponent*/ true,
 							EWarpTargetLocationOffsetDirection::VectorFromTargetToOwner,
 							FVector(ClampedApproach, 0.f, 0.f), FRotator::ZeroRotator);
+						PlannedWarpDestination = WarpTarget->GetActorLocation()
+							+ (Avatar->GetActorLocation() - WarpTarget->GetActorLocation()).GetSafeNormal2D() * ClampedApproach;
+						PlannedWarpDestination.Z = Avatar->GetActorLocation().Z;
+						bHasPlannedWarpDestination = true;
 						// Rotation-only twin: the victim's root, NO offset (see FacingWarpTargetName).
 						Warping->AddOrUpdateWarpTargetFromComponent(FacingWarpTargetName(WarpTargetName), TargetRoot, NAME_None,
 							/*bFollowComponent*/ true,
@@ -266,6 +372,18 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 				}
 			}
 		}
+	}
+
+	if (!PrepareEnvironmentMontage(Montage, bHasPlannedWarpDestination ? &PlannedWarpDestination : nullptr))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+	// A blocked attempt can choose a different, stationary clip. Never retain the original lunge's drive.
+	if (bPlayingBlockedResponse)
+	{
+		ClipRootMotion = Montage->ExtractRootMotionFromTrackRange(0.f, Montage->GetPlayLength(), FAnimExtractContext());
+		bClipTravels = false;
 	}
 
 	// BEAT CLOCK (arch step A, "events drive, timers guard"): if the montage carries an authored
@@ -313,10 +431,16 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	MontageTask->OnCompleted.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageFinished);
-	MontageTask->OnBlendOut.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageFinished);
+	if (!bPlayingBlockedResponse)
+	{
+		MontageTask->OnBlendOut.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageFinished);
+	}
 	MontageTask->OnInterrupted.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageFinished);
+	MontageTask->OnCancelled.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageFinished);
 	MontageTask->EventReceived.AddDynamic(this, &UAZ_GA_MeleeAttack::OnMontageEvent);
 	MontageTask->ReadyForActivation();   // C++ must call this manually (see the task's header comment)
+	if (!IsActive()) return;
+	if (bPlayingBlockedResponse) HoldForBlockedMontage(Montage);
 
 	// Stage 2: drive the capsule with the punch montage's root motion. The FullBody slot overrides
 	// the pose, so RootMotionFromEverything extracts the MONTAGE delta into the attribute; a live
@@ -417,7 +541,8 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	{
 		World->GetTimerManager().ClearTimer(BeatWatchdog);
 	}
-	// An interrupted swing must not leave a hit detector ticking past the ability.
+	// WindowEnd owns the last legitimate sweep. Ability teardown must not dispatch new contacts.
+	if (SweepTask) SweepTask->DiscardPendingHits();
 	StopHitWindow();
 	// Nor a recovery latch outliving the swing it belonged to — the instance is reused under retrigger,
 	// and the ASC tag would otherwise advertise a cancel window on a pawn that is no longer attacking.
@@ -434,6 +559,8 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	{
 		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
 		{
+			Mover->ReleaseMeleeAlignment(BlockedHoldGeneration);
+			BlockedHoldGeneration = 0;
 			// Generation-scoped: only cancels if OUR drive is still the live one. A raw
 			// CancelFeaturesWithTag here killed whoever's move was live — including a flinch that had
 			// already taken over when this end fired late (correct before only by call-ordering luck).
@@ -453,6 +580,7 @@ void UAZ_GA_MeleeAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	}
 
 	// (later) remove Ability.State.MeleeAttacking loose tag here.
+	bPlayingBlockedResponse = false;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
@@ -516,6 +644,12 @@ AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
 		const float TargetHealth =
 			TargetASC->GetGameplayAttributeValue(UAZ_VitalsAttributeSet::GetHealthAttribute(), bHasVitals);
 		if (bHasVitals && TargetHealth <= 0.f)
+		{
+			continue;
+		}
+		FHitResult Obstruction;
+		if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Start, Candidate->GetActorLocation(), 2.f,
+			Obstruction, false, Candidate))
 		{
 			continue;
 		}
@@ -731,7 +865,7 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 	// Server-authoritative: the predicted client plays the montage but only the authority detects and
 	// deals damage (results replicate back via attributes/tags).
 	const AActor* Avatar = GetAvatarActorFromActorInfo();
-	if (!Avatar || !Avatar->HasAuthority() || SweepTask)
+	if (!Avatar || !Avatar->HasAuthority() || SweepTask || bPlayingBlockedResponse)
 	{
 		return;
 	}
@@ -759,6 +893,7 @@ void UAZ_GA_MeleeAttack::StartHitWindow()
 	if (SweepTask)
 	{
 		SweepTask->OnHit.AddDynamic(this, &UAZ_GA_MeleeAttack::OnSweepHit);
+		SweepTask->OnBlocked.BindUObject(this, &UAZ_GA_MeleeAttack::OnSweepBlocked);
 		SweepTask->ReadyForActivation();
 	}
 }
@@ -772,8 +907,9 @@ void UAZ_GA_MeleeAttack::StopHitWindow()
 {
 	if (SweepTask)
 	{
-		SweepTask->EndTask();
+		UAZ_AT_MeleeSweep* ClosingTask = SweepTask;
 		SweepTask = nullptr;
+		ClosingTask->EndTask();
 	}
 }
 
@@ -800,6 +936,7 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	{
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
 	}
+	OnMeleeContactConfirmed(Hit);
 	// swingT: where in the attacker's clip contact registered. Window opens at 0.85 on the claw clips —
 	// a swingT near the open means detection is honest and any perceived lateness is the authored
 	// wind-up; a swingT pinned late in the window means the sweep is finding the target late.
@@ -856,4 +993,88 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	// 700-HearingRange listener (AISense_Hearing.cpp:147-152).
 	const float CarryRadius = FMath::Min(700.f, ImpactMaxRange) * FMath::Max(0.f, ImpactLoudness);
 	DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), CarryRadius, 24, FColor::Yellow, false, 2.f);
+}
+
+bool UAZ_GA_MeleeAttack::PrepareEnvironmentMontage(UAnimMontage*& Montage, const FVector* PlannedWarpDestination)
+{
+	// Opt in through cooked response data on the hero abilities. Other melee abilities keep their
+	// authored selection; their authoritative hit sweep still respects solid scenery.
+	if (BlockedPunchMontages.IsEmpty()) return true;
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	USkeletalMeshComponent* Mesh = GetAvatarMesh();
+	if (!Avatar || !Mesh || !Montage) return false;
+	const float Radius = FMath::Max(2.f, SweepSphereRadius * 0.5f) + 2.f;
+	FAZ_MeleeAttackTrajectory Trajectory;
+	const bool bSampled = FAZ_MeleeEnvironment::SampleAttackTrajectory(*Mesh, *Montage, GetStrikeSockets(),
+		0.f, Montage->GetPlayLength(), Trajectory);
+	FHitResult Hit;
+	float HitTime = 0.f;
+	TArray<FTransform> Actors;
+	if (bSampled)
+	{
+		Actors = PlanMeleeRootPath(Trajectory, *Montage, WarpTargetName, PlannedWarpDestination);
+		const float PlannedRadius = MeleeFacingClearanceRadius(Trajectory,
+			PlannedWarpDestination ? WarpTargetLatched.Get() : nullptr, Radius);
+		if (IsMeleeBodyPathClear(*Avatar, Actors, Hit, WarpTargetLatched.Get())
+			&& FAZ_MeleeEnvironment::IsAttackTrajectoryClear(*Avatar, Trajectory, Actors, PlannedRadius, Hit, HitTime, WarpTargetLatched.Get()))
+		{
+			return true;
+		}
+	}
+
+	// The full planned swing must fit from here. Do not backstep away from scenery or substitute a
+	// shortened jab: either could still start a punch when the player is too close to the wall.
+	// Returning false ends this attempt before playback or movement; EndAbility clears warp targets.
+	UE_LOG(LogTemp, Display, TEXT("[MeleeWall] %s REJECTED clip=%s reason=%s surface=%s contactT=%.3f"),
+		*GetNameSafe(Avatar), *GetNameSafe(Montage),
+		bSampled ? TEXT("insufficient clearance") : TEXT("trajectory unavailable"), *GetNameSafe(Hit.GetActor()), HitTime);
+	return false;
+}
+
+UAnimMontage* UAZ_GA_MeleeAttack::SelectBlockedMontage() const
+{
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	USkeletalMeshComponent* Mesh = GetAvatarMesh();
+	if (!Avatar || !Mesh) return nullptr;
+	const TArray<FName> Fists = { StrikeSocket_L, StrikeSocket_R, KnuckleSocket_L, KnuckleSocket_R };
+	for (UAnimMontage* Candidate : BlockedPunchMontages)
+	{
+		if (!Candidate) continue;
+		FAZ_MeleeAttackTrajectory Trajectory;
+		FHitResult Hit;
+		float HitTime = 0.f;
+		if (FAZ_MeleeEnvironment::SampleAttackTrajectory(*Mesh, *Candidate, Fists, 0.f, Candidate->GetPlayLength(), Trajectory)
+			&& FAZ_MeleeEnvironment::IsAttackTrajectoryClear(*Avatar, Trajectory, {},
+				FMath::Max(2.f, SweepSphereRadius * 0.5f) + 2.f, Hit, HitTime))
+		{
+			return Candidate;
+		}
+	}
+	return nullptr;
+}
+
+void UAZ_GA_MeleeAttack::HoldForBlockedMontage(UAnimMontage* Montage)
+{
+	if (AActor* Avatar = GetAvatarActorFromActorInfo())
+	{
+		if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+		{
+			// Intentional, brief commitment: holding movement keeps the validated short recoil in its
+			// free space. Unlike an ordinary jab this response is specifically caused by an obstruction.
+			BlockedHoldGeneration = Mover->DriveMeleeAlignment(FVector::ZeroVector, Montage->GetPlayLength());
+		}
+	}
+}
+
+void UAZ_GA_MeleeAttack::OnSweepBlocked(const FHitResult& Hit)
+{
+	if (!IsActive() || bPlayingBlockedResponse) return;
+	if (SweepTask) SweepTask->DiscardPendingHits();
+	StopHitWindow();
+	OnMeleeEnvironmentBlocked();
+	// Scenery can move into an already approved swing. Cancel through the normal teardown so the
+	// montage, movement and any unconfirmed pair are released without substituting a short punch.
+	UE_LOG(LogTemp, Display, TEXT("[MeleeWall] %s CONTACT_CANCELLED surface=%s"),
+		*GetNameSafe(GetAvatarActorFromActorInfo()), *GetNameSafe(Hit.GetActor()));
+	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
 }

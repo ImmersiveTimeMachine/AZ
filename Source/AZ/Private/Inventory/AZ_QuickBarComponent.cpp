@@ -81,10 +81,17 @@ void UAZ_QuickBarComponent::EquipSlot(const int32 SlotIndex)
 	// proxies. Authority-only here (EquipSlot is HasAuthority-gated), so this is the correct site.
 	if (Slot.bStrafeOnEquip)
 	{
+		const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 		// Replicated state tag (local + FMinimalReplicationTagCountMap on authority — the project's
 		// Iris-aligned surface; AZ_AbilitySystemComponent audit P1-12). Visible to the chooser
 		// (ChooserContext.bStrafe) and Mover (ProduceInput facing) on every role incl. sim proxies.
-		ASC->AddStateTag(FAZ_GameplayTags::Get().Movement_Strafe);
+		ASC->AddStateTag(Tags.Movement_Strafe);
+
+		// Sprint is exploration-only. The sprint ability blocks activation while strafing;
+		// entering fight mode also ends an active sprint and its effect through OnEndAbility.
+		FGameplayTagContainer SprintAbilityTags;
+		SprintAbilityTags.AddTag(Tags.Movement_Sprinting);
+		ASC->CancelAbilities(&SprintAbilityTags);
 	}
 
 	for (const TSubclassOf<UAZ_GameplayAbility>& AbilityClass : Slot.WeaponAbilities)

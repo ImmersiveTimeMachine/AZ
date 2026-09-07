@@ -4,6 +4,7 @@
 
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Character/AZ_PawnMovementMode_RMAction.h"
+#include "Character/AZ_MeleeAlignmentMove.h"
 #include "DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.h"   // FJumpImpulseEffect
 #include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "MoverDataModelTypes.h"   // FMoverDefaultSyncState (patch probe below)
@@ -145,6 +146,38 @@ void UAZ_PawnMoverComponent::ReleaseRootMotion(uint64 Generation)
 	}
 	CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 	RootMotionDriveEndTime = 0.0;   // ours, and it's over — stop reporting the pawn as animation-driven
+}
+
+uint64 UAZ_PawnMoverComponent::DriveMeleeAlignment(const FVector& Velocity, float Seconds)
+{
+	if (Seconds <= 0.f || !FMath::IsFinite(Seconds) || Velocity.ContainsNaN()
+		|| GetOwnerRole() == ROLE_SimulatedProxy)
+	{
+		return 0;
+	}
+	ReleaseMeleeAlignment(MeleeAlignmentGeneration);
+	QueuedMeleeAlignmentMove = MakeShared<FLayeredMove_AZ_MeleeAlignment>();
+	QueuedMeleeAlignmentMove->Velocity = Velocity;
+	QueuedMeleeAlignmentMove->DurationMs = Seconds * 1000.f;
+	QueuedMeleeAlignmentMove->MixMode = EMoveMixMode::OverrideVelocity;
+	QueueLayeredMove(QueuedMeleeAlignmentMove);
+	return ++MeleeAlignmentGeneration;
+}
+
+void UAZ_PawnMoverComponent::ReleaseMeleeAlignment(uint64 Generation)
+{
+	if (Generation == 0 || Generation != MeleeAlignmentGeneration) return;
+	// UMoverSimulation stages new moves before the FSM sees them. Tag cancellation alone cannot remove
+	// one queued and cancelled in that same frame. Neutralize that original too: Duration=0 still gets
+	// one tick, so make that tick additive zero instead of letting it move/pin a successor's capsule.
+	if (QueuedMeleeAlignmentMove)
+	{
+		QueuedMeleeAlignmentMove->Velocity = FVector::ZeroVector;
+		QueuedMeleeAlignmentMove->MixMode = EMoveMixMode::AdditiveVelocity;
+		QueuedMeleeAlignmentMove->DurationMs = 0.f;
+		QueuedMeleeAlignmentMove.Reset();
+	}
+	CancelFeaturesWithTag(FLayeredMove_AZ_MeleeAlignment::GetMoveTag(), /*bRequireExactMatch*/ true);
 }
 
 void UAZ_PawnMoverComponent::OnMoverPreSimulationTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd)

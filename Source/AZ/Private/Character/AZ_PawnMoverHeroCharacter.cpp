@@ -932,7 +932,9 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	FAZ_MoverCustomInputs& CustomInputs = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FAZ_MoverCustomInputs>();
 	{
 		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
-		if (HasMatchingGameplayTag(AZTags.Movement_Sprinting))
+		// Fight mode stays at the requested Run/Walk gait even if sprint cancellation
+		// or its replicated tag removal has not reached this input tick yet.
+		if (!bStrafe && HasMatchingGameplayTag(AZTags.Movement_Sprinting))
 		{
 			CustomInputs.Gait = EAZ_Gait::Sprint;
 		}

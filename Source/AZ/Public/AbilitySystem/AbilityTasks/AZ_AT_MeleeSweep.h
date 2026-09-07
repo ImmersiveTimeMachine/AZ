@@ -9,6 +9,7 @@
 class USkeletalMeshComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZMeleeHitDelegate, const FHitResult&, Hit);
+DECLARE_DELEGATE_OneParam(FAZMeleeBlockedDelegate, const FHitResult&);
 
 /**
  * SOCKET-SWEPT hit detection — the well-known AAA melee shape, replacing the old actor-forward volume
@@ -67,6 +68,12 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FAZMeleeHitDelegate OnHit;
 
+	/** Solid scenery reached before a valid victim ends this window. */
+	FAZMeleeBlockedDelegate OnBlocked;
+
+	/** Cancellation must not turn the closing flush into a late hit. */
+	void DiscardPendingHits() { bConsumed = true; }
+
 private:
 	/** Sweep every socket from its last recorded position to where it is now, then report the EARLIEST
 	 *  valid contact across all of them. Shared by the per-tick pass and the closing flush. */
@@ -82,8 +89,11 @@ private:
 	TWeakObjectPtr<USkeletalMeshComponent> Mesh;
 	/** Parallel to SocketNames — last frame's world position of each socket. */
 	TArray<FVector> PrevLocations;
+	FVector PreviousAvatarLocation = FVector::ZeroVector;
 	bool bHasPrevious = false;
-	/** Single-target punch landed — keep ticking cheaply but detect nothing further. */
+	/** Check whether the animation put a limb through thin scenery before the hit window opened. */
+	bool bCheckInitialObstruction = true;
+	/** Single-target hit, wall contact, cancellation or destruction: detect nothing further. */
 	bool bConsumed = false;
 	TSet<TWeakObjectPtr<AActor>> AlreadyHit;
 };

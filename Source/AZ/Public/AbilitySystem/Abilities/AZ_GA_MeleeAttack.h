@@ -79,6 +79,20 @@ protected:
 	 *  interrupted swing can't leave a detector ticking. */
 	void StartHitWindow();
 	void StopHitWindow();
+	/** Rejects a blocked full swing before playback; no shortened jab or automatic wall correction. */
+	bool PrepareEnvironmentMontage(UAnimMontage*& Montage, const FVector* PlannedWarpDestination);
+	UAnimMontage* SelectBlockedMontage() const;
+	void OnSweepBlocked(const FHitResult& Hit);
+	virtual void OnMeleeContactConfirmed(const FHitResult& Hit) {}
+	virtual void OnMeleeEnvironmentBlocked() {}
+	void HoldForBlockedMontage(UAnimMontage* Montage);
+
+	/** Legacy response data retained for existing Blueprint defaults. A non-empty array opts this ability
+	 *  into environment preflight; blocked attempts now cancel instead of playing these short punches. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|Melee|Environment")
+	TArray<TObjectPtr<UAnimMontage>> BlockedPunchMontages;
+	bool bPlayingBlockedResponse = false;
+	uint64 BlockedHoldGeneration = 0;
 
 	/** The sockets the hit window sweeps. Default: both fists (wrist + knuckle). A subclass whose clip
 	 *  strikes with something else (the strike pair's kick variant sweeps the foot) overrides this per

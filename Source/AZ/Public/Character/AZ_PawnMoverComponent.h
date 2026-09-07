@@ -6,6 +6,8 @@
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "AZ_PawnMoverComponent.generated.h"
 
+struct FLayeredMove_AZ_MeleeAlignment;
+
 /**
  * UAZ_PawnMoverComponent — thin UCharacterMoverComponent subclass.
  *
@@ -99,6 +101,11 @@ public:
 	 *  Generation is 0), so a stale caller can never cancel a newer owner's move. */
 	void ReleaseRootMotion(uint64 Generation);
 
+	/** Scoped, cancel-and-replace combat close-in or stationary hold. Simulated proxies are skipped. */
+	uint64 DriveMeleeAlignment(const FVector& Velocity, float Seconds);
+	/** Cancel only the alignment still owned by this token, including a move awaiting its first tick. */
+	void ReleaseMeleeAlignment(uint64 Generation);
+
 	/** Generation of the live drive (0 = none queued yet). Read straight after the call that started a
 	 *  drive to learn which generation you own. */
 	uint64 GetRootMotionGeneration() const { return RootMotionGeneration; }
@@ -126,6 +133,9 @@ private:
 	/** Monotonic id of the most recent DriveRootMotion call — ReleaseRootMotion only cancels if it still
 	 *  holds the latest. Never reset (a uint64 will not wrap in a play session). */
 	uint64 RootMotionGeneration = 0;
+	uint64 MeleeAlignmentGeneration = 0;
+	/** The original staged move, before the simulation starts cloning its sync-state history. */
+	TSharedPtr<FLayeredMove_AZ_MeleeAlignment> QueuedMeleeAlignmentMove;
 
 	/** World time the live drive is scheduled to end (0 = none). The layered move can also expire on its
 	 *  own DurationMs without anyone calling Release, so liveness is a DEADLINE, not a flag. */

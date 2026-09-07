@@ -7,6 +7,7 @@
 #include "AZ_GA_StrikeInteraction.generated.h"
 
 class UPoseSearchDatabase;
+class UAZ_PawnMoverComponent;
 
 /**
  * One way this key can strike: a pair database (one PSIA per victim variant) and OUR half of that pair.
@@ -96,6 +97,8 @@ protected:
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+	virtual void OnMeleeContactConfirmed(const FHitResult& Hit) override;
+	virtual void OnMeleeEnvironmentBlocked() override;
 
 	/** The strike interaction database (PSD_AZ_Strike: one PSIA per victim variant, SamplingRange-trimmed
 	 *  to the wind-up). Editor-assigned on the GRANTED class (no /Game/ paths in C++; BP-child CDOs don't
@@ -155,6 +158,10 @@ private:
 	void PlayPairedStrike(const FAZ_StrikePair& Pair);
 	/** The parent's warped heavy, from wherever the pair path gave up. */
 	void FallbackToWarpedHeavy(const TCHAR* Reason);
+	/** Release only this pair's movement; another ability may already own a newer alignment. */
+	void ReleasePairAlignment();
+	/** End an unconfirmed paired reaction without interrupting a newer reaction on that victim. */
+	void ReleasePairedStrike();
 
 	TWeakObjectPtr<AActor> StrikeTarget;
 	/** This press's variants, in the order BeginStrike tries them. */
@@ -163,9 +170,14 @@ private:
 	TArray<FName> ActiveStrikeSockets;
 	/** The victim took the pair (State.Combat.StruckPair went up on its ASC). */
 	bool bPairLive = false;
-	/** Set by the contact probe: from here the hit is real and an interrupted swing keeps the reaction. */
+	/** Only a confirmed damage contact with this pair's victim preserves its reaction on interruption. */
 	bool bContactReached = false;
-	float PairContactTime = 0.f;
+	TWeakObjectPtr<UAnimMontage> PairedVictimMontage;
+	int32 PairedVictimMontageInstanceId = INDEX_NONE;
+	TWeakObjectPtr<UAZ_PawnMoverComponent> VictimAlignmentMover;
+	TWeakObjectPtr<UAZ_PawnMoverComponent> HeroAlignmentMover;
+	uint64 VictimAlignmentGeneration = 0;
+	uint64 HeroAlignmentGeneration = 0;
 	FTimerHandle ProbeMidTimer;
 	FTimerHandle ContactProbeTimer;
 };
