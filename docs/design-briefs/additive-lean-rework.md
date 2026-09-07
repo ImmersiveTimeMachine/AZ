@@ -1,14 +1,21 @@
 # Additive lean rework — port the CMC acceleration model, restore the Y axis, bind the layer
 
-**Status: SPEC, queued. Not implemented.** Written 2026-09-07.
+**Status: C++ IMPLEMENTED 2026-09-07 (uncommitted); graph bindings PENDING.** Written 2026-09-07.
 Companion to [moveraniminstance-gasp-refactor-plan.md](moveraniminstance-gasp-refactor-plan.md); the C++ half
-lands inside that plan's **step 2a** (`Update_AdditiveLean` stage) and **step 3** (`Update_States`).
+belongs to that plan's **step 2a** (`Update_AdditiveLean`), the state variables to **step 3**.
 
-**Prerequisites — both real, neither optional:**
-1. `AZ_MoverAnimInstance.*` must be free of the in-flight rifle/aim workstream (as of writing it carries
-   ~200 uncommitted lines there).
-2. Every item below adds a `UPROPERTY` or a new member, which **Live Coding cannot patch**. Closed-editor
-   CLI build, then reopen.
+**What is done:** the acceleration model, the smoothed derivative, the budget mirroring, and both axes of
+`LeanAmount` are live in `AZ_MoverAnimInstance.cpp` and compiled (`LiveCoding.Compile` -> Succeeded, 0
+errors). It was written **Live-Coding-safe** — file-scope map + `constexpr` tunables + a free helper
+function rather than new members — specifically so it could land without closing the editor. §3.1's
+`UPROPERTY` form is the shape to promote it to at the next editor-closed build.
+
+**What is NOT done:** §3.5's `MovementState` / `bEnableAO` (they genuinely need `UPROPERTY`s), and every
+graph binding in §4.
+
+**IT CANNOT BE COMMITTED ALONE.** The preserved `bUseUnarmedLeans` gate references `WeaponProfile`, which
+exists only in the rifle/aim workstream's uncommitted work (0 occurrences in HEAD, 28 in the working tree).
+It has to land with, or after, that work.
 
 ---
 
@@ -213,10 +220,10 @@ whether it follows or is retired — it is the non-MetaHuman ABP.
 
 ## 5. Unverified — confirm before or during implementation
 
-1. **Blendspace axis semantics.** `BS_AZ_Relaxed_Walk_Leans` / `_Run_Leans` declare axes named literally
-   `X` and `Y`, range −1..1, grid 4 — no semantic names in the metadata. **Which animation sits at
-   `(+1,0)` versus `(0,+1)` decides the packing order and the signs in §3.4.** Read it off the blendspace
-   editor; do not infer it.
+1. ~~Blendspace axis semantics.~~ **RESOLVED 2026-09-07** — read from `sample_data` on both assets:
+   `(+1,0)=Lean_R`, `(-1,0)=Lean_L`, `(0,+1)=Lean_F`, `(0,-1)=Lean_B`. So **X = lateral (+ right),
+   Y = longitudinal (+ forward)**, and the §3.4 mapping `Target(Rel.Y, Rel.X)` is **correct as written**:
+   cornering right leans right, braking leans back. No flip needed.
 2. **`Disable_AdditiveLeans` curve.** Bound as `AlphaCurveName` on the layer's final `TwoWayBlend`. If our
    turn clips do not carry that curve, the mask is inert and leans will fight the turn animations — the
    exact problem the GASP comment on that node describes. Check before tuning lean strength.
