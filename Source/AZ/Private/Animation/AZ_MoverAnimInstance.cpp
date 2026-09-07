@@ -58,6 +58,14 @@ static TWeakObjectPtr<const UObject> GLastContinuingAsset;
 static float GLastContinuingTime = 0.f;
 static int32 GLastContinuingConv = -1;   // 1 = BlendStackNode ref resolved to a blend stack, 0 = it did not
 static int32 GLastContinuingLoop = -1;   // 1 = bLoop was true at the search (continuity is loop-only)
+#endif
+
+// ★ NOT DEBUG - the two maps below are read AND written on the committed-push path in EVERY build
+// (the R13 phase-lock gate + the push counter), so they must live OUTSIDE the !UE_BUILD_SHIPPING guard.
+// They sat INSIDE it until 2026-09-07, which meant a Shipping build did not compile at all: the
+// declarations vanished while three unguarded uses remained (the gate read, the phase store, the
+// counter increment). Development/editor builds were unaffected, which is why it went unnoticed.
+// Do not move these back under the guard - guard the USES instead if they ever become debug-only.
 
 // SM phase at the moment of the last COMMITTED push, per instance. The phase-locked seam (R13) is valid
 // only when the outgoing clip is one that ENDS ON THE LOOP'S FRAME 0 - starts, pivots, lands, i.e. clips
@@ -70,7 +78,6 @@ static TMap<const UAZ_MoverAnimInstance*, EAZ_StateMachineState> GLastPushSMStat
 // Committed-push counter per instance ([v2 CrouchTrace] prints it: a rising count while the clip name
 // never changes = a silent same-asset re-push, invisible to [v2 Pick]/[v2 Snap]).
 static TMap<const UAZ_MoverAnimInstance*, uint32> GPushCountByInstance;
-#endif
 
 FVector UAZ_MoverAnimInstance::ResolveGrabIKTarget(
 	const USkeletalMeshComponent* OwnMesh, FName UpperArmBone, FName LowerArmBone, FName HandBone,
