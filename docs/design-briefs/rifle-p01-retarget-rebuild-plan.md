@@ -194,3 +194,153 @@ component running the generic graph with `RTG_SurvivalMan_to_MetaHuman_Aligned`;
 the body; **weapon/grab sockets must attach to the visible body, not the driver** (`GetThirdPersonMesh()`
 today returns `GetMesh()` = the single `Mesh`). Cost: one extra skeletal evaluation per frame; reopens the
 2026-08-31 LeaderPose/compatible decision. Modify-Bone (path C) is not equivalent — the V2 row shows why.
+
+---
+
+## 7. Path A design — SurvivalMan driver + MetaHuman body via runtime retarget (2026-09-08, awaiting go)
+
+### 7.0 Facts this design rests on (all measured today)
+
+**Meshes.** Hero body vs SurvivalMan, own reference pose (spawned `SkeletalMeshActor`, component space):
+
+| | SurvivalMan | `SKM_MHC_Hero_BodyMesh` | delta |
+|---|---|---|---|
+| head Z | 162.58 | 162.36 | same height |
+| spine_05 Z | 141.10 | 135.33 | −5.8 (longer torso, lower shoulders) |
+| pelvis Z | 95.90 | 92.33 | −3.6 (shorter legs) |
+| ball_r Z | 0.75 | 1.23 | |
+| hand_r | (−47.8, 15.7, 104.5) | (−51.1, 17.2, 101.2) | 4.8 cm |
+| bones | 101 | 342 | |
+
+⚠ `AnimPoseExtensions.get_reference_pose(metahuman_base_skel)` returns the **female-medium archetype**
+(head 143.36) — the skeleton asset is shared by every MetaHuman body. Never use it for hero rest numbers.
+
+**Feet through the aligned retargeter** (idle f0 on the MetaHuman mesh, rest ball 1.23): **2.18 / 2.08**
+(+0.9 cm). Today's compatible playback: **4.53 / 3.94** (+3.3 cm float, because SurvivalMan's pelvis height
+rides verbatim on 3.6 cm shorter legs). Path A improves the feet; pelvis offset stays 0.
+
+**`RTG_SurvivalMan_to_MetaHuman_Aligned` as saved:** ops = Pelvis (offset 0) · FK 46 chains
+`ONE_TO_ONE` / translation `NONE` · **Pin Bone (enabled, 0 pairs — leftover, remove)** · Root Motion ·
+Curve Remap; target pose `AlignedToSurvivalMan`.
+
+**Pawn `AZ_BP_PawnMoverHero_MHC`** (SCS dump): `Capsule → Mesh` (C++ subobject; `SKM_MHC_Hero_BodyMesh`,
+`AZ_ABP_MoverHero_MHC_C`, rel −92 / yaw −90, NoCollision, overlap events on) → `Face` (`ABP_Face_C`: its
+whole graph is one `CopyPoseFromMesh` from the *attached parent*) + 4 grooms, and 6 `Cloth_*` (leader
+`Mesh`, no ABP). No MetaHumanComponent, no LODSync. EventGraph and ConstructionScript are **empty**.
+`AZ_ABP_MoverHero_MHC`: parent `UAZ_MoverAnimInstance`, target `SKEL_SurvivalMan`, references nothing
+MetaHuman → runs natively on the SurvivalMan driver.
+
+**Engine.** `FAnimNode_RetargetPoseFromMesh` defaults to `RetargetFrom = ParentSkeletalMeshComponent`,
+reads the parent's component-space transforms in `PreUpdate`, honours a leader-pose source, and adds **no
+tick prerequisite** (neither does `CopyPoseFromMesh`). GASP's `BP_UE4_Mannequin` therefore calls
+`AddTickPrerequisiteComponent(parent mesh)` itself after `DelayUntilNextTick`. Mover picks the primary
+visual component as the **first `UMeshComponent` child of the capsule** (`MoverComponent.cpp` BeginPlay)
+and reads root motion from it — a body attached *under* `Mesh` leaves that untouched.
+
+**Hero-mesh consumers in `Source/` today** (grep `GetMesh()` / `GetThirdPersonMesh()` /
+`FindComponentByClass<USkeletalMeshComponent>` on the Mover hero):
+
+| consumer | uses the mesh for | under path A |
+|---|---|---|
+| `AZ_Inv_CommonUI_EquipmentComponent::OnPossessedPawnChange` (`OwningSkeletalMesh = Hero->GetMesh()`) | weapon attach sockets | **visual body** |
+| `AZ_GA_PlayerGrabbed` `HeroMesh = Hero->GetMesh()` (anchor layered move + height match) | `GrabbedSocket` | **visual body** |
+| `AZ_GA_PlayerGrabbed` ×4 `Hero->GetMesh()->GetAnimInstance()` | montages / anim | driver (unchanged) |
+| `AZ_GA_MeleeAttack::GetAvatarMesh` | BOTH: `ResolveAvatarIsMoving` (anim) and strike-socket trajectories | split |
+| `AZ_AT_MeleeSweep` `Avatar->FindComponentByClass<USkeletalMeshComponent>()` | fist sockets — already ambiguous with 8 SKMs on the hero | **visual body** |
+| `AZ_InfectedAnimInstance` `Prey->FindComponentByClass<USkeletalMeshComponent>()` | Chalkie grab-IK reaching the hero's hands | **visual body** |
+| `AAZ_PawnMoverHeroCharacter::UpdateGrabMeshAnchor` `Mesh->GetSocketTransform(GrabOwnSocket)` | measure; then moves `Mesh` | measure on body, move driver |
+| `UAZ_MoverAnimInstance` (own component) | grab IK solve, pose history, MM | driver (unchanged) |
+| `AZ_Weapon` / `GetThirdPersonMesh` / GA_Aim / GA_Shoot | `AAZ_HeroCharacter` = CMC pawn, not this class | untouched |
+
+`AZ_Inv_CommonUI_EquipmentComponent.cpp/.h` and `AZ_Weapon.cpp/.h` carry **another agent's uncommitted
+edits** right now — the one line needed there is a single content-anchored hunk, staged alone.
+
+### 7.1 Layout
+
+```
+Capsule                                   (root, Mover UpdatedComponent)
+└─ Mesh        SKM_SurvivalMan_Mesh1  AZ_ABP_MoverHero_MHC_C  HIDDEN  AlwaysTickPoseAndRefreshBones
+   │           = Mover primary visual component, root motion, PoseSearch, montages, grab IK, GAS anim
+   └─ Body     SKM_MHC_Hero_BodyMesh  ABP_GenericRetarget_C (IKRetargeter = RTG_SurvivalMan_to_MetaHuman_Aligned)
+      │        identity transform · visible · post-process ABP_Body_PostProcess stays · ALL sockets
+      ├─ Face  ABP_Face_C (CopyPoseFromMesh ← attached parent = Body)  → grooms
+      └─ Cloth_Bag/Backpack/Belt/Boots/Hoodie/Pants   leader-posed to Body at runtime
+```
+
+### 7.2 Ownership — one owner per fact
+
+| fact | owner |
+|---|---|
+| which component animates / drives Mover | C++ `Mesh` (unchanged) |
+| which component is *seen* and carries sockets | `GetVisualMesh()` = `VisualBody ? VisualBody : Mesh`, resolved once in `BeginPlay` from `VisualBodyComponentName` (default `"Body"`, BP-authored child). No child → stock hero, bit-identical |
+| driver hidden | **derived** in C++ from "a body exists" — never a second BP flag to get half-right |
+| retargeter asset | pawn `UPROPERTY(EditDefaultsOnly) TObjectPtr<UIKRetargeter> BodyRetargeter` (assigned in BP defaults, no `/Game/` in C++), pushed in `BeginPlay` into the body anim instance's `IKRetargeter` variable (the property `ABP_GenericRetarget` binds) by reflection; loud warning if the class has no such property or the asset is null. Child-ABP-with-default rejected: a second asset owning the same fact plus a manual ABP authoring step |
+| tick order | explicit, as GASP: `Body->AddTickPrerequisiteComponent(Mesh)`, `Face->AddTickPrerequisiteComponent(Body)` |
+| follower wiring | leader = `GetVisualMesh()`; exclusions = `Face` (by name, as today) **and the leader itself** |
+| body sockets | SurvivalMan values via `Tools/metahuman_fixup.py` (idempotent) — the hand-tuned Aim/Relaxed offsets die in the same step that makes them wrong |
+
+### 7.3 Changes
+
+**C++ (`AAZ_PawnMoverHeroCharacter`) — new UPROPERTYs ⇒ closed-editor CLI build:**
+- `.h`: `FName VisualBodyComponentName = "Body"`, `TObjectPtr<UIKRetargeter> BodyRetargeter`,
+  `Transient TObjectPtr<USkeletalMeshComponent> VisualBody`, `UFUNCTION(BlueprintPure) GetVisualMesh()`.
+- `.cpp` `BeginPlay`, before the follower wiring: `SetupVisualBody()` — find the named descendant of
+  `Mesh`; if found: `Mesh->SetVisibility(false)` (no propagate), body `AlwaysTickPoseAndRefreshBones`,
+  the two tick prerequisites, set `IKRetargeter` on `VisualBody->GetAnimInstance()`; one log line
+  `[VisualBody] <pawn>: body=<comp>(<mesh>) driver=<mesh>(hidden) retargeter=<asset> face->Body`.
+- `WireModularMeshFollowers_Mover(Root=Mesh, Leader=GetVisualMesh())`: walk `Mesh` descendants, skip
+  `Face` and the leader, wire the rest → `[MoverMesh] … wired 6 … to Body (1 excluded)`.
+- `UpdateGrabMeshAnchor`: measure `GetVisualMesh()->GetSocketTransform(GrabOwnSocket)`, still write `Mesh`.
+- Consumers per the table: equipment component (1 line), `GA_PlayerGrabbed` `HeroMesh`, `GA_MeleeAttack`
+  split `GetAvatarMesh()` (anim) / `GetAvatarStrikeMesh()` (sockets), `AT_MeleeSweep` and
+  `InfectedAnimInstance`: hero → `GetVisualMesh()`, else the existing lookup.
+
+**Content:**
+- `AZ_BP_PawnMoverHero_MHC`: `Mesh.SkeletalMeshAsset → SKM_SurvivalMan_Mesh1` (ABP stays); add `Body`
+  under `Mesh` (asset, `ABP_GenericRetarget_C`, identity, NoCollision + overlap events like `Mesh`);
+  re-parent `Face` and the 6 `Cloth_*` under `Body`; pawn default `BodyRetargeter`. Scripted via
+  `SubobjectDataSubsystem` and verified with the same SCS dump; user compiles + saves. Fallback: by hand.
+- `RTG_SurvivalMan_to_MetaHuman_Aligned`: remove the empty Pin Bone op.
+- `Tools/metahuman_fixup.py` run (body sockets → SurvivalMan values).
+- No CHT / ABP / PoseSearch / Mover changes.
+
+### 7.4 Failure axes (with the instrument that decides each)
+
+1. **Body one frame behind the driver** → rifle/hands jitter at speed. Guard = the prerequisite. Instrument:
+   OnEndFrame `|Body.hand_r − Mesh.hand_r|` must be a **constant** (the ~4.8 cm proportion offset), never dt-shaped.
+2. **Face floats** (still under the driver, or the re-parent lost): head sits on SurvivalMan's neck, 6 cm
+   high. The `[VisualBody]` line prints the Face's attach parent; screenshot.
+3. **Garments deform**: they are SurvivalMan-skinned and today follow a body *stretched to SurvivalMan
+   lengths* (compatible playback copies translations). Path A gives the body its own lengths: same height,
+   spine −5.8 / pelvis −3.6 cm → hoodie/belt compress by that much. Expected acceptable; if not, the one
+   knob is FK `translation_mode` on the Spine chains (`GLOBALLY_SCALED`), in the RTG only.
+4. **Feet**: +0.9 cm idle (measured) vs +3.3 today — an improvement; pelvis offset stays 0 unless PIE says otherwise.
+5. **Sockets**: double-compensated if the fixup is not run; wrong if run without path A. Same step, one owner.
+6. **Stock hero regression**: `VisualBody` null ⇒ every accessor returns `Mesh`; its PIE log must read
+   `[VisualBody] … body=None` and `wired 0`, otherwise identical to today.
+7. **Retarget variable not set** (template ABP var renamed, class swapped) ⇒ body frozen in ref pose. Loud
+   `[VisualBody] anim class X has no 'IKRetargeter' property` and `retargeter=None` in the line.
+8. **Editor preview**: the SCS viewport has no driver tick, so `Body` shows its ref pose there. Cosmetic.
+9. **Order**: C++ (closed editor, CLI) → reopen → BP edits → compile → fixup → PIE. A BP compiled against
+   the old binary has no `BodyRetargeter` slot; a Live-Coding patch cannot add the UPROPERTYs.
+10. **Cost**: +1 skeletal eval (342 bones, FK-only) ≈ 0.2–0.4 ms; the driver is cheaper than the MetaHuman
+    body it replaces as ABP host.
+11. **Physics / ragdoll**: none on this pawn (NoCollision); anything added later targets the visual body.
+12. **Hero-side `FindComponentByClass<USkeletalMeshComponent>`** anywhere else returns an arbitrary one of
+    now-8 SKMs — the two call sites found are redirected; a new one is a bug by construction.
+
+### 7.5 Pass lines (named before PIE)
+
+- `[VisualBody] AZ_BP_PawnMoverHero_MHC_C_0: body=Body(SKM_MHC_Hero_BodyMesh) driver=Mesh(SKM_SurvivalMan_Mesh1, hidden) retargeter=RTG_SurvivalMan_to_MetaHuman_Aligned face->Body`
+- `[MoverMesh] … wired 6 modular follower mesh(es) to Body (1 excluded)`
+- no `[Grab] anchor SKIPPED`, no `[VisualBody]` warnings; stock hero: `body=None` + `wired 0`.
+- Rifle at Aim visually straight on the hand (the §6 numbers say socket 0.0°, palm 4–8°).
+
+### 7.6 Steps
+
+1. RTG: drop the empty Pin Bone op, save. Write the C++ (no build while the editor is open).
+2. User closes the editor → CLI build → user reopens.
+3. SCS edits by script + dump verification → user compiles + saves the pawn BP (CDO default for
+   `BodyRetargeter` set before the compile).
+4. `Tools/metahuman_fixup.py`; verify Aim/Relaxed socket values equal SurvivalMan's.
+5. User PIE (rifle: idle, aim, walk, jump, grab) → logs against §7.5, screenshots.
