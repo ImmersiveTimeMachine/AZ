@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "GameFramework/PlayerController.h"
 #include "Items/AZ_Inv_InventoryItem.h"
 #include "AZ_PlayerController.generated.h"
@@ -59,10 +60,12 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "AZ|Character|Input")
 	void ToggleCommonUI_InventoryMenu();
+	bool IsInventoryInputCaptured() const { return bInventoryInputCaptured; }
 
 	// Add setter methods
 	UFUNCTION()
-	FORCEINLINE void SetActivePickUpActor(AActor* NewActor) { Swap(LastActivePickupActor,ActivePickupActor); ActivePickupActor = NewActor; }
+	void SetActivePickUpActor(AActor* NewActor);
+	void RefreshPickupTarget();
 
 protected:
 
@@ -106,6 +109,12 @@ private:
 
 	/** Native quick-slot input -> QuickBar->Select(index of the firing action). */
 	void OnQuickSlotInput(const FInputActionInstance& Instance);
+	UFUNCTION()
+	void HandleInventoryMenuToggled(bool bOpen);
+	UFUNCTION(Server, Reliable) void Server_SetInventoryInputCaptured(bool bOpen);
+	bool CanUseInventoryInteraction() const;
+	bool bInventoryInputCaptured = false;
+	TSet<FGameplayTag> MenuSuppressedInputTags;
 
 	/** Cross-pawn quick-bar (equip/loadout). Owned by the PC so it survives pawn swaps. */
 	UPROPERTY(VisibleAnywhere, Category = "AZ|QuickBar")

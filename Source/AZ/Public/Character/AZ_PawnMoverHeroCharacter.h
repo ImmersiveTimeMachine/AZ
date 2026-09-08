@@ -424,6 +424,8 @@ public:
 	// next sim tick; the deterministic InputCmd carries it through NetworkPrediction.
 	// ========================================
 	virtual void SetJumpPressed(bool bPressed) override;
+	/** Clear cached movement when local gameplay input is captured by inventory/UI. */
+	void ResetGameplayMovementIntent();
 
 protected:
 

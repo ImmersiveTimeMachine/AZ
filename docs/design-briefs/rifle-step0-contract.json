@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "status": "foundation_review_draft_major_systems_first",
+  "checkpoint_commit": "229f9b9",
+  "scope": {
+    "architecture": "Mover + existing CHT/state machine/BlendStack/MM",
+    "weapon_profile": "Weapon.Rifle",
+    "fists_profile": "Weapon.Fist",
+    "modes": [
+      "ExplorationRifle",
+      "AimingFightRifle"
+    ],
+    "stances": [
+      "Standing",
+      "Crouching"
+    ],
+    "editor_tests": "User permission required before PIE or preview tests; none run for this draft"
+  },
+  "content": {
+    "weapon_actor": "/Game/AZ/Blueprints/Weapon/AZ_BP_Rifle",
+    "weapon_mesh_component": "WeaponMesh3P",
+    "weapon_mesh": "/Game/AZ/Assets/M16/SKL/M16_Skeleton",
+    "weapon_skeleton": "/Game/AZ/Assets/M16/SKL/M16_Skeleton_Skeleton",
+    "character_hero": "/Game/AZ/Blueprints/Character/Hero/MHC/AZ_BP_PawnMoverHero_MHC",
+    "character_anim_blueprint": "/Game/AZ/Blueprints/Animation/MHC/AZ_ABP_MoverHero_MHC",
+    "character_source_family": "/Game/RifleAnimsetPro/Animations",
+    "retargeted_character_set_status": "Exact intended retargets unresolved; sources and separate Rifle_01 retargets verified",
+    "character_inventory_report": "docs/design-briefs/rifle-step0-character-assets.json",
+    "weapon_audit_report": "docs/design-briefs/rifle-step0-weapon-rig-audit.md",
+    "weapon_audit_status": "Claude report integrated; driver/socket/magazine facts rechecked; skin-weight uncertainty resolved by subsequent read-only FBX inspection; visual alignment and animations pending",
+    "magazine_prop_source": "/Game/Assets/M16/mesh/UE4_M16_MagazMod",
+    "weapon_animation_status": "No assigned AnimBP/post-process AnimBP; no matching mechanism animation found by the reported bounded registry audit; authoring required",
+    "mechanical_skin_weights_status": "Verified from read-only render-mesh ASCII FBX export: all10485 vertices have one100percent influence; magazine1546 vertices belong solely to UE4_M16_MagazMod",
+    "skin_weight_evidence": "docs/design-briefs/rifle-step0-skin-weights.json"
+  },
+  "definitions": {
+    "rifle": {
+      "definition_id": {
+        "value": "Rifle.M16.First",
+        "status": "proposed_identifier_not_registered"
+      },
+      "item_type_tag": {
+        "value": "Item.Type.Weapon.Rifle",
+        "status": "existing"
+      },
+      "weapon_profile_tag": {
+        "value": "Weapon.Rifle",
+        "status": "existing"
+      },
+      "actor_class": "/Game/AZ/Blueprints/Weapon/AZ_BP_Rifle.AZ_BP_Rifle_C",
+      "magazine_family_id": {
+        "value": "M16.Standard",
+        "status": "proposed_data_identifier"
+      },
+      "ammo_type_id": {
+        "value": null,
+        "status": "requires_selected_ammunition_definition"
+      },
+      "fire_modes": {
+        "value": [
+          "Single"
+        ],
+        "status": "current_BP_baseline_proposed_initial_mode; auto/burst supported by definition later"
+      },
+      "rounds_per_second": {
+        "value": 10,
+        "status": "existing_demo_value_not_final_tuning"
+      },
+      "inventory_footprint": {
+        "columns": 3,
+        "rows": 2,
+        "status": "existing_demo_footprint_proposed"
+      },
+      "stackable": false,
+      "runtime_fields": [
+        "ItemInstanceId",
+        "DefinitionId",
+        "Location",
+        "InsertedMagazineInstanceId"
+      ],
+      "runtime_ammo_source": "Inserted magazine instance; no independent rifle reserve"
+    },
+    "magazine": {
+      "definition_id": {
+        "value": "Magazine.M16.Standard30",
+        "status": "proposed_identifier_not_registered"
+      },
+      "family_id": "M16.Standard",
+      "capacity": {
+        "value": 30,
+        "status": "proposed_from_existing_rifle_capacity"
+      },
+      "visual_mesh": {
+        "value": "/Game/Assets/M16/mesh/UE4_M16_MagazMod",
+        "status": "existing matching-part candidate, existence verified; exact insertion/hand alignment pending"
+      },
+      "inventory_footprint": {
+        "value": null,
+        "status": "needs_magazine_visual_and_grid_size_review"
+      },
+      "stackable": false,
+      "runtime_fields": [
+        "ItemInstanceId",
+        "DefinitionId",
+        "CurrentRounds",
+        "Location"
+      ],
+      "rounds_range": "integer 0..Capacity",
+      "compatible_if": "family and ammo type satisfy the rifle definition",
+      "visual_identity": "visual prop references the same inventory instance; it is not another item"
+    }
+  },
+  "input_policy": {
+    "LMB": {
+      "action": "Input.Action.PrimaryAttack",
+      "rifle_behavior": "Fire",
+      "exploration_behavior": {
+        "value": "RequireAim",
+        "status": "awaiting_user_choice"
+      }
+    },
+    "RMB": {
+      "action": "Input.Action.SecondaryAttack",
+      "rifle_behavior": "Aim/fight mode",
+      "activation_style": {
+        "value": "Hold",
+        "status": "awaiting_user_choice"
+      }
+    },
+    "R": {
+      "physical_key": "R",
+      "rifle_behavior": "Reload",
+      "fist_behavior": "Heavy strike",
+      "rule": "Only equipped profile responds"
+    },
+    "E": {
+      "behavior": "Shared interact/pickup",
+      "status": "existing mapping, active handler needs integration"
+    },
+    "I": {
+      "behavior": "CommonUI inventory",
+      "status": "existing mapping, dispatch needs integration"
+    },
+    "Q": {
+      "behavior": "Sprint exploration only",
+      "aiming_behavior": "Blocked; entering fight cancels active sprint"
+    },
+    "aim_exit": "Release only aim-owned fight state; exploration resumes if no other action requires fight",
+    "crouch": "Same mode and weapon selection contract, stance-specific animation"
+  },
+  "item_invariants": [
+    "Every rifle and magazine has one stable instance identity",
+    "Each instance has exactly one authoritative location",
+    "An inserted magazine is not simultaneously a backpack spare",
+    "Pickup/drop/switch/reload preserve identity and rounds",
+    "Accepted shots are the only round-consuming operation in this first slice",
+    "Empty magazine and no magazine are distinct",
+    "No magazine commits, ammo deductions or damage writes in the weapon AnimBP",
+    "Spare magazine selection excludes reserved, inaccessible, incompatible or empty magazines"
+  ],
+  "action_envelope": [
+    "ActionId",
+    "WeaponItemId",
+    "ExpectedMagazineItemId",
+    "SelectedMagazineItemId",
+    "Phase",
+    "CommitStatus"
+  ],
+  "beats": [
+    {
+      "label": "DrawAttach",
+      "action": "Equip",
+      "owner": "Equipment action coordinator",
+      "inventory_effect": "None; attach selected rifle representation",
+      "character_requirement": "Hand reaches attachment pose",
+      "weapon_requirement": "Attach rifle without competing transform writers",
+      "time_seconds": null
+    },
+    {
+      "label": "WeaponReady",
+      "action": "Equip",
+      "owner": "Equipment action coordinator",
+      "inventory_effect": "Publish usable active item/profile exactly once",
+      "character_requirement": "Ready boundary reached",
+      "weapon_requirement": "Correct held mechanical pose",
+      "time_seconds": null
+    },
+    {
+      "label": "HolsterAttach",
+      "action": "Unequip",
+      "owner": "Equipment action coordinator",
+      "inventory_effect": "Ownership and inserted magazine retained",
+      "character_requirement": "Rifle reaches carry pose",
+      "weapon_requirement": "Attach carried representation",
+      "time_seconds": null
+    },
+    {
+      "label": "ShotAccepted",
+      "action": "Fire",
+      "owner": "Fire ability / authoritative magazine operation",
+      "inventory_effect": "Debit exactly one round once for ShotId; validate active weapon and magazine",
+      "character_requirement": "Fire/recoil presentation aligned with accepted shot",
+      "weapon_requirement": "Mechanical cycle and muzzle cues for same ShotId",
+      "time_seconds": null
+    },
+    {
+      "label": "MagOut",
+      "action": "Reload",
+      "owner": "Reload action coordinator",
+      "inventory_effect": "No ownership swap yet",
+      "character_requirement": "Old magazine leaves rifle",
+      "weapon_requirement": "Hide built-in mag; present old-mag prop",
+      "time_seconds": null
+    },
+    {
+      "label": "MagStowed",
+      "action": "Reload",
+      "owner": "Reload action coordinator",
+      "inventory_effect": "Old-mag return destination remains reserved",
+      "character_requirement": "Old-mag stow presentation",
+      "weapon_requirement": "Remove old hand prop without destroying its inventory identity",
+      "time_seconds": null
+    },
+    {
+      "label": "MagPresented",
+      "action": "Reload",
+      "owner": "Reload action coordinator",
+      "inventory_effect": "New-mag reservation remains active",
+      "character_requirement": "New-mag prop reaches hand",
+      "weapon_requirement": "Show selected magazine visual",
+      "time_seconds": null
+    },
+    {
+      "label": "MagInCommitted",
+      "action": "Reload",
+      "owner": "Authoritative inventory transaction",
+      "inventory_effect": "Atomic magazine identity/location swap; preserve both round counts; duplicate event ignored",
+      "character_requirement": "New magazine seated",
+      "weapon_requirement": "Show new inserted-mag representation",
+      "time_seconds": null
+    },
+    {
+      "label": "MechanismReady",
+      "action": "Reload",
+      "owner": "Reload action coordinator",
+      "inventory_effect": "None; release firing lock when complete",
+      "character_requirement": "Bolt/charging/ready movement complete if required by chosen clip",
+      "weapon_requirement": "Ready/empty-state mechanics agree with committed magazine",
+      "time_seconds": null
+    },
+    {
+      "label": "ActionEndedOrCancelled",
+      "action": "Any",
+      "owner": "Owning action",
+      "inventory_effect": "Release reservations; before commit retain original state, after commit retain completed state",
+      "character_requirement": "Clear this action's overlays/tasks",
+      "weapon_requirement": "Reset same ActionId presentation coherently",
+      "time_seconds": null
+    }
+  ],
+  "beat_naming_status": "Semantic labels only; final GameplayTag names must be mapped to existing project conventions before registration",
+  "weapon_presentation_contract": {
+    "Muzzle": {
+      "status": "missing; required before firing integration",
+      "parent_frame": "stable receiver/barrel frame; compensator geometry bone is a candidate",
+      "placement": "bore exit with an agreed forward axis; exact transform requires visual validation",
+      "rule": "correct socket transform determines emission location; parent bone name alone does not"
+    },
+    "CasingEject": {
+      "status": "missing; cosmetic feature",
+      "parent_frame": "stable frame at ejection port; do not infer the moving part's role from the name ejector alone",
+      "placement": "requires visual placement and ejection-direction review"
+    },
+    "Magwell": {
+      "status": "missing; needed for detachable presentation",
+      "parent_frame": "stable visible receiver frame, e.g. weapon hand_r or verified static receiver geometry bone",
+      "rule": "independent of the removable/hidden magazine subtree; magazine insertion offset accounts for the prop pivot"
+    },
+    "GripLeft": {
+      "status": "existing",
+      "socket_names": [
+        "LeftHandGrip",
+        "LeftHandGripAim"
+      ],
+      "alignment": "pending character/weapon visual check"
+    },
+    "magazine_visibility": "No duplicate built-in/prop representation of the same magazine; different magazine instances may be visible simultaneously",
+    "built_in_magazine_hiding": "Chosen structural method: HideBoneByName(UE4_M16_MagazMod,PBO_None); isolated 100percent influences verified from exported LOD0. Keep the separate Magwell prop attachment outside the hidden subtree. Runtime visual verification remains pending.",
+    "mechanism_motion": "Author only verified moving parts for each action; do not automatically cycle every mechanism bone on every shot",
+    "action_end_pose": "Restore the committed magazine and selected mechanism/fire-mode presentation, rather than resetting all parts blindly to reference pose"
+  },
+  "reload_policy": {
+    "selection": "Fullest eligible compatible spare, stable identity tie-break",
+    "full_inserted_magazine": "Ordinary automatic reload is no-op",
+    "no_inserted_magazine": "Can load a compatible spare; no old-mag return space needed",
+    "retention": "Keep partial and empty old magazines",
+    "storage_failure": "Reject before playback; never silently drop old magazine",
+    "commit": "Magazine insertion beat, once per ActionId",
+    "cancel_before_commit": "Original item locations and rounds retained; restore visuals",
+    "cancel_after_commit": "Completed swap retained; release remaining locks",
+    "stance_change": "Proposed cancellation through same pre/post-commit rules until stance transitions during reload are validated",
+    "chamber_plus_one": "Deferred proposal; no separate chamber model in first slice"
+  },
+  "implementation_priority": {
+    "user_decision": "Major gameplay systems first; use existing rifle skeletal mesh as-is initially",
+    "first_milestone": [
+      "Rifle and detachable-magazine item identities/state",
+      "I/E CommonUI inventory and pickup connection",
+      "One equipment owner for inventory and QuickBar",
+      "Basic rifle hand/back attachment and fist/rifle selection",
+      "State-preserving drop and re-pick"
+    ],
+    "deferred_presentation": [
+      "Weapon mechanism AnimBP/clips",
+      "Detailed detachable-magazine handoffs",
+      "Final visual socket/pose tuning"
+    ],
+    "required_when_feature_starts": {
+      "firing": "Valid muzzle and shot-obstruction geometry",
+      "rifle_aim_and_locomotion": "Compatible character content and mode/input policy",
+      "reload": "One authoritative commit and cancellation semantics"
+    },
+    "first_milestone_blocked_by_cosmetic_audit": false
+  },
+  "future_feature_requirements": [
+    "User LMB exploration policy",
+    "User RMB hold/toggle policy",
+    "Exact target retargeted character set",
+    "Magazine visual alignment, footprint and ammo type",
+    "Weapon socket placement and mechanical clip authoring specification",
+    "Visual mapping of semantic beats to selected character/weapon clips"
+  ]
+}

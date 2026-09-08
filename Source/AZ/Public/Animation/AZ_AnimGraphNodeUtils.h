@@ -4,6 +4,8 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AZ_AnimGraphNodeUtils.generated.h"
 
+class UBlendSpace;
+
 /**
  * Utility for creating AnimGraph nodes programmatically.
  * Creates BlendStack, TwoWayBlend, Inertialization, OffsetRootBone, PoseHistory
@@ -16,9 +18,19 @@ class AZ_API UAZ_AnimGraphNodeUtils : public UBlueprintFunctionLibrary
 
 public:
 
+	/** Validate samples and rebuild interpolation after scripted BlendSpace asset edits. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Animation|Authoring")
+	static bool RebuildBlendSpace(UBlendSpace* BlendSpace);
+
 	// ========================================
 	// NODE CREATION
 	// ========================================
+
+	/** Add a typed node to the main AnimGraph, using its reflected class path. Returns the GUID.
+	 *  Configure properties and bindings before compiling through the editor's compile command. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|AnimGraph")
+	static FString AddAnimGraphNode(const FString& BlueprintPath, const FString& NodeClassPath,
+		int32 PosX = 0, int32 PosY = 0);
 
 	/** Add a BlendStack node to the AnimGraph. Returns node GUID. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|AnimGraph")
@@ -136,8 +148,8 @@ public:
 	static bool SetAnimNodeProperty(const FString& BlueprintPath, const FString& NodeGUID,
 		const FString& PropertyName, const FString& Value, const FString& BlendStackNodeGUID = TEXT(""));
 
-	/** Flip bShowPin on a PinHiddenByDefault optional pin (main graph or BlendStack inner graph).
-	 *  The pin materializes on the next in-editor ABP compile — wire to it in a second pass. */
+	/** Expose a scalar optional input pin (main graph or BlendStack inner graph) without reconstruction.
+	 *  Materializes missing pins immediately; compile the AnimBP after wiring. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|AnimGraph")
 	static bool ExposeAnimNodePin(const FString& BlueprintPath, const FString& NodeGUID,
 		const FString& PropertyName, const FString& BlendStackNodeGUID = TEXT(""));

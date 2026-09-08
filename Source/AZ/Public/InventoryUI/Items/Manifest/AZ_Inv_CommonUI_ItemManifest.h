@@ -23,8 +23,13 @@ struct AZ_API FAZ_Inv_CommonUI_ItemManifest
 	UAZ_Inv_CommonUI_InventoryItem* Manifest(UObject* NewOuter);
 	EInv_ItemCategory GetItemCategory() const {return ItemCategory;}
 	FGameplayTag GetItemTypeTag() const { return ItemTypeTag; }
+	void SetItemCategory(EInv_ItemCategory Category) { ItemCategory = Category; }
+	void SetItemTypeTag(FGameplayTag Tag) { ItemTypeTag = Tag; }
+	void SetPickupActorClass(TSubclassOf<AActor> ActorClass) { PickupActorClass = ActorClass; }
+	TSubclassOf<AActor> GetPickupActorClass() const { return PickupActorClass; }
+	bool IsStackable() const;
 	void AssimilateInventoryFragments(UAZ_Inv_CommonUI_CompositeBaseWidget* Composite) const;
-	void SpawnPickupActor(const UObject* WorldContextObject, const FVector& SpawnLocation, const FRotator& SpawnRotation);
+	AActor* SpawnPickupActor(const UObject* WorldContextObject, const FVector& SpawnLocation, const FRotator& SpawnRotation) const;
 
 	template <DerivedFromCommonUIItemFragment T>
 	const T* GetFragmentOfTypeByTag(const FGameplayTag& Tag) const;
@@ -121,4 +126,3 @@ TArray<const T*> FAZ_Inv_CommonUI_ItemManifest::GetAllFragmentsOfType() const
 	}
 	return Result;
 }
-

@@ -33,6 +33,7 @@ template<class UserClass, typename PressedFuncType, typename ReleasedFuncType, t
 			if (ReleasedFunc)
 			{
 				BindAction(InputAction, ETriggerEvent::Completed, Object, ReleasedFunc, InputTag);
+				BindAction(InputAction, ETriggerEvent::Canceled, Object, ReleasedFunc, InputTag);
 			}
 			
 			if (HeldFunc)

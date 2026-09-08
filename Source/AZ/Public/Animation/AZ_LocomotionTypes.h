@@ -65,6 +65,20 @@ enum class EAZ_MovementDirection : uint8
 	RR	= 5		// Right side, Right foot leading
 };
 
+/** Direction-only sectors for an authored eight-way locomotion vocabulary. */
+UENUM(BlueprintType)
+enum class EAZ_EightWayDirection : uint8
+{
+	F  = 0,
+	FR = 1,
+	R  = 2,
+	BR = 3,
+	B  = 4,
+	BL = 5,
+	L  = 6,
+	FL = 7
+};
+
 /** Bias for resolving ambiguous diagonal directions. */
 UENUM(BlueprintType)
 enum class EAZ_MovementDirectionBias : uint8
@@ -741,6 +755,10 @@ struct AZ_API FAZ_v2_ChooserContext
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
 
+	/** Eight-way projection of the same travel reference; retained without move intent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	EAZ_EightWayDirection MovementDirection8 = EAZ_EightWayDirection::F;
+
 	/** Which foot is planted this frame (from the playing clip's contact_l curve > 0.5).
 	 *  Used as a BoolColumn filter on stop/start/pivot rows to pick the correct-foot variant —
 	 *  MM refines the entry frame within the chosen-foot bucket but does not pick the foot.
@@ -785,6 +803,10 @@ struct AZ_API FAZ_v2_ChooserContext
 	 *  BoolColumn gate on the strafe rows. Replicated loose tag -> present on all roles. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
 	bool bStrafe = false;
+
+	/** Read-only projection of Ability.State.Aiming, refreshed with the owned-tag snapshot. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|V2|Chooser")
+	bool bIsAiming = false;
 
 	/** The obstacle reaction chosen by UAZ_ObstacleSensorComponent this frame (None = normal locomotion). One
 	 *  enum replaces the old bWallImpact/bBlocked bools — drives the obstacle-reaction chooser rows via an

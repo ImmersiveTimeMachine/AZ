@@ -4,6 +4,7 @@
 #include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
 
 #include "InventoryOld/Components/AZ_Inv_InventoryComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
 
 
@@ -11,7 +12,11 @@ void UAZ_InventoryHudWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
 
-	if (UAZ_Inv_InventoryComponent* InventoryComponent = UAZ_Inv_InventoryStatics::GetInventoryComponent(GetOwningPlayer()))
+	if (UAZ_Inv_CommonUI_InventoryComponent* CommonInventory = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer()))
+	{
+		CommonInventory->OnNoRoomInInventory.AddDynamic(this, &ThisClass::OnNoRoom);
+	}
+	else if (UAZ_Inv_InventoryComponent* InventoryComponent = UAZ_Inv_InventoryStatics::GetInventoryComponent(GetOwningPlayer()))
 	{
 		InventoryComponent->OnNoRoomInInventory.AddDynamic(this, &ThisClass::OnNoRoom);
 	}

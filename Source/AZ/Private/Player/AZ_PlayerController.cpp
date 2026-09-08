@@ -11,6 +11,7 @@
 #include "AbilitySystemInterface.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Equipment/AZ_EquipmentManagerComponent.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "Input/AZ_EnhancedInputComponent.h"
 #include "InputMappingContext.h"
 #include "Engine/LocalPlayer.h"
@@ -21,6 +22,8 @@
 #include "Items/AZ_Inv_ItemComponent.h"
 #include "Inventory/AZ_QuickBarComponent.h"
 #include "InputAction.h"
+#include "AZ_GameplayTags.h"
+#include "Input/AZ_InputConfig.h"
 
 
 AAZ_PlayerController::AAZ_PlayerController()
@@ -35,7 +38,10 @@ void AAZ_PlayerController::BeginPlay()
 
 	InventoryComponent = FindComponentByClass<UAZ_Inv_InventoryComponent>();
 	CommonUI_InventoryComponent = FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>();
-	//ensure(InventoryComponent.IsValid());
+	if (CommonUI_InventoryComponent.IsValid())
+	{
+		CommonUI_InventoryComponent->OnInventoryMenuToggled.AddDynamic(this, &ThisClass::HandleInventoryMenuToggled);
+	}
 
 	CreateHUDWidget();
 
@@ -85,6 +91,10 @@ void AAZ_PlayerController::SetupInputComponent()
 	// GAS ability input, menu/HUD shortcuts.
 	checkf(InputConfig, TEXT("InputConfig is null in AAZ_PlayerController::SetupInputComponent"));
 	AZ_InputComponent->BindAbilityActions(InputConfig, this, &ThisClass::AbilityInputTagPressed, &ThisClass::AbilityInputTagReleased, &ThisClass::AbilityInputTagHeld);
+	if (OpenInventoryAction)
+	{
+		AZ_InputComponent->BindAction(OpenInventoryAction, ETriggerEvent::Started, this, &ThisClass::ToggleCommonUI_InventoryMenu);
+	}
 
 	// Native (non-ability) quick-slot/equip inputs -> QuickBar->Select. Same component,
 	// different lane than BindAbilityActions (which only ACTIVATES GAS abilities).
@@ -99,7 +109,7 @@ void AAZ_PlayerController::SetupInputComponent()
 
 void AAZ_PlayerController::OnQuickSlotInput(const FInputActionInstance& Instance)
 {
-	if (!QuickBar)
+	if (!QuickBar || bInventoryInputCaptured)
 	{
 		return;
 	}
@@ -114,6 +124,7 @@ void AAZ_PlayerController::OnQuickSlotInput(const FInputActionInstance& Instance
 void AAZ_PlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (IsLocalController()) RefreshPickupTarget();
 }
 
 void AAZ_PlayerController::ToggleInventoryMenu()
@@ -128,6 +139,7 @@ void AAZ_PlayerController::ToggleCommonUI_InventoryMenu()
 {
 	if (!CommonUI_InventoryComponent.IsValid())
 		return;
+	if (!bInventoryInputCaptured && !CanUseInventoryInteraction()) return;
 	
 	CommonUI_InventoryComponent->ToggleInventoryMenu();
 }
@@ -218,7 +230,8 @@ void AAZ_PlayerController::RemovePawnInputMappingContext(APawn* InPawn)
 
 void AAZ_PlayerController::HandlePickupPromptToggled(bool bVisible)
 {
-	if (IsValid(HUDWidget) && bVisible)
+	if (!IsValid(HUDWidget)) return;
+	if (bVisible && !bInventoryInputCaptured)
 	{
 		HUDWidget->ShowPickupMessage(PickupMessage);
 	}
@@ -230,26 +243,36 @@ void AAZ_PlayerController::HandlePickupPromptToggled(bool bVisible)
 
 void AAZ_PlayerController::PrimaryInteract()
 {
+	if (bInventoryInputCaptured || !CanUseInventoryInteraction() || !CommonUI_InventoryComponent.IsValid()) return;
+	RefreshPickupTarget();
 	if (!ActivePickupActor.IsValid()) return;
-	
-	/*UAZ_Inv_ItemComponent* ItemComponent = ActivePickupActor->FindComponentByClass<UAZ_Inv_ItemComponent>();
-	InventoryComponent->TryAddItem(ItemComponent);*/
-	
-	auto ItemComponent = ActivePickupActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>();
-	CommonUI_InventoryComponent->TryAddItem(ItemComponent);
- }
+	if (UAZ_Inv_CommonUI_ItemComponent* ItemComponent = ActivePickupActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>())
+	{
+		CommonUI_InventoryComponent->TryAddItem(ItemComponent);
+	}
+}
 
 void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 {
+	if (bInventoryInputCaptured)
+	{
+		MenuSuppressedInputTags.Add(InputTag);
+		return;
+	}
+	MenuSuppressedInputTags.Remove(InputTag); // a fresh press also clears a release consumed by CommonUI
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagPressed(InputTag);
+		// Aim is a hold with a fresh-press activation edge, never an auto-retry.
+		if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim) Asc->AbilityInputTagHeld(InputTag, false);
 	}
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact) PrimaryInteract();
 	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagPressed: %s"), *InputTag.ToString());
 }
 
 void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 {
+	MenuSuppressedInputTags.Remove(InputTag);
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagReleased(InputTag);
@@ -259,6 +282,13 @@ void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 
 void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 {
+	if (bInventoryInputCaptured)
+	{
+		MenuSuppressedInputTags.Add(InputTag);
+		return;
+	}
+	if (MenuSuppressedInputTags.Contains(InputTag)) return;
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim) return;
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagHeld(InputTag);
@@ -281,4 +311,94 @@ void AAZ_PlayerController::CreateHUDWidget()
 	{
 		UE_LOG(Log_AZ, Warning, TEXT("CreateHUDWidget: Failed to create HUD Widget"));
 	}
+}
+
+bool AAZ_PlayerController::CanUseInventoryInteraction() const
+{
+	if (!GetPawn()) return false;
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		const FAZ_GameplayTags& GameplayTags = FAZ_GameplayTags::Get();
+		if (ASC->HasMatchingGameplayTag(GameplayTags.State_Grabbed) || ASC->HasMatchingGameplayTag(GameplayTags.Character_Dead)) return false;
+		if (ASC->HasMatchingGameplayTag(GameplayTags.Ability_State_MeleeAttacking)
+			&& !ASC->HasMatchingGameplayTag(GameplayTags.State_Combat_CancelWindow)) return false;
+	}
+	return true;
+}
+
+void AAZ_PlayerController::HandleInventoryMenuToggled(bool bOpen)
+{
+	if (bInventoryInputCaptured == bOpen) return;
+	bInventoryInputCaptured = bOpen;
+	if (!HasAuthority()) Server_SetInventoryInputCaptured(bOpen);
+	SetIgnoreMoveInput(bOpen);
+	SetIgnoreLookInput(bOpen);
+	if (AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetPawn()))
+	{
+		Hero->ResetGameplayMovementIntent();
+	}
+	if (bOpen)
+	{
+		if (UAZ_Inv_CommonUI_EquipmentComponent* Equipment = FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>()) Equipment->CancelActiveAim();
+		if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
+		{
+			const FAZ_GameplayTags& GameplayTags = FAZ_GameplayTags::Get();
+			FGameplayTagContainer WeaponInputs;
+			WeaponInputs.AddTag(GameplayTags.Input_Action_PrimaryAttack);
+			WeaponInputs.AddTag(GameplayTags.Input_Action_SecondaryAttack);
+			WeaponInputs.AddTag(GameplayTags.Input_Action_MeleeAttack);
+			WeaponInputs.AddTag(GameplayTags.Input_Action_Aim);
+			ASC->ClearWeaponInput(WeaponInputs);
+			if (ASC->HasMatchingGameplayTag(GameplayTags.State_Combat_CancelWindow))
+			{
+				const FGameplayTagContainer MeleeTags(GameplayTags.Ability_Combat_Melee);
+				ASC->CancelAbilities(&MeleeTags);
+			}
+		}
+	}
+	HandlePickupPromptToggled(!bOpen && ActivePickupActor.IsValid());
+}
+
+void AAZ_PlayerController::Server_SetInventoryInputCaptured_Implementation(bool bOpen)
+{
+	bInventoryInputCaptured = bOpen;
+	if (bOpen)
+	{
+		if (UAZ_Inv_CommonUI_EquipmentComponent* Equipment = FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>()) Equipment->CancelActiveAim();
+	}
+}
+
+void AAZ_PlayerController::SetActivePickUpActor(AActor* NewActor)
+{
+	if (ActivePickupActor.Get() == NewActor) return;
+	LastActivePickupActor = ActivePickupActor;
+	ActivePickupActor = NewActor;
+	if (const UAZ_Inv_CommonUI_ItemComponent* Item = NewActor ? NewActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>() : nullptr)
+	{
+		PickupMessage = Item->GetPickupMessage().IsEmpty() ? TEXT("Press E to pick up") : Item->GetPickupMessage();
+	}
+	HandlePickupPromptToggled(IsValid(NewActor));
+}
+
+void AAZ_PlayerController::RefreshPickupTarget()
+{
+	if (!IsLocalController() || bInventoryInputCaptured) return;
+	APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn) { SetActivePickUpActor(nullptr); return; }
+	TArray<AActor*> Overlapping;
+	ControlledPawn->GetOverlappingActors(Overlapping);
+	AActor* Closest = nullptr;
+	double ClosestDistance = TNumericLimits<double>::Max();
+	for (AActor* Candidate : Overlapping)
+	{
+		if (!IsValid(Candidate) || Candidate->IsActorBeingDestroyed()
+			|| !Candidate->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>()) continue;
+		const double Distance = FVector::DistSquared(ControlledPawn->GetActorLocation(), Candidate->GetActorLocation());
+		if (Distance < ClosestDistance)
+		{
+			Closest = Candidate;
+			ClosestDistance = Distance;
+		}
+	}
+	SetActivePickUpActor(Closest);
 }

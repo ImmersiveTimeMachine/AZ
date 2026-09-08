@@ -189,7 +189,7 @@ void FAZ_Inv_CommonUI_DamageModifier::OnUnequip(APlayerController* PC)
 
 void FAZ_Inv_CommonUI_WeaponStateFragment::ApplyToASC(UAbilitySystemComponent* ASC) const
 {
-	if (!ASC) return;
+	if (!ASC || bUsesDetachableMagazines) return;
 
 	const UAZ_WeaponAttributeSet* WeaponAS = ASC->GetSet<UAZ_WeaponAttributeSet>();
 	if (!WeaponAS) return;
@@ -220,7 +220,7 @@ void FAZ_Inv_CommonUI_WeaponStateFragment::ApplyToASC(UAbilitySystemComponent* A
 
 void FAZ_Inv_CommonUI_WeaponStateFragment::SaveFromASC(UAbilitySystemComponent* ASC)
 {
-	if (!ASC) return;
+	if (!ASC || bUsesDetachableMagazines) return;
 
 	const UAZ_WeaponAttributeSet* WeaponAS = ASC->GetSet<UAZ_WeaponAttributeSet>();
 	if (!WeaponAS) return;

@@ -47,6 +47,8 @@ struct FAZ_Inv_CommonUI_InventoryFastArray : public FFastArraySerializer
 	// FFastArraySerializer contract
 	void PreReplicatedRemove(const TArrayView<int32> RemovedIndices, int32 FinalSize);
 	void PostReplicatedAdd(const TArrayView<int32> AddedIndices, int32 FinalSize);
+	void PostReplicatedChange(const TArrayView<int32> ChangedIndices, int32 FinalSize);
+	void PostReplicatedReceive(const FFastArraySerializer::FPostReplicatedReceiveParameters& Parameters);
 	// End FFastArraySerializer contract
 
 	bool NetDeltaSerialize(FNetDeltaSerializeInfo& DeltaParams)
@@ -54,7 +56,6 @@ struct FAZ_Inv_CommonUI_InventoryFastArray : public FFastArraySerializer
 		return FastArrayDeltaSerialize<FAZ_Inv_CommonUI_InventoryEntry,FAZ_Inv_CommonUI_InventoryFastArray>(Entries, DeltaParams, *this);
 	}
 
-	UAZ_Inv_CommonUI_InventoryItem* CreateInventoryEntryFromItemComponent(UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
 	UAZ_Inv_CommonUI_InventoryItem* AddInventoryItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void RemoveInventoryItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 	UAZ_Inv_CommonUI_InventoryItem* FindFirstItemByTypeTag(const FGameplayTag& ItemTypeTag);

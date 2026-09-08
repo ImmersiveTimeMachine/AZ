@@ -183,7 +183,8 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 	// desired facing direction. Strafe (combat-ready) overrides it with a tight aim-lock.
 	const FAZ_MoverCustomInputs* FacingInputs =
 		StartState.InputCmd.InputCollection.FindDataByType<FAZ_MoverCustomInputs>();
-	const bool bStrafeFacing = FacingInputs && FacingInputs->RotationMode == EAZ_RotationMode::Strafe;
+	const bool bStrafeFacing = FacingInputs && (FacingInputs->RotationMode == EAZ_RotationMode::Strafe
+		|| FacingInputs->RotationMode == EAZ_RotationMode::Aiming);
 
 	if (bStrafeFacing)
 	{

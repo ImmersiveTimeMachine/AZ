@@ -6,6 +6,8 @@
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
 
@@ -70,6 +72,21 @@ void UAZ_Inv_CommonUI_SlottedItem::UpdateStackCount(int32 InStackCount)
 	if (!Text_StackCount)
 	{
 		return;
+	}
+	if (InventoryItem.IsValid())
+	{
+		const auto* Weapon = InventoryItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
+		if (InventoryItem->IsMagazine() || (Weapon && Weapon->bUsesDetachableMagazines))
+		{
+			const UAZ_Inv_CommonUI_InventoryComponent* Inventory = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer());
+			const UAZ_Inv_CommonUI_InventoryItem* Magazine = InventoryItem->IsMagazine() ? InventoryItem.Get()
+				: (Inventory ? Inventory->FindItemById(InventoryItem->GetInsertedMagazineId()) : nullptr);
+			Text_StackCount->SetText(IsValid(Magazine)
+				? FText::Format(NSLOCTEXT("AZ_Inventory", "MagazineCountBadge", "{0}/{1}"), FText::AsNumber(Magazine->GetMagazineRounds()), FText::AsNumber(Magazine->GetMagazineCapacity()))
+				: NSLOCTEXT("AZ_Inventory", "NoMagazineBadge", "NO MAG"));
+			Text_StackCount->SetVisibility(ESlateVisibility::HitTestInvisible);
+			return;
+		}
 	}
 
 	if (InStackCount > 0)

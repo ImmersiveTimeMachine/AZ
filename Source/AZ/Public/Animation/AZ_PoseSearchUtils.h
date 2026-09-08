@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static bool SetSamplingRangeOnEntry(UPoseSearchDatabase* Database, int32 EntryIndex, float MinTime, float MaxTime);
 
+	/** Configure continuity on every entry in an authored loop database. Does not change membership. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
+	static int32 SetDisableReselectionOnDatabase(UPoseSearchDatabase* Database, bool bDisableReselection = true);
+
 	/** Remove animation at a specific index from a PoseSearch database. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|PoseSearch")
 	static void RemoveAnimationAtIndex(UPoseSearchDatabase* Database, int32 Index);

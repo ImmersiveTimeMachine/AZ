@@ -1,6 +1,5 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryGrid.h"
 
 #include "AZ_GameplayTags.h"
@@ -41,13 +40,59 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeConstruct()
 	);
 
 	SetupGridContainer();
-	ConstructGrid();
-
 	CommonUI_InventoryComponent = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer());
-	ensure(CommonUI_InventoryComponent.IsValid());
+	if (CommonUI_InventoryComponent.IsValid())
+	{
+		GridSize = FVector2D(CommonUI_InventoryComponent->GetGridDimensions(ItemCategory));
+		CommonUI_InventoryComponent->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::RefreshFromInventory);
+	}
+	ConstructGrid();
+	RefreshFromInventory();
+}
 
-	CommonUI_InventoryComponent->OnItemAdded.AddDynamic(this, &ThisClass::AddItem);
-	CommonUI_InventoryComponent->OnStackChange.AddDynamic(this, &ThisClass::AddStacks);
+void UAZ_Inv_CommonUI_InventoryGrid::NativeDestruct()
+{
+	OnHide();
+	if (CommonUI_InventoryComponent.IsValid())
+	{
+		CommonUI_InventoryComponent->OnInventoryChanged.RemoveDynamic(this, &ThisClass::RefreshFromInventory);
+	}
+	CommonUI_InventoryComponent.Reset();
+	Super::NativeDestruct();
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::RefreshFromInventory()
+{
+	if (!CommonUI_InventoryComponent.IsValid() || GridSlots.IsEmpty()) return;
+
+	// Dragging is a presentation preview; committed inventory changes cancel stale previews.
+	DestroyItemPopUp();
+	ClearHoverItem();
+	LastHoveredGridIndex = INDEX_NONE;
+	ItemDropIndex = INDEX_NONE;
+	CurrentQueryResult = FAZ_Inv_CommonUI_SpaceQueryResult();
+	for (const auto& Pair : SlottedItems)
+	{
+		if (IsValid(Pair.Value)) Pair.Value->RemoveFromParent();
+	}
+	SlottedItems.Reset();
+	for (UAZ_Inv_CommonUI_GridSlot* GridSlot : GridSlots)
+	{
+		if (!IsValid(GridSlot)) continue;
+		GridSlot->SetInventoryItem(nullptr);
+		GridSlot->SetUpperLeftIndex(INDEX_NONE);
+		GridSlot->SetState(EInv_CommonUI_GridSlotState::Unoccupied);
+		GridSlot->SetUnoccupiedTexture();
+		GridSlot->SetAvailable(true);
+		GridSlot->SetStackCount(0);
+	}
+	for (const auto& Placement : CommonUI_InventoryComponent->GetPlacements())
+	{
+		UAZ_Inv_CommonUI_InventoryItem* Item = CommonUI_InventoryComponent->FindItemById(Placement.ItemId);
+		if (!MatchesCategory(Item) || !IsInGridBounds(Placement.GridIndex, GetItemDimensions(Item->GetItemManifest()))) continue;
+		AddItemAtIndex(Item, Placement.GridIndex, Item->IsStackable(), Item->IsStackable() ? Placement.StackCount : 0);
+		UpdateGridSlots(Item, Placement.GridIndex, Item->IsStackable(), Placement.StackCount);
+	}
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::NativePreConstruct()
@@ -108,20 +153,22 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeTick(const FGeometry& MyGeometry, flo
 
 bool UAZ_Inv_CommonUI_InventoryGrid::MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const
 {
-	return Item->GetItemManifest().GetItemCategory() == ItemCategory;
+	return IsValid(Item) && Item->GetItemManifest().GetItemCategory() == ItemCategory;
 }
-
 
 // Public
 FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomForItem(const UAZ_Inv_CommonUI_ItemComponent* ItemComponent)
 {
-	return HasRoomForItem(ItemComponent->GetItemManifest());
+	return IsValid(ItemComponent) && CommonUI_InventoryComponent.IsValid()
+		? CommonUI_InventoryComponent->GetRoomForItem(ItemComponent->GetItemManifest())
+		: FAZ_Inv_CommonUI_SlotAvailabilityResult();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex,
                                                      const int32 PreviousGridIndex)
 {
 	AssignHoverItem(InventoryItem);
+	if (!IsValid(HoverItem) || !GridSlots.IsValidIndex(GridIndex)) return;
 
 	HoverItem->SetPreviousGridIndex(PreviousGridIndex);
 	HoverItem->UpdateStackCount(InventoryItem->IsStackable()
@@ -131,16 +178,22 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 
 void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem)
 {
+	if (!IsValid(InventoryItem) || !HoverItemClass || !IsValid(GetOwningPlayer())) return;
 	if (!IsValid(HoverItem))
 	{
 		HoverItem = CreateWidget<UAZ_Inv_CommonUI_HoverItem>(GetOwningPlayer(), HoverItemClass);
 	}
+	if (!IsValid(HoverItem)) return;
 
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(InventoryItem, Tags.Item_Fragment_Grid);
 	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(InventoryItem, Tags.Item_Fragment_Icon);
 
-	if (!GridFragment || !ImageFragment) return;
+	if (!GridFragment || !ImageFragment)
+	{
+		ClearHoverItem();
+		return;
+	}
 
 	const FVector2D DrawSize = GetDrawSize(GridFragment);
 
@@ -155,169 +208,6 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 	HoverItem->SetIsStackable(InventoryItem->IsStackable());
 
 	GetOwningPlayer()->SetMouseCursorWidget(EMouseCursor::Default, HoverItem);
-}
-
-FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomForItem(const UAZ_Inv_CommonUI_InventoryItem* Item,
-                                                                                       const int32 StackAmountOverride)
-{
-	return HasRoomForItem(Item->GetItemManifest(), StackAmountOverride);
-}
-
-FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventoryGrid::HasRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest,
-                                                                                       const int32 StackAmountOverride)
-{
-	FAZ_Inv_CommonUI_SlotAvailabilityResult Result;
-
-	// Determine if the item is stackable.
-	const auto* StackableFragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();
-	Result.bIsStackable = StackableFragment != nullptr;
-
-	// Determine how many stacks to add.
-	const int32 MaxStackSize = StackableFragment
-		? StackableFragment->GetMaxStackSize()
-		: 1;
-	int32 AmountToFill = StackableFragment
-		? StackableFragment->GetStackCount()
-		: 1;
-	if (StackAmountOverride != -1 && Result.bIsStackable)
-	{
-		AmountToFill = StackAmountOverride;
-	}
-
-	TSet<int32> CheckedIndices;
-
-	for (const auto GridSlot : GetAllGridSlots())
-	{
-		// If we don't have anymore to fill, break out of the loop early.
-		if (AmountToFill == 0) break;
-
-		// Is this index claimed yet?
-		if (IsIndexClaimed(CheckedIndices, GridSlot->GetIndex())) continue;
-
-		// Is the item in grid bounds?
-		if (!IsInGridBounds(GridSlot->GetIndex(), GetItemDimensions(Manifest))) continue;
-
-		// Can the item fit here? (i.e. is it out of grid bounds?)
-		TSet<int32> TentativelyClaimed;
-		if (!HasRoomAtIndex(GridSlot, GetItemDimensions(Manifest), CheckedIndices, TentativelyClaimed, Manifest.GetItemTypeTag(), MaxStackSize))
-		{
-			continue;
-		}
-
-		// How much to fill?
-		const int32 AmountToFillInSlot = DetermineFillAmountForSlot(Result.bIsStackable, MaxStackSize, AmountToFill, GridSlot);
-		if (AmountToFillInSlot == 0) continue;
-
-		CheckedIndices.Append(TentativelyClaimed);
-
-		// Update the amount left to fill
-		Result.TotalRoomToFill += AmountToFillInSlot;
-		Result.AvailableSlots.Emplace(
-			FInv_SlotAvailability{
-				GridSlot->GetInventoryItem().IsValid()
-				? GridSlot->GetUpperLeftIndex()
-				: GridSlot->GetIndex(),
-				Result.bIsStackable
-				? AmountToFillInSlot
-				: 0,
-				GridSlot->GetInventoryItem().IsValid()
-			}
-		);
-
-		AmountToFill -= AmountToFillInSlot;
-
-		// How much is the Remainder?
-		Result.RemainingRooms = AmountToFill;
-
-		if (AmountToFill == 0) return Result;
-	}
-
-	return Result;
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::HasRoomAtIndex(const UAZ_Inv_CommonUI_GridSlot* GridSlot,
-                                                    const FIntPoint& Dimensions,
-                                                    const TSet<int32>& CheckedIndices,
-                                                    TSet<int32>& OutTentativelyClaimed,
-                                                    const FGameplayTag& ItemTypeTag,
-                                                    const int32 MaxStackSize) const
-{
-	if (!GridSlot) return false;
-
-	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
-	const int32 RowCount = FMath::TruncToInt(GridSize.Y);
-
-	bool bHasRoomAtIndex = true;
-
-	for (int32 Y = 0; Y < Dimensions.Y && bHasRoomAtIndex; ++Y)
-	{
-		for (int32 X = 0; X < Dimensions.X && bHasRoomAtIndex; ++X)
-		{
-			const int32 Index = GridSlot->GetIndex() + X + Y * ColumnCount;
-
-			// Bounds check
-			if (Index < 0 || Index >= ColumnCount * RowCount)
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			// Already claimed elsewhere?
-			if (CheckedIndices.Contains(Index))
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			const UAZ_Inv_CommonUI_GridSlot* CandidateSlot = SlotsByIndex.IsValidIndex(Index)
-				? SlotsByIndex[Index]
-				: nullptr;
-			if (!CandidateSlot)
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			// Empty slot – tentatively claim it
-			if (!CandidateSlot->GetInventoryItem().IsValid())
-			{
-				OutTentativelyClaimed.Add(CandidateSlot->GetIndex());
-				continue;
-			}
-
-			// Must belong to the same upper-left anchor
-			if (CandidateSlot->GetUpperLeftIndex() != GridSlot->GetIndex())
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			const UAZ_Inv_CommonUI_InventoryItem* SubItem = CandidateSlot->GetInventoryItem().Get();
-			if (!SubItem || !SubItem->IsStackable())
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			// Type must match the incoming item
-			if (!SubItem->GetItemManifest().GetItemTypeTag().MatchesTagExact(ItemTypeTag))
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			// Must have stack room
-			if (CandidateSlot->GetStackCount() >= MaxStackSize)
-			{
-				bHasRoomAtIndex = false;
-				break;
-			}
-
-			OutTentativelyClaimed.Add(Index);
-		}
-	}
-
-	return bHasRoomAtIndex;
 }
 
 FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const
@@ -419,12 +309,6 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 	return SlottedItem;
 }
 
-
-bool UAZ_Inv_CommonUI_InventoryGrid::IsIndexClaimed(const TSet<int32>& CheckedIndices, const int32 Index) const
-{
-	return CheckedIndices.Contains(Index);
-}
-
 bool UAZ_Inv_CommonUI_InventoryGrid::IsInGridBounds(const int32 StartIndex, const FIntPoint& ItemDimensions) const
 {
 	// Derive grid dimensions from GridSize (same values used when constructing the grid)
@@ -471,25 +355,6 @@ int32 UAZ_Inv_CommonUI_InventoryGrid::GetStackAmount(const UAZ_Inv_CommonUI_Grid
 	return CurrentSlotStackCount;
 }
 
-int32 UAZ_Inv_CommonUI_InventoryGrid::DetermineFillAmountForSlot(const bool bStackable, const int32 MaxStackSize, const int32 AmountToFill,
-                                                                 const UAZ_Inv_CommonUI_GridSlot* GridSlot) const
-{
-	const int32 RoomInSlot = MaxStackSize - GetStackAmount(GridSlot);
-	return bStackable
-		? FMath::Min(AmountToFill, RoomInSlot)
-		: 1;
-}
-
-void UAZ_Inv_CommonUI_InventoryGrid::AddItemToGridSlots(const FAZ_Inv_CommonUI_SlotAvailabilityResult& SlotAvailabilityResult,
-                                                        UAZ_Inv_CommonUI_InventoryItem* NewItem)
-{
-	for (const auto& AvailableItem : SlotAvailabilityResult.AvailableSlots)
-	{
-		AddItemAtIndex(NewItem, AvailableItem.Index, SlotAvailabilityResult.bIsStackable, AvailableItem.AmountToFill);
-		UpdateGridSlots(NewItem, AvailableItem.Index, SlotAvailabilityResult.bIsStackable, AvailableItem.AmountToFill);
-	}
-}
-
 void UAZ_Inv_CommonUI_InventoryGrid::AddItemAtIndex(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackable, int32 StackAmount)
 {
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
@@ -498,6 +363,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddItemAtIndex(UAZ_Inv_CommonUI_InventoryIt
 	if (!GridFragment || !ImageFragment) return;
 
 	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = CreateSlottedItem(NewItem, GridFragment, ImageFragment, Index, bStackable, StackAmount);
+	if (!IsValid(SlottedItem)) return;
 	AddSlottedItemToPanel(Index, GridFragment, SlottedItem);
 
 	SlottedItems.Add(Index, SlottedItem);
@@ -553,26 +419,9 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddSlottedItemToPanel(const int32 Index, co
 	}
 }
 
-TArray<UAZ_Inv_CommonUI_GridSlot*> UAZ_Inv_CommonUI_InventoryGrid::GetAllGridSlots() const
-{
-	TArray<UAZ_Inv_CommonUI_GridSlot*> Tmp;
-	for (UWidget* Child : InventoryGridPanel->GetAllChildren())
-	{
-		if (UAZ_Inv_CommonUI_GridSlot* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Child))
-		{
-			Tmp.Add(GridSlot);
-		}
-	}
-	return Tmp;
-}
-
 void UAZ_Inv_CommonUI_InventoryGrid::AddItem(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
-	if (!MatchesCategory(Item)) return;
-
-	FAZ_Inv_CommonUI_SlotAvailabilityResult Result = HasRoomForItem(Item);
-
-	AddItemToGridSlots(Result, Item);
+	RefreshFromInventory();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::SetupGridContainer()
@@ -604,6 +453,9 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 	}*/
 
 	InventoryGridPanel->ClearChildren();
+	GridSlots.Reset();
+	SlotsByIndex.Reset();
+	SlottedItems.Reset();
 	// We convert the float size (e.g., 5.0, 4.0) into integers for the loop.
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 	const int32 RowCount = FMath::TruncToInt(GridSize.Y);
@@ -663,6 +515,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotClicked(UCommonButtonBase* Button
 	}
 
 	if (!IsInGridBounds(ItemDropIndex, HoverItem->GetGridDimensions())) return;
+	if (!CurrentQueryResult.bHasSpace) return;
 	auto GridSlot = GridSlots[ItemDropIndex];
 	if (!GridSlot->GetInventoryItem().IsValid())
 	{
@@ -773,12 +626,24 @@ void UAZ_Inv_CommonUI_InventoryGrid::ShowCursor()
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnHide()
 {
+	DestroyItemPopUp();
+	PutHoverItemBack();
+	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::CancelInteraction()
+{
 	if (IsValid(ItemPopUp))
 	{
-		ItemPopUp->RemoveFromParent();
-		ItemPopUp = nullptr;
+		DestroyItemPopUp();
+		return true;
 	}
-	PutHoverItemBack();
+	if (IsValid(HoverItem))
+	{
+		PutHoverItemBack();
+		return true;
+	}
+	return false;
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::SetScrollbarStyle()
@@ -841,56 +706,18 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemClicked(UCommonButtonBase* But
 {
 	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
 	if (!SlottedItem) return;
-
 	const int32 GridIndex = SlottedItem->GetGridIndex();
+	if (!GridSlots.IsValidIndex(GridIndex)) return;
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
-	check(GridSlots.IsValidIndex(GridIndex));
-
-	auto* ClickedInventoryItem = GridSlots[GridIndex]->GetInventoryItem().Get();
-
+	UAZ_Inv_CommonUI_InventoryItem* ClickedItem = GridSlots[GridIndex]->GetInventoryItem().Get();
+	if (!IsValid(ClickedItem)) return;
 	if (!IsValid(HoverItem))
 	{
-		PickUp(ClickedInventoryItem, GridIndex);
+		PickUp(ClickedItem, GridIndex);
 		return;
 	}
-
-	// Do the hovered item and the clicked inventory item share a type, and are they stackable?
-	if (IsSameStackable(ClickedInventoryItem))
-	{
-		const int32 ClickedStackCount = GridSlots[GridIndex]->GetStackCount();
-		const auto* StackableFragment = ClickedInventoryItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();
-		const int32 MaxStackSize = StackableFragment->GetMaxStackSize();
-		const int32 RoomInClickedSlot = MaxStackSize - ClickedStackCount;
-		const int32 HoveredStackCount = HoverItem->GetStackCount();
-
-		if (ShouldSwapStackCounts(RoomInClickedSlot, HoveredStackCount, MaxStackSize))
-		{
-			SwapStackCounts(ClickedStackCount, HoveredStackCount, GridIndex);
-			return;
-		}
-
-		if (ShouldConsumeHoverItemStacks(HoveredStackCount, RoomInClickedSlot))
-		{
-			ConsumeHoverItemStacks(ClickedStackCount, HoveredStackCount, GridIndex);
-			return;
-		}
-
-		if (ShouldFillInStack(RoomInClickedSlot, HoveredStackCount))
-		{
-			FillInStack(RoomInClickedSlot, HoveredStackCount - RoomInClickedSlot, GridIndex);
-			return;
-		}
-
-		if (RoomInClickedSlot == 0)
-		{
-			return;
-		}
-	}
-
-	if (CurrentQueryResult.ValidItem.IsValid())
-	{
-		SwapWithHoverItem(ClickedInventoryItem, GridIndex);
-	}
+	// Merge, move and swap are validated atomically by the inventory owner.
+	PutDownOnIndex(GridIndex);
 }
 
 // =============================================================================
@@ -950,24 +777,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::TryShowContextMenu()
 
 void UAZ_Inv_CommonUI_InventoryGrid::AddStacks(const FAZ_Inv_CommonUI_SlotAvailabilityResult& Result)
 {
-	if (!Result.Item.IsValid()) return;
-	if (!MatchesCategory(Result.Item.Get())) return;
-
-	for (const auto& Availability : Result.AvailableSlots)
-	{
-		if (Availability.bItemAtIndex)
-		{
-			const auto& GridSlot = GridSlots[Availability.Index];
-			const auto& ExistingSlottedItem = SlottedItems.FindChecked(Availability.Index);
-			ExistingSlottedItem->UpdateStackCount(GridSlot->GetStackCount() + Availability.AmountToFill);
-			GridSlot->SetStackCount(GridSlot->GetStackCount() + Availability.AmountToFill);
-		}
-		else
-		{
-			AddItemAtIndex(Result.Item.Get(), Availability.Index, Result.bIsStackable, Availability.AmountToFill);
-			UpdateGridSlots(Result.Item.Get(), Availability.Index, Result.bIsStackable, Availability.AmountToFill);
-		}
-	}
+	RefreshFromInventory();
 }
 
 // =============================================================================
@@ -976,6 +786,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::AddStacks(const FAZ_Inv_CommonUI_SlotAvaila
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuSplit(int32 SplitAmount, int32 Index)
 {
+	DestroyItemPopUp();
+	if (!GridSlots.IsValidIndex(Index)) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
 	if (!RightClickedItem->IsStackable()) return;
@@ -983,35 +795,22 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuSplit(int32 SplitAmount, int32 I
 	const int32 UpperLeftIndex = GridSlots[Index]->GetUpperLeftIndex();
 	UAZ_Inv_CommonUI_GridSlot* UpperLeftGridSlot = GridSlots[UpperLeftIndex];
 	const int32 StackCount = UpperLeftGridSlot->GetStackCount();
+	if (SplitAmount <= 0 || SplitAmount >= StackCount) return;
 	const int32 NewStackCount = StackCount - SplitAmount;
-
+	AssignHoverItem(RightClickedItem, UpperLeftIndex, UpperLeftIndex);
+	if (!IsValid(HoverItem)) return;
 	UpperLeftGridSlot->SetStackCount(NewStackCount);
 	SlottedItems.FindChecked(UpperLeftIndex)->UpdateStackCount(NewStackCount);
-
-	AssignHoverItem(RightClickedItem, UpperLeftIndex, UpperLeftIndex);
 	HoverItem->UpdateStackCount(SplitAmount);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuConsume(int32 Index)
 {
 	DestroyItemPopUp();
-
+	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
-
-	const int32 UpperLeftIndex = GridSlots[Index]->GetUpperLeftIndex();
-	UAZ_Inv_CommonUI_GridSlot* UpperLeftGridSlot = GridSlots[UpperLeftIndex];
-	const int32 NewStackCount = UpperLeftGridSlot->GetStackCount() - 1;
-
-	UpperLeftGridSlot->SetStackCount(NewStackCount);
-	SlottedItems.FindChecked(UpperLeftIndex)->UpdateStackCount(NewStackCount);
-
 	CommonUI_InventoryComponent->Server_ConsumeItem(RightClickedItem);
-
-	if (NewStackCount <= 0)
-	{
-		RemoveItemFromGrid(RightClickedItem, Index);
-	}
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDismissed()
@@ -1022,18 +821,16 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDismissed()
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuDrop(int32 Index)
 {
 	DestroyItemPopUp();
-
+	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
-
-	PickUp(RightClickedItem, Index);
-	DropItem();
+	CommonUI_InventoryComponent->Server_DropItem(RightClickedItem, RightClickedItem->IsStackable() ? GetStackAmount(GridSlots[Index]) : 1);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuEquip(int32 Index)
 {
 	DestroyItemPopUp();
-
+	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
 
@@ -1046,20 +843,22 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuEquip(int32 Index)
 
 void UAZ_Inv_CommonUI_InventoryGrid::PutDownOnIndex(const int32 Index)
 {
-	AddItemAtIndex(HoverItem->GetInventoryItem(), Index, HoverItem->IsStackable(), HoverItem->GetStackCount());
-	UpdateGridSlots(HoverItem->GetInventoryItem(), Index, HoverItem->IsStackable(), HoverItem->GetStackCount());
+	if (!IsValid(HoverItem) || !CommonUI_InventoryComponent.IsValid()) return;
+	UAZ_Inv_CommonUI_InventoryItem* Item = HoverItem->GetInventoryItem();
+	const int32 SourceIndex = HoverItem->GetPreviousGridIndex();
+	const int32 StackCount = HoverItem->IsStackable() ? HoverItem->GetStackCount() : 1;
+	// Restore the model before making the request. A refused request leaves it visible.
 	ClearHoverItem();
+	RefreshFromInventory();
+	CommonUI_InventoryComponent->Server_MoveItem(Item, SourceIndex, Index, StackCount);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::PutHoverItemBack()
 {
 	if (!IsValid(HoverItem)) return;
 
-	FAZ_Inv_CommonUI_SlotAvailabilityResult Result = HasRoomForItem(HoverItem->GetInventoryItem(), HoverItem->GetStackCount());
-	Result.Item = HoverItem->GetInventoryItem();
-
-	AddStacks(Result);
 	ClearHoverItem();
+	RefreshFromInventory();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex)
@@ -1090,8 +889,9 @@ void UAZ_Inv_CommonUI_InventoryGrid::RemoveItemFromGrid(UAZ_Inv_CommonUI_Invento
 
 void UAZ_Inv_CommonUI_InventoryGrid::PickUp(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, const int32 GridIndex)
 {
+	if (!IsValid(ClickedInventoryItem) || !GridSlots.IsValidIndex(GridIndex)) return;
 	AssignHoverItem(ClickedInventoryItem, GridIndex, GridIndex);
-	RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
+	if (IsValid(HoverItem)) RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::DropItem()
@@ -1099,10 +899,12 @@ void UAZ_Inv_CommonUI_InventoryGrid::DropItem()
 	if (!IsValid(HoverItem)) return;
 	if (!IsValid(HoverItem->GetInventoryItem())) return;
 
-	CommonUI_InventoryComponent->Server_DropItem(HoverItem->GetInventoryItem(), HoverItem->GetStackCount());
-
+	if (!CommonUI_InventoryComponent.IsValid()) return;
+	UAZ_Inv_CommonUI_InventoryItem* Item = HoverItem->GetInventoryItem();
+	const int32 StackCount = HoverItem->IsStackable() ? HoverItem->GetStackCount() : 1;
 	ClearHoverItem();
-	ShowCursor();
+	RefreshFromInventory();
+	CommonUI_InventoryComponent->Server_DropItem(Item, StackCount);
 }
 
 bool UAZ_Inv_CommonUI_InventoryGrid::HasActivePopUp() const
@@ -1114,18 +916,21 @@ void UAZ_Inv_CommonUI_InventoryGrid::DestroyItemPopUp()
 {
 	if (IsValid(ItemPopUp))
 	{
-		const int32 PrevIndex = ItemPopUp->GetGridIndex();
+		UAZ_Inv_CommonUI_ItemPopUp* PopUp = ItemPopUp;
+		ItemPopUp = nullptr;
+		const int32 PrevIndex = PopUp->GetGridIndex();
 		if (GridSlots.IsValidIndex(PrevIndex))
 		{
 			GridSlots[PrevIndex]->SetItemPopUp(nullptr);
 		}
-		ItemPopUp->RemoveFromParent();
-		ItemPopUp = nullptr;
+		PopUp->OnDismissed.Unbind();
+		PopUp->RemoveFromParent();
 	}
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 {
+	if (!GridSlots.IsValidIndex(GridIndex)) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[GridIndex]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem)) return;
 	if (!ItemPopUpClass) return;
@@ -1173,7 +978,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 		ItemPopUp->CollapseConsumeButton();
 	}
 
-	if (RightClickedItem->GetItemManifest().GetItemCategory() == EInv_ItemCategory::Equippable)
+	if (RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>())
 	{
 		ItemPopUp->OnEquip.BindDynamic(this, &ThisClass::OnPopUpMenuEquip);
 	}
@@ -1181,85 +986,6 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 	{
 		ItemPopUp->CollapseEquipButton();
 	}
-}
-
-// =============================================================================
-// Stack Interaction Helpers
-// =============================================================================
-
-bool UAZ_Inv_CommonUI_InventoryGrid::IsSameStackable(const UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem) const
-{
-	const bool bIsSameItem = ClickedInventoryItem == HoverItem->GetInventoryItem();
-	const bool bIsStackable = ClickedInventoryItem->IsStackable();
-	return bIsSameItem && bIsStackable && HoverItem->GetItemType().MatchesTagExact(ClickedInventoryItem->GetItemManifest().GetItemTypeTag());
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::ShouldSwapStackCounts(const int32 RoomInClickedSlot, const int32 HoveredStackCount, const int32 MaxStackSize) const
-{
-	return RoomInClickedSlot == 0 && HoveredStackCount < MaxStackSize;
-}
-
-void UAZ_Inv_CommonUI_InventoryGrid::SwapStackCounts(const int32 ClickedStackCount, const int32 HoveredStackCount, const int32 Index)
-{
-	UAZ_Inv_CommonUI_GridSlot* GridSlot = GridSlots[Index];
-	GridSlot->SetStackCount(HoveredStackCount);
-
-	UAZ_Inv_CommonUI_SlottedItem* ClickedSlottedItem = SlottedItems.FindChecked(Index);
-	ClickedSlottedItem->UpdateStackCount(HoveredStackCount);
-
-	HoverItem->UpdateStackCount(ClickedStackCount);
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::ShouldConsumeHoverItemStacks(const int32 HoveredStackCount, const int32 RoomInClickedSlot) const
-{
-	return RoomInClickedSlot >= HoveredStackCount;
-}
-
-void UAZ_Inv_CommonUI_InventoryGrid::ConsumeHoverItemStacks(const int32 ClickedStackCount, const int32 HoveredStackCount, const int32 Index)
-{
-	const int32 NewClickedStackCount = ClickedStackCount + HoveredStackCount;
-
-	GridSlots[Index]->SetStackCount(NewClickedStackCount);
-	SlottedItems.FindChecked(Index)->UpdateStackCount(NewClickedStackCount);
-	ClearHoverItem();
-	ShowCursor();
-
-	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(
-		GridSlots[Index]->GetInventoryItem().Get(), FAZ_GameplayTags::Get().Item_Fragment_Grid);
-	const FIntPoint Dimensions = GridFragment ? GridFragment->GetGridSize() : FIntPoint(1, 1);
-	HighlightSlots(Index, Dimensions);
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::ShouldFillInStack(const int32 RoomInClickedSlot, const int32 HoveredStackCount) const
-{
-	return RoomInClickedSlot < HoveredStackCount;
-}
-
-void UAZ_Inv_CommonUI_InventoryGrid::FillInStack(const int32 FillAmount, const int32 Remainder, const int32 Index)
-{
-	UAZ_Inv_CommonUI_GridSlot* GridSlot = GridSlots[Index];
-	const int32 NewStackCount = GridSlot->GetStackCount() + FillAmount;
-
-	GridSlot->SetStackCount(NewStackCount);
-
-	UAZ_Inv_CommonUI_SlottedItem* ClickedSlottedItem = SlottedItems.FindChecked(Index);
-	ClickedSlottedItem->UpdateStackCount(NewStackCount);
-
-	HoverItem->UpdateStackCount(Remainder);
-}
-
-void UAZ_Inv_CommonUI_InventoryGrid::SwapWithHoverItem(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, const int32 GridIndex)
-{
-	if (!IsValid(HoverItem)) return;
-
-	UAZ_Inv_CommonUI_InventoryItem* TempInventoryItem = HoverItem->GetInventoryItem();
-	const int32 TempStackCount = HoverItem->GetStackCount();
-	const bool bTempIsStackable = HoverItem->IsStackable();
-
-	AssignHoverItem(ClickedInventoryItem, GridIndex, HoverItem->GetPreviousGridIndex());
-	RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
-	AddItemAtIndex(TempInventoryItem, ItemDropIndex, bTempIsStackable, TempStackCount);
-	UpdateGridSlots(TempInventoryItem, ItemDropIndex, bTempIsStackable, TempStackCount);
 }
 
 // =============================================================================
@@ -1452,7 +1178,7 @@ FAZ_Inv_CommonUI_SpaceQueryResult UAZ_Inv_CommonUI_InventoryGrid::CheckHoverPosi
 {
 	FAZ_Inv_CommonUI_SpaceQueryResult Result;
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
-
+	if (Position.X < 0 || Position.Y < 0 || Position.X + Dimensions.X > ColumnCount || Position.Y + Dimensions.Y > FMath::TruncToInt(GridSize.Y)) return Result;
 	if (!IsInGridBounds(UAZ_Inv_WidgetUtils::GetIndexFromPosition(Position, ColumnCount), Dimensions)) return Result;
 
 	Result.bHasSpace = true;
@@ -1500,50 +1226,4 @@ UUserWidget* UAZ_Inv_CommonUI_InventoryGrid::GetHiddenCursorWidget()
 		HiddenCursorWidget = CreateWidget<UUserWidget>(GetOwningPlayer(), HiddenCursorWidgetClass);
 	}
 	return HiddenCursorWidget;
-}
-
-// =============================================================================
-// Data Helpers
-// =============================================================================
-
-bool UAZ_Inv_CommonUI_InventoryGrid::HasValidItem(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const
-{
-	return GridSlot->GetInventoryItem().IsValid();
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::IsUpperLeftSlot(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot) const
-{
-	return SubGridSlot->GetUpperLeftIndex() == GridSlot->GetIndex();
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::DoesItemTypeMatch(const UAZ_Inv_CommonUI_InventoryItem* SubItem, const FGameplayTag& ItemType) const
-{
-	return SubItem->GetItemManifest().GetItemTypeTag().MatchesTagExact(ItemType);
-}
-
-bool UAZ_Inv_CommonUI_InventoryGrid::CheckSlotConstraints(const UAZ_Inv_CommonUI_GridSlot* GridSlot,
-                                                           const UAZ_Inv_CommonUI_GridSlot* SubGridSlot,
-                                                           const TSet<int32>& CheckedIndices,
-                                                           TSet<int32>& OutTentativelyClaimed,
-                                                           const FGameplayTag& ItemType,
-                                                           const int32 MaxStackSize) const
-{
-	if (IsIndexClaimed(CheckedIndices, SubGridSlot->GetIndex())) return false;
-
-	if (!HasValidItem(SubGridSlot))
-	{
-		OutTentativelyClaimed.Add(SubGridSlot->GetIndex());
-		return true;
-	}
-
-	if (!IsUpperLeftSlot(GridSlot, SubGridSlot)) return false;
-
-	const UAZ_Inv_CommonUI_InventoryItem* SubItem = SubGridSlot->GetInventoryItem().Get();
-	if (!SubItem->IsStackable()) return false;
-
-	if (!DoesItemTypeMatch(SubItem, ItemType)) return false;
-
-	if (GridSlot->GetStackCount() >= MaxStackSize) return false;
-
-	return true;
 }

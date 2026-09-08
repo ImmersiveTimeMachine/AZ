@@ -115,13 +115,24 @@ void UAZ_PawnMovementMode_RMAction::SimulationTick_Implementation(const FSimulat
 		RiseElapsedMs += Params.TimeStep.StepMs;
 
 		const float ZDelta = static_cast<float>(MoveDelta.Z);
-		NetRiseCm += ZDelta;
+		constexpr float MinRiseForApexCm = 10.f;
+		// Remember reaching the rise gate until this mode is activated again. A low
+		// hop can fall below 10 cm during the two descending ticks used to confirm
+		// its apex. Subtracting those deltas used to forget the valid rise and leave
+		// the capsule without gravity until the one-second safety timeout.
+		if (NetRiseCm <= MinRiseForApexCm)
+		{
+			NetRiseCm += ZDelta;
+		}
 		NonPositiveZDeltaTicks = (ZDelta <= 0.f) ? NonPositiveZDeltaTicks + 1 : 0;
 
-		const bool bApexReached   = NetRiseCm > 10.f && NonPositiveZDeltaTicks >= 2;
+		const bool bApexReached   = NetRiseCm > MinRiseForApexCm && NonPositiveZDeltaTicks >= 2;
 		const bool bSafetyExpired = RiseElapsedMs > MaxRiseSeconds * 1000.f;
 		if (bApexReached || bSafetyExpired)
 		{
+			UE_LOG(LogTemp, Display, TEXT("[JumpRise] pawn=%s handoff=%s elapsed=%.3fs qualifiedRise=%.3fcm lastDZ=%.3f nonPositiveTicks=%d"),
+				*GetNameSafe(MoverComp->GetOwner()), bApexReached ? TEXT("apex") : TEXT("safety"),
+				RiseElapsedMs * 0.001f, NetRiseCm, ZDelta, NonPositiveZDeltaTicks);
 			OutputState.MovementEndState.NextModeName = TEXT("Falling");
 		}
 	}

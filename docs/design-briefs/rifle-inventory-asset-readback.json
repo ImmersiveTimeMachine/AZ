@@ -1,0 +1,69 @@
+{
+  "after_editor_restart": true,
+  "scope": "Read-only configuration; PIE not run by Codex",
+  "pickups": [
+    {
+      "asset": "BPAZ_CommonUI_PickupItem",
+      "stackable": false,
+      "detachable": true,
+      "rounds": [],
+      "contents": [
+        [
+          "30"
+        ]
+      ],
+      "static_mesh": null,
+      "skeletal_mesh": "/Game/AZ/Assets/M16/SKL/M16_Skeleton.M16_Skeleton"
+    },
+    {
+      "asset": "BP_Pickup_M16Magazine",
+      "stackable": false,
+      "detachable": false,
+      "rounds": [
+        "30"
+      ],
+      "contents": [],
+      "static_mesh": "/Game/Assets/M16/mesh/UE4_M16_MagazMod.UE4_M16_MagazMod",
+      "skeletal_mesh": null
+    },
+    {
+      "asset": "BP_Pickup_M16Magazine_Partial",
+      "stackable": false,
+      "detachable": false,
+      "rounds": [
+        "17"
+      ],
+      "contents": [],
+      "static_mesh": "/Game/Assets/M16/mesh/UE4_M16_MagazMod.UE4_M16_MagazMod",
+      "skeletal_mesh": null
+    },
+    {
+      "asset": "BP_Pickup_M16Magazine_Empty",
+      "stackable": false,
+      "detachable": false,
+      "rounds": [
+        "0"
+      ],
+      "contents": [],
+      "static_mesh": "/Game/Assets/M16/mesh/UE4_M16_MagazMod.UE4_M16_MagazMod",
+      "skeletal_mesh": null
+    }
+  ],
+  "quick_slots": [
+    "(WeaponTag=(TagName=\"Weapon.Fist\"),WeaponAbilities=(\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_GA_Punch_L.BP_GA_Punch_L_C'\",\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_GA_Punch_R.BP_GA_Punch_R_C'\",\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_GA_HeavyStrike.BP_GA_HeavyStrike_C'\"),bStrafeOnEquip=True,EffectsOnEquip=(\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/AbilitySystem/Hero/Effects/GE_CombatReady.GE_CombatReady_C'\"),bInventoryBacked=False,InventoryItemType=(TagName=\"\"))",
+    "(WeaponTag=(TagName=\"Weapon.Rifle\"),WeaponAbilities=,bStrafeOnEquip=False,EffectsOnEquip=,bInventoryBacked=True,InventoryItemType=(TagName=\"Item.Type.Weapon.Rifle\"))"
+  ],
+  "action_triggers": {
+    "AZ_IA_RT_Weapon_0": [
+      "InputTriggerPressed"
+    ],
+    "AZ_IA_RT_Weapon_1": [
+      "InputTriggerPressed"
+    ]
+  },
+  "placed_magazines": [
+    "M16 Magazine 30 of 30",
+    "M16 Magazine 17 of 30",
+    "M16 Magazine 0 of 30"
+  ]
+}

@@ -77,7 +77,7 @@ public:
 	 *  than this (near head-on). Above it, slide along the wall. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Movement|Capability", meta = (ClampMin = "0", ClampMax = "1"))
 	float MinSlideAlignment = 0.15f;
-	/** Sweep with the capsule's own collision profile (matches what actually blocks the pawn). */
+	/** Sweep with the capsule's actual object channel and responses, including custom overrides. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Movement|Capability")
 	bool bUseCapsuleProfile = true;
 	/** Fallback channel when bUseCapsuleProfile is false. */

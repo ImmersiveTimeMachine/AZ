@@ -1,6 +1,24 @@
 # Rifle, detachable magazines, inventory and HUD implementation plan
 
-Status: proposal based on source and live read-only asset inspection, 2026-09-06 session. No gameplay code or assets were changed for this investigation; no build, PIE or editor tests were run.
+Status, 2026-09-07: the first pickup/inventory/basic-equipment milestone is implemented in C++ and authored assets. Full AZEditor build succeeded, and asset defaults were rechecked after restarting the editor. After correcting the Mover capsule's disabled pickup overlaps, the user reported that everything works. The user's PIE logs confirm rifle/magazine pickup, rifle equipment and drop transactions. No automated tests were added and Codex did not start PIE or editor tests. Resume details: C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-inventory-foundation-status.md. Later rifle animation, shooting, reload and HUD phases below remain planned.
+
+**Priority update from the user:** implement the major systems first. Use the existing rifle skeletal mesh as-is initially. Mechanical animation, detailed magazine handoffs and final visual tuning are deferred. The completed content audit is sufficient to begin the inventory/equipment foundation; unresolved cosmetic details do not block it. Correct muzzle/shot geometry is still required before the firing milestone.
+
+**Animation update, 2026-09-07:** the user selected existing **Riffle_P01** as the first reference. Its exploration/aim integration is now authored, compiled and saved, pending user-run PIE acceptance. The existing CHT_v2_CharacterAnimations is the sole selector (original 103 rows preserved plus 52 P01 choices); the unused duplicate chooser was backed up and removed. All 48 directional P01 loops have contact curves, BranchIn links and built indexes. The profile, held RMB aim ability/input, upper-body AO mask and per-sample rate adjustment are assigned. Missing ground transitions, forward sprint and dedicated crouched aim offsets remain explicit shared-content/visual-validation boundaries. No further RifleAnimsetPro retargeting is part of this phase. Current state and acceptance checklist: C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-animation-aim-status.md.
+
+## First implementation milestone: pickup, inventory and basic equipment
+
+Build one functional loop using existing CommonUI and the active Mover hero:
+
+1. Add stable rifle/magazine item identities and mutable magazine round counts through the existing item/fragment model. Both are non-stackable; the rifle can reference an inserted magazine. Use simple initial footprints/data, clearly separated from later tuning.
+2. Connect I to the CommonUI inventory and E to Mover-compatible pickup. Capacity checks and item changes belong to the authoritative inventory, independent of widget visibility.
+3. Route QuickBar and inventory equip commands through one equipment owner. Preserve fists and their current actions; selecting a rifle must not leave fist grants active or grant the legacy, unadapted firearm abilities.
+4. Show the existing rifle skeletal mesh with basic hand/back attachment. Equip/holster commit can be immediate in this first slice through the shared equipment operation; later animation events can invoke that same commit. Elaborate draw/reload animations are not prerequisites.
+5. Complete switch, drop and re-pick behavior so rifle identity, inserted-magazine identity and all round counts survive. Inventory descriptions show actual item state instead of static demo text.
+
+Acceptance: pick up a rifle and separate magazines; see them and their real counts in inventory; select the rifle and switch back to fists; drop and recover the rifle with the same magazine state. Full inventory refuses pickup without losing the world item. Standing/crouched interaction works and existing punches remain functional.
+
+This combines the minimum work from phases 1 and 2 below into a useful first slice. Rifle exploration/aim CHT integration, firing, functional magazine reload and HUD integration follow. Weapon mechanism animation and detailed magazine visuals are a later presentation pass, not a gate for the major systems.
 
 ## 1. Intended result and confirmed decisions
 
@@ -180,6 +198,7 @@ Concrete source action assets include EquipRifle/HolsterRifle (1.8 seconds), Rif
 - Author draw/holster attach/ready and reload mag-out/mag-in/ready events at actual clip times, separately for standing and crouched variants. Existing montage utilities and gameplay-event tasks should author and consume those beats.
 - Existing MetaHuman body sockets are BackRifleSocket (spine_04), RightHandRifleSocketRelaxed (hand_r), RightHandRifleSocketAim (middle_01_r), and Hand_LeftSocket. The different relaxed/aim attachment bones require validation. Prefer one stable attachment owner with profile offsets instead of multiple writers fighting the weapon transform.
 - AZ_BP_Rifle has LeftHandGrip/LeftHandGripAim and magazine-related bones, but no Muzzle socket. Establish the muzzle and magazine hand/world representation before firing/reload presentation.
+- The step-0 weapon audit located an existing matching-part magazine prop at /Game/Assets/M16/mesh/UE4_M16_MagazMod and confirmed no assigned weapon animation driver or matching M16 mechanism clips. Subsequent read-only FBX inspection verified rigid skin influences: the magazine's 1,546 vertices are weighted solely to UE4_M16_MagazMod, supporting geometry-bone hiding. The shared attachment contract uses a stable receiver Magwell frame independent of the hidden/removable magazine subtree; exact offsets and action beat frames require visual review. See C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-step0-content-contract.md for the integrated findings.
 - Procedural IK is currently deliberately disabled. Start with authored retarget/grip alignment; do not silently restore old IK. If later agreed as necessary, a weapon-specific current-frame hand constraint must release during magazine handling.
 
 Crouch acceptance includes pickup, equip/holster, relaxed and aimed idle, directional movement, aim enter/exit, fire, reload, blocked muzzle at low cover, and clean return to standing. Camera height and mesh base remain owned by Mover/camera code; weapon layers must not write the hero mesh transform.
@@ -207,13 +226,14 @@ Opening inventory must transfer input focus through CommonUI and resolve active 
 
 | Phase | Bounded deliverable | User-visible acceptance |
 |---|---|---|
-| 0. Lock content and contracts | Verify intended character retargets and weapon-rig animations, rifle/mag definitions, sockets, synchronized animation beats and mode/input policy | Concrete assets and state/transaction contract are reviewable before runtime wiring. |
+| 0. Lock foundation content and contracts | Identify existing rifle/character content and agree item/action ownership; record missing presentation work | Foundation is reviewable. Detailed weapon-rig animations, prop offsets and beat frames are deferred to the features that need them. |
 | 1. Inventory model and access | Stable item IDs/locations, rifle/mag fragments, authoritative capacity/change events, I/E integration and Mover pickup adapter | Pick up separate magazines and a rifle; inspect real round counts; a full bag refuses pickup without losing the item. Crouched pickup also works. |
 | 2. One equipment owner | QuickBar/UI call CommonUI equipment, correct old/new ordering, source identity and grant lifetime; migrate intrinsic fists through the same contract | Existing punches/heavy/wall behavior remain intact; rifle/fist switching grants only the selected actions and preserves magazine identity. |
-| 3. Rifle presentation and stance | Body-mesh/socket bridge, draw/holster/ready, weapon-aware chooser/pools, stand/crouch layers, rifle mechanical AnimBP/animations and detachable magazine props | Hero and rifle rigs stay synchronized; standing and crouched movement/aim work; fight remains sprint-free. No unarmed loop overrides the rifle profile. |
+| 3. Rifle stance and character animation | Weapon-aware chooser/pools, exploration/aim and stand/crouch layers; use the existing rifle skeletal mesh | Standing and crouched movement/aim work; fight remains sprint-free. No unarmed loop overrides the rifle profile. Detailed weapon mechanics remain deferred. |
 | 4. Shooting and minimal ammo readout | Adapt generic fire/aim, magazine debit, cadence/input semantics, modern damage context, muzzle obstruction, sound/VFX and HUD snapshot | Each accepted shot consumes one round from the correct mag and damages through the current combat system. No shooting through muzzle-blocking cover, including crouch. |
-| 5. Detachable reload | Spare selection/reservation, mag presentation, insertion commit, ready and pre/post-commit cancellation | Partial/empty mags survive reload; no duplication/loss on cancel, repeated input, switch or drop. Standing and crouched reload are included. |
+| 5. Functional detachable reload | Spare selection/reservation, one commit, ready and pre/post-commit cancellation; simple presentation first | Partial/empty mags survive reload; no duplication/loss on cancel, repeated input, switch or drop. Standing/crouched behavior is included; elaborate magazine handoffs follow. |
 | 6. HUD/inventory finish and interruption pass | ProHUD/HQUI styling and event adapters, magazine details, focus lifecycle, remaining movement/stance/action combinations | All displays agree with inventory; aim/reload/menu/grab/death/drop/switch transitions clean up. Existing fists, crouch and exploration sprint still work. |
+| 7. Weapon presentation detail | Weapon mechanical AnimBP/clips, detailed magazine props/handoffs, final socket/pose tuning | Character and weapon presentation follow the already validated gameplay transactions without adding new state owners. |
 
 Build a thin, honest ammo readout during phases 1/4; polish kit presentation in phase 6. Do not postpone all visibility until after the mechanics. Crouch is a gate at each relevant phase, not a final animation add-on.
 

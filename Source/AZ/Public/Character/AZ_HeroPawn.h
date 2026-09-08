@@ -31,7 +31,7 @@ struct FInputActionValue;
  * Populated on the game thread during Tick, safe to read from animation worker threads.
  */
 USTRUCT(BlueprintType)
-struct AZ_API FAZ_MoverStateProxy
+struct AZ_API	FAZ_MoverStateProxy
 {
 	GENERATED_BODY()
 

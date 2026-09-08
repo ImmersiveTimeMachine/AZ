@@ -51,28 +51,42 @@ void UAZ_Inv_CommonUI_EquippedGridSlot::NativeOnClicked()
 	EquippedGridSlotClicked.Broadcast(this, EquipmentTypeTag);
 }
 
+void UAZ_Inv_CommonUI_EquippedGridSlot::ClearEquippedItem()
+{
+	if (IsValid(EquippedSlottedItem)) EquippedSlottedItem->RemoveFromParent();
+	EquippedSlottedItem = nullptr;
+	SetInventoryItem(nullptr);
+	SetAvailable(true);
+	SetState(EInv_CommonUI_GridSlotState::Unoccupied);
+	SetUnoccupiedTexture();
+	if (Image_GrayedOutIcon) Image_GrayedOutIcon->SetVisibility(ESlateVisibility::Visible);
+}
+
 UAZ_Inv_CommonUI_EquippedSlottedItem* UAZ_Inv_CommonUI_EquippedGridSlot::OnItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item, const FGameplayTag& EquipmentTag, float TileSize)
 {
-	if (!EquipmentTag.MatchesTagExact(EquipmentTypeTag)) return nullptr;
+	if (!IsValid(Item) || !EquipmentTag.MatchesTagExact(EquipmentTypeTag) || !EquippedSlottedItemClass || !Overlay_Root) return nullptr;
 
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	const FAZ_Inv_CommonUI_GridFragment* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(Item, Tags.Item_Fragment_Grid);
 	if (!GridFragment) return nullptr;
+	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(Item, Tags.Item_Fragment_Icon);
+	if (!ImageFragment) return nullptr;
 	const FIntPoint GridDimensions = GridFragment->GetGridSize();
 
 	const float IconTileWidth = TileSize - GridFragment->GetGridPadding() * 2;
 	const FVector2D DrawSize = FVector2D(GridDimensions) * IconTileWidth;
 
 	EquippedSlottedItem = CreateWidget<UAZ_Inv_CommonUI_EquippedSlottedItem>(GetOwningPlayer(), EquippedSlottedItemClass);
+	if (!IsValid(EquippedSlottedItem)) return nullptr;
 
 	EquippedSlottedItem->SetInventoryItem(Item);
 	EquippedSlottedItem->SetEquipmentTypeTag(EquipmentTag);
 	EquippedSlottedItem->UpdateStackCount(0);
 
 	SetInventoryItem(Item);
-
-	const FAZ_Inv_CommonUI_ImageFragment* ImageFragment = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(Item, Tags.Item_Fragment_Icon);
-	if (!ImageFragment) return nullptr;
+	SetAvailable(false);
+	SetState(EInv_CommonUI_GridSlotState::Occupied);
+	if (Image_GrayedOutIcon) Image_GrayedOutIcon->SetVisibility(ESlateVisibility::Collapsed);
 
 	FSlateBrush Brush;
 	Brush.SetResourceObject(ImageFragment->GetIcon());

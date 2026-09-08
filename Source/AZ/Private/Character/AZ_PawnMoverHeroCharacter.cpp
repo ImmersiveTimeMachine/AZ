@@ -56,7 +56,8 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	// avoidance (RVO/Detour), not carving.
 	Capsule->SetCanEverAffectNavigation(false);
 	Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-	Capsule->SetGenerateOverlapEvents(false);
+	// Pickup spheres detect the gameplay capsule; the visual mesh has no collision.
+	Capsule->SetGenerateOverlapEvents(true);
 	// Pawns are never floors: Mover's step-up honors this (GroundMovementUtils::CanStepUpOnHitSurface),
 	// so NPCs slide along the hero's capsule instead of mounting it. Blocking is unaffected.
 	Capsule->CanCharacterStepUpOn = ECB_No;
@@ -104,7 +105,7 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	CameraStrafe.SocketOffset  = FVector(0.f, 100.f, 10.f);
 	CameraStrafe.FOV           = 90.f;
 	CameraStrafe.InterpSpeed   = 8.f;
-	// Aiming (ADS): close + narrow. Reachable once ProduceInput sets EAZ_RotationMode::Aiming.
+	// Aiming: close + narrow. The active firearm aim ability owns this framing request.
 	CameraAiming.BoomLength    = 120.f;
 	CameraAiming.SocketOffset  = FVector(0.f, 55.f, 5.f);
 	CameraAiming.FOV           = 55.f;
@@ -666,6 +667,11 @@ void AAZ_PawnMoverHeroCharacter::SetupPlayerInputComponent(UInputComponent* Play
 
 void AAZ_PawnMoverHeroCharacter::OnMoveTriggered(const FInputActionValue& Value)
 {
+	if (const APlayerController* PC = Cast<APlayerController>(GetController()); PC && PC->IsMoveInputIgnored())
+	{
+		CachedMoveInputIntent = FVector::ZeroVector;
+		return;
+	}
 	// IA_Move axis convention: X = Right/Left (A/D), Y = Forward/Back (W/S).
 	// CachedMoveInputIntent uses pawn-local convention: X = Forward, Y = Right.
 	// The Mover input producer rotates this by ControlRotation.Yaw to get world-space.
@@ -718,6 +724,14 @@ void AAZ_PawnMoverHeroCharacter::SetJumpPressed(bool bPressed)
 		bIsJumpJustPressed = true;
 	}
 	bIsJumpPressed = bPressed;
+}
+
+void AAZ_PawnMoverHeroCharacter::ResetGameplayMovementIntent()
+{
+	CachedMoveInputIntent = FVector::ZeroVector;
+	CachedWorldMoveIntentRaw = FVector::ZeroVector;
+	bIsJumpPressed = false;
+	bIsJumpJustPressed = false;
 }
 
 // ========================================
@@ -780,6 +794,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// moves on the ground plane regardless of where the camera tilts.
 	const FRotator YawOnly(0.f, ControlRot.Yaw, 0.f);
 	FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent);
+	if (PC->IsMoveInputIgnored()) WorldMove = FVector::ZeroVector;
 
 	// Cache the RAW (pre-clamp) world intent — the obstacle sensor reads THIS (not the clamped cmd below) so a
 	// straight-in wall hit still registers after the clamp zeroes the shipped input.
@@ -842,6 +857,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// doesn't glide under the full-body punch. Strafe (combat-ready, set on equip of a strafe
 	// profile): the body must face the camera/target, NOT the movement direction.
 	bool bStrafe = false;
+	bool bAiming = false;
 	bool bGrabbed = false;
 	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // we implement IAbilitySystemInterface
 	{
@@ -850,6 +866,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking) || bGrabbed)
 			WorldMove = FVector::ZeroVector;
 		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
+		bAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming);
 	}
 
 	// (Obstacle blocking is now handled upstream by the movement-capability clamp on WorldMove above — a wall ahead
@@ -870,7 +887,14 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	//     creep). NOTE: the strafe START transition is excluded from the RM move (see AZ_MoverAnimInstance) so the
 	//     spring aligns from the FIRST moving frame instead of waiting out the start clip (that wait was the
 	//     "double": start-clip motion, then realign). WASD = directional side-steps / back-pedal vs the camera.
-	if (bStrafe)
+	if (bAiming)
+	{
+		// Rifle aim tracks the current viewing direction even at idle. The existing
+		// fists strafe path below retains its idle hold and move-start alignment latch.
+		bStrafeAligning = false;
+		CharacterDefaultInputs.OrientationIntent = YawOnly.Vector();
+	}
+	else if (bStrafe)
 	{
 		constexpr float AlignExitDeg = 5.f;   // "aligned" once within this of the target → may hold again
 		const bool bHasMoveInput = !CachedMoveInputIntent.IsNearlyZero();
@@ -934,7 +958,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
 		// Fight mode stays at the requested Run/Walk gait even if sprint cancellation
 		// or its replicated tag removal has not reached this input tick yet.
-		if (!bStrafe && HasMatchingGameplayTag(AZTags.Movement_Sprinting))
+		if (!bStrafe && !bAiming && HasMatchingGameplayTag(AZTags.Movement_Sprinting))
 		{
 			CustomInputs.Gait = EAZ_Gait::Sprint;
 		}
@@ -951,7 +975,8 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		// Strafe (combat-ready) → the walking mode tracks the camera TIGHTLY (aim-lock) instead of the
 		// explore lag-then-snap. Reuses the existing (replicated/reconciled) RotationMode field; same
 		// Movement.Strafe source as OrientationIntent above. GenerateWalkMove reads it.
-		CustomInputs.RotationMode = bStrafe ? EAZ_RotationMode::Strafe : EAZ_RotationMode::OrientToMovement;
+		CustomInputs.RotationMode = bAiming ? EAZ_RotationMode::Aiming
+			: (bStrafe ? EAZ_RotationMode::Strafe : EAZ_RotationMode::OrientToMovement);
 		// Held: the walking mode swaps its facing spring for GrabbedFacingTime so the body squares up to the
 		// grabber before the paired catch clips' first frame (OrientationIntent already points at it above).
 		CustomInputs.bGrabbed = bGrabbed;
@@ -960,7 +985,7 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// Jump is EXPLORE-ONLY for now — suppress jump input while strafing (combat-ready). The one-shot 0->1
 	// edge is still consumed at the bottom of this function, so a press during strafe can't latch and fire
 	// the moment you leave strafe. (Strafe jump = a later decision: physics jump vs none.)
-	const bool bJumpAllowed = !bStrafe;
+	const bool bJumpAllowed = !bStrafe && !bAiming;
 
 	// "Held" jump flag — true the whole time the player is holding Space, false
 	// on release. Mover's falling-mode air-control / coyote-time reads this each tick.

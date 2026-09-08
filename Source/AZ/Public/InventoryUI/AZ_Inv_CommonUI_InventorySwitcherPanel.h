@@ -15,6 +15,8 @@ class UAZ_Inv_CommonUI_InventoryGrid;
 class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
 class UAZ_Inv_CommonUI_ItemDescription;
+class UAZ_Inv_CommonUI_InventoryComponent;
+class UAZ_Inv_CommonUI_EquipmentComponent;
 class UInputAction;
 // Forward Declarations
 class UCanvasPanel;
@@ -61,6 +63,9 @@ public:
 	bool HasActivePopUp() const;
 	void TryShowContextMenu();
 	void SetContextMenuAction(UInputAction* InAction);
+	bool CancelInteraction();
+	void OnHide();
+	void RefreshFromInventory();
 
 	/** Pass the owning canvas to all inventory grids and store it for description positioning. */
 	void SetOwningCanvas(UCanvasPanel* OwningCanvas);
@@ -68,6 +73,7 @@ public:
 protected:
 
 	virtual void NativeOnInitialized() override;
+	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void NativeDestruct() override;
 
@@ -122,6 +128,14 @@ protected:
 	UHorizontalBox* ItemDescriptionHBox;
 	
 private:
+	UFUNCTION()
+	void HandleInventoryChanged();
+	UFUNCTION()
+	void RefreshEquipment();
+	void RefreshDescription();
+	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> InventoryComponent;
+	TWeakObjectPtr<UAZ_Inv_CommonUI_EquipmentComponent> EquipmentComponent;
+	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryItem> DescribedItem;
 
 	void HandleGridSwitcherIndexChanged(UWidget* ActiveWidget, int32 ActiveIndex);
 
@@ -150,11 +164,6 @@ private:
 	void HandleEquippedSlottedItemClicked(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem);
 
 	bool CanEquipHoverItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, const FGameplayTag& EquipmentTypeTag) const;
-	UAZ_Inv_CommonUI_EquippedGridSlot* FindSlotWithEquippedItem(UAZ_Inv_CommonUI_InventoryItem* EquippedItem) const;
-	void ClearSlotOfItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot);
-	void RemoveEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem);
-	void MakeEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* OldSlottedItem, UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, UAZ_Inv_CommonUI_InventoryItem* ItemToEquip);
-	void BroadcastSlotClickedDelegates(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip, UAZ_Inv_CommonUI_InventoryItem* ItemToUnequip) const;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UAZ_Inv_CommonUI_EquippedGridSlot>> EquippedGridSlots;

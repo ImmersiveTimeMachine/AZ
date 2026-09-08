@@ -7,6 +7,9 @@
 #include "InventoryUI/Widgets/Composite/AZ_Inv_CommonUI_CompositeWidget.h"
 #include "AZ_Inv_CommonUI_ItemDescription.generated.h"
 
+class UAZ_Inv_CommonUI_InventoryItem;
+class UAZ_Inv_CommonUI_InventoryComponent;
+
 /**
  * CommonUI version of item description widget.
  */
@@ -19,6 +22,7 @@ public:
 
 	FVector2D GetBoxSize() const;
 	virtual void SetVisibility(ESlateVisibility InVisibility) override;
+	void ShowItem(UAZ_Inv_CommonUI_InventoryItem* Item, const UAZ_Inv_CommonUI_InventoryComponent* Inventory);
 
 private:
 

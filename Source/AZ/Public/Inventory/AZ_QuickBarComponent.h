@@ -1,68 +1,58 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Components/ActorComponent.h"
 #include "AZ_QuickBarComponent.generated.h"
 
-struct FGameplayAbilitySpecHandle;
-class UAZ_AbilitySystemComponent;
 class UAZ_GameplayAbility;
 class UGameplayEffect;
-// One quick-slot: a profile tag + the abilities that profile grants.
-  // Phase 1 inline data; mirrors what AbilityGrantFragment carries in the real path.
-  USTRUCT(BlueprintType)
+class UAZ_Inv_CommonUI_InventoryItem;
+class UAZ_Inv_CommonUI_InventoryComponent;
+class UAZ_Inv_CommonUI_EquipmentComponent;
+
+/** Intrinsic profiles keep their authored data; physical slots bind an owned item identity. */
+USTRUCT(BlueprintType)
 struct FAZ_QuickSlot
-  {
-  	GENERATED_BODY()
-  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") FGameplayTag WeaponTag;            // Weapon.Fist, ...
-  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UAZ_GameplayAbility>> WeaponAbilities; //{BP_GA_Punch_L, BP_GA_Punch_R}
-  	// Combat-ready profiles (fists) flip to strafe on equip: body faces the target, locomotion is directional.
-  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") bool bStrafeOnEquip = false;
-  	// GEs applied to the owner ASC on equip (authority site -> granted tags replicate). e.g. GE_CombatReady on the
-  	// fist slot grants Combat.Ready (timed); the melee ability's EffectsOnActivate re-applies it to refresh.
-  	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UGameplayEffect>> EffectsOnEquip;
-  };
+{
+	GENERATED_BODY()
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") FGameplayTag WeaponTag;
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UAZ_GameplayAbility>> WeaponAbilities;
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") bool bStrafeOnEquip = false;
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<TSubclassOf<UGameplayEffect>> EffectsOnEquip;
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") bool bInventoryBacked = false;
+	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar", meta=(EditCondition="bInventoryBacked")) FGameplayTag InventoryItemType;
+};
 
-
-UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
+/** Selection UI only. The equipment component owns all grants and weapon transitions. */
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class AZ_API UAZ_QuickBarComponent : public UActorComponent
 {
 	GENERATED_BODY()
-
-public:	
-	// Sets default values for this component's properties
+public:
 	UAZ_QuickBarComponent();
-	
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") void Select(int32 SlotIndex);
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") void CycleNext();
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") void CyclePrev();
+	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") int32 GetActiveSlotIndex() const;
+	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") UAZ_Inv_CommonUI_InventoryItem* GetBoundItem(int32 SlotIndex) const;
+	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") bool BindItemToSlot(int32 SlotIndex, UAZ_Inv_CommonUI_InventoryItem* Item);
+	const FAZ_QuickSlot* GetSlotDefinition(int32 SlotIndex) const;
+	void BindSelectedItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 
 protected:
-	// Called when the game starts
 	virtual void BeginPlay() override;
-	
 	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickBar") TArray<FAZ_QuickSlot> Slots;
-	int32 ActiveSlotIndex = -1;                 // -1 = empty hands (Weapon.None)
 
-	UAZ_AbilitySystemComponent* GetASC() const;
-	void EquipSlot(int32 SlotIndex);
-	void UnequipActive();
-
-	// Client equip presses route here — grants are authority-only, so the client hops to the server.
-	// The granted specs (with seeded InputTag) replicate back, so the client's LocalPredicted ability fires.
-	UFUNCTION(Server, Reliable) void Server_Select(int32 SlotIndex);
-	// Authority-side toggle + equip/unequip (server / listen-host only).
+private:
+	UPROPERTY(Replicated) TArray<FGuid> SlotItemIds;
+	UAZ_Inv_CommonUI_InventoryComponent* GetInventory() const;
+	UAZ_Inv_CommonUI_EquipmentComponent* GetEquipment() const;
+	bool CanBindItem(int32 SlotIndex, const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	void SelectInternal(int32 SlotIndex);
-
-	UPROPERTY() TArray<FGameplayAbilitySpecHandle> GrantedHandles;   // so we clear only OUR abilities
-
-public:	
-	// Called every frame
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
-		
-	
+	void Cycle(int32 Direction);
+	UFUNCTION() void OnInventoryChanged();
+	UFUNCTION(Server, Reliable) void Server_Select(int32 SlotIndex);
+	UFUNCTION(Server, Reliable) void Server_BindItem(int32 SlotIndex, FGuid ItemId);
 };

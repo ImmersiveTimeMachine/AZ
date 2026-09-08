@@ -34,6 +34,7 @@ public:
 
 	// Optional: Override NativeConstruct to apply your colors/logic immediately in C++
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual void NativePreConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	//protected:
@@ -57,6 +58,9 @@ public:
 	void DropItem();
 	bool HasActivePopUp() const;
 	void TryShowContextMenu();
+	bool CancelInteraction();
+	UFUNCTION()
+	void RefreshFromInventory();
 	void SetContextMenuAction(UInputAction* InAction) { ContextMenuAction = InAction; }
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Inventory")
@@ -141,17 +145,10 @@ public:
 
 private:
 	bool MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
-	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackAmountOverride = -1);
-
-	bool HasRoomAtIndex(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const FIntPoint& Dimensions, const TSet<int32>& CheckedIndices,
-	                    TSet<int32>& OutTentativelyClaimed,
-	                    const FGameplayTag& ItemTypeTag, const int32 MaxStackSize) const;
 
 	UAZ_Inv_CommonUI_SlottedItem* CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem, const FAZ_Inv_CommonUI_GridFragment* GridFragment,
 	                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment, int32 Index,
 	                                                bool bStackable, int32 StackAmount) const;
-
-	FAZ_Inv_CommonUI_SlotAvailabilityResult HasRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, const int32 StackAmountOverride = -1);
 
 	FVector2D GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const;
 	
@@ -162,16 +159,12 @@ private:
 	FIntPoint GetItemDimensions(const FAZ_Inv_CommonUI_ItemManifest& Manifest) const;
 
 	int32 GetStackAmount(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
-	int32 DetermineFillAmountForSlot(const bool bStackable, const int32 MaxStackSize, const int32 AmountToFill,
-	                                 const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
 	
-	void AddItemToGridSlots(const FAZ_Inv_CommonUI_SlotAvailabilityResult& SlotAvailabilityResult, UAZ_Inv_CommonUI_InventoryItem* NewItem);
 	void AddItemAtIndex(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackable, int32 StackAmount);
 	void UpdateGridSlots(UAZ_Inv_CommonUI_InventoryItem* NewItem, int32 Index, bool bStackableItem, int32 StackAmount);
 	void AddSlottedItemToPanel(const int32 Index, const FAZ_Inv_CommonUI_GridFragment* GridFragment, UAZ_Inv_CommonUI_SlottedItem* SlottedItem ) const;
 	void AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex, const int32 PreviousGridIndex);
 	
-	bool IsIndexClaimed(const TSet<int32>& CheckedIndices, const int32 Index) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "AZ|Inventory")
 	EInv_ItemCategory ItemCategory;
@@ -204,7 +197,6 @@ private:
 
 	UPROPERTY()
 	TMap<int32, TObjectPtr<UAZ_Inv_CommonUI_SlottedItem>> SlottedItems;
-
 
 	void ConstructGrid();
 
@@ -244,16 +236,6 @@ private:
 	void CreateItemPopUp(int32 GridIndex);
 	void DestroyItemPopUp();
 
-	// Stack interaction helpers
-	bool IsSameStackable(const UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem) const;
-	bool ShouldSwapStackCounts(int32 RoomInClickedSlot, int32 HoveredStackCount, int32 MaxStackSize) const;
-	void SwapStackCounts(int32 ClickedStackCount, int32 HoveredStackCount, int32 Index);
-	bool ShouldConsumeHoverItemStacks(int32 HoveredStackCount, int32 RoomInClickedSlot) const;
-	void ConsumeHoverItemStacks(int32 ClickedStackCount, int32 HoveredStackCount, int32 Index);
-	bool ShouldFillInStack(int32 RoomInClickedSlot, int32 HoveredStackCount) const;
-	void FillInStack(int32 FillAmount, int32 Remainder, int32 Index);
-	void SwapWithHoverItem(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, int32 GridIndex);
-
 	// Highlight system
 	void HighlightSlots(int32 Index, const FIntPoint& Dimensions);
 	void UnHighlightSlots(int32 Index, const FIntPoint& Dimensions);
@@ -272,14 +254,6 @@ private:
 	UUserWidget* GetVisibleCursorWidget();
 	UUserWidget* GetHiddenCursorWidget();
 
-	// Data helpers
-	bool HasValidItem(const UAZ_Inv_CommonUI_GridSlot* GridSlot) const;
-	bool IsUpperLeftSlot(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot) const;
-	bool DoesItemTypeMatch(const UAZ_Inv_CommonUI_InventoryItem* SubItem, const FGameplayTag& ItemType) const;
-	bool CheckSlotConstraints(const UAZ_Inv_CommonUI_GridSlot* GridSlot, const UAZ_Inv_CommonUI_GridSlot* SubGridSlot,
-	                          const TSet<int32>& CheckedIndices, TSet<int32>& OutTentativelyClaimed,
-	                          const FGameplayTag& ItemType, int32 MaxStackSize) const;
-
 	// ---------------------------------------------------
 	// LOGIC & DATA
 	// ---------------------------------------------------
@@ -287,8 +261,6 @@ private:
 	TWeakObjectPtr<UCanvasPanel> OwningCanvasPanel;
 
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;
-
-	TArray<UAZ_Inv_CommonUI_GridSlot*> GetAllGridSlots() const;
 
 	UPROPERTY()
 	TArray<UAZ_Inv_CommonUI_GridSlot*> SlotsByIndex;

@@ -54,8 +54,11 @@ bool UAZ_MovementDirectionCapabilityComponent::SweepForWall(const FVector& World
 
 	FHitResult Hit;
 	const FCollisionShape Shape = FCollisionShape::MakeCapsule(R, HalfHt);
+	// A customized capsule reports "Custom", which is not a registered profile name.
+	// Use its effective object channel and response container, including per-instance overrides.
 	const bool bHit = bUseCapsuleProfile
-		? World->SweepSingleByProfile(Hit, Start, End, Rot, Cap->GetCollisionProfileName(), Shape, Params)
+		? World->SweepSingleByChannel(Hit, Start, End, Rot, Cap->GetCollisionObjectType(), Shape, Params,
+			FCollisionResponseParams(Cap->GetCollisionResponseToChannels()))
 		: World->SweepSingleByChannel(Hit, Start, End, Rot, TraceChannel.GetValue(), Shape, Params);
 
 	if (bDrawDebug)

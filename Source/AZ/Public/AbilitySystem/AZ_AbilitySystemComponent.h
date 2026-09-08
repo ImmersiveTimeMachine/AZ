@@ -127,6 +127,9 @@ public:
 	 *  buffer's own replay, so a second refusal cannot re-latch and hold the press forever. */
 	bool AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused = true);
 	void AbilityInputTagReleased(const FGameplayTag& InputTag);
+	/** Forget outgoing weapon intent without interrupting a committed action. Held buttons must be
+	 * released/re-pressed before they can activate the next weapon or replay through a menu. */
+	void ClearWeaponInput(const FGameplayTagContainer& InputTags);
 	void ForEachAbility(const FForEachAbility& Delegate);
 
 	/**
@@ -173,6 +176,7 @@ protected:
 	 *  Only the first frame of a press may latch; Pressed (the Started edge) clears the tag so the edge
 	 *  always counts as fresh, Released removes it. */
 	TSet<FGameplayTag> DownInputTags;
+	TSet<FGameplayTag> SuppressedWeaponInputTags;
 	void LatchBufferedInput(const FGameplayTag& InputTag);
 	void OnCancelWindowTagChanged(const FGameplayTag Tag, int32 NewCount);
 	void OnAnyAbilityEnded(const FAbilityEndedData& EndedData);

@@ -76,6 +76,7 @@ protected:
 	TObjectPtr<UAZ_Inv_CommonUI_InventorySwitcherPanel> InventorySwitcherPanel;
 
 private:
+	TArray<FUIActionBindingHandle> MenuActionBindings;
 
 	void HandleTabLeft();
 	void HandleTabRight();

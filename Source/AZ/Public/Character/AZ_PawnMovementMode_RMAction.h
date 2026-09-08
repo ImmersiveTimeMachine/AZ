@@ -93,6 +93,7 @@ private:
 	// NOT rollback-safe under NetworkPrediction resimulation MID-action (a resim replay recomputes the
 	// apex tick from partial accumulators). Migrate into a sync-state data block if MP resim jitter shows
 	// during the rise — documented trigger, see audit P1 §sim-state.
+	// Accumulates signed rise until the 10 cm gate is crossed, then retains that qualification until Activate.
 	float NetRiseCm = 0.f;
 	int32 NonPositiveZDeltaTicks = 0;
 	float RiseElapsedMs = 0.f;

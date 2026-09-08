@@ -565,6 +565,7 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Item_Type_Weapon_Tool; // Dual-purpose tools (crowbar, axe) usable as melee or for puzzles.
 
     // --- Ammunition Types ---
+	FGameplayTag Item_Type_Magazine_Rifle; // Individually tracked detachable rifle magazine.
     FGameplayTag Item_Type_Ammo_Pistol; // Standard pistol rounds.
     FGameplayTag Item_Type_Ammo_Rifle; // Rifle cartridges.
     FGameplayTag Item_Type_Ammo_Shotgun; // Shotgun shells.

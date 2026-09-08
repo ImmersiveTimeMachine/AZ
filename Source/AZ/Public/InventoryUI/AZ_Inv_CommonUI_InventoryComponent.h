@@ -6,17 +6,21 @@
 #include "AZ_Inv_CommonUI_GameInventoryMenu.h"
 #include "Components/ActorComponent.h"
 #include "InventoryUI/FastArray/AZ_Inv_CommonUI_FastArray.h"
+#include "InventoryUI/AZ_Inv_CommonUI_ItemState.h"
 #include "AZ_Inv_CommonUI_InventoryComponent.generated.h"
 
 
 class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
+struct FAZ_Inv_CommonUI_ItemManifest;
+struct FAZ_InventoryPickupRecord;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCommonUI_InventoryItemChanged, UAZ_Inv_CommonUI_InventoryItem*, InventoryItem);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCommonUI_NoRoomInInventory);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCommonUI_StackChange, const FAZ_Inv_CommonUI_SlotAvailabilityResult&, Result);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCommonUI_ItemEquipStatusChanged, UAZ_Inv_CommonUI_InventoryItem*, Item);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCommonUI_InventoryMenuToggled, bool, bOpen);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCommonUI_InventoryChanged);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Blueprintable)
 class AZ_API UAZ_Inv_CommonUI_InventoryComponent : public UActorComponent
@@ -35,6 +39,19 @@ public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	void ToggleInventoryMenu();
+	bool IsMenuOpen() const { return bInventoryMenuOpen; }
+	TArray<UAZ_Inv_CommonUI_InventoryItem*> GetItems() const { return InventoryList.GetAllItems(); }
+	bool ContainsItem(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
+	UAZ_Inv_CommonUI_InventoryItem* FindItemById(const FGuid& ItemId) const;
+	FIntPoint GetGridDimensions(EInv_ItemCategory Category) const;
+	const TArray<FAZ_InventoryGridPlacement>& GetPlacements() const { return GridPlacements; }
+	FAZ_Inv_CommonUI_SlotAvailabilityResult GetRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 StackAmountOverride = -1) const;
+	bool TryPickupItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
+	void NotifyInventoryChanged();
+	virtual void ReadyForReplication() override;
+
+	UFUNCTION(Server, Reliable)
+	void Server_MoveItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 SourceGridIndex, int32 TargetGridIndex, int32 StackCount);
 	
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="AZ|Inventory")
 	void TryAddItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent);
@@ -71,6 +88,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AZ|Inventory")
 	FCommonUI_StackChange OnStackChange;
 
+	/** Published after an ownership/placement transaction commits. Widgets render this snapshot. */
+	UPROPERTY(BlueprintAssignable, Category="AZ|Inventory")
+	FCommonUI_InventoryChanged OnInventoryChanged;
+
 	FCommonUI_ItemEquipStatusChanged OnItemEquipped;
 	FCommonUI_ItemEquipStatusChanged OnItemUnequipped;
 	FCommonUI_InventoryItemChanged OnItemDropped;
@@ -82,6 +103,24 @@ private:
 	
 	UPROPERTY(Replicated)
 	FAZ_Inv_CommonUI_InventoryFastArray InventoryList;
+	UPROPERTY(ReplicatedUsing=OnRep_Placements)
+	TArray<FAZ_InventoryGridPlacement> GridPlacements;
+
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory|Capacity", meta=(ClampMin="1"))
+	FIntPoint EquippableGridDimensions = FIntPoint(11, 7);
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory|Capacity", meta=(ClampMin="1"))
+	FIntPoint ConsumableGridDimensions = FIntPoint(11, 7);
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory|Capacity", meta=(ClampMin="1"))
+	FIntPoint CraftableGridDimensions = FIntPoint(11, 7);
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory|Pickup", meta=(ClampMin="0"))
+	float MaximumPickupDistance = 350.f;
+
+	UFUNCTION()
+	void OnRep_Placements();
+	bool ValidatePickupPayload(const FAZ_InventoryPickupRecord& Root, const TArray<FAZ_InventoryPickupRecord>& Children) const;
+	bool IsPlacementFree(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 GridIndex, const TArray<FAZ_InventoryGridPlacement>& Placements) const;
+	void RemoveOwnedItem(UAZ_Inv_CommonUI_InventoryItem* Item);
+	bool RemoveStackPlacements(const FGuid& ItemId, int32 Count);
 
 	TWeakObjectPtr<APlayerController> OwningController;
 
@@ -96,7 +135,7 @@ private:
 	void CloseInventoryMenu();
 	void ConstructInventory();
 	
-	void SpawnDroppedItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount);
+	AActor* SpawnDroppedItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount);
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	float DropSpawnAngleMin = -85.f;

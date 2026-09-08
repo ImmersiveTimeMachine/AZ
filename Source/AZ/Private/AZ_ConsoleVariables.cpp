@@ -14,10 +14,17 @@ namespace AZCVars
 	IConsoleVariable* GrabCooldownSeconds        = nullptr;
 	IConsoleVariable* GrabPressesToEscape        = nullptr;
 	IConsoleVariable* GrabWindowSeconds          = nullptr;
+	IConsoleVariable* WeaponDebug                = nullptr;
+	IConsoleVariable* WeaponDebugInterval        = nullptr;
 
 	void RegisterAll()
 	{
 		IConsoleManager& CM = IConsoleManager::Get();
+
+		WeaponDebug = CM.RegisterConsoleVariable(TEXT("az.Weapon.Debug"), 0,
+			TEXT("Weapon pose diagnostics at end of game frames: 0 off, 1 mode/socket/playing animation, 2 also transforms and grip markers, 3 also draw. Never changes the pose."), ECVF_Default);
+		WeaponDebugInterval = CM.RegisterConsoleVariable(TEXT("az.Weapon.DebugInterval"), 0.25f,
+			TEXT("Seconds between weapon pose samples (minimum 0.05). Mode/socket changes are logged immediately."), ECVF_Default);
 
 		DDControlStyle = CM.RegisterConsoleVariable(
 			TEXT("DDCvar.ControlStyle"),
@@ -108,7 +115,12 @@ namespace AZCVars
 		Drop(GrabCooldownSeconds,         TEXT("az.Grab.CooldownSeconds"));
 		Drop(GrabPressesToEscape,         TEXT("az.Grab.PressesToEscape"));
 		Drop(GrabWindowSeconds,           TEXT("az.Grab.WindowSeconds"));
+		Drop(WeaponDebug,                 TEXT("az.Weapon.Debug"));
+		Drop(WeaponDebugInterval,         TEXT("az.Weapon.DebugInterval"));
 	}
+
+	int32 GetWeaponDebug() { return WeaponDebug ? WeaponDebug->GetInt() : 0; }
+	float GetWeaponDebugInterval() { return WeaponDebugInterval ? WeaponDebugInterval->GetFloat() : 0.25f; }
 
 	int32 GetControlStyle()              { return DDControlStyle             ? DDControlStyle->GetInt()             : 0; }
 	int32 GetStrafeStyle()               { return DDStrafeStyle              ? DDStrafeStyle->GetInt()              : 0; }

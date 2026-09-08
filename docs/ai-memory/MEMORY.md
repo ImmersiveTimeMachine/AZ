@@ -83,6 +83,7 @@ Migrated from UE 5.7.4 on 2026-05-10. Active work: v2 character system (hero paw
 - [project_iris_replication_5_8.md](project_iris_replication_5_8.md) — Iris in 5.8: enabled 2026-05-15, PIE-MP passed 2026-05-21. Mover via NetworkPrediction SetupIrisSupport; GAS tag-count routes through `FMinimalReplicationTagCountMap` Iris NetSerializer (transitional surface, not a legacy fallback) until 5.9+.
 
 ## Catalogs / External References
+- [project_hud_design.md](project_hud_design.md) — 2026-09-07: HUD A + top compass approved; native GIMP text/vector layers required. Next session: review existing assets, develop implementation plan, then implement. Full handoff in C:/UnrealEngine/Games/AZ/docs/design-briefs/hud-design-next-session.md.
 - [reference_noweapon_anim_catalog.md](reference_noweapon_anim_catalog.md) — 191 NoWeapon anims at `/Game/AZ/Assets/RTG/NoWeapons/RootMotions/` by group; ✅ stand turn 90/180 L/R; ⚠ no sprint stop, slide exit, backward run stops
 - [reference_bp_node_tools.md](reference_bp_node_tools.md), [reference_animgraph_node_tools.md](reference_animgraph_node_tools.md) — full API tables for AZ_BlueprintNodeUtils + AZ_AnimGraphNodeUtils (procedural surface in skill `az-cpp-utility-tools`)
 - [reference_ue5_python_posesearch.md](reference_ue5_python_posesearch.md), [reference_ue5_python_anim_notifies.md](reference_ue5_python_anim_notifies.md) — Python recipes (procedural surface in skill `asset-modification-via-python`)

@@ -8,10 +8,12 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventorySwitcherPanel.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "InventoryUI/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
+#include "Player/AZ_PlayerController.h"
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 {
 	Super::NativeConstruct();
+	SetIsFocusable(true);
 
 	if (InventorySwitcherPanel)
 	{
@@ -23,6 +25,11 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 {
 	Super::NativeOnActivated();
+	if (InventorySwitcherPanel) InventorySwitcherPanel->RefreshFromInventory();
+	if (const AAZ_PlayerController* PC = Cast<AAZ_PlayerController>(GetOwningPlayer()); PC && PC->OpenInventoryAction && PC->OpenInventoryAction != BackAction)
+	{
+		MenuActionBindings.Add(RegisterUIActionBinding(FBindUIActionArgs(PC->OpenInventoryAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleBack))));
+	}
 
 	// IMC is pushed automatically by base class UCommonActivatableWidget::ActivateMappingContext()
 	// via the InputMapping property set in Blueprint (IMC_AZ_InventoryMenu).
@@ -31,22 +38,22 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 
 	if (TabLeftAction)
 	{
-		RegisterUIActionBinding(FBindUIActionArgs(TabLeftAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleTabLeft)));
+		MenuActionBindings.Add(RegisterUIActionBinding(FBindUIActionArgs(TabLeftAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleTabLeft))));
 	}
 
 	if (TabRightAction)
 	{
-		RegisterUIActionBinding(FBindUIActionArgs(TabRightAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleTabRight)));
+		MenuActionBindings.Add(RegisterUIActionBinding(FBindUIActionArgs(TabRightAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleTabRight))));
 	}
 
 	if (BackAction)
 	{
-		RegisterUIActionBinding(FBindUIActionArgs(BackAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleBack)));
+		MenuActionBindings.Add(RegisterUIActionBinding(FBindUIActionArgs(BackAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleBack))));
 	}
 
 	if (ContextMenuAction)
 	{
-		RegisterUIActionBinding(FBindUIActionArgs(ContextMenuAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleContextMenu)));
+		MenuActionBindings.Add(RegisterUIActionBinding(FBindUIActionArgs(ContextMenuAction, false, FSimpleDelegate::CreateUObject(this, &ThisClass::HandleContextMenu))));
 	}
 	else
 	{
@@ -56,8 +63,14 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnDeactivated()
 {
+	if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
+	for (FUIActionBindingHandle& Binding : MenuActionBindings)
+	{
+		Binding.Unregister();
+		RemoveActionBinding(Binding);
+	}
+	MenuActionBindings.Reset();
 	Super::NativeOnDeactivated();
-	// Base class handles IMC removal and clears registered action bindings.
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabLeft()
@@ -78,8 +91,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabRight()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleBack()
 {
-	// Skip back if a popup is currently active (right-click was on an item)
-	if (InventorySwitcherPanel && InventorySwitcherPanel->HasActivePopUp())
+	if (InventorySwitcherPanel && InventorySwitcherPanel->CancelInteraction())
 	{
 		return;
 	}

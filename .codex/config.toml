@@ -1,0 +1,12 @@
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+
+[mcp_servers.unreal-mcp]
+url = "http://127.0.0.1:8001/mcp"
+
+[mcp_servers.unrealclaude]
+command = "node"
+args = ["C:/UE57/Engine/Plugins/Marketplace/UnrealClaude/UnrealClaude/Resources/mcp-bridge/index.js"]
+
+[mcp_servers.unrealclaude.env]
+UNREAL_MCP_URL = "http://localhost:3000"

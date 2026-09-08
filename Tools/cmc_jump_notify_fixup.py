@@ -168,10 +168,16 @@ LAYOUT = {
     'AnimPro_JumpIdleLand2Walk':     ('PSD_AZ_Stand_Idle_Lands_Move', 0.000, 0.150, 0.650),
     'AnimPro_JumpWalk_LU_Land2Walk': ('PSD_AZ_Stand_Walk_Lands_Move_LU', 0.000, 0.150, 0.456),
     'AnimPro_JumpRun_LU_Land2Run':   ('PSD_AZ_Stand_Run_Lands_Move_LU', 0.000, 0.150, 0.450),
-    # RETIRED from indexing (see THE RU MIRROR SWAP above): no database, no PoseSearch notifies.
-    # The *_RU databases play the LU clips MIRRORED instead — a manual PSD-editor entry.
-    'AnimPro_JumpWalk_RU_Land2Walk': (None, None, None, 0.283),
-    'AnimPro_JumpRun_RU_Land2Run':   (None, None, None, 0.217),
+    # RETIRED from the CMC indexes (see THE RU MIRROR SWAP above); the CMC *_RU databases play the LU
+    # clips MIRRORED instead — a manual PSD-editor entry.
+    # ★ BUT these two clips are STILL SELECTED BY ASSET by the MOVER chooser (CHT_v2 rows 34/36,
+    # bUseMM=True), and a raw sequence can only be motion-matched THROUGH its BranchIn database.
+    # Stripping their BranchIn for the CMC swap silently broke Mover landings (search returned nothing
+    # → frame-0 fallback pop). Restored 2026-08-31: BranchIn -> PSD_v2_Jump (the Mover jump DB, at the
+    # MotionMatching root, not under CMC/). The two architectures SHARE these clips' notify state;
+    # a full path here bypasses the CMC DBS prefix. No BlockTransition / bias on the Mover side.
+    'AnimPro_JumpWalk_RU_Land2Walk': ('/Game/AZ/Blueprints/Animation/MotionMatching/PSD_v2_Jump', 0.000, None, 0.283),
+    'AnimPro_JumpRun_RU_Land2Run':   ('/Game/AZ/Blueprints/Animation/MotionMatching/PSD_v2_Jump', 0.000, None, 0.217),
 }
 
 # AnimPro_JumpIdleLandHard is deliberately OUT of every database (no BranchIn, no explicit
@@ -228,7 +234,8 @@ def apply_layout():
         unreal.AZ_PoseSearchUtils.remove_all_pose_search_notifies(seq)
 
         if branch_in is not None:
-            db = unreal.EditorAssetLibrary.load_asset(DBS + dbname)
+            # dbname may be a full /Game/ path (Mover-side database) or a name under the CMC folder.
+            db = unreal.EditorAssetLibrary.load_asset(dbname if dbname.startswith('/Game/') else DBS + dbname)
             if not db:
                 print('MISSING DB: ' + DBS + dbname)
                 continue

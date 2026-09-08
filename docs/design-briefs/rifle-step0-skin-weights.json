@@ -1,0 +1,331 @@
+{
+  "source_asset": "/Game/AZ/Assets/M16/SKL/M16_Skeleton",
+  "method": "Read-only ASCII FBX export of render mesh, export_source_mesh=False; parsed cluster weights and model connections; no animation playback or asset edits",
+  "export_file": "C:\\UnrealEngine\\Games\\AZ\\Saved\\Temp\\RifleStep0RigExport\\M16_weights_readonly.fbx",
+  "geometry_vertices": 10485,
+  "weighted_vertices": 10485,
+  "multi_bone_vertices": 0,
+  "clusters": [
+    {
+      "bone": "root",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "hand_r",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_BasePart",
+      "positive_vertex_influences": 354,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -4.78893566131592,
+          -17.2062225341797,
+          2.97222852706909
+        ],
+        "max": [
+          -0.537373900413513,
+          2.00201058387756,
+          12.5849847793579
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_CompensatorBase",
+      "positive_vertex_influences": 247,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -2.47302484512329,
+          -45.1460266113281,
+          10.4937944412231
+        ],
+        "max": [
+          0.308138132095337,
+          -17.6094417572021,
+          13.3758668899536
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_CompensatorMod",
+      "positive_vertex_influences": 838,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -2.38888502120972,
+          -60.2704086303711,
+          10.6282777786255
+        ],
+        "max": [
+          0.224301099777222,
+          -45.0673065185547,
+          13.2414045333862
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_ElitBase",
+      "positive_vertex_influences": 2062,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -4.40820598602295,
+          -45.7997016906738,
+          -6.02603769302368
+        ],
+        "max": [
+          1.80988717079163,
+          5.36989164352417,
+          15.8361558914185
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_SightBase",
+      "positive_vertex_influences": 1400,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -3.09763693809509,
+          -51.2034225463867,
+          9.66048526763916
+        ],
+        "max": [
+          1.16624212265015,
+          0.625845730304718,
+          19.4649658203125
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_StockMod",
+      "positive_vertex_influences": 2209,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -3.32073092460632,
+          -0.646729111671448,
+          0.189711630344391
+        ],
+        "max": [
+          1.15622711181641,
+          24.4089126586914,
+          13.3576555252075
+        ]
+      }
+    },
+    {
+      "bone": "catch",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_BasePart_003",
+      "positive_vertex_influences": 41,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          0.247116088867188,
+          -9.74979400634766,
+          8.40175437927246
+        ],
+        "max": [
+          0.865982055664063,
+          -8.838942527771,
+          11.4800338745117
+        ]
+      }
+    },
+    {
+      "bone": "catch_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "selector",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_BasePart_002",
+      "positive_vertex_influences": 68,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          0.264876246452332,
+          -3.75051283836365,
+          7.49863386154175
+        ],
+        "max": [
+          0.64262318611145,
+          -0.818979322910309,
+          8.81261253356934
+        ]
+      }
+    },
+    {
+      "bone": "selector_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "charginghandle",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_ElitBase_Shutter",
+      "positive_vertex_influences": 298,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -3.2136378288269,
+          -0.401160657405853,
+          13.6422901153564
+        ],
+        "max": [
+          1.29608201980591,
+          3.23036813735962,
+          14.5793695449829
+        ]
+      }
+    },
+    {
+      "bone": "UE4_M16_ElitMod_Shutter",
+      "positive_vertex_influences": 1296,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -5.24871301651001,
+          -8.50403881072998,
+          13.7828388214111
+        ],
+        "max": [
+          3.083092212677,
+          3.39424562454224,
+          14.7344980239868
+        ]
+      }
+    },
+    {
+      "bone": "charginghandle_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "ejector",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_ElitBase_001",
+      "positive_vertex_influences": 34,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -2.20550584793091,
+          -16.6571674346924,
+          11.5150928497314
+        ],
+        "max": [
+          -1.54900586605072,
+          -8.13316822052002,
+          12.9345932006836
+        ]
+      }
+    },
+    {
+      "bone": "ejector_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "trigger",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_BasePart_001",
+      "positive_vertex_influences": 92,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -1.61359286308289,
+          -7.04335975646973,
+          3.73290634155273
+        ],
+        "max": [
+          -0.551018834114075,
+          -5.57542896270752,
+          7.12354230880737
+        ]
+      }
+    },
+    {
+      "bone": "trigger_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "magazine",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    },
+    {
+      "bone": "UE4_M16_MagazMod",
+      "positive_vertex_influences": 1546,
+      "min_weight": 1.0,
+      "max_weight": 1.0,
+      "exported_mesh_space_bounds": {
+        "min": [
+          -2.33994603157043,
+          -19.1434268951416,
+          -8.44851589202881
+        ],
+        "max": [
+          0.178210020065308,
+          -10.1438684463501,
+          11.0495910644531
+        ]
+      }
+    },
+    {
+      "bone": "magazine_end",
+      "positive_vertex_influences": 0,
+      "min_weight": 0,
+      "max_weight": 0
+    }
+  ],
+  "source_uasset_sha256": "80ece400fe2351c9a45c30dbf18648473834f4bb0900348a6d4d7f3b3d3dbd82",
+  "magazine_hiding_conclusion": "LOD0 rigid influence isolation verified: hide UE4_M16_MagazMod with PBO_None; visual attachment alignment remains unverified",
+  "limits": "Exported skin data verified; no live bone animation, hiding, socket placement or PIE was performed"
+}

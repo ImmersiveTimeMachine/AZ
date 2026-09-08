@@ -1,8 +1,7 @@
 #include "Items/AZ_PickupItem.h"
 
-#include "Character/AZ_HeroCharacter.h"
+#include "GameFramework/Pawn.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
-#include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
 #include "Player/AZ_PlayerController.h"
 
 
@@ -28,14 +27,13 @@ void AAZ_PickupItem::HandleBeginOverlap(UPrimitiveComponent* OverlappedComp,
 {
 	if (!OtherActor || OtherActor == this) return;
 
-	if (const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor))
+	if (const APawn* Hero = Cast<APawn>(OtherActor))
 	{
 		if (Hero->IsLocallyControlled())
 		{
 			if (AAZ_PlayerController* PlayerCtrl = Cast<AAZ_PlayerController>(Hero->GetController());
-				PlayerCtrl && PlayerCtrl->HUDWidget)
+				PlayerCtrl)
 			{
-				PlayerCtrl->HUDWidget->ShowPickupMessage(FString("Press 'E' to add item."));
 				PlayerCtrl->SetActivePickUpActor(this);
 			}
 		}
@@ -47,15 +45,14 @@ void AAZ_PickupItem::HandleEndOverlap(UPrimitiveComponent* OverlappedComp,
                                       UPrimitiveComponent* OtherComp,
                                       int32 OtherBodyIndex)
 {
-	if (const auto Hero = Cast<AAZ_HeroCharacter>(OtherActor))
+	if (const APawn* Hero = Cast<APawn>(OtherActor))
 	{
 		if (Hero->IsLocallyControlled())
 		{
 			if (AAZ_PlayerController* PlayerCtrl = Cast<AAZ_PlayerController>(Hero->GetController());
-				PlayerCtrl && PlayerCtrl->HUDWidget)
+				PlayerCtrl)
 			{
-				PlayerCtrl->HUDWidget->HidePickupMessage();
-				PlayerCtrl->SetActivePickUpActor(nullptr);
+				PlayerCtrl->RefreshPickupTarget();
 			}
 		}
 	}

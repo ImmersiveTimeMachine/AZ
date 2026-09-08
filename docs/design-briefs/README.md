@@ -9,6 +9,7 @@ being re-proposed.
 
 | brief | question |
 |---|---|
+| `hud-design-next-session.md` | Approved CHALK HUD v03, native GIMP layer requirements, existing asset findings, and next-session asset-review/implementation-plan agenda. |
 | `stop-animation-problem-statement.md` | Why stop animations failed to play or match the capsule, and what the stable architecture is. Led to the latched stop contract and curve-driven braking. |
 | `anim-speed-drive-problem-statement.md` | Should capsule speed come from a per-frame animation curve (`velocity = inputDir × clipSpeed`) rather than from tuned constants? |
 

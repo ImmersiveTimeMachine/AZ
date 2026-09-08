@@ -107,6 +107,28 @@ bool UAZ_PoseSearchUtils::SetSamplingRangeOnEntry(UPoseSearchDatabase* Database,
 #endif
 }
 
+int32 UAZ_PoseSearchUtils::SetDisableReselectionOnDatabase(UPoseSearchDatabase* Database, bool bDisableReselection)
+{
+#if WITH_EDITOR
+	if (!Database) return 0;
+	Database->Modify();
+	int32 Updated = 0;
+	for (int32 Index = 0; Index < Database->GetNumAnimationAssets(); ++Index)
+	{
+		if (FPoseSearchDatabaseAnimationAsset* Entry = Database->GetMutableDatabaseAnimationAsset(Index))
+		{
+			Entry->SetDisableReselection(bDisableReselection);
+			++Updated;
+		}
+	}
+	Database->MarkPackageDirty();
+	Database->PostEditChange();
+	return Updated;
+#else
+	return 0;
+#endif
+}
+
 void UAZ_PoseSearchUtils::RemoveAnimationAtIndex(UPoseSearchDatabase* Database, int32 Index)
 {
 	if (Database && Index >= 0 && Index < Database->GetNumAnimationAssets())

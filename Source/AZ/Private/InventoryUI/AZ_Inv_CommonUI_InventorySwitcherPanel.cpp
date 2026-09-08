@@ -1,6 +1,5 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "InventoryUI/AZ_Inv_CommonUI_InventorySwitcherPanel.h"
 
 #include "CommonActivatableWidgetSwitcher.h"
@@ -14,6 +13,7 @@
 #include "Components/CanvasPanel.h"
 #include "Components/Image.h"
 #include "Components/HorizontalBox.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryGrid.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
@@ -28,6 +28,15 @@
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeConstruct()
+{
+	Super::NativeConstruct();
+	InventoryComponent = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer());
+	EquipmentComponent = GetOwningPlayer() ? GetOwningPlayer()->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+	if (InventoryComponent.IsValid()) InventoryComponent->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::HandleInventoryChanged);
+	if (EquipmentComponent.IsValid()) EquipmentComponent->OnEquipmentChanged.AddUniqueDynamic(this, &ThisClass::RefreshEquipment);
 
 	// Bind tab button click events
 	if (Button_Equippable) Button_Equippable->OnClicked().AddUObject(this, &ThisClass::ShowEquippables);
@@ -40,9 +49,11 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeOnInitialized()
 	}
 
 	// Set initial active grid (Equippables at index 0)
+	ActiveGrid.Reset();
 	ShowEquippables();
 
 	// Collect all EquippedGridSlots in the widget tree and bind their click delegates
+	EquippedGridSlots.Reset();
 	WidgetTree->ForEachWidget([this](UWidget* Widget)
 	{
 		UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot = Cast<UAZ_Inv_CommonUI_EquippedGridSlot>(Widget);
@@ -52,6 +63,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeOnInitialized()
 			EquippedGridSlot->EquippedGridSlotClicked.AddDynamic(this, &ThisClass::HandleEquippedGridSlotClicked);
 		}
 	});
+	RefreshEquipment();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -63,6 +75,11 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeTick(const FGeometry& MyGeom
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
 {
+	OnHide();
+	if (InventoryComponent.IsValid()) InventoryComponent->OnInventoryChanged.RemoveDynamic(this, &ThisClass::HandleInventoryChanged);
+	if (EquipmentComponent.IsValid()) EquipmentComponent->OnEquipmentChanged.RemoveDynamic(this, &ThisClass::RefreshEquipment);
+	InventoryComponent.Reset();
+	EquipmentComponent.Reset();
 	if (Button_Equippable) Button_Equippable->OnClicked().RemoveAll(this);
 	if (Button_Consumable) Button_Consumable->OnClicked().RemoveAll(this);
 	if (Button_Craftable) Button_Craftable->OnClicked().RemoveAll(this);
@@ -234,7 +251,6 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_Inv
 
 	if (ActiveGrid.IsValid())
 	{
-		ActiveGrid->HideCursor();
 		ActiveGrid->OnHide();
 	}
 
@@ -247,11 +263,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_Inv
 
 	if (InventoryGridSwitcher)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("SetActiveGrid: Switcher valid, NumChildren=%d, Grid=%s"),
-			InventoryGridSwitcher->GetNumWidgets(), *GetNameSafe(Grid));
 		InventoryGridSwitcher->SetActiveWidget(Grid);
-		UE_LOG(LogTemp, Warning, TEXT("SetActiveGrid: ActiveIndex after switch = %d"),
-			InventoryGridSwitcher->GetActiveWidgetIndex());
 	}
 	else
 	{
@@ -271,21 +283,9 @@ UAZ_Inv_CommonUI_InventoryGrid* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetActi
 
 FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_InventorySwitcherPanel::HasRoomForItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent) const
 {
-	switch (ItemComponent->GetItemManifest().GetItemCategory())
-	{
-		case EInv_ItemCategory::Equippable:
-			return Grid_Equippables->HasRoomForItem(ItemComponent);
-
-		case EInv_ItemCategory::Consumable:
-			return Grid_Consumables->HasRoomForItem(ItemComponent);
-
-		case EInv_ItemCategory::Craftable:
-			return Grid_Craftables->HasRoomForItem(ItemComponent);
-
-		default:
-			UE_LOG(Log_AZ, Warning, TEXT("HasRoomForItem: invalid item category for %s"), *GetNameSafe(ItemComponent));
-			return FAZ_Inv_CommonUI_SlotAvailabilityResult();
-	}
+	return IsValid(ItemComponent) && InventoryComponent.IsValid()
+		? InventoryComponent->GetRoomForItem(ItemComponent->GetItemManifest())
+		: FAZ_Inv_CommonUI_SlotAvailabilityResult();
 }
 
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::HasHoverItem() const
@@ -317,6 +317,53 @@ bool UAZ_Inv_CommonUI_InventorySwitcherPanel::HasActivePopUp() const
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::TryShowContextMenu()
 {
 	if (ActiveGrid.IsValid()) ActiveGrid->TryShowContextMenu();
+}
+
+bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CancelInteraction()
+{
+	return ActiveGrid.IsValid() && ActiveGrid->CancelInteraction();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnHide()
+{
+	if (Grid_Equippables) Grid_Equippables->OnHide();
+	if (Grid_Consumables) Grid_Consumables->OnHide();
+	if (Grid_Craftables) Grid_Craftables->OnHide();
+	OnItemUnHovered();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RefreshFromInventory()
+{
+	if (Grid_Equippables) Grid_Equippables->RefreshFromInventory();
+	if (Grid_Consumables) Grid_Consumables->RefreshFromInventory();
+	if (Grid_Craftables) Grid_Craftables->RefreshFromInventory();
+	RefreshEquipment();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleInventoryChanged()
+{
+	RefreshEquipment();
+	if (DescribedItem.IsValid() && InventoryComponent.IsValid() && InventoryComponent->ContainsItem(DescribedItem.Get()))
+	{
+		RefreshDescription();
+	}
+	else
+	{
+		OnItemUnHovered();
+	}
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RefreshEquipment()
+{
+	UAZ_Inv_CommonUI_InventoryItem* ActiveItem = EquipmentComponent.IsValid() ? EquipmentComponent->GetActiveItem() : nullptr;
+	for (UAZ_Inv_CommonUI_EquippedGridSlot* GridSlot : EquippedGridSlots)
+	{
+		if (!IsValid(GridSlot)) continue;
+		GridSlot->ClearEquippedItem();
+		if (!IsValid(ActiveItem) || !ActiveItem->GetItemManifest().GetItemTypeTag().MatchesTag(GridSlot->GetEquipmentTypeTag())) continue;
+		UAZ_Inv_CommonUI_EquippedSlottedItem* SlottedItem = GridSlot->OnItemEquipped(ActiveItem, GridSlot->GetEquipmentTypeTag(), GetTileSize());
+		if (IsValid(SlottedItem)) SlottedItem->OnEquippedSlottedItemClicked.AddUniqueDynamic(this, &ThisClass::HandleEquippedSlottedItemClicked);
+	}
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetContextMenuAction(UInputAction* InAction)
@@ -363,48 +410,22 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetOwningCanvas(UCanvasPanel* Owni
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleEquippedGridSlotClicked(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, const FGameplayTag& EquipmentTypeTag)
 {
-	if (!CanEquipHoverItem(EquippedGridSlot, EquipmentTypeTag)) return;
-
-	UAZ_Inv_CommonUI_HoverItem* HoverItem = GetHoverItem();
-
-	const float TileSize = GetTileSize();
-	UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem = EquippedGridSlot->OnItemEquipped(
-		HoverItem->GetInventoryItem(),
-		EquipmentTypeTag,
-		TileSize
-	);
-	if (IsValid(EquippedSlottedItem))
-	{
-		EquippedSlottedItem->OnEquippedSlottedItemClicked.AddDynamic(this, &ThisClass::HandleEquippedSlottedItemClicked);
-	}
-
-	UAZ_Inv_CommonUI_InventoryComponent* InventoryComponent = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer());
-	check(IsValid(InventoryComponent));
-	InventoryComponent->Server_EquipSlotClicked(HoverItem->GetInventoryItem(), nullptr);
-
-	Grid_Equippables->ClearHoverItem();
+	if (!CanEquipHoverItem(EquippedGridSlot, EquipmentTypeTag) || !InventoryComponent.IsValid()) return;
+	UAZ_Inv_CommonUI_InventoryItem* Item = GetHoverItem()->GetInventoryItem();
+	// End the drag preview while the item remains in its canonical backpack cells.
+	if (Grid_Equippables) Grid_Equippables->OnHide();
+	InventoryComponent->Server_EquipSlotClicked(Item, nullptr);
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleEquippedSlottedItemClicked(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem)
 {
+	if (!IsValid(EquippedSlottedItem) || !InventoryComponent.IsValid()) return;
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
-
 	if (IsValid(GetHoverItem()) && GetHoverItem()->IsStackable()) return;
-
 	UAZ_Inv_CommonUI_InventoryItem* ItemToEquip = IsValid(GetHoverItem()) ? GetHoverItem()->GetInventoryItem() : nullptr;
 	UAZ_Inv_CommonUI_InventoryItem* ItemToUnequip = EquippedSlottedItem->GetInventoryItem().Get();
-
-	UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot = FindSlotWithEquippedItem(ItemToUnequip);
-
-	ClearSlotOfItem(EquippedGridSlot);
-
-	Grid_Equippables->AssignHoverItem(ItemToUnequip);
-
-	RemoveEquippedSlottedItem(EquippedSlottedItem);
-
-	MakeEquippedSlottedItem(EquippedSlottedItem, EquippedGridSlot, ItemToEquip);
-
-	BroadcastSlotClickedDelegates(ItemToEquip, ItemToUnequip);
+	if (Grid_Equippables) Grid_Equippables->OnHide();
+	InventoryComponent->Server_EquipSlotClicked(ItemToEquip, ItemToUnequip);
 }
 
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CanEquipHoverItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, const FGameplayTag& EquipmentTypeTag) const
@@ -420,62 +441,10 @@ bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CanEquipHoverItem(UAZ_Inv_CommonUI
 	const bool bHeldItemValid = IsValid(HeldItem);
 	const bool bNotStackable = !HoverItem->IsStackable();
 	const bool bIsEquippable = HeldItem && HeldItem->GetItemManifest().GetItemCategory() == EInv_ItemCategory::Equippable;
+	const bool bHasEquipment = HeldItem && HeldItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>();
 	const bool bMatchesType = HeldItem && HeldItem->GetItemManifest().GetItemTypeTag().MatchesTag(EquipmentTypeTag);
 
-	return bHasHoverItem && bHeldItemValid && bNotStackable && bIsEquippable && bMatchesType;
-}
-
-UAZ_Inv_CommonUI_EquippedGridSlot* UAZ_Inv_CommonUI_InventorySwitcherPanel::FindSlotWithEquippedItem(UAZ_Inv_CommonUI_InventoryItem* EquippedItem) const
-{
-	auto* FoundSlot = EquippedGridSlots.FindByPredicate([EquippedItem](const UAZ_Inv_CommonUI_EquippedGridSlot* GridSlot)
-	{
-		return GridSlot->GetInventoryItem() == EquippedItem;
-	});
-	return FoundSlot ? *FoundSlot : nullptr;
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::ClearSlotOfItem(UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot)
-{
-	if (IsValid(EquippedGridSlot))
-	{
-		EquippedGridSlot->SetEquippedSlottedItem(nullptr);
-		EquippedGridSlot->SetInventoryItem(nullptr);
-	}
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::RemoveEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* EquippedSlottedItem)
-{
-	if (!IsValid(EquippedSlottedItem)) return;
-
-	if (EquippedSlottedItem->OnEquippedSlottedItemClicked.IsAlreadyBound(this, &ThisClass::HandleEquippedSlottedItemClicked))
-	{
-		EquippedSlottedItem->OnEquippedSlottedItemClicked.RemoveDynamic(this, &ThisClass::HandleEquippedSlottedItemClicked);
-	}
-	EquippedSlottedItem->RemoveFromParent();
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::MakeEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* OldSlottedItem, UAZ_Inv_CommonUI_EquippedGridSlot* EquippedGridSlot, UAZ_Inv_CommonUI_InventoryItem* ItemToEquip)
-{
-	if (!IsValid(EquippedGridSlot)) return;
-
-	UAZ_Inv_CommonUI_EquippedSlottedItem* SlottedItem = EquippedGridSlot->OnItemEquipped(
-		ItemToEquip,
-		OldSlottedItem->GetEquipmentTypeTag(),
-		GetTileSize());
-
-	if (IsValid(SlottedItem))
-	{
-		SlottedItem->OnEquippedSlottedItemClicked.AddDynamic(this, &ThisClass::HandleEquippedSlottedItemClicked);
-	}
-
-	EquippedGridSlot->SetEquippedSlottedItem(SlottedItem);
-}
-
-void UAZ_Inv_CommonUI_InventorySwitcherPanel::BroadcastSlotClickedDelegates(UAZ_Inv_CommonUI_InventoryItem* ItemToEquip, UAZ_Inv_CommonUI_InventoryItem* ItemToUnequip) const
-{
-	UAZ_Inv_CommonUI_InventoryComponent* InventoryComponent = UAZ_Inv_InventoryStatics::Get_CommonUI_InventoryComponent(GetOwningPlayer());
-	check(IsValid(InventoryComponent));
-	InventoryComponent->Server_EquipSlotClicked(ItemToEquip, ItemToUnequip);
+	return bHasHoverItem && bHeldItemValid && bNotStackable && bIsEquippable && bHasEquipment && bMatchesType;
 }
 
 // =============================================================================
@@ -484,70 +453,56 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::BroadcastSlotClickedDelegates(UAZ_
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
-	if (!IsValid(ItemDescription)) return;
-	ItemDescription->SetVisibility(ESlateVisibility::Collapsed);
-
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(DescriptionTimer);
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(EquippedDescriptionTimer);
-
-	FTimerDelegate DescriptionTimerDelegate;
-	DescriptionTimerDelegate.BindLambda([this, Item]()
-	{
-		if (!IsValid(Item) || !IsValid(ItemDescription)) return;
-		const auto& Manifest = Item->GetItemManifest();
-		ItemDescription->SetVisibility(ESlateVisibility::HitTestInvisible);
-		Manifest.AssimilateInventoryFragments(ItemDescription);
-
-		FTimerDelegate EquippedDescriptionTimerDelegate;
-		EquippedDescriptionTimerDelegate.BindUObject(this, &ThisClass::ShowEquippedItemDescription, Item);
-		GetOwningPlayer()->GetWorldTimerManager().SetTimer(EquippedDescriptionTimer, EquippedDescriptionTimerDelegate, EquippedDescriptionTimerDelay, false);
-	});
-
-	GetOwningPlayer()->GetWorldTimerManager().SetTimer(DescriptionTimer, DescriptionTimerDelegate, DescriptionTimerDelay, false);
+	OnItemUnHovered();
+	if (!IsValid(Item) || !IsValid(ItemDescription) || !GetWorld()) return;
+	DescribedItem = Item;
+	GetWorld()->GetTimerManager().SetTimer(DescriptionTimer, this, &ThisClass::RefreshDescription, DescriptionTimerDelay, false);
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnItemUnHovered()
 {
-	if (IsValid(ItemDescription))
+	DescribedItem.Reset();
+	if (IsValid(ItemDescription)) ItemDescription->SetVisibility(ESlateVisibility::Collapsed);
+	if (IsValid(EquippedItemDescription)) EquippedItemDescription->SetVisibility(ESlateVisibility::Collapsed);
+	if (GetWorld())
 	{
-		ItemDescription->SetVisibility(ESlateVisibility::Collapsed);
+		GetWorld()->GetTimerManager().ClearTimer(DescriptionTimer);
+		GetWorld()->GetTimerManager().ClearTimer(EquippedDescriptionTimer);
 	}
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(DescriptionTimer);
+}
 
-	if (IsValid(EquippedItemDescription))
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RefreshDescription()
+{
+	if (!DescribedItem.IsValid() || !IsValid(ItemDescription) || !InventoryComponent.IsValid() || !InventoryComponent->ContainsItem(DescribedItem.Get()))
 	{
-		EquippedItemDescription->SetVisibility(ESlateVisibility::Collapsed);
+		OnItemUnHovered();
+		return;
 	}
-	GetOwningPlayer()->GetWorldTimerManager().ClearTimer(EquippedDescriptionTimer);
+	ItemDescription->ShowItem(DescribedItem.Get(), InventoryComponent.Get());
+	FTimerDelegate Delegate;
+	Delegate.BindUObject(this, &ThisClass::ShowEquippedItemDescription, DescribedItem.Get());
+	GetWorld()->GetTimerManager().SetTimer(EquippedDescriptionTimer, Delegate, EquippedDescriptionTimerDelay, false);
 }
 
 UAZ_Inv_CommonUI_ItemDescription* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetEquippedItemDescription()
 {
-	if (!IsValid(EquippedItemDescription) && IsValid(ItemDescriptionHBox))
+	if (!IsValid(EquippedItemDescription) && IsValid(ItemDescriptionHBox) && EquippedItemDescriptionClass)
 	{
 		EquippedItemDescription = CreateWidget<UAZ_Inv_CommonUI_ItemDescription>(GetOwningPlayer(), EquippedItemDescriptionClass);
-		ItemDescriptionHBox->AddChild(EquippedItemDescription);
+		if (IsValid(EquippedItemDescription)) ItemDescriptionHBox->AddChild(EquippedItemDescription);
 	}
 	return EquippedItemDescription;
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowEquippedItemDescription(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
-	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
-	const FAZ_Inv_CommonUI_EquipmentFragment* EquipmentFragment = GetFragment<FAZ_Inv_CommonUI_EquipmentFragment>(Item, Tags.Item_Fragment_Equipment);
+	if (!IsValid(Item) || IsItemEquipped(Item)) return;
+	const FAZ_Inv_CommonUI_EquipmentFragment* EquipmentFragment = GetFragment<FAZ_Inv_CommonUI_EquipmentFragment>(Item, FAZ_GameplayTags::Get().Item_Fragment_Equipment);
 	if (!EquipmentFragment) return;
-
-	const FGameplayTag HoveredEquipmentType = EquipmentFragment->GetEquipmentType();
-
-	if (IsItemEquipped(Item)) return;
-
-	UAZ_Inv_CommonUI_InventoryItem* EquippedItem = GetEquippedItemByEquipmentType(HoveredEquipmentType);
+	UAZ_Inv_CommonUI_InventoryItem* EquippedItem = GetEquippedItemByEquipmentType(EquipmentFragment->GetEquipmentType());
 	if (!IsValid(EquippedItem)) return;
-
-	const auto& EquippedItemManifest = EquippedItem->GetItemManifest();
-	UAZ_Inv_CommonUI_ItemDescription* EquippedDescriptionWidget = GetEquippedItemDescription();
-
-	EquippedDescriptionWidget->Collapse();
-	EquippedDescriptionWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
-	EquippedItemManifest.AssimilateInventoryFragments(EquippedDescriptionWidget);
+	if (UAZ_Inv_CommonUI_ItemDescription* Widget = GetEquippedItemDescription())
+	{
+		Widget->ShowItem(EquippedItem, InventoryComponent.Get());
+	}
 }

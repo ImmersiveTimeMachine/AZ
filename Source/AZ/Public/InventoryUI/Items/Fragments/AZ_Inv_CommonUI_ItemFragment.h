@@ -16,6 +16,7 @@
 class UAZ_Inv_CommonUI_CompositeBaseWidget;
 class UAZ_Inv_CompositeBase;
 class UAZ_GameplayAbility;
+class UAZ_WeaponAnimationProfile;
 
 USTRUCT(BlueprintType)
 struct FAZ_Inv_CommonUI_ItemFragment
@@ -276,8 +277,19 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 {
 	GENERATED_BODY()
 
+	/** New firearms use real magazine inventory items, never the legacy ASC ammo snapshot. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon")
+	bool bUsesDetachableMagazines = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon")
+	FName MagazineFamily;
+
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon", meta=(DisplayName="Weapon Actor Class (spawned on equip)"))
 	TSubclassOf<AActor> WeaponActorClass = nullptr;
+
+	/** Character animation vocabulary while this inventory weapon is the committed selection. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon")
+	TObjectPtr<UAZ_WeaponAnimationProfile> AnimationProfile = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	int32 CurrentClipAmmo{30};
@@ -321,6 +333,20 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 	void ApplyToASC(class UAbilitySystemComponent* ASC) const;
 };
 
+/** Definition/defaults only. Current rounds live on the unique inventory item state. */
+USTRUCT(BlueprintType)
+struct AZ_API FAZ_Inv_CommonUI_MagazineFragment : public FAZ_Inv_CommonUI_ItemFragment
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Inventory|Magazine")
+	FName MagazineFamily;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Inventory|Magazine", meta=(ClampMin="1"))
+	int32 Capacity = 30;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Inventory|Magazine", meta=(ClampMin="0"))
+	int32 InitialRounds = 30;
+};
+
 UENUM(BlueprintType)
 enum class EEquipmentState : uint8
 {
@@ -350,6 +376,7 @@ struct FAZ_Inv_CommonUI_EquipmentFragment : public FAZ_Inv_CommonUI_InventoryIte
 	void ReattachActor(FName NewSocket) const;
 	void DestroyAttachedActor();
 	void SetEquippedActor(AActor* InActor);
+	void ResetRuntimeState() { State = EEquipmentState::None; EquippedActor.Reset(); }
 
 	FGameplayTag GetEquipmentType() const { return EquipmentType; }
 	EEquipmentState GetState() const { return State; }
@@ -379,6 +406,9 @@ struct FAZ_Inv_CommonUI_AbilityGrantFragment : public FAZ_Inv_CommonUI_ItemFragm
 
 	void OnEquip(APlayerController* PC, AActor* SourceObject = nullptr);
 	void OnUnequip(APlayerController* PC);
+
+	const TArray<TSubclassOf<UAZ_GameplayAbility>>& GetAbilitiesToGrant() const { return AbilitiesToGrant; }
+	void ResetRuntimeState() { GrantedAbilityHandles.Reset(); }
 
 private:
 

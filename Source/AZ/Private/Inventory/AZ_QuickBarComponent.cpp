@@ -1,41 +1,108 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿#include "Inventory/AZ_QuickBarComponent.h"
 
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "Net/UnrealNetwork.h"
 
-#include "Inventory/AZ_QuickBarComponent.h"
-
-#include "AbilitySystemBlueprintLibrary.h"
-#include "AbilitySystem/AZ_AbilitySystemComponent.h"
-#include "GameplayEffect.h"
-#include "GameFramework/PlayerController.h"
-#include "GameFramework/PlayerState.h"
-
-
-// Sets default values for this component's properties
 UAZ_QuickBarComponent::UAZ_QuickBarComponent()
 {
-	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
-	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = false;
-
-	// Replicated so a client can send Server_Select to the authority (which owns ability grants).
 	SetIsReplicatedByDefault(true);
+}
+
+void UAZ_QuickBarComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UAZ_QuickBarComponent, SlotItemIds);
+}
+
+UAZ_Inv_CommonUI_InventoryComponent* UAZ_QuickBarComponent::GetInventory() const
+{
+	return GetOwner() ? GetOwner()->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>() : nullptr;
+}
+
+UAZ_Inv_CommonUI_EquipmentComponent* UAZ_QuickBarComponent::GetEquipment() const
+{
+	return GetOwner() ? GetOwner()->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+}
+
+const FAZ_QuickSlot* UAZ_QuickBarComponent::GetSlotDefinition(int32 SlotIndex) const
+{
+	return Slots.IsValidIndex(SlotIndex) ? &Slots[SlotIndex] : nullptr;
+}
+
+UAZ_Inv_CommonUI_InventoryItem* UAZ_QuickBarComponent::GetBoundItem(int32 SlotIndex) const
+{
+	const UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
+	return Inventory && SlotItemIds.IsValidIndex(SlotIndex) ? Inventory->FindItemById(SlotItemIds[SlotIndex]) : nullptr;
+}
+
+int32 UAZ_QuickBarComponent::GetActiveSlotIndex() const
+{
+	const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GetEquipment();
+	if (!Equipment) return INDEX_NONE;
+	if (const UAZ_Inv_CommonUI_InventoryItem* Item = Equipment->GetActiveItem())
+	{
+		return SlotItemIds.IndexOfByKey(Item->GetInstanceId());
+	}
+	return Equipment->GetActiveIntrinsicSlotIndex();
+}
+
+bool UAZ_QuickBarComponent::CanBindItem(int32 SlotIndex, const UAZ_Inv_CommonUI_InventoryItem* Item) const
+{
+	const FAZ_QuickSlot* Slot = GetSlotDefinition(SlotIndex);
+	const UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
+	return Slot && Slot->bInventoryBacked && IsValid(Item) && Inventory && Inventory->ContainsItem(Item)
+		&& Item->GetInstanceId().IsValid()
+		&& Item->GetLocation() == EAZ_InventoryItemLocation::Backpack
+		&& Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>()
+		&& (!Slot->InventoryItemType.IsValid() || Item->GetItemManifest().GetItemTypeTag().MatchesTag(Slot->InventoryItemType));
+}
+
+bool UAZ_QuickBarComponent::BindItemToSlot(int32 SlotIndex, UAZ_Inv_CommonUI_InventoryItem* Item)
+{
+	if (!CanBindItem(SlotIndex, Item)) return false;
+	if (!GetOwner()->HasAuthority())
+	{
+		Server_BindItem(SlotIndex, Item->GetInstanceId());
+		return true;
+	}
+	SlotItemIds.SetNum(Slots.Num());
+	// A physical item has one loadout binding, regardless of how many slots accept its type.
+	for (FGuid& BoundId : SlotItemIds)
+	{
+		if (BoundId == Item->GetInstanceId()) BoundId.Invalidate();
+	}
+	SlotItemIds[SlotIndex] = Item->GetInstanceId();
+	GetOwner()->ForceNetUpdate();
+	return true;
+}
+
+void UAZ_QuickBarComponent::Server_BindItem_Implementation(int32 SlotIndex, FGuid ItemId)
+{
+	if (UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory()) BindItemToSlot(SlotIndex, Inventory->FindItemById(ItemId));
+}
+
+void UAZ_QuickBarComponent::BindSelectedItem(UAZ_Inv_CommonUI_InventoryItem* Item)
+{
+	if (!GetOwner()->HasAuthority() || !IsValid(Item)) return;
+	if (SlotItemIds.Contains(Item->GetInstanceId())) return;
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		if (CanBindItem(Index, Item))
+		{
+			BindItemToSlot(Index, Item);
+			return;
+		}
+	}
 }
 
 void UAZ_QuickBarComponent::Select(int32 SlotIndex)
 {
-	if (!Slots.IsValidIndex(SlotIndex)) return;   // archetype Slots exist on both client and server
-
-	// Equip grants abilities = authority-only. The equip input runs on the owning client, so a
-	// client hops to the server; the host/server does it directly. Without this, a remote client's
-	// EquipSlot bailed on !HasAuthority -> no grant -> the punch never activated on that client.
-	if (GetOwner()->HasAuthority())
-	{
-		SelectInternal(SlotIndex);
-	}
-	else
-	{
-		Server_Select(SlotIndex);
-	}
+	if (!Slots.IsValidIndex(SlotIndex) || !GetOwner()) return;
+	if (GetOwner()->HasAuthority()) SelectInternal(SlotIndex);
+	else Server_Select(SlotIndex);
 }
 
 void UAZ_QuickBarComponent::Server_Select_Implementation(int32 SlotIndex)
@@ -45,106 +112,70 @@ void UAZ_QuickBarComponent::Server_Select_Implementation(int32 SlotIndex)
 
 void UAZ_QuickBarComponent::SelectInternal(int32 SlotIndex)
 {
-	// Authority only (server / listen-host). Toggle: re-selecting the active slot unequips.
-	if (!Slots.IsValidIndex(SlotIndex)) return;
-	if (SlotIndex == ActiveSlotIndex) { UnequipActive(); return; }  // re-press = fists-up toggle
-	UnequipActive();
-	EquipSlot(SlotIndex);
-}
-
-void UAZ_QuickBarComponent::CycleNext()
-{
-}
-
-void UAZ_QuickBarComponent::CyclePrev()
-{
-}
-
-UAZ_AbilitySystemComponent* UAZ_QuickBarComponent::GetASC() const
-{
-	const APlayerController* PC = Cast<APlayerController>(GetOwner());
-	if (!PC || !PC->PlayerState) return nullptr;
-	return Cast<UAZ_AbilitySystemComponent>(
-		UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(PC->PlayerState));
-}
-
-void UAZ_QuickBarComponent::EquipSlot(const int32 SlotIndex)
-{
-	UAZ_AbilitySystemComponent* ASC = GetASC();
-	if (!ASC || !GetOwner()->HasAuthority()) return;             // grant is authority-only (Phase 2 = server RPC)
-	const FAZ_QuickSlot& Slot = Slots[SlotIndex];
-
-	ASC->OnWeaponEquipped(Slot.WeaponTag);                       // publish profile tag -> OwnedTags -> chooser
-
-	// Combat-ready profiles (fists) flip to strafe on equip. REPLICATED loose tag so the chooser
-	// (ChooserContext.bStrafe) and Mover (ProduceInput facing) see it on every role incl. sim
-	// proxies. Authority-only here (EquipSlot is HasAuthority-gated), so this is the correct site.
-	if (Slot.bStrafeOnEquip)
+	const FAZ_QuickSlot* Slot = GetSlotDefinition(SlotIndex);
+	UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GetEquipment();
+	if (!Slot || !Equipment) return;
+	if (GetActiveSlotIndex() == SlotIndex)
 	{
-		const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
-		// Replicated state tag (local + FMinimalReplicationTagCountMap on authority — the project's
-		// Iris-aligned surface; AZ_AbilitySystemComponent audit P1-12). Visible to the chooser
-		// (ChooserContext.bStrafe) and Mover (ProduceInput facing) on every role incl. sim proxies.
-		ASC->AddStateTag(Tags.Movement_Strafe);
-
-		// Sprint is exploration-only. The sprint ability blocks activation while strafing;
-		// entering fight mode also ends an active sprint and its effect through OnEndAbility.
-		FGameplayTagContainer SprintAbilityTags;
-		SprintAbilityTags.AddTag(Tags.Movement_Sprinting);
-		ASC->CancelAbilities(&SprintAbilityTags);
+		Equipment->RequestUnequipItem(Equipment->GetActiveItem());
 	}
-
-	for (const TSubclassOf<UAZ_GameplayAbility>& AbilityClass : Slot.WeaponAbilities)
+	else if (Slot->bInventoryBacked)
 	{
-		if (!*AbilityClass) continue;
-		FGameplayAbilitySpec Spec(AbilityClass);
-		if (const UAZ_GameplayAbility* GameplayAbility = AbilityClass->GetDefaultObject<UAZ_GameplayAbility>())
-			Spec.GetDynamicSpecSourceTags().AddTag(GameplayAbility->InputTag);   // seed InputTag so input rig can fire it
-		GrantedHandles.Add(ASC->GiveAbility(Spec));
+		Equipment->RequestEquipItem(GetBoundItem(SlotIndex));
 	}
-
-	// Data-driven GEs on equip (e.g. GE_CombatReady on the fist slot). Authority-gated above, so applying here
-	// records the granted tags in the replicated map -> they reach clients. The GE owns its own duration + refresh
-	// (re-applied by the melee ability's EffectsOnActivate); no C++ timer.
-	for (const TSubclassOf<UGameplayEffect>& EffectClass : Slot.EffectsOnEquip)
+	else
 	{
-		if (!*EffectClass) continue;
-		FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-		Ctx.AddSourceObject(this);
-		const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(EffectClass, 1.f, Ctx);
-		if (Spec.IsValid()) ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		Equipment->RequestEquipIntrinsic(SlotIndex);
 	}
-
-	ActiveSlotIndex = SlotIndex;
 }
 
-void UAZ_QuickBarComponent::UnequipActive()
+void UAZ_QuickBarComponent::Cycle(int32 Direction)
 {
-	UAZ_AbilitySystemComponent* ASC = GetASC();
-	if (!ASC || !GetOwner()->HasAuthority()) return;
-	for (const FGameplayAbilitySpecHandle& Handle : GrantedHandles) ASC->ClearAbility(Handle);
-	GrantedHandles.Reset();
-	ASC->OnWeaponEquipped(FAZ_GameplayTags::Get().Weapon_None);   // empty hands (Q6)
-	ASC->RemoveStateTag(FAZ_GameplayTags::Get().Movement_Strafe);  // drop strafe; next strafe equip re-adds
-	ActiveSlotIndex = -1;
+	if (Slots.IsEmpty()) return;
+	const int32 Active = GetActiveSlotIndex();
+	int32 Index = Active == INDEX_NONE ? (Direction > 0 ? -1 : 0) : Active;
+	for (int32 Attempt = 0; Attempt < Slots.Num(); ++Attempt)
+	{
+		Index = (Index + Direction + Slots.Num()) % Slots.Num();
+		if (Index != Active && (!Slots[Index].bInventoryBacked || GetBoundItem(Index)))
+		{
+			Select(Index);
+			return;
+		}
+	}
 }
 
+void UAZ_QuickBarComponent::CycleNext() { Cycle(1); }
+void UAZ_QuickBarComponent::CyclePrev() { Cycle(-1); }
 
-// Called when the game starts
+void UAZ_QuickBarComponent::OnInventoryChanged()
+{
+	UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
+	if (!GetOwner()->HasAuthority() || !Inventory) return;
+	SlotItemIds.SetNum(Slots.Num());
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		if (!Slots[Index].bInventoryBacked) continue;
+		if (CanBindItem(Index, GetBoundItem(Index))) continue;
+		SlotItemIds[Index].Invalidate();
+		for (UAZ_Inv_CommonUI_InventoryItem* Item : Inventory->GetItems())
+		{
+			if (CanBindItem(Index, Item) && !SlotItemIds.Contains(Item->GetInstanceId()))
+			{
+				SlotItemIds[Index] = Item->GetInstanceId();
+				break;
+			}
+		}
+	}
+	GetOwner()->ForceNetUpdate();
+}
+
 void UAZ_QuickBarComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// ...
-	
+	if (UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory())
+	{
+		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::OnInventoryChanged);
+		OnInventoryChanged();
+	}
 }
-
-
-// Called every frame
-void UAZ_QuickBarComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// ...
-}
-

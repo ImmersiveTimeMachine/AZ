@@ -16,7 +16,7 @@ TArray<UAZ_Inv_CommonUI_InventoryItem*> FAZ_Inv_CommonUI_InventoryFastArray::Get
 	Results.Reserve(Entries.Num());
 	for (const auto& Entry : Entries)
 	{
-		if (!IsValid(Entry.InventoryItem)) continue;
+		if (!IsValid(Entry.InventoryItem) || !Entry.InventoryItem->IsInitialized()) continue;
 		Results.Add(Entry.InventoryItem);
 	}
 	return Results;
@@ -44,22 +44,15 @@ void FAZ_Inv_CommonUI_InventoryFastArray::PostReplicatedAdd(const TArrayView<int
 	}
 }
 
-UAZ_Inv_CommonUI_InventoryItem* FAZ_Inv_CommonUI_InventoryFastArray::CreateInventoryEntryFromItemComponent(UAZ_Inv_CommonUI_ItemComponent* ItemComponent)
+void FAZ_Inv_CommonUI_InventoryFastArray::PostReplicatedChange(const TArrayView<int32> ChangedIndices, int32 FinalSize)
 {
-	check(OwnerComponent);
-	AActor* OwnerActor = OwnerComponent->GetOwner();
-	check(OwnerActor->HasAuthority());
+	if (auto* Inventory = Cast<UAZ_Inv_CommonUI_InventoryComponent>(OwnerComponent)) Inventory->NotifyInventoryChanged();
+}
 
-	const auto InventoryComponent = Cast<UAZ_Inv_CommonUI_InventoryComponent>(OwnerComponent);
-	if (!IsValid(InventoryComponent)) return nullptr;
-
-	FAZ_Inv_CommonUI_InventoryEntry& NewEntry = Entries.AddDefaulted_GetRef();
-	NewEntry.InventoryItem = ItemComponent->GetItemManifest().Manifest(OwnerActor);
-
-	InventoryComponent->AddRepSubObjects(NewEntry.InventoryItem);
-	MarkItemDirty(NewEntry);
-
-	return NewEntry.InventoryItem;
+void FAZ_Inv_CommonUI_InventoryFastArray::PostReplicatedReceive(const FFastArraySerializer::FPostReplicatedReceiveParameters& Parameters)
+{
+	// This also runs when previously unmapped item UObject references become available.
+	if (auto* Inventory = Cast<UAZ_Inv_CommonUI_InventoryComponent>(OwnerComponent)) Inventory->NotifyInventoryChanged();
 }
 
 UAZ_Inv_CommonUI_InventoryItem* FAZ_Inv_CommonUI_InventoryFastArray::AddInventoryItem(UAZ_Inv_CommonUI_InventoryItem* Item)
@@ -70,6 +63,7 @@ UAZ_Inv_CommonUI_InventoryItem* FAZ_Inv_CommonUI_InventoryFastArray::AddInventor
 
 	FAZ_Inv_CommonUI_InventoryEntry& NewEntry = Entries.AddDefaulted_GetRef();
 	NewEntry.InventoryItem = Item;
+	if (auto* Inventory = Cast<UAZ_Inv_CommonUI_InventoryComponent>(OwnerComponent)) Inventory->AddRepSubObjects(Item);
 
 	MarkItemDirty(NewEntry);
 

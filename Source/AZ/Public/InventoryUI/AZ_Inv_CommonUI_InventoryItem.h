@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "InventoryUI/AZ_Inv_CommonUI_ItemState.h"
 #include "InventoryUI/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
 #include "StructUtils/InstancedStruct.h"
 #include "UObject/Object.h"
@@ -23,6 +24,19 @@ public:
 
 	bool IsStackable() const;
 	bool IsConsumable() const;
+	bool IsMagazine() const;
+	bool IsInitialized() const { return ItemManifest.IsValid() && InstanceState.InstanceId.IsValid(); }
+	bool IsWeapon() const;
+	FGameplayTag GetWeaponProfileTag() const;
+	FGuid GetInstanceId() const { return InstanceState.InstanceId; }
+	FGuid GetItemInstanceId() const { return GetInstanceId(); }
+	EAZ_InventoryItemLocation GetLocation() const { return InstanceState.Location; }
+	FGuid GetParentItemId() const { return InstanceState.ParentItemId; }
+	FGuid GetInsertedMagazineId() const { return InstanceState.InsertedMagazineId; }
+	int32 GetMagazineRounds() const { return InstanceState.CurrentRounds; }
+	int32 GetMagazineCapacity() const;
+	const FAZ_InventoryItemState& GetInstanceState() const { return InstanceState; }
+	void InitializeInstance(const FAZ_InventoryItemState& State, int32 StackCount);
 	
 	        void SetItemManifest(const FAZ_Inv_CommonUI_ItemManifest& Manifest);
 	        const FAZ_Inv_CommonUI_ItemManifest& GetItemManifest() const;
@@ -31,11 +45,18 @@ public:
 	void SetTotalStackCount(const int32 Count) { TotalStackCount = Count; }
 	
 private:
-	UPROPERTY(VisibleAnywhere, meta = (BaseStruct = "/Script/AZ.AZ_Inv_ItemManifest"), Replicated)
+	friend class UAZ_Inv_CommonUI_InventoryComponent;
+	UPROPERTY(ReplicatedUsing=OnRep_ItemChanged)
+	FAZ_InventoryItemState InstanceState;
+
+	UFUNCTION()
+	void OnRep_ItemChanged();
+
+	UPROPERTY(VisibleAnywhere, meta = (BaseStruct = "/Script/AZ.AZ_Inv_CommonUI_ItemManifest"), ReplicatedUsing=OnRep_ItemChanged)
 	FInstancedStruct ItemManifest;
 
-	UPROPERTY(Replicated)
-	int32 TotalStackCount{0};
+	UPROPERTY(ReplicatedUsing=OnRep_ItemChanged)
+	int32 TotalStackCount{1};
 };
 
 template<typename FragmentType>

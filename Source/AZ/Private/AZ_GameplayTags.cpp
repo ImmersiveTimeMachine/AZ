@@ -271,6 +271,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Weapon_Melee,           FName("Weapon.Melee"),           TEXT("Melee weapon type"));
 
     // Weapon Slot Tags (applied to the weapon actor to identify its equipped slot)
+	AddTag(GameplayTags.Item_Type_Magazine_Rifle, FName("Item.Type.Magazine.Rifle"), TEXT("Detachable rifle magazine with per-instance ammunition"));
     AddTag(GameplayTags.Weapon_Slot_Primary,    FName("Weapon.Slot.Primary"),    TEXT("Weapon is in primary slot"));
     AddTag(GameplayTags.Weapon_Slot_Secondary,  FName("Weapon.Slot.Secondary"),  TEXT("Weapon is in secondary slot"));
     AddTag(GameplayTags.Weapon_Slot_Sidearm,    FName("Weapon.Slot.Sidearm"),    TEXT("Weapon is in sidearm slot"));

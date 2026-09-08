@@ -23,6 +23,8 @@ public:
 
 	UAZ_Inv_CommonUI_EquippedSlottedItem* OnItemEquipped(UAZ_Inv_CommonUI_InventoryItem* Item, const FGameplayTag& EquipmentTag, float TileSize);
 	void SetEquippedSlottedItem(UAZ_Inv_CommonUI_EquippedSlottedItem* Item) { EquippedSlottedItem = Item; }
+	FGameplayTag GetEquipmentTypeTag() const { return EquipmentTypeTag; }
+	void ClearEquippedItem();
 
 	FCommonUI_EquippedGridSlotClicked EquippedGridSlotClicked;
 

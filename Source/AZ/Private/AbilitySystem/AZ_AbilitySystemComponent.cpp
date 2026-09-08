@@ -48,6 +48,7 @@ void UAZ_AbilitySystemComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
+	SuppressedWeaponInputTags.Remove(InputTag); // a real new Started edge is fresh intent
 	DownInputTags.Remove(InputTag);   // the Started edge: the next Held frame is a fresh press
 
 	FScopedAbilityListLock ActiveScopeLoc(*this);
@@ -87,6 +88,7 @@ namespace
 bool UAZ_AbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused)
 {
 	if (!InputTag.IsValid()) return false;
+	if (SuppressedWeaponInputTags.Contains(InputTag)) return false;
 	// Fresh = the first Held frame since the button went down. Only from real input (bBufferIfRefused);
 	// the buffer's own replay must not mark a key as down.
 	bool bFreshPress = true;
@@ -215,6 +217,7 @@ void UAZ_AbilitySystemComponent::ReplayBufferedInput()
 void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
 {
 	if (!InputTag.IsValid()) return;
+	SuppressedWeaponInputTags.Remove(InputTag);
 	DownInputTags.Remove(InputTag);
 
 	FScopedAbilityListLock ActiveScopeLoc(*this);
@@ -230,6 +233,28 @@ void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inp
 				FPredictionKey OriginalPredictionKey = ActivationInfo.GetActivationPredictionKey();
 				InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, AbilitySpec.Handle, OriginalPredictionKey);
 			}
+		}
+	}
+}
+
+void UAZ_AbilitySystemComponent::ClearWeaponInput(const FGameplayTagContainer& InputTags)
+{
+	for (const FGameplayTag& Tag : InputTags)
+	{
+		DownInputTags.Remove(Tag);
+		SuppressedWeaponInputTags.Add(Tag);
+	}
+	if (InputTags.HasTagExact(BufferedInputTag))
+	{
+		BufferedInputTag = FGameplayTag();
+		BufferedInputTime = -1.0;
+	}
+	FScopedAbilityListLock ActiveScopeLock(*this);
+	for (FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		if (Spec.GetDynamicSpecSourceTags().HasAnyExact(InputTags))
+		{
+			Spec.InputPressed = false;
 		}
 	}
 }

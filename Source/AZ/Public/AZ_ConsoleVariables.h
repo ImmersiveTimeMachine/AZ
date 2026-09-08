@@ -25,6 +25,9 @@ namespace AZCVars
 	extern IConsoleVariable* GrabPressesToEscape;        // int32  "az.Grab.PressesToEscape" (<=0 = ability default)
 	extern IConsoleVariable* GrabWindowSeconds;          // float  "az.Grab.WindowSeconds" (<=0 = ability default)
 
+	extern IConsoleVariable* WeaponDebug;                // int32 "az.Weapon.Debug" (0 off, 1 modes, 2 transforms, 3 draw)
+	extern IConsoleVariable* WeaponDebugInterval;        // float "az.Weapon.DebugInterval" (seconds)
+
 	void RegisterAll();
 	void UnregisterAll();
 
@@ -39,4 +42,6 @@ namespace AZCVars
 	float GetGrabCooldownSeconds();
 	int32 GetGrabPressesToEscape();
 	float GetGrabWindowSeconds();
+	int32 GetWeaponDebug();
+	float GetWeaponDebugInterval();
 }
