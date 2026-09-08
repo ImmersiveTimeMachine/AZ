@@ -251,3 +251,25 @@ close the schema tab, reopen the DB alone, wait for a NEW `BuildIndex Succeeded`
 Related: [[feedback_verify_never_presume]], [[project_cmc_input_gap_doctrine]],
 [[project_cmc_jump_build_order]], [[project_jump_system_status]], [[project_cmc_mm_content_verdict]],
 [[feedback_mover_spine_search_continuity]].
+
+
+## R17 — In-place (`_IPC`, flat-root) clips inside a TRAJECTORY schema return GARBAGE costs (measured 2026-09-07) ★★
+**Symptom:** rifle P01 locomotion "turns the opposite way", drifts, thrashes R↔FR. **Measurement:** `[v2 Pick]` costs
+for the rifle DBs were **2,951 / 22,035 / 44,081** vs 0.07–0.60 for the unarmed loops — 3–4 orders of magnitude, and
+scaling with speed. **Mechanism:** `PSD_P01_*` share `PSS_v2_SurvivalMan_Loco`, whose first channel is
+`PoseSearchFeatureChannel_Trajectory`; a database pose's trajectory is derived from the clip's ROOT MOTION; the `_IPC`
+clips have `enable_root_motion=False` AND a root track that is exactly (0,0,0) at every key (verified via
+`AnimPoseExtensions`), so every candidate claims "stationary" against a query moving at 165–450 cm/s → uniform huge
+mismatch → MM picks noise. Unarmed loops keep root motion (WalkFwdLoop 171 cm/1.0 s, RunFwdLoop 285 cm/0.77 s) even
+though the RM bridge never CONSUMES it for loops — root motion on loops exists FOR MM, not for the capsule.
+**Fix that landed (48 loops across 6 PSDs):** rebuild the root track from each clip's authored `speed` curve (constant
+per clip, lowercase name; read via `AnimationWarpingLibrary.get_curve_value_from_animation`) × the direction parsed
+from the name (F/FR/R/BR/B/BL/L/FL, "BkPd" = backpedal) × time, using the project convention **forward = +Y,
+right = −X** (K=√½ for diagonals). Rebuild from a ZERO base (the originals are exactly zero at every key) so the op is
+idempotent. Then `enable_root_motion=True`, `force_root_lock=True` (mirror the unarmed refs). Result: costs collapsed to
+0.03–3.34, `dir=2`→`_L_Loop`, `dir=5`→`_R_Loop`, no drift. Recipe + the Python-save deadlock trap:
+[[feedback_python_gc_crash]] (author with `seq.controller.set_bone_track_keys`; NEVER `save_loaded_asset` a
+PSD-indexed sequence from Python — let the user Save All).
+**Check before blaming the mapping:** a trajectory-schema DB whose members have `enable_root_motion=False` — or a root
+displacement of 0 measured end-to-end — cannot match a moving query, whatever the chooser rows say. `_IPC` in a name
+is the tell. One authored-curve anomaly noted: `Walk_Aim_BR_BkPd` `speed=15.7` vs siblings 94–130.

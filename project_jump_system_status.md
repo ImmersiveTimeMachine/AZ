@@ -7,6 +7,38 @@ metadata:
   originSessionId: 787f844b-69e1-48c0-8b39-9a9264829d57
 ---
 
+## ★★ 2026-09-07 — RIFLE (P01) JUMP: the pack is a 3-CLIP design; the 2-clip pipeline works with it ONLY under a condition
+**Symptom:** frozen airborne pose with the rifle. **Root cause (measured, not inferred):** the unarmed Start clip is an
+OPEN-ENDED FALL (`AnimPro_JumpRunStart_RU`: rises to +68 then root falls to −598 over 3.5 s, pose never stops moving),
+which is what "the Start clip's tail plays cosmetically under the physics fall" requires. The rifle pack has NO such
+clip: `AS_P01_Jump_*_Takeoff` is 0.4 s of takeoff then a HELD pose on a flat root for 3.6 s; every full-RM
+`rm_W2_*_Jump*` (and the raw UE4-mannequin `W2_*_Jump` source) is a CLOSED jump — run-up → 0.3–0.4 s air → BAKED
+landing → run-out. The pack was authored for the conventional Takeoff→Air→Land structure (it ships 16 seamless 2 s
+`_Air_IPC` cycles, all `_LU_`, no RU), not for physics-decided landings. Retargeting changes the skeleton, not the shape.
+**Options weighed:** (1) full-RM rifle jumps as the Start clip — the design memory records as REJECTED (baked landing:
+float-then-drop); (2) tune the 3-clip split — needs the air state the SM no longer emits (user directive 2026-06-14);
+(3) unarmed lower body + rifle upper body via a `LayeredBoneBlend` (the rifle AO layer is the exact template:
+`BranchFilters=(spine_02, depth 1)`, mesh-space rotation, authored by `Tools/rifle_p01_graph_setup.py`). The other
+agent's tail-splice attempt is `status: failed` (`Saved/RifleAnimationContent/p01-air-tail-tuning-drafts.json`).
+**SHIPPED = option 1, PIE-verified 2026-09-07 21:10 (59 rifle jumps, 0 safety timeouts, 0 freezes):** CHT_v2 rows
+280–299's ten takeoff rows remapped `AS_P01_Jump_*_Takeoff` → `rm_W2_{Stand_Relaxed,Stand_Aim,Walk_F,Walk_Aim_F,Jog_F,
+Jog_Aim_F}_Jump[_LU/_RU]` (c4=True→`_RU`, per the `_XU`=X-up rule), those ten clips set `enable_root_motion=True` +
+`force_root_lock=True` (mirrors the unarmed refs; the tracks already had motion, the flags were off). Land rows untouched
+(`AS_P01_*_Land`, MM cost 1.07–1.39, entry 0.03–0.07).
+**WHY it works, and the condition it depends on:** measured physics fall = mean 0.18 s, max 0.62 s; the clips' baked
+air ≈ 0.3–0.5 s, so the land clip takes over BEFORE the baked landing plays. **A fall longer than the clip's air (a real
+ledge) WILL show the pose landing and jogging in mid-air.** Test a drop before calling it final; if it fails there, go
+to option (3). Apex margin is thin: walk clips peak 10.9–17 cm vs `MinRiseForApexCm=10` — measure at ≤0.02 s, a 0.1 s
+sample reads 7 cm and lies.
+**Watchdogs that remain are NOT the takeoff:** `[CmcJump] land-complete never arrived` fires when the LAND clip is cut
+before its notify (wall-bump reaction at 0.22 s; going idle at 0.24 s). GA contract issue: end the ability when the SM
+LEAVES the land phase, not only on the notify. Other agent's area.
+**Also fixed the same day (separate cause):** `[JumpRise] handoff=safety` hover — the apex accumulator forgot a valid
+rise once the two descending ticks dragged `NetRiseCm` back under 10; now latched (`AZ_PawnMovementMode_RMAction.cpp:
+118-131`, other agent's fix, built 19:13). Root-motion convention verified from the unarmed set: **forward = +Y,
+right = −X** (`RunStrafeLeft45Loop` → (+203,+203)). See [[feedback_posesearch_mm_mechanism_rules]] R17 for the
+companion rifle-LOOP defect (flat roots vs a trajectory schema).
+
 ## ★ 2026-06-14 — JUMP COLLAPSED TO 2 SM PHASES: START + LAND (no in-air state)
 User directive: "I don't need in air state — only start jump and landing." Implemented as a **pure body change** in `UAZ_LocomotionStateMachine::ComputeNextState` (the airborne block): while `MovementMode==InAir`, **always return `TransitionToInAir`** — the launch/"start jump" phase now PERSISTS for the ENTIRE airborne duration (takeoff→rise→fall), then the existing touchdown block fires the land transition on real floor contact. `InAirLoop` is **no longer produced**.
 - **Why it's safe / visually identical:** the SM phase only drives ANIM SELECTION, never the capsule. The capsule handoff (RMAction→Falling at apex via `bHandOffToFallingAtApex`) and the RM-rise-move cancel (`AZ_MoverAnimInstance.cpp:210-214`, keyed off the **raw Mover-mode edge** `LastRawMoverModeName==RMAction && Mode!=RMAction`) are independent of the SM phase. The Start clip already played the whole air cosmetically under the old design; `TransitionToInAir` keeps selecting it (foot/intent latched → no re-push). Foot-latch (`:372`) and `bJustLanded` land-row selection already include `TransitionToInAir`, so land still works.
@@ -153,5 +185,46 @@ Same shape as idle: **takeoff (no-MM Start clip) → air (DB MM) → land (no-MM
 - **Creating a `PoseSearchDatabase` via `AssetTools.create_asset(..., PoseSearchDatabaseFactory())` returns None.** Instead DUPLICATE an existing DB (`EditorAssetLibrary.duplicate_asset`), `AZ_PoseSearchUtils.clear_database`, then `add_sequences_to_database`. Inherits schema + settings.
 - **`asset_search class_filter="PoseSearchDatabase"/"PoseSearchSchema"` returns 0** (registry class-name mismatch) — find them via `asset_referencers`/`asset_dependencies` or name_pattern instead.
 - After changing a clip's PoseSearch notifies, **re-save the DB** so it re-indexes; verify by opening the DB asset (excluded ranges show greyed).
+
+## ★★★ 2026-09-07 — RIFLE P01 THREE-PHASE jump, SHIPPED + COMMITTED
+
+Commits on `spike/cmc-backport`: **8a22d45** (jump/fall + chooser fixes + doc), 9c2902c (parallel-work
+checkpoint), a899f45 (authoring script). CLI-rebuilt 23:53 — the gate is in the real DLL, not just an LC
+patch. Full write-up: `docs/design-briefs/rifle-p01-jump-fall-handoff.md`.
+
+P01 takeoffs (`rm_W2_*_Jump*`) are **CLOSED** clips (baked landing, ~0.5s air, 0.70-2.30s total). The
+unarmed 2-phase design needs the Start clip's open-ended 3.5s tail, so a closed clip froze the pose.
+
+**Phases:** `RMAction rise -> TransitionToInAir (takeoff clip plays IN FULL) -> clip runs out while still
+airborne -> InAirLoop (fall clip) -> floor contact -> land`.
+
+**THE GATE IS THE TAKEOFF CLIP'S END, NOT THE APEX.** An apex gate was tried and rejected: it cut a 0.80s
+clip after 0.10s, discarding the descent+landing the closed clip already contains. Consequence: **an
+ordinary jump never reaches the air state** (it lands first) — the fall clip serves walk-offs and long
+drops. To make jumps show it, fire at a fraction of the clip: one line in the `InAir` branch.
+
+Gated by `FAZ_LocoSMInputs::bUseAirLoop` <- `UAZ_WeaponAnimationProfile::bUseAirLoop`, so **unarmed is
+bit-identical**. "Clip finished" reuses `TransitionEndTime` (stamped by `NotifyTransitionClipPushed` with
+the real remaining length minus `TransitionAlmostCompleteThreshold`); only `bInTransition` states stamp it,
+so the air clip's push can't overwrite it. `InAirLoop` (=4) is PRODUCED AGAIN; `bHoldTakeoffPhase` is
+**load-bearing again, NOT vestigial**.
+
+**Content:** `Riffle_P_W2_Stand_{Relaxed,Aim}_Fall_v2` (gitignored; regenerate with
+`Tools/rifle_p01_fall_pose.py`). `Loop=False`, rm=False, 2.00s. **Frame 0 is bit-identical to the source
+pose**, then the clip PERFORMS the fall reaction — an A->B ramp, which is why it cannot loop; past 2s it
+holds the settled fall pose. CHT_v2 rows **302/303** (InAirLoop, c6 aim False/True, bUseMM=False, BT 0.2).
+`DA_WeaponAnim_P01.bUseAirLoop=True`.
+
+**★ TUNE AGAINST THE MEASURED AIR WINDOW, NOT THE ASSET PREVIEW.** The air state lasts **~0.63s**. A
+0.60s reaction ramp + 2.0s tread period looked alive in the asset editor (which loops the full 2s) and
+**static in game** — the player saw the first third of a slow ramp. Fixed by reaction in 0.20s
+(`RAMP_FRAMES=6`) and 3 tread cycles per clip (`CYCLES=3`). Verified PIE: 3 air phases 0.61-0.63s, all
+exiting into the correct foot-matched land, 0 `[v2 Replay]`, 0 non-rifle SM=4.
+
+**Grip rule for two-handed weapons:** apply ONE rigid rotation to BOTH hands about a chest pivot then IK
+the arms to follow — grip preserved by construction (0.2-0.4cm). Rotating each bone independently breaks
+it visibly. `ARMS=False` (arms untouched) gives 0.0000cm and is the right look for a shouldered/aiming
+rifle. An unexplained ~1.6cm perturbation appears if the AIM clip's arms go through the IK round-trip even
+at zero lift — 3 hypotheses tested and disproved; unsolved, sidestepped.
 
 See [[project_physics_jump_plan]] (now implemented), [[project_traversal_system]], [[project_locomotion_sm_refactor_plan]], [[project_v2_locomotion_progress]], skill `asset-modification-via-python`.

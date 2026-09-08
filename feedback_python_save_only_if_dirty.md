@@ -33,3 +33,20 @@ batch survived.
   `unreal.Rotator(...)` positional order is (roll, pitch, yaw) — pass yaw= by keyword;
   `AssetEditorSubsystem.open_editor_for_assets([a])` (plural) opens an asset editor (forces a PoseSearch
   index build).
+
+## ★★ 2026-09-07 — `save_loaded_asset(obj)` can return **False and not save**
+
+Hit repeatedly while authoring anim clips: `EditorAssetLibrary.save_loaded_asset(asset,
+only_if_is_dirty=False)` returned **False** with the package NOT in
+`get_dirty_content_packages()`, and nothing reached disk. `EditorAssetLibrary.save_asset(path,
+only_if_is_dirty=False)` then returned True and the file mtime moved.
+
+**Rule: save by PATH, and verify by file mtime — never trust the return value.** A whole pose-authoring
+pass was silently lost this way (reported "SAVED: False", disk kept the older version).
+
+Related, same session: **`delete_asset` fails once the asset is REFERENCED** (e.g. by a chooser row). A
+rebuild script doing delete -> duplicate -> edit then silently *stacks* edits on its own previous output
+(measured: foot travel 21 -> 47 -> 77 cm over three runs, and the pose looked wildly wrong). Two fixes:
+read source data from the SOURCE asset every time so the operation is **idempotent**, and never rely on
+delete+recreate. Verify idempotence by running twice and comparing metrics. A failed delete on a
+referenced asset also **nulls the chooser cell** that pointed at it — re-check rows after any delete.
