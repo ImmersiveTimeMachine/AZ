@@ -18,6 +18,8 @@ class UPoseSearchDatabase;
 class UAnimSequence;
 class UAZ_LocomotionStateMachine;
 class UAZ_ObstacleSensorComponent;
+class UAZ_WeaponAnimationProfile;
+class UBlendSpace;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -45,6 +47,26 @@ public:
 	 *  Input Property. Refreshed every tick in NativeUpdateAnimation. */
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|V2|Anim")
 	FAZ_v2_ChooserContext ChooserContext;
+
+	/** Game-thread snapshot of the committed inventory weapon's editor-assigned animation profile. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	TObjectPtr<UAZ_WeaponAnimationProfile> ActiveWeaponAnimationProfile = nullptr;
+
+	/** Bind these to a Rotation Offset Blend Space node after the full-body locomotion pose. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	TObjectPtr<UBlendSpace> WeaponAimOffset = nullptr;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float AimYaw = 0.f;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float AimPitch = 0.f;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float AimAlpha = 0.f;
+
+	/** Optional lowered-weapon upper body; the graph preserves locomotion below spine_02. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	TObjectPtr<UAnimSequence> WeaponRelaxedPose = nullptr;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float WeaponRelaxedAlpha = 0.f;
 
 	/** True while an impact-reaction flinch (Brace/Stumble/HeadHit) is playing — i.e. the reaction latch is held
 	 *  (for the clip's full length). The pawn reads this in ProduceInput to LOCK movement during the flinch so it
@@ -300,6 +322,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|OffsetRootBone", meta = (BlueprintThreadSafe))
 	bool IsMoving() const;
 
+	/** INNER BlendStackInput reference: sample-specific rate for opted-in weapon locomotion loops. */
+	UFUNCTION(BlueprintPure, Category = "AZ|V2|Anim|Weapon", meta = (BlueprintThreadSafe))
+	double GetWeaponLoopPlayRate(const FAnimNodeReference& BlendStackInput) const;
+
 	/** Called from the ABP each tick (after EvaluateChooser2). Populates BlendStackInputs from
 	 *  the chooser result + optionally runs a single-frame MotionMatch over ValidAnims when
 	 *  ChooserOut.bUseMM is true. Pushes a fresh blend via ForceBlendNextUpdate if bForceBlend
@@ -346,6 +372,7 @@ protected:
 	 *  The body is compiled out in Shipping; this declaration is deliberately UNCONDITIONAL so the call
 	 *  site needs no guard - a guarded declaration with an unguarded use is the defect fixed in f2e7d55. */
 	void UpdateDebug();
+
 
 	/** One-shot branch announcement so a PIE log always states which backend drives this instance. */
 	bool bLoggedCmcBranch = false;
@@ -406,7 +433,11 @@ protected:
 	UPROPERTY(Transient) EAZ_Stance              LastPushedStance = EAZ_Stance::Standing;
 	UPROPERTY(Transient) EAZ_Gait                LastPushedGait   = EAZ_Gait::Walk;
 	UPROPERTY(Transient) EAZ_MovementDirection   LastPushedDir    = EAZ_MovementDirection::F;
+	UPROPERTY(Transient) EAZ_EightWayDirection LastPushedDir8 = EAZ_EightWayDirection::F;
 	UPROPERTY(Transient) bool                    LastPushedLeftFootDown = false;
+	UPROPERTY(Transient) TObjectPtr<UAZ_WeaponAnimationProfile> LastPushedWeaponAnimationProfile = nullptr;
+	UPROPERTY(Transient) bool LastPushedStrafe = false;
+	UPROPERTY(Transient) bool LastPushedAiming = false;
 	// Reaction is part of the selection key: an impact flinch (None->Brace/Stumble/HeadHit) changes the chosen
 	// row WITHOUT changing SMState/Gait/Dir (the SM holds LocomotionLoop), so without this the non-MM reaction
 	// clip is never pushed — it reads as "same selection" and the loop keeps playing (the "goes straight to stop"
@@ -432,6 +463,36 @@ protected:
 	float LeanAlpha = 0.f;
 	UPROPERTY(Transient) FVector PrevVelocity = FVector::ZeroVector;   // for the VelocityAcceleration derivative (lean)
 
+	/** Smoothed velocity derivative feeding the lean model. The RAW per-frame derivative of a simulated
+	 *  velocity is far too noisy to drive a pose - GASP and v1 fed it in unfiltered. */
+	UPROPERTY(Transient)
+	FVector SmoothedVelocityAcceleration = FVector::ZeroVector;
+
+	// ---- Lean tunables. Names deliberately match UAZ_CmcAnimInstance so the two implementations can be
+	// unified behind one shared helper later (see docs/design-briefs/additive-lean-rework.md). ----
+
+	/** Smoothing rate (FInterpTo speed) for SmoothedVelocityAcceleration. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Lean", meta = (ClampMin = "0.1"))
+	float LeanInterpSpeed = 8.f;
+
+	/** Reference turn rate for the CENTRIPETAL lateral budget: the lateral acceleration needed to hold a
+	 *  turn of this rate at the current speed is exactly Speed2D * radians(this). Normalising by it is what
+	 *  makes the cornering signal speed-INVARIANT - the main advantage over GASP's single divisor curve.
+	 *  RAISE to soften cornering lean, LOWER to exaggerate it. This is the one knob for lean strength. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Lean", meta = (ClampMin = "1", ForceUnits = "deg/s"))
+	float LeanTurnRateReference = 180.f;
+
+	/** Speed band the lean amplitude ramps across. Defaults are WalkSpeed / RunSpeed from
+	 *  AZ_PawnMovementMode_Walking, so walking sits at the BOTTOM of the ramp and running at the top. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Lean", meta = (ForceUnits = "cm/s"))
+	FVector2D LeanSpeedRangeIn = FVector2D(165.f, 375.f);
+
+	/** Amplitude multiplier at LeanSpeedRangeIn.X and .Y respectively. X is the FLOOR applied at and below
+	 *  walk speed: a gentler lean while walking is INTENDED, not a defect. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Lean")
+	FVector2D LeanSpeedRangeOut = FVector2D(0.5f, 1.f);
+
+
 	/** Upper-body combat-ready (fists-up) stance active — RAW mirror of the replicated Combat.Ready tag (set on
 	 *  fist equip, refreshed on attack, auto-clears after the GE duration). Independent of bStrafe. Use the BOOL
 	 *  for state transitions (e.g. an SM in the layer); bind CombatReadyAlpha (below) for the blend weight. */
@@ -448,6 +509,26 @@ protected:
 	/** Blend-OUT rate for CombatReadyAlpha (1->0 on disable). */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Combat", meta = (ClampMin = "0"))
 	float CombatReadyBlendOutSpeed = 6.f;
+
+	/** True while ANOTHER system already owns the upper body / head orientation, so the additive HEAD
+	 *  lean must be suppressed - stacking them over-rotates the head (GASP's own AdditiveLeans comment).
+	 *  Bind the AdditiveLeans BlendListByBool's bActiveValue to this.
+	 *  TRAP: UE's BlendListByBool maps BlendPose_0 = TRUE and BlendPose_1 = FALSE (see the pins' friendly
+	 *  names), so TRUE selects 'BodyLeans' - body lean only, head lean off. That is the intended polarity.
+	 *
+	 *  Deliberately NOT just the firearm ADS tag. Two systems drive the upper body on this hero, and the
+	 *  AnimGraph has one node for each:
+	 *    - RotationOffsetBlendSpace  <- WeaponAimOffset / AimYaw / AimPitch, weight AimAlpha   (firearm ADS)
+	 *    - LayeredBoneBlend from spine_02 <- the fists-up guard,            weight CombatReadyAlpha (melee)
+	 *  Fist combat IS an aiming mode mechanically: Movement.Strafe turns the body to face the target and
+	 *  the guard pose owns head and arms, so a head lean fights it exactly as ADS does.
+	 *
+	 *  Keyed off the two eased ALPHAS, not the raw tags, so it tracks the actual blend - it stays true
+	 *  through blend-out instead of popping the head lean back mid-fade.
+	 *  (Movement.Aiming and Combat.Aiming are declared but have ZERO references - do not use them.) */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Combat")
+	bool bEnableAO = false;
+
 
 	// ---- Obstacle reactions (impact brace + blocked) — driven by the pawn's forward-trace sensor ----
 	// The velocity heuristics for bWallImpact / bBlocked were retired in favour of UAZ_ObstacleSensorComponent:

@@ -102,17 +102,28 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	// MovementMode == InAir (engine Falling for jumps; RMAction for the hybrid rise / future vault/mantle) is
 	// persistent replicated STATE — proxies derive the air phase from it exactly like the authority, so there
 	// is no one-shot jump edge to miss and no proxy-only mirror branch.
-	// SIMPLIFIED JUMP (2026-06-14): the jump has only TWO anim phases — START (this) and LAND (the touchdown
-	// block below). There is NO separate in-air loop: TransitionToInAir (the "start jump" / launch phase)
-	// PERSISTS for the ENTIRE airborne duration. The Start clip plays through takeoff -> rise -> fall
-	// cosmetically while the capsule arc is owned by the RM rise then the engine Falling fall, until REAL
-	// floor contact hands us to the land transition below. Collapsing the air to one phase is purely an
-	// animation-selection change: the capsule handoff (RMAction->Falling) and the RM-rise-move cancel are raw
-	// Mover-mode edges in UAZ_MoverAnimInstance (independent of this phase), so the physics is untouched.
-	// EAZ_StateMachineState::InAirLoop is now a RESERVED/unused enum value — never produced; kept only to
-	// preserve the chooser-asset integer ABI. bHoldTakeoffPhase / TakeoffEndTime / TakeoffDurationSeconds are
-	// likewise vestigial (the in-air loop they gated is gone) — remove them at the next editor-closed build.
-	// (Slide/Traversing: add explicit MovementMode cases here when those modes land — the enum input exists
+	// JUMP PHASES: TWO by default (2026-06-14), THREE when the active weapon profile sets bUseAirLoop
+	// (2026-09-07). Which one runs is pure animation SELECTION -- the capsule handoff (RMAction->Falling) and
+	// the RM-rise-move cancel are raw Mover-mode edges in UAZ_MoverAnimInstance, independent of this phase, so
+	// the physics is identical either way.
+	//   TWO-PHASE (unarmed): START (this) -> LAND. TransitionToInAir PERSISTS for the ENTIRE airborne
+	//     duration; the takeoff clip plays through takeoff -> rise -> fall cosmetically (its open-ended 3.5s
+	//     tail covers the descent) while the capsule arc is owned by the RM rise then the engine Falling fall,
+	//     until REAL floor contact reaches the touchdown block below.
+	//   THREE-PHASE (rifle P01): START -> AIR CYCLE -> LAND. That pack's takeoffs are CLOSED full-RM
+	//     jumps that already contain their own descent and landing, so the takeoff clip must play to its
+	//     END; only when it RUNS OUT while we are still airborne does the air cycle take over. The cycle is
+	//     a SAFETY NET for falls LONGER than the clip (a ledge), not a replacement for it -- swapping at the
+	//     apex threw away the authored descent and read worse than the freeze it was meant to fix (measured
+	//     2026-09-07: a 0.80s takeoff was being cut after 0.10s).
+	//     "Clip finished" is TransitionEndTime, which NotifyTransitionClipPushed stamped with the pushed
+	//     takeoff clip's REAL remaining length minus TransitionAlmostCompleteThreshold -- so the swap starts
+	//     ~0.15s early and blends under the clip's tail rather than over a frozen last frame. Only
+	//     bInTransition states stamp it, so the air cycle's own push can never overwrite it.
+	//     EAZ_StateMachineState::InAirLoop is PRODUCED AGAIN by this branch -- it had been reserved/unused
+	//     since 2026-06-14 -- and the touchdown block below already accepts it as a previous state.
+	//     bHoldTakeoffPhase is therefore load-bearing again, NOT vestigial.
+	// (Slide/Traversing: add explicit MovementMode cases here when those modes land -- the enum input exists
 	// for exactly that; do NOT add more bool flags.)
 	if (In.MovementMode == EAZ_MovementMode::InAir)
 	{
@@ -120,7 +131,37 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		NextIdleBreakTime  = -1.f;
 		IdleBreakEndTime   = -1.f;
 		bLatchedJustLanded = false;
-		return EAZ_StateMachineState::TransitionToInAir;   // start -> (held through the whole air) -> land
+
+		// TWO-PHASE: hold the takeoff clip for the whole airborne duration; its open-ended tail covers the fall.
+		if (!In.bUseAirLoop)
+		{
+			return EAZ_StateMachineState::TransitionToInAir;
+		}
+
+		if (Previous != EAZ_StateMachineState::TransitionToInAir &&
+		    Previous != EAZ_StateMachineState::InAirLoop)
+		{
+			// Air ENTRY: drop any GROUND transition's leftover end-stamp, so a start/stop clip still running
+			// when we left the floor cannot masquerade as a takeoff clip in flight. A jump re-stamps it this
+			// same frame (the chooser push follows this call).
+			TransitionEndTime = -1.f;
+		}
+		if (Previous == EAZ_StateMachineState::InAirLoop)
+		{
+			return EAZ_StateMachineState::InAirLoop;            // already cycling; hold until touchdown
+		}
+		if (In.bHoldTakeoffPhase)
+		{
+			return EAZ_StateMachineState::TransitionToInAir;    // pre-apex: the RM rise still owns the capsule
+		}
+		if (TransitionEndTime > 0.f && Now < TransitionEndTime)
+		{
+			return EAZ_StateMachineState::TransitionToInAir;    // past the apex, takeoff clip still playing
+		}
+		// Nothing left to play: the takeoff clip ran out mid-fall, or there never was one (a ledge walk-off,
+		// where bHoldTakeoffPhase never sets and the stamp was just cleared above) -> the air cycle.
+		TransitionEndTime = -1.f;
+		return EAZ_StateMachineState::InAirLoop;
 	}
 
 	// ---- Touchdown: airborne last frame, grounded now (engine Falling → Walking on REAL floor contact). ----

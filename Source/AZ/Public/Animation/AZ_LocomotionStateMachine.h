@@ -51,6 +51,12 @@ struct FAZ_LocoSMInputs
 	 *  the moment RMAction hands off to Falling → the SM advances to InAirLoop immediately. */
 	bool bHoldTakeoffPhase = false;
 
+	/** THREE-PHASE JUMP opt-in, sourced from the active weapon profile's bUseAirLoop. Once the apex handoff
+	 *  drops bHoldTakeoffPhase, advance to InAirLoop (a looping air cycle) instead of holding
+	 *  TransitionToInAir for the whole fall. False (no profile / unarmed) keeps the two-phase jump
+	 *  bit-identical to the pre-2026-09-07 behaviour. */
+	bool bUseAirLoop = false;
+
 	/** Signed facing→desired-heading yaw (deg, +right), recomputed each moving frame; buckets the turn-start. */
 	float PendingStartAngleDeg = 0.f;
 

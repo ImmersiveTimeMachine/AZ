@@ -13,6 +13,11 @@
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AZ_LocomotionStateMachine.h"
+#include "Animation/AZ_WeaponAnimationProfile.h"
+#include "Animation/BlendSpace.h"
+#include "AnimationWarpingLibrary.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
+#include "GameFramework/Controller.h"
 #include "AbilitySystemComponent.h"
 #include "AZ_GameplayTags.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
@@ -22,6 +27,7 @@
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Character/AZ_PawnMovementMode_RMAction.h"
+#include "Character/AZ_PawnMovementMode_Walking.h"   // lean accel/decel budgets
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "DefaultMovementSet/LayeredMoves/RootMotionAttributeLayeredMove.h"
 #include "MoverDataModelTypes.h"   // FCharacterDefaultInputs
@@ -78,6 +84,53 @@ static TMap<const UAZ_MoverAnimInstance*, EAZ_StateMachineState> GLastPushSMStat
 // Committed-push counter per instance ([v2 CrouchTrace] prints it: a rising count while the clip name
 // never changes = a silent same-asset re-push, invisible to [v2 Pick]/[v2 Snap]).
 static TMap<const UAZ_MoverAnimInstance*, uint32> GPushCountByInstance;
+
+// ---- Additive-lean acceleration model (docs/design-briefs/additive-lean-rework.md) ----
+// The smoothed-accel state and the tunables were file-scope constants while the editor stayed open
+// (Live Coding cannot add a member or a UPROPERTY). They are now real members on the class:
+// SmoothedVelocityAcceleration + LeanInterpSpeed / LeanTurnRateReference / LeanSpeedRangeIn / Out,
+// EditDefaultsOnly so lean feel is tunable in the ABP Class Defaults with no rebuild.
+
+// Frame acceleration in ACTOR space, normalised per axis against a PHYSICAL budget:
+//   - longitudinal (along velocity) against the movement mode's acceleration / deceleration;
+//   - lateral (perpendicular) against the CENTRIPETAL budget Speed2D * radians(TurnRateRefDeg) - the
+//     lateral acceleration needed to hold a turn of that rate at this speed.
+// The centripetal term is why this beats the GASP/v1 model: it makes cornering speed-INVARIANT, whereas
+// a single divisor curve has to be re-tuned whenever movement speeds change (and ours have).
+// X = forward/back (accelerating vs braking), Y = right/left (cornering). That IS the body-space lean
+// vector, so both axes fall out and the old movement-direction switch is unnecessary - it generalises to
+// strafe and diagonals for free.
+// Ported from UAZ_CmcAnimInstance::CalculateRelativeAccelerationAmount; repoint that at this one (and
+// promote it to a static on the class) at the next editor-closed build so the maths has ONE owner.
+static FVector AZ_ComputeRelativeAccelerationAmount(
+	const FVector& SmoothedAccel, const FVector& Velocity, float Speed2D,
+	const FQuat& ActorRotation, float MaxAcceleration, float MaxDeceleration, float TurnRateRefDeg)
+{
+	if (MaxAcceleration <= 0.f || MaxDeceleration <= 0.f)
+	{
+		return FVector::ZeroVector;   // no budgets (preview world / mode missing) -> no lean, never a divide by 0
+	}
+
+	const FVector VelDir = Velocity.GetSafeNormal2D();
+	if (VelDir.IsNearlyZero())
+	{
+		// No travel direction to decompose against - normalise the whole vector by the accel budget.
+		const float Budget = FMath::Max(MaxAcceleration, 1.f);
+		return ActorRotation.UnrotateVector(SmoothedAccel.GetClampedToMaxSize(Budget) / Budget);
+	}
+
+	const float   LongMag = static_cast<float>(FVector::DotProduct(SmoothedAccel, VelDir));
+	const FVector LatVec  = FVector(SmoothedAccel.X, SmoothedAccel.Y, 0.f) - VelDir * LongMag;
+
+	const float LongBudget = FMath::Max(LongMag >= 0.f ? MaxAcceleration : MaxDeceleration, 1.f);
+	const float TurnBudget = FMath::Max(Speed2D * FMath::DegreesToRadians(TurnRateRefDeg), 1.f);
+
+	const FVector LongPart = VelDir * FMath::Clamp(LongMag / LongBudget, -1.f, 1.f);
+	const FVector LatPart  = LatVec.GetSafeNormal2D()
+		* FMath::Clamp(static_cast<float>(LatVec.Size2D()) / TurnBudget, 0.f, 1.f);
+
+	return ActorRotation.UnrotateVector((LongPart + LatPart).GetClampedToMaxSize(1.f));
+}
 
 FVector UAZ_MoverAnimInstance::ResolveGrabIKTarget(
 	const USkeletalMeshComponent* OwnMesh, FName UpperArmBone, FName LowerArmBone, FName HandBone,
@@ -165,11 +218,22 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 	// Re-init can run on a re-used / Live-Coding-re-instanced object: clear every one-shot stash and
 	// push-cache so the first real push can't inherit state from a clip that no longer exists.
 	PendingBlendOut                   = 0.f;
+	SmoothedVelocityAcceleration      = FVector::ZeroVector;
 	bPendingTransitionRMMove          = false;
 	PendingTransitionRMMoveDurationMs = 0.f;
 	TransitionSerial                  = 0;
 	LastPushedTransitionSerial        = 0;
 	LastPushedSMState                 = EAZ_StateMachineState::IdleLoop;
+	ActiveWeaponAnimationProfile      = nullptr;
+	LastPushedWeaponAnimationProfile  = nullptr;
+	LastPushedStrafe                  = false;
+	LastPushedAiming                  = false;
+	LastPushedDir8                    = EAZ_EightWayDirection::F;
+	ChooserContext.MovementDirection8 = EAZ_EightWayDirection::F;
+	WeaponAimOffset                  = nullptr;
+	AimYaw = AimPitch = AimAlpha      = 0.f;
+	WeaponRelaxedPose                = nullptr;
+	WeaponRelaxedAlpha               = 0.f;
 }
 
 void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -188,6 +252,28 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		return;
 	}
+
+	// Snapshot gameplay and equipment on the game thread before deriving camera-relative direction.
+	// The chooser/BlendStack path reads this snapshot and never reaches into inventory on an anim worker.
+	ChooserContext.OwnedTags.Reset();
+	Cached_Pawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
+	ChooserContext.bStrafe = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
+	ChooserContext.bIsAiming = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Aiming);
+	UAZ_WeaponAnimationProfile* NewWeaponProfile = nullptr;
+	if (const AController* Controller = Cached_Pawn->GetController())
+	{
+		ChooserContext.AimingRotation = Controller->GetControlRotation();
+		if (const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Controller->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>())
+		{
+			NewWeaponProfile = Equipment->GetActiveAnimationProfile();
+		}
+	}
+	if (NewWeaponProfile != ActiveWeaponAnimationProfile)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[WeaponAnim] %s profile=%s"),
+			*GetNameSafe(Cached_Pawn), *GetNameSafe(NewWeaponProfile));
+	}
+	ActiveWeaponAnimationProfile = NewWeaponProfile;
 
 	// ============================== GRAB HAND-IK GATHER ==============================
 	// Grabbed hold = base IDLE + hands pinned onto the grabber (two TwoBoneIK nodes near the AnimGraph
@@ -396,6 +482,24 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		{
 			Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);
 		}
+#if !UE_BUILD_SHIPPING
+		// [v2 Mode] DIAGNOSTIC (2026-09-07). Logs measured a pawn parked in TransitionToInAir for ~98% of
+		// every PIE session (181905 of 182745 frames in the 15:25 log), which starves every LocomotionLoop-
+		// gated feature - the additive lean among them. ComputeNextState:117 returns TransitionToInAir
+		// whenever MovementMode == InAir, and the mapping above has NO else branch: a mode name that is not
+		// Walking / Falling / RMAction leaves ChooserContext.MovementMode holding LAST frame's value forever.
+		// This prints the RAW name on every change so the next PIE run discriminates:
+		//   "-> Falling" and it stays          => the pawn really is airborne; the bug is in the movement layer.
+		//   "-> <some other name>"             => the mapping's missing else is the bug; MovementMode is stuck.
+		// Remove once answered.
+		if (ModeName != LastRawMoverModeName)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[v2 Mode] %s -> %s | mapped=%d SM=%d moving=%d spd=%.0f"),
+				*LastRawMoverModeName.ToString(), *ModeName.ToString(),
+				static_cast<int32>(ChooserContext.MovementMode), static_cast<int32>(ChooserContext.SMState),
+				ChooserContext.bIsMoving ? 1 : 0, ChooserContext.Speed2D);
+		}
+#endif
 		LastRawMoverModeName = ModeName;
 	}
 
@@ -454,6 +558,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 		const float Forward = static_cast<float>(FVector::DotProduct(Dir2D, RefForward));
 		const float Right   = static_cast<float>(FVector::DotProduct(Dir2D, RefRight));
+		if (!Dir2D.IsNearlyZero())
+		{
+			// Half-open sectors: F=[-22.5,22.5), FR=[22.5,67.5), ...; wrap selects B at +/-180.
+			const double Angle = FMath::RadiansToDegrees(FMath::Atan2(static_cast<double>(Right), static_cast<double>(Forward)));
+			const int32 Sector = FMath::FloorToInt((Angle + 22.5 + 360.0) / 45.0) % 8;
+			ChooserContext.MovementDirection8 = static_cast<EAZ_EightWayDirection>(Sector);
+		}
 		if (FMath::Abs(Forward) > FMath::Abs(Right))
 		{
 			ChooserContext.MovementDirection = Forward >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
@@ -467,7 +578,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			ChooserContext.MovementDirection = Right >= 0.f ? EAZ_MovementDirection::RR : EAZ_MovementDirection::LL;
 		}
 	}
-	// When idle, leave MovementDirection as last computed — chooser rows for IdleLoop use Any.
+	// When idle, retain both direction projections; chooser rows for IdleLoop use Any.
 
 	// Turn-start angle — signed yaw from current facing to the desired (world-space input) heading.
 	// This is the selector for the 90/135/180 L/R turn-start clips: at the idle->moving edge the body
@@ -506,56 +617,158 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 	}
 
-	// ---- GAS tag snapshot from the pawn (routes through IGameplayTagAssetInterface → ASC). ----
-	ChooserContext.OwnedTags.Reset();
-	Cached_Pawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
-	// Strafe / combat-ready — derived from the replicated Movement.Strafe tag (set on equip).
-	// Gates the chooser's directional strafe rows. Replicated loose tag -> present on sim proxies too.
-	ChooserContext.bStrafe = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
 	// Upper-body fists-up combat stance — timed Combat.Ready tag (set on fist equip / refreshed on attack).
 	// Drives the spine_02 layered fists-up overlay in the AnimGraph; independent of bStrafe.
-	bCombatReady = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Combat_Ready);
+	bCombatReady = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Combat_Ready)
+		&& ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Weapon_Fist);
 	// Ease the fists-up overlay weight here — Layered Blend Per Bone has no built-in alpha interp (raw BlendWeights).
 	// Rises to 1 on enable, falls to 0 on disable, with separate in/out speeds. Bind CombatReadyAlpha -> BlendWeights[0].
 	CombatReadyAlpha = FMath::FInterpTo(CombatReadyAlpha, bCombatReady ? 1.f : 0.f, DeltaSeconds,
 		bCombatReady ? CombatReadyBlendInSpeed : CombatReadyBlendOutSpeed);
 
 	// ---- Camera/facing — for rotation-aware chooser rows (TIP, AO chains) ----
-	if (const AController* Controller = Cached_Pawn->GetController())
-	{
-		ChooserContext.AimingRotation = Controller->GetControlRotation();
-	}
 	// RotationOffset is signed delta from actor yaw to camera yaw (radians or degrees?
 	// Project convention: degrees. Matches FAZ_MoverCustomInputs::RotationOffset units.)
 	ChooserContext.RotationOffset = FRotator::NormalizeAxis(
 		ChooserContext.AimingRotation.Yaw - Cached_Pawn->GetActorRotation().Yaw);
 
-	// ---- Additive lean (port of AZ_AnimInstance::Update_AdditiveLean) — FORWARD ONLY ----
-	// Lateral acceleration (velocity derivative, rotated into velocity-local space) -> a [-1..1] lean signal.
-	// Gated to forward movement (both explore and strafe); falls smoothly to 0 otherwise. Consumed by the lean
-	// BlendSpace through an Apply-Additive node in the ABP. (Lean is a continuous overlay, NOT an MM pick — the
-	// lean clips are pose-tilts with no curving root motion, so MM can't select them; see project_strafe_system.)
+	// The additive aim layer owns only the upper-body correction; Mover still owns actor facing.
+	// Keep the last AO asset through its blend-out so unequip does not replace it with null mid-fade.
+	const UAZ_WeaponAnimationProfile* WeaponProfile = ActiveWeaponAnimationProfile.Get();
+	UBlendSpace* RequestedAimOffset = WeaponProfile
+		? (ChooserContext.Stance == EAZ_Stance::Crouching
+			? WeaponProfile->CrouchingAimOffset.Get() : WeaponProfile->StandingAimOffset.Get())
+		: nullptr;
+	const bool bApplyWeaponAim = ChooserContext.bIsAiming && RequestedAimOffset;
+	if (RequestedAimOffset)
 	{
-		const FVector VelAccel = (Velocity - PrevVelocity) / FMath::Max(0.0001f, DeltaSeconds);
+		WeaponAimOffset = RequestedAimOffset;
+	}
+	const float AimSpeed = WeaponProfile ? WeaponProfile->AimInterpSpeed : 15.f;
+	const float TargetAimYaw = WeaponProfile
+		? FMath::Clamp(static_cast<float>(ChooserContext.RotationOffset), -WeaponProfile->MaxAimYaw, WeaponProfile->MaxAimYaw)
+		: 0.f;
+	const float TargetAimPitch = WeaponProfile
+		? FMath::Clamp(static_cast<float>(FRotator::NormalizeAxis(ChooserContext.AimingRotation.Pitch)),
+			-WeaponProfile->MaxAimPitch, WeaponProfile->MaxAimPitch)
+		: 0.f;
+	AimYaw = FMath::FInterpTo(AimYaw, TargetAimYaw, DeltaSeconds, AimSpeed);
+	AimPitch = FMath::FInterpTo(AimPitch, TargetAimPitch, DeltaSeconds, AimSpeed);
+	const float AimAlphaSpeed = WeaponProfile
+		? (bApplyWeaponAim ? WeaponProfile->AimBlendInSpeed : WeaponProfile->AimBlendOutSpeed)
+		: 10.f;
+	AimAlpha = FMath::FInterpTo(AimAlpha, bApplyWeaponAim ? 1.f : 0.f, DeltaSeconds, AimAlphaSpeed);
+	if (!RequestedAimOffset && AimAlpha <= KINDA_SMALL_NUMBER)
+	{
+		WeaponAimOffset = nullptr;
+		AimAlpha = 0.f;
+	}
+	UAnimSequence* RequestedRelaxedPose = WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr;
+	if (RequestedRelaxedPose)
+	{
+		WeaponRelaxedPose = RequestedRelaxedPose;
+	}
+	const bool bApplyRelaxedPose = RequestedRelaxedPose && !ChooserContext.bIsAiming
+		&& ChooserContext.Gait != EAZ_Gait::Sprint;
+	WeaponRelaxedAlpha = FMath::FInterpTo(WeaponRelaxedAlpha, bApplyRelaxedPose ? 1.f : 0.f, DeltaSeconds,
+		WeaponProfile ? WeaponProfile->RelaxedPoseBlendSpeed : 8.f);
+	if (!RequestedRelaxedPose && WeaponRelaxedAlpha <= KINDA_SMALL_NUMBER)
+	{
+		WeaponRelaxedPose = nullptr;
+		WeaponRelaxedAlpha = 0.f;
+	}
+
+	// Does another system already own the upper body / head this frame? If so the additive HEAD lean is
+	// suppressed downstream (AdditiveLeans BlendListByBool) so the two do not stack and over-rotate the head.
+	// Both drivers count - the firearm aim offset AND the melee fists-up guard - because both are, in
+	// mechanical terms, aiming: the body is turned to face the target and an upper-body layer owns the head.
+	// Read from the eased alphas so this follows the blend rather than the raw tag edge.
+	bEnableAO = (AimAlpha > KINDA_SMALL_NUMBER) || (CombatReadyAlpha > KINDA_SMALL_NUMBER);
+
+	// ---- Additive lean - CMC acceleration model (docs/design-briefs/additive-lean-rework.md) ----
+	// WAS: raw velocity derivative -> one hand-tuned divisor -> lateral component only, gated to
+	// MovementDirection == F with LeanAmount.Y hardcoded to 0. That gate is what erased B / L / R lean,
+	// and Y was never written at all, so the second blendspace axis was dead.
+	// NOW: SMOOTHED acceleration, split into longitudinal + lateral and normalised against physical
+	// budgets (accel / decel, and a CENTRIPETAL budget for cornering), returned in ACTOR space - which is
+	// already the body-space lean vector, so both axes fall out and no direction switch is needed.
+	{
+		const FVector RawAccel = (Velocity - PrevVelocity) / FMath::Max(0.0001f, DeltaSeconds);
 		PrevVelocity = Velocity;
-		const FRotator VelRot = Velocity.IsNearlyZero(1.0) ? FRotator::ZeroRotator : Velocity.Rotation();
-		const FVector LocalAccel = VelRot.UnrotateVector(VelAccel);
-		const float Divisor = static_cast<float>(FMath::GetMappedRangeValueClamped(
-			FVector2D(200.f, 320.f), FVector2D(500.f, 800.f), ChooserContext.Speed2D));
-		const float Lat = FMath::Clamp(static_cast<float>(LocalAccel.Y) / FMath::Max(1.f, Divisor), -1.f, 1.f);
-		// Forward-only gate (both explore + strafe). bForwardLean drives BOTH the BS coordinate AND the layer
-		// Alpha: the coordinate alone isn't enough — the additive node would still apply the walk-derived delta
-		// at full strength over the IDLE base pose (the "takes a root anim / weird at idle" bug). Gating Alpha to
-		// 0 lets the base pose pass through untouched; it ramps to 1 only while walking/running forward.
-		// Only in the steady LocomotionLoop — NOT during any transition (start / stop / turn / pivot / air). Those
-		// phases play an RM clip that already owns the body; the additive lean stacked on top of root motion reads
-		// wrong (it tilts over the planted turn-start). Loops carry ~zero RM, so this == "no lean while RM plays".
-		const bool bForwardLean = ChooserContext.bIsMoving
-			&& ChooserContext.MovementDirection == EAZ_MovementDirection::F
+		SmoothedVelocityAcceleration =
+			FMath::VInterpTo(SmoothedVelocityAcceleration, RawAccel, DeltaSeconds, LeanInterpSpeed);
+
+		// Budgets MIRROR AZ_PawnMovementMode_Walking (:149-170): base accel is Walk/Run - SPRINT also uses
+		// RunAcceleration, SprintAcceleration is an ADDITIVE bonus once past RunSpeed, not a replacement -
+		// and deceleration is Stopping when move intent is zero, else GaitChange. The mode's JustLanded
+		// case is deliberately NOT mirrored: a landing is TransitionToIdle, where the phase gate below has
+		// already zeroed the lean.
+		float LeanAccelBudget = 0.f, LeanDecelBudget = 0.f;
+		if (const UAZ_PawnMovementMode_Walking* WalkMode = Cast<UAZ_PawnMovementMode_Walking>(
+				Cached_MoverComponent->FindMovementModeByName(TEXT("Walking"))))
+		{
+			const float BaseAccel = (ChooserContext.Gait == EAZ_Gait::Walk)
+				? WalkMode->WalkAcceleration : WalkMode->RunAcceleration;
+			LeanAccelBudget = BaseAccel
+				+ ((ChooserContext.Speed2D > WalkMode->RunSpeed) ? WalkMode->SprintAcceleration : 0.f);
+			LeanDecelBudget = MoveIntentWS.IsNearlyZero()
+				? WalkMode->StoppingDeceleration : WalkMode->GaitChangeDeceleration;
+		}
+
+		const FVector Rel = AZ_ComputeRelativeAccelerationAmount(
+			SmoothedVelocityAcceleration, Velocity, ChooserContext.Speed2D, Cached_Pawn->GetActorQuat(),
+			LeanAccelBudget, LeanDecelBudget, LeanTurnRateReference);
+
+		// Guarded divide: these are editor-tunable now, so Min == Max is reachable in a way it was not
+		// while they were constexpr.
+		const float SpeedSpan = FMath::Max(static_cast<float>(LeanSpeedRangeIn.Y - LeanSpeedRangeIn.X), KINDA_SMALL_NUMBER);
+		const float SpeedT = FMath::Clamp((ChooserContext.Speed2D - static_cast<float>(LeanSpeedRangeIn.X)) / SpeedSpan, 0.f, 1.f);
+		const float SpeedScale = FMath::Lerp(static_cast<float>(LeanSpeedRangeOut.X),
+											 static_cast<float>(LeanSpeedRangeOut.Y), SpeedT);
+
+		// AXIS MAPPING - VERIFIED 2026-09-07 by reading the blendspaces' own sample layout. Both
+		// BS_AZ_Relaxed_Walk_Leans and _Run_Leans place: (+1,0)=Lean_R, (-1,0)=Lean_L, (0,+1)=Lean_F,
+		// (0,-1)=Lean_B. So X = LATERAL (+ right), Y = LONGITUDINAL (+ forward), and the actor-space
+		// acceleration maps straight onto them: Rel.Y (rightward) -> X, Rel.X (forward) -> Y. Cornering
+		// right leans right; braking leans back. If it ever reads inverted, fix it HERE - never re-tune
+		// the blendspaces around a wrong mapping.
+		const FVector2D Target(Rel.Y * SpeedScale, Rel.X * SpeedScale);
+
+		// PHASE gate only. The MovementDirection == F requirement is GONE - it erased B/L/R lean, and the
+		// actor-space vector already encodes direction. The LocomotionLoop requirement STAYS: a transition
+		// plays an RM clip that already owns the body, and an additive lean stacked on root motion tilts
+		// over the planted turn-start.
+		const bool bLean = ChooserContext.bIsMoving
 			&& ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop;
-		const FVector2D Target = bForwardLean ? FVector2D(Lat, 0.f) : FVector2D::ZeroVector;
-		LeanAmount = FMath::Vector2DInterpTo(LeanAmount, Target, DeltaSeconds, 10.f);
-		LeanAlpha  = FMath::FInterpTo(LeanAlpha, bForwardLean ? 1.f : 0.f, DeltaSeconds, 10.f);
+
+		LeanAmount = FMath::Vector2DInterpTo(LeanAmount, bLean ? Target : FVector2D::ZeroVector, DeltaSeconds, 10.f);
+		LeanAlpha  = FMath::FInterpTo(LeanAlpha, bLean ? 1.f : 0.f, DeltaSeconds, 10.f);
+#if !UE_BUILD_SHIPPING
+		// [v2 Lean] DIAGNOSTIC (2026-09-07). LeanAmount was on-screen-only, so the log could not answer
+		// "why is there no lean". Prints the whole chain so one PIE run localises the break:
+		//   budA/budD == 0    -> the Walking mode lookup failed; the model returns zero by design.
+		//   smAcc ~ 0         -> no acceleration reaching us (steady speed = genuinely no lean).
+		//   rel ~ 0 w/ smAcc  -> budgets swamp the signal (turn/accel too gentle vs the reference).
+		//   lean != 0         -> C++ is fine and the remaining fault is the ABP binding.
+		// Gated to moving frames so idle does not spam. Remove once answered.
+		if (ChooserContext.bIsMoving)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[v2 Lean] rel=(%+.2f,%+.2f) smAcc=%.0f budA=%.0f budD=%.0f scale=%.2f -> lean=(%+.2f,%+.2f) a=%.2f | gate=%d spd=%.0f SM=%d"),
+				Rel.X, Rel.Y, SmoothedVelocityAcceleration.Size2D(), LeanAccelBudget, LeanDecelBudget, SpeedScale,
+				LeanAmount.X, LeanAmount.Y, LeanAlpha, bLean ? 1 : 0,
+				ChooserContext.Speed2D, static_cast<int32>(ChooserContext.SMState));
+		}
+#endif
+		if (WeaponProfile && !WeaponProfile->bUseUnarmedLeans)
+		{
+			// UNCHANGED, and load-bearing for the RIFLE: the MHC graph's lean assets are unarmed, so every
+			// weapon profile bypasses them (bUseUnarmedLeans defaults false). This is what keeps the additive
+			// lean off the spine while the aim offset (AimYaw / AimPitch) owns the upper body - the two would
+			// otherwise both write the spine in mesh space and fight.
+			LeanAmount = FVector2D::ZeroVector;
+			LeanAlpha = 0.f;
+		}
 	}
 
 	UpdateDebug();
@@ -617,6 +830,11 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// Typed: keyed off the mode's bHandOffToFallingAtApex, not the bare mode name — a vault/mantle
 		// RMAction (plays to completion, never hands to Falling) must not be held as a jump takeoff.
 		SMIn.bHoldTakeoffPhase    = bHybridJumpActive && bRMActionIsJumpRise;
+		// THREE-PHASE JUMP: profiles whose takeoff clips are CLOSED (baked landing, ~0.5s of air) hand off to a
+		// looping air cycle at the apex instead of freezing the takeoff pose on a long fall. Read straight off
+		// the active profile -- unarmed has none -> false -> the two-phase jump is untouched.
+		const UAZ_WeaponAnimationProfile* AirLoopProfile = ActiveWeaponAnimationProfile.Get();
+		SMIn.bUseAirLoop          = AirLoopProfile && AirLoopProfile->bUseAirLoop;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops, no body-turning
 		SMIn.MovementDirection    = ChooserContext.MovementDirection;   // strafe forward move-start → cosmetic turn-start
@@ -926,6 +1144,49 @@ void UAZ_MoverAnimInstance::UpdateAnimation_Cmc(float DeltaSeconds)
 	}
 }
 
+double UAZ_MoverAnimInstance::GetWeaponLoopPlayRate(const FAnimNodeReference& BlendStackInput) const
+{
+	const UAZ_WeaponAnimationProfile* Profile = ActiveWeaponAnimationProfile.Get();
+	if (!Profile || !Profile->bUseLoopPlayRate || Profile->SpeedCurveName.IsNone()
+		|| ChooserContext.SMState != EAZ_StateMachineState::LocomotionLoop
+		|| !FMath::IsFinite(ChooserContext.Speed2D) || ChooserContext.Speed2D < 0.f)
+	{
+		return 1.0;
+	}
+
+	// These accessors intentionally take the INNER BlendStackInput. Each outgoing/incoming sample
+	// uses its own clip and time; the blended output's Speed curve is not a valid denominator.
+	UAnimSequence* Sequence = Cast<UAnimSequence>(UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAsset(BlendStackInput));
+	if (!Sequence || !Profile->PlayRateLoopAssets.Contains(Sequence))
+	{
+		return 1.0;
+	}
+	bool bLooping = false;
+	UPoseSearchLibrary::IsAnimationAssetLooping(Sequence, bLooping);
+	const float SequenceLength = Sequence->GetPlayLength();
+	const float SampleTime = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAssetTime(BlendStackInput);
+	if (!bLooping || SequenceLength <= KINDA_SMALL_NUMBER || !FMath::IsFinite(SampleTime))
+	{
+		return 1.0;
+	}
+
+	float DepictedSpeed = 0.f;
+	const float CurveTime = FMath::Fmod(FMath::Max(0.f, SampleTime), SequenceLength);
+	if (!UAnimationWarpingLibrary::GetCurveValueFromAnimation(Sequence, Profile->SpeedCurveName, CurveTime, DepictedSpeed)
+		|| !FMath::IsFinite(DepictedSpeed) || !FMath::IsFinite(Profile->LoopPlayRateMinDepictedSpeed)
+		|| DepictedSpeed <= FMath::Max(KINDA_SMALL_NUMBER, Profile->LoopPlayRateMinDepictedSpeed))
+	{
+		return 1.0;
+	}
+	if (!FMath::IsFinite(Profile->LoopPlayRateMin) || !FMath::IsFinite(Profile->LoopPlayRateMax)
+		|| Profile->LoopPlayRateMin <= 0.f || Profile->LoopPlayRateMax < Profile->LoopPlayRateMin)
+	{
+		return 1.0;
+	}
+	return FMath::Clamp(static_cast<double>(ChooserContext.Speed2D) / static_cast<double>(DepictedSpeed),
+		static_cast<double>(Profile->LoopPlayRateMin), static_cast<double>(Profile->LoopPlayRateMax));
+}
+
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	bool bForceBlend,
 	FAnimNodeReference BlendStackNode,
@@ -933,6 +1194,9 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	UAnimationAsset* ChosenAnim,
 	const TArray<UObject*>& Candidates)
 {
+	// The ABP evaluates the existing main CHT once. Its selected clip, candidates and output settings
+	// arrive intact here; the weapon profile only supplies optional pools and playback tuning.
+	const UAZ_WeaponAnimationProfile* WeaponProfile = ActiveWeaponAnimationProfile.Get();
 	// ChooserContext.SMState (written by the StateMachine in NativeUpdateAnimation) is the single source
 	// of truth for the SM phase — never assign it from a caller-supplied value here. The old `State`
 	// parameter was removed for exactly that reason: a stale EventGraph wire (e.g. a literal IdleLoop on
@@ -1043,7 +1307,11 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		ChooserContext.Stance            != LastPushedStance ||
 		ChooserContext.Gait              != LastPushedGait ||
 		ChooserContext.MovementDirection != LastPushedDir ||
+		(WeaponProfile && ChooserContext.MovementDirection8 != LastPushedDir8) ||
 		ChooserContext.bLeftFootDown     != LastPushedLeftFootDown ||
+		ActiveWeaponAnimationProfile    != LastPushedWeaponAnimationProfile ||
+		ChooserContext.bStrafe           != LastPushedStrafe ||
+		ChooserContext.bIsAiming         != LastPushedAiming ||
 		ChooserContext.Reaction          != LastPushedReaction;   // impact flinch changes the row w/o SMState/Gait/Dir
 
 	if (!bSelectionChanged && !bForceBlend && !ChooserOut.bUseMM && BlendStackInputs.Anim != nullptr)
@@ -1107,9 +1375,11 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			// also carry the forward-lean clips, so a forward-curving strafe corner gets the lean too.)
 			UPoseSearchDatabase* StrafeDB;
 			if (ChooserContext.Stance == EAZ_Stance::Crouching)
-				StrafeDB = StrafeCrouchDatabase.Get();
+				StrafeDB = WeaponProfile ? WeaponProfile->StrafeCrouchDatabase.Get() : StrafeCrouchDatabase.Get();
 			else
-				StrafeDB = (ChooserContext.Gait == EAZ_Gait::Walk) ? StrafeWalkDatabase.Get() : StrafeRunDatabase.Get();
+				StrafeDB = (ChooserContext.Gait == EAZ_Gait::Walk)
+					? (WeaponProfile ? WeaponProfile->StrafeWalkDatabase.Get() : StrafeWalkDatabase.Get())
+					: (WeaponProfile ? WeaponProfile->StrafeRunDatabase.Get() : StrafeRunDatabase.Get());
 			if (StrafeDB)
 			{
 				AssetsToSearch.Reset();
@@ -1126,7 +1396,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			// (Crouch_WalkFwd_new) has no BranchIn, so the single-clip search is empty (R14). The crouch DB indexes
 			// every crouch loop; MM picks the forward clip along the facing direction and the diagonals only when
 			// the trajectory actually curves — the same behaviour the strafe branch already relies on.
-			if (UPoseSearchDatabase* CrouchDB = StrafeCrouchDatabase.Get())
+			if (UPoseSearchDatabase* CrouchDB = WeaponProfile ? WeaponProfile->StrafeCrouchDatabase.Get() : StrafeCrouchDatabase.Get())
 			{
 				AssetsToSearch.Reset();
 				AssetsToSearch.Add(CrouchDB);
@@ -1138,7 +1408,9 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			// EXPLORE forward cornering lean: standing loco searches the per-gait loco DB (Fwd + LeanL/R) so MM
 			// picks the lean variant when the trajectory curves. Gait-gated; crouch falls through to single-clip.
 			UPoseSearchDatabase* LocoDB =
-				(ChooserContext.Gait == EAZ_Gait::Walk) ? WalkLocoDatabase.Get() : RunLocoDatabase.Get();
+				(ChooserContext.Gait == EAZ_Gait::Walk)
+					? (WeaponProfile ? WeaponProfile->WalkLocoDatabase.Get() : WalkLocoDatabase.Get())
+					: (WeaponProfile ? WeaponProfile->RunLocoDatabase.Get() : RunLocoDatabase.Get());
 			if (LocoDB)
 			{
 				AssetsToSearch.Reset();
@@ -1251,7 +1523,9 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		PickCost = MMResult.SearchCost;
 
 #if !UE_BUILD_SHIPPING
-		if (ChooserContext.Gait != LastPushedGait || ChooserContext.Stance != LastPushedStance)
+		if (ChooserContext.Gait != LastPushedGait || ChooserContext.Stance != LastPushedStance
+			|| ActiveWeaponAnimationProfile != LastPushedWeaponAnimationProfile
+			|| ChooserContext.bStrafe != LastPushedStrafe || ChooserContext.bIsAiming != LastPushedAiming)
 		{
 			FString PoolNames;
 			for (const UObject* Candidate : AssetsToSearch)
@@ -1274,11 +1548,12 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			};
 			const FVector2D OutgoingContacts = ReadFootContacts(OutgoingAsset, OutgoingTime);
 			const FVector2D IncomingContacts = ReadFootContacts(MMAnim, MMStartTime);
-			UE_LOG(LogTemp, Display, TEXT("[v2 MMPool] gait=%d stance=%d chosen=%s pool=[%s] outgoing=%s continuing=%s selected=%s cost=%.2f outT=%.3f inT=%.3f outFeet=(%.2f,%.2f) inFeet=(%.2f,%.2f)"),
+			UE_LOG(LogTemp, Display, TEXT("[v2 MMPool] gait=%d stance=%d chosen=%s pool=[%s] outgoing=%s continuing=%s selected=%s cost=%.2f outT=%.3f inT=%.3f outFeet=(%.2f,%.2f) inFeet=(%.2f,%.2f) profile=%s aiming=%d strafe=%d"),
 				static_cast<int32>(ChooserContext.Gait), static_cast<int32>(ChooserContext.Stance),
 				*GetNameSafe(ChosenAnim), *PoolNames, *GetNameSafe(OutgoingAsset),
 				*GetNameSafe(Continuing.PlayingAsset.Get()), *GetNameSafe(MMAnim), PickCost,
-				OutgoingTime, MMStartTime, OutgoingContacts.X, OutgoingContacts.Y, IncomingContacts.X, IncomingContacts.Y);
+				OutgoingTime, MMStartTime, OutgoingContacts.X, OutgoingContacts.Y, IncomingContacts.X, IncomingContacts.Y,
+				*GetNameSafe(WeaponProfile), ChooserContext.bIsAiming ? 1 : 0, ChooserContext.bStrafe ? 1 : 0);
 		}
 #endif
 
@@ -1364,7 +1639,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		float CrossfadeForPush = Crossfade;
 		const bool bOutgoingIsLocoTransition =
 			(GLastPushSMStateByInstance.FindRef(this) == EAZ_StateMachineState::TransitionToLocomotion);
-		if (bAssetLooping && bOutgoingIsLocoTransition
+		const bool bPhaseLockEnabled = (!WeaponProfile || (WeaponProfile->bPhaseLockedTransitionToLoop
+			&& ChooserContext.bIsAiming == LastPushedAiming && ChooserContext.bStrafe == LastPushedStrafe))
+			&& ActiveWeaponAnimationProfile == LastPushedWeaponAnimationProfile;
+		if (bPhaseLockEnabled && bAssetLooping && bOutgoingIsLocoTransition
 			&& ChooserContext.SMState == EAZ_StateMachineState::LocomotionLoop && OutgoingAsset)
 		{
 			const UAnimSequenceBase* OutSeq  = Cast<UAnimSequenceBase>(OutgoingAsset);
@@ -1494,7 +1772,11 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	LastPushedStance           = ChooserContext.Stance;
 	LastPushedGait             = ChooserContext.Gait;
 	LastPushedDir              = ChooserContext.MovementDirection;
+	LastPushedDir8             = ChooserContext.MovementDirection8;
 	LastPushedLeftFootDown     = ChooserContext.bLeftFootDown;
+	LastPushedWeaponAnimationProfile = ActiveWeaponAnimationProfile;
+	LastPushedStrafe           = ChooserContext.bStrafe;
+	LastPushedAiming           = ChooserContext.bIsAiming;
 	LastPushedReaction         = ChooserContext.Reaction;
 	LastPushedTransitionSerial = TransitionSerial;
 

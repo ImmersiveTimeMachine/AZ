@@ -76,6 +76,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser")
 	static int32 GetRowCount(const FString& ChooserPath);
 
+	/** Read editor-only row enablement, which is not exposed to Python directly. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static TArray<bool> GetChooserDisabledRows(const FString& ChooserPath);
+
+	/** Change only the selected rows' enabled state; preserves their authored cells/results. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool SetChooserRowsDisabled(const FString& ChooserPath, const TArray<int32>& RowIndices, bool bDisabled);
+
 	/** Clear all rows from a Chooser table (keeps columns and config). */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser")
 	static bool ClearRows(const FString& ChooserPath);
@@ -258,6 +266,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
 	static int32 AddEmptyRowToSub(const FString& RootChooserPath, const FString& SubTableName,
 		UObject* AssetOutput);
+
+	/** Append an exact copy of an existing row (result + EVERY column cell, tag columns included) and
+	 *  return the new row index, or -1 on failure. Use this instead of AddEmptyRowToSub whenever a new row
+	 *  must inherit an existing row's gating: set only the few cells that differ afterwards via SetCell*.
+	 *  Cells are copied through the FChooserColumnBase row virtuals, so no column type can be missed. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static int32 DuplicateRowOnSub(const FString& RootChooserPath, const FString& SubTableName,
+		int32 SourceRowIndex);
 
 	/** Add an empty row to a sub-chooser whose result is a nested sub-chooser reference. */
 	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")

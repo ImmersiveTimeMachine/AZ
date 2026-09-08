@@ -19,6 +19,23 @@
 #endif
 
 #if WITH_EDITOR
+static const UEnum* GetEnumForColumn(const FEnumColumn& Column)
+{
+	const FChooserParameterEnumBase* Input = Column.InputValue.GetPtr<FChooserParameterEnumBase>();
+	return Input ? Input->GetEnum() : nullptr;
+}
+
+static void SetAuthoredEnumValue(FChooserEnumRowData& Cell, uint8 Value, const UEnum* Enum)
+{
+	Cell.Value = Value;
+#if WITH_EDITORONLY_DATA
+	// UE5.8 FEnumColumn::PostLoad/EnumChanged restores Value FROM a valid ValueName.
+	// Updating only the byte works until reload, then a cloned row's old name wins.
+	// Clear an unresolved name so PostLoad can derive it from the authored byte.
+	Cell.ValueName = Enum ? Enum->GetNameByValue(Value) : NAME_None;
+#endif
+}
+
 static UChooserTable* LoadChooser(const FString& Path)
 {
 	return LoadObject<UChooserTable>(nullptr, *FString::Printf(TEXT("%s.%s"), *Path, *FPackageName::GetShortName(Path)));
@@ -159,21 +176,21 @@ bool UAZ_ChooserUtils::AddAnimRow(const FString& ChooserPath, UAnimSequence* Ani
 	// Column 0: StateMachineState
 	FEnumColumn& SMCol = Table->ColumnsStructs[0].GetMutable<FEnumColumn>();
 	FChooserEnumRowData SMRow;
-	SMRow.Value = static_cast<uint8>(StateMachineState);
+	SetAuthoredEnumValue(SMRow, static_cast<uint8>(StateMachineState), GetEnumForColumn(SMCol));
 	SMRow.Comparison = EEnumColumnCellValueComparison::MatchEqual;
 	SMCol.RowValues.Add(SMRow);
 
 	// Column 1: Gait
 	FEnumColumn& GaitCol = Table->ColumnsStructs[1].GetMutable<FEnumColumn>();
 	FChooserEnumRowData GaitRow;
-	GaitRow.Value = static_cast<uint8>(Gait);
+	SetAuthoredEnumValue(GaitRow, static_cast<uint8>(Gait), GetEnumForColumn(GaitCol));
 	GaitRow.Comparison = EEnumColumnCellValueComparison::MatchEqual;
 	GaitCol.RowValues.Add(GaitRow);
 
 	// Column 2: Stance
 	FEnumColumn& StanceCol = Table->ColumnsStructs[2].GetMutable<FEnumColumn>();
 	FChooserEnumRowData StanceRow;
-	StanceRow.Value = static_cast<uint8>(Stance);
+	SetAuthoredEnumValue(StanceRow, static_cast<uint8>(Stance), GetEnumForColumn(StanceCol));
 	StanceRow.Comparison = EEnumColumnCellValueComparison::MatchEqual;
 	StanceCol.RowValues.Add(StanceRow);
 
@@ -278,6 +295,38 @@ int32 UAZ_ChooserUtils::GetRowCount(const FString& ChooserPath)
 	return Table ? Table->ResultsStructs.Num() : 0;
 #else
 	return 0;
+#endif
+}
+
+TArray<bool> UAZ_ChooserUtils::GetChooserDisabledRows(const FString& ChooserPath)
+{
+	TArray<bool> Result;
+#if WITH_EDITOR
+	if (UChooserTable* Table = LoadChooser(ChooserPath))
+	{
+		Result = Table->DisabledRows;
+		Result.SetNumZeroed(Table->ResultsStructs.Num());
+	}
+#endif
+	return Result;
+}
+
+bool UAZ_ChooserUtils::SetChooserRowsDisabled(const FString& ChooserPath, const TArray<int32>& RowIndices, bool bDisabled)
+{
+#if WITH_EDITOR
+	UChooserTable* Table = LoadChooser(ChooserPath);
+	if (!Table) return false;
+	for (int32 Index : RowIndices)
+	{
+		if (!Table->ResultsStructs.IsValidIndex(Index)) return false;
+	}
+	Table->Modify();
+	Table->DisabledRows.SetNumZeroed(Table->ResultsStructs.Num());
+	for (int32 Index : RowIndices) Table->DisabledRows[Index] = bDisabled;
+	Table->MarkPackageDirty();
+	return true;
+#else
+	return false;
 #endif
 }
 
@@ -410,21 +459,21 @@ bool UAZ_ChooserUtils::AddNestedChooserRow(const FString& RootChooserPath, const
 	// Column 0: StateMachineState
 	FEnumColumn& SMCol = Root->ColumnsStructs[0].GetMutable<FEnumColumn>();
 	FChooserEnumRowData SMRow;
-	SMRow.Value = StateMachineState;
+	SetAuthoredEnumValue(SMRow, StateMachineState, GetEnumForColumn(SMCol));
 	SMRow.Comparison = (StateMachineState == 255) ? EEnumColumnCellValueComparison::MatchAny : EEnumColumnCellValueComparison::MatchEqual;
 	SMCol.RowValues.Add(SMRow);
 
 	// Column 1: Gait
 	FEnumColumn& GaitCol = Root->ColumnsStructs[1].GetMutable<FEnumColumn>();
 	FChooserEnumRowData GaitRow;
-	GaitRow.Value = Gait;
+	SetAuthoredEnumValue(GaitRow, Gait, GetEnumForColumn(GaitCol));
 	GaitRow.Comparison = (Gait == 255) ? EEnumColumnCellValueComparison::MatchAny : EEnumColumnCellValueComparison::MatchEqual;
 	GaitCol.RowValues.Add(GaitRow);
 
 	// Column 2: Stance
 	FEnumColumn& StanceCol = Root->ColumnsStructs[2].GetMutable<FEnumColumn>();
 	FChooserEnumRowData StanceRow;
-	StanceRow.Value = Stance;
+	SetAuthoredEnumValue(StanceRow, Stance, GetEnumForColumn(StanceCol));
 	StanceRow.Comparison = (Stance == 255) ? EEnumColumnCellValueComparison::MatchAny : EEnumColumnCellValueComparison::MatchEqual;
 	StanceCol.RowValues.Add(StanceRow);
 
@@ -739,8 +788,18 @@ static void DumpChooserTableRecursive(UChooserTable* Table, TArray<FString>& Out
 			if (const FChooserParameterEnumBase* Input = MC->InputValue.GetPtr<FChooserParameterEnumBase>())
 				if (const UEnum* Enum = Input->GetEnum()) EnumName = Enum->GetName();
 		}
-		Out.Add(FString::Printf(TEXT("%s    { \"index\": %d, \"type\": \"%s\", \"enum\": \"%s\" },"),
-			*Pad, i, *TypeName, *EnumName));
+		// Bound property name (the last element of the column's PropertyBindingChain). Without it a bool
+		// column is an anonymous "c11" in every dump and each row edit against it is guesswork.
+		FString BindName = TEXT("");
+		if (FChooserColumnBase* Col = Table->ColumnsStructs[i].GetMutablePtr<FChooserColumnBase>())
+		{
+			if (const FChooserParameterBase* Input = Col->GetInputValue())
+			{
+				BindName = Input->GetDebugName();
+			}
+		}
+		Out.Add(FString::Printf(TEXT("%s    { \"index\": %d, \"type\": \"%s\", \"enum\": \"%s\", \"bind\": \"%s\" },"),
+			*Pad, i, *TypeName, *EnumName, *BindName));
 	}
 	Out.Add(FString::Printf(TEXT("%s  ],"), *Pad));
 
@@ -1010,6 +1069,12 @@ int32 UAZ_ChooserUtils::RebindChooserEnums(const FString& ChooserPath,
 							if (UEnum** NewEnum = NameToEnum.Find(OldEnum->GetName()))
 							{
 								Prop->Binding.Enum = *NewEnum;
+								// This helper intentionally preserves numeric parity when changing enum types.
+								// Persist names from the NEW enum before Compile/EnumChanged can restore old ones.
+								for (FChooserEnumRowData& Cell : EC->RowValues)
+								{
+									SetAuthoredEnumValue(Cell, Cell.Value, *NewEnum);
+								}
 								++TouchedCount;
 							}
 						}
@@ -1290,7 +1355,7 @@ int32 UAZ_ChooserUtils::AddEnumColumnToSub(const FString& RootChooserPath, const
 	{
 		FChooserEnumRowData AnyCell;
 		AnyCell.Comparison = EEnumColumnCellValueComparison::MatchAny;
-		AnyCell.Value = 0;
+		SetAuthoredEnumValue(AnyCell, 0, Enum);
 		Col.RowValues.Init(AnyCell, Table->ResultsStructs.Num());
 	}
 	const int32 NewIndex = Table->ColumnsStructs.Add(MoveTemp(ColStruct));
@@ -1562,7 +1627,8 @@ static void AppendDefaultCellToAllColumns(UChooserTable* Table)
 	{
 		if (FEnumColumn* EC = ColStruct.GetMutablePtr<FEnumColumn>())
 		{
-			FChooserEnumRowData D; D.Comparison = EEnumColumnCellValueComparison::MatchAny; D.Value = 0;
+			FChooserEnumRowData D; D.Comparison = EEnumColumnCellValueComparison::MatchAny;
+			SetAuthoredEnumValue(D, 0, GetEnumForColumn(*EC));
 			EC->RowValues.Add(D);
 		}
 		else if (FMultiEnumColumn* MC = ColStruct.GetMutablePtr<FMultiEnumColumn>())
@@ -1593,6 +1659,21 @@ static void AppendDefaultCellToAllColumns(UChooserTable* Table)
 			}
 		}
 	}
+
+	// Every column type the switch above does NOT know (FGameplayTagColumn above all -- CHT_v2 carries four)
+	// still needs its cell array extended. Without this the new row is SHORTER than the column, and
+	// FGameplayTagColumn::TestRow's IsValidIndex guard returns FALSE for the missing cell: the row is
+	// filtered out on every evaluation and can never match, silently. SetNumRows pads with the column's own
+	// DefaultRowValue (for a tag column that is an EMPTY container, which TestRow treats as "match any"), and
+	// is a no-op for the columns already extended above -- both callers add their result BEFORE calling this,
+	// so ResultsStructs.Num() is the intended new row count and nothing is ever truncated.
+	for (FInstancedStruct& ColStruct : Table->ColumnsStructs)
+	{
+		if (FChooserColumnBase* Col = ColStruct.GetMutablePtr<FChooserColumnBase>())
+		{
+			Col->SetNumRows(Table->ResultsStructs.Num());
+		}
+	}
 }
 #endif
 
@@ -1616,6 +1697,47 @@ int32 UAZ_ChooserUtils::AddEmptyRowToSub(const FString& RootChooserPath, const F
 #endif
 	Root->MarkPackageDirty();
 	return Table->ResultsStructs.Num() - 1;
+#else
+	return -1;
+#endif
+}
+
+int32 UAZ_ChooserUtils::DuplicateRowOnSub(const FString& RootChooserPath, const FString& SubTableName,
+	int32 SourceRowIndex)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table) return -1;
+	if (!Table->ResultsStructs.IsValidIndex(SourceRowIndex))
+	{
+		UE_LOG(LogTemp, Error, TEXT("DuplicateRowOnSub: row %d out of range (%d rows)"),
+			SourceRowIndex, Table->ResultsStructs.Num());
+		return -1;
+	}
+
+	// Copy the result FIRST into a local: Add() on the same array may reallocate, which would dangle a
+	// reference taken into it.
+	FInstancedStruct SourceResult = Table->ResultsStructs[SourceRowIndex];
+	Table->ResultsStructs.Add(MoveTemp(SourceResult));
+	const int32 NewRow = Table->ResultsStructs.Num() - 1;
+
+	// Cells: pad every column to the new row count, then copy the source row's cell across. Going through
+	// the FChooserColumnBase row virtuals (CHOOSER_COLUMN_BOILERPLATE implements them for every column type)
+	// means this needs no per-type switch and cannot miss a column the way a hand-written one can.
+	for (FInstancedStruct& ColStruct : Table->ColumnsStructs)
+	{
+		if (FChooserColumnBase* Col = ColStruct.GetMutablePtr<FChooserColumnBase>())
+		{
+			Col->SetNumRows(Table->ResultsStructs.Num());
+			Col->CopyRow(*Col, SourceRowIndex, NewRow);
+		}
+	}
+#if WITH_EDITORONLY_DATA
+	Table->DisabledRows.Add(false);   // a duplicate always starts ENABLED, whatever the source row was
+#endif
+	Root->MarkPackageDirty();
+	return NewRow;
 #else
 	return -1;
 #endif
@@ -1670,7 +1792,8 @@ bool UAZ_ChooserUtils::SetCellEnumOnSub(const FString& RootChooserPath, const FS
 	if (Comparison == 2)
 	{
 		Cell.Comparison = EEnumColumnCellValueComparison::MatchAny;
-		Cell.Value = 0;
+		// Value and ValueName are ignored for MatchAny. Keep their existing pair
+		// rather than creating a byte/name disagreement that reload would rewrite.
 	}
 	else
 	{
@@ -1692,7 +1815,7 @@ bool UAZ_ChooserUtils::SetCellEnumOnSub(const FString& RootChooserPath, const FS
 			return false;
 		}
 		Cell.Comparison = (Comparison == 1) ? EEnumColumnCellValueComparison::MatchNotEqual : EEnumColumnCellValueComparison::MatchEqual;
-		Cell.Value = static_cast<uint8>(Val);
+		SetAuthoredEnumValue(Cell, static_cast<uint8>(Val), Enum);
 	}
 	Root->MarkPackageDirty();
 	return true;
