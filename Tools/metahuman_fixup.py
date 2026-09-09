@@ -61,8 +61,17 @@ def apply_sockets(sv_mesh, mh_mesh, mh_skel):
                         rot=s.get_editor_property('relative_rotation'),
                         scl=s.get_editor_property('relative_scale')))
 
+    # The rifle hand sockets are TUNED PER SKELETON: the MetaHuman hand bone is not oriented like
+    # SurvivalMan's, and since 2026-09-09 the rifle set plays native MetaHuman clips, so SurvivalMan's
+    # socket values are wrong here by construction. Keep whatever is on the mesh; only create them
+    # (from SurvivalMan, as a starting point) when they are missing after a re-assembly.
+    preserve = ('RightHandRifleSocketAim', 'RightHandRifleSocketRelaxed')
+    preserved = [n for n in preserve if mh_mesh.find_socket(n)]
+
     # wipe managed sockets first so the pass is idempotent
     for rec in src:
+        if rec['name'] in preserved:
+            continue
         guard = 0
         while mh_mesh.find_socket(rec['name']) and guard < 12:
             mh_mesh.remove_socket(rec['name'])
@@ -70,6 +79,8 @@ def apply_sockets(sv_mesh, mh_mesh, mh_skel):
 
     added, skipped, failed = [], [], []
     for rec in src:
+        if rec['name'] in preserved:
+            continue
         if rec['bone'] not in bones:
             skipped.append((rec['name'], rec['bone']))
             continue
@@ -85,7 +96,7 @@ def apply_sockets(sv_mesh, mh_mesh, mh_skel):
 
     ok = True
     for rec in src:
-        if rec['bone'] not in bones:
+        if rec['bone'] not in bones or rec['name'] in preserved:
             continue
         g = mh_mesh.find_socket(rec['name'])
         if not g:
@@ -103,6 +114,8 @@ def apply_sockets(sv_mesh, mh_mesh, mh_skel):
             print('[MH-FIXUP]   MISMATCH %s' % rec['name'])
 
     print('[MH-FIXUP] sockets added: %d %s' % (len(added), added))
+    if preserved:
+        print('[MH-FIXUP] preserved (tuned for the MetaHuman hand, not copied): %s' % preserved)
     if skipped:
         # weapon_r_muzzle is expected here: bone 'weapon_r' does not exist on the MetaHuman
         # skeleton, and nothing in Source/ references that socket.

@@ -344,3 +344,127 @@ Capsule                                   (root, Mover UpdatedComponent)
    `BodyRetargeter` set before the compile).
 4. `Tools/metahuman_fixup.py`; verify Aim/Relaxed socket values equal SurvivalMan's.
 5. User PIE (rifle: idle, aim, walk, jump, grab) → logs against §7.5, screenshots.
+
+**STATUS (2026-09-08): PARKED after step 1.** The C++ was written, verified in place and then reverted as
+too heavy for the ask ("a small adjustment of the hand"); it is kept as
+`scratchpad/path_a_cpp.patch` (373 lines, applies on `4ac0954`) and the pawn-SCS script as
+`scratchpad/path_a_pawn_scs.py`. The Pin-op removal stayed (committed). Path C below shipped instead.
+
+---
+
+## 8. Path C — SHIPPED (2026-09-08): two Modify Bone nodes, exact at the bone
+
+**Why it is exact, not approximate.** Under compatible-skeleton playback the MetaHuman copies every
+SurvivalMan LOCAL rotation verbatim, so the world error at each bone is a **constant in that bone's own
+frame** — it never depends on the pose. Measured across aim idle, relaxed idle, crouch-aim idle and the
+jump-air clip (12 samples): the single bone-space correction that puts `hand_r` on SurvivalMan's world
+orientation varies by **0.04°** (`hand_l` 0.05°). One constant per hand, done.
+
+| | hand bone | finger dir | across-palm | palm normal |
+|---|---|---|---|---|
+| today (compatible playback) | 21.2 | 1.1–1.8 | **24.2** | 21.8–23.3 |
+| **+ Modify Bone (path C)** | **0.0** | 5.4–8.5 | **3.1** | **2.9–3.3** |
+| path A (aligned retarget, §6) | 0.0 | 7.2 | 3.9 | 8.3 |
+
+Path C is as good as path A on the visible palm (the finger-direction 5–8° is the fingers' own rest delta,
+present in A as well) at a cost of two nodes.
+
+**The nodes** — `AZ_ABP_MoverHero_MHC` AnimGraph, spliced between `LinkedAnimLayer AdiativeCombatGrabbed`
+(the last node) and the Root, with the schema's automatic Local↔Component conversions:
+
+```
+Modify Bone  hand_r   RotationMode Additive   RotationSpace BoneSpace   Rotation (P −0.2086, Y −3.1971, R 20.9491)
+Modify Bone  hand_l   RotationMode Additive   RotationSpace BoneSpace   Rotation (P −0.2086, Y −3.1971, R 20.9491)
+```
+(identical for both hands — the skeleton is mirrored). Translation/Scale Ignore, Alpha 1. Authored with
+`AZ_AnimGraphNodeUtils.add_anim_graph_node / set_anim_node_property('Node.…') / connect_pose_link`;
+the correction = `inv(handLocal_today) · (inv(lowerarmWorld_MH) · handWorld_SM)`, i.e. a right-multiply in
+the hand's own frame, which is exactly what `BCS_BoneSpace` + `BMM_Additive` applies
+(`InOutBoneSpaceTM *= BoneTM`). Only the MetaHuman pawn uses this ABP; the stock hero is untouched.
+
+**Sockets reverted** to SurvivalMan's values on `SKM_MHC_Hero_BodyMesh` via `Tools/metahuman_fixup.py`
+(the hand-tuned offsets compensated the 21° error and would now double-compensate). The tuned values, for
+the record: `RightHandRifleSocketAim` (middle_01_r) loc (−0.86, 5.16, −1.14) rot (P 10.53, Y 106.53,
+R −9.50); `RightHandRifleSocketRelaxed` (hand_r) loc (−6.54, 3.71, −0.65) rot (P −21.78, Y 84.20, R 15.63).
+SurvivalMan's: Aim loc (−2.43, 4.64, −2.21) rot (P 3.63, Y 118.75, R −9.17); Relaxed loc (−6.39, 4.37,
+−2.17) rot (P −2.04, Y 92.62, R 0.64). `Hand_LeftSocket` / `BackRifleSocket` were already identical.
+
+**Not changed:** the 2.9° constant on the lowerarms (same mechanism; add two more nodes if it ever shows),
+feet (+3.3 cm float under compatible playback — unchanged by this), the retargeter assets (§1–5, still the
+exact UE4→SurvivalMan path for the clip batch).
+
+**Trap recorded:** `AnimPoseExtensions.get_reference_pose(metahuman_base_skel)` returns the *female-medium
+archetype* ref pose (head 143 cm); the hero mesh's own rest is 162 cm (same as SurvivalMan). Read rest
+numbers off the MESH (spawned component), never the shared MetaHuman skeleton asset.
+
+**Superseded the same night** — §9: the user retargeted the whole pack to MetaHuman-native clips; path C's
+Modify Bone nodes were unlinked again (they would double-correct native clips) and are orphaned in the graph.
+
+---
+
+## 9. SHIPPED (2026-09-09): the rifle set is MetaHuman-NATIVE (`/Game/AZ/Assets/M16/Riffle_RTG_MH/AZ_RTG_MH_*`)
+
+The user batch-retargeted the entire UE4 pack (919 clips, `metahuman_base_skel`) and asked for the CHT
+rifle set to use them. Measured vs the UE4 original they are a default-pose retarget (hand_r 15°, hand_l
+9–10°, pelvis 5.7°, left-hand grip 8–10 cm off) — accepted as-is by decision; the exact direct retargeter
+`RTG_RifleP01_UE4_to_MetaHuman` (0.0° every bone, feet ±0.5 cm, aligned pose `MH_AlignedToUE4Manny`,
+IK-arm op saved DISABLED — 5.8 has no blend-to-source, IK left 3–3.5 cm grip error + 3–4° arms) is
+available for a regeneration into the same names whenever wanted.
+
+**What changed (all verified by disk mtime / post-save re-read):**
+- `CHT_v2_CharacterAnimations`: 50 rifle refs → `AZ_RTG_MH_*` (`AZ_ChooserUtils.remap_chooser_assets`).
+  Still SurvivalMan: the two `Fall_v2` clips and the 10 `AS_P01_Jump_*_Land` composites (no MH source yet).
+- 118 clips: `loop`, `enable_root_motion`, `force_root_lock`, `root_motion_root_lock`, `rate_scale` copied
+  from the `Riffle_P_` twin. The user's batch had loop=False on idles and rm=False / flat root on loops.
+- 6 `PSD_P01_*` (Crouch/Jog/Walk × Aim/Explore): membership swapped — 8 unique MH clips each, via
+  `remove_all_pose_search_notifies(old)` + `add_branch_in_notify(new, db, 0, 0)` + save. `PSD_P01_Land`
+  untouched (composites).
+- `DA_WeaponAnim_P01.play_rate_loop_assets` (48), `AO_Rifle_Aim` (17 samples), `AZ_AM_Rifle_Fire` (segment →
+  `AZ_RTG_MH_W2_Stand_Fire_Single`, same 0–0.379 s window — no `_Short` MH asset needed).
+- 20 `Aim_Point_*` clips made additive **relative to frame 0 of `AZ_RTG_MH_W2_Stand_Aim_Point_Center`**
+  (`AAT_ROTATION_OFFSET_MESH_SPACE`, `ABPT_ANIM_FRAME`, `ref_frame_index 0`).
+- 49 IPC loops: root track rebuilt = the old reconstructed root copied per frame (walk F 145.7 cm/1.17 s,
+  jog 223.5, crouch 108.4; fwd +Y, right −X), `contact_l/contact_r` copied by sampling. Two were flat in
+  the OLD set too and were rebuilt from their mirror: `CrouchWalk_Aim_FL` (from FR, 114.6 cm),
+  `Walk_Aim_BR_BkPd` (from BL, 109.9 cm). `W2_Run_R_Loop_IPC` is flat in both and unreferenced.
+- Body mesh sockets (`/Game/AZ/Blueprints/Character/AZ_MHC_Hero/Body/SKM_MHC_Hero_BodyMesh` — the pawn's
+  mesh; the retarget-source twin `/Game/MetaHumans/MHC_Hero/Body/…` has NO sockets): the user tuned
+  `RightHandRifleSocketAim` on `middle_01_r` (loc −1.86, 5.12, −1.77 / rot P 11.44, Y 134.07, R −1.18) and
+  previews every clip attached there; `RightHandRifleSocketRelaxed` was set IDENTICAL to it (same bone,
+  same transform) so the game matches the preview in both states. Two derivations were tried and rejected
+  by the user's eye: "aim placement re-expressed in the hand_r frame" (−6.63/4.61/−1.86, P −3.73 Y 102.63
+  R 18.36 — 40° off the grip line: the Aim socket hangs off a FINGER whose curl differs 27° between aim and
+  relaxed) and a "swing about hand_r so the M16's `LeftHandGrip` lands on hand_l" (−5.54/6.15/−0.30, P 0.49
+  Y 89.01 R 6.86 — 2.3 cm at the wrist BONE, still visibly off the palm). Lesson: the M16's `LeftHandGrip`
+  socket vs the `hand_l` wrist bone is not what the eye judges; the user's tuned socket is the reference.
+  `Tools/metahuman_fixup.py` now PRESERVES both rifle sockets (tuned per skeleton).
+
+**Traps hit (each cost a PIE or a crash):**
+1. *Additive base type.* Copying `additive_anim_type` + `ref_pose_seq` without `ref_pose_type` leaves the
+   engine default `ABPT_REF_POSE`, drops `ref_pose_seq` on PostEditChange, and bakes the aim offset against
+   the A-pose → the whole upper body flung around in-game while the raw clip previews fine.
+2. *PSD membership is BranchIn-synced.* `PreSaveRoot` rebuilds the entry list from the BranchIn notifies;
+   ALSO calling `add_sequences_to_database` double-adds (16 members). Never both — notify + save only
+   (already written in `Tools/rifle_p01_setup.py`; ignored once, paid for it).
+3. *Struct arrays from Python are copies.* Mutating `BlendSample`/`AnimSegment` elements of
+   `get_editor_property(...)` and assigning the same list back writes nothing; build NEW struct instances
+   and assign a fresh `unreal.Array`. `AnimSegment` for montage slot tracks likewise.
+4. *`save_asset` returns False after a PreSaveRoot-driven save* — verify by mtime.
+5. *No scriptable crop* (`AnimationLibrary` has no trim); a montage segment's `anim_start/end_time` does
+   the same job without a derived asset.
+6. *Sockets are per skeleton.* The fixup's "copy every socket from SurvivalMan" was right for
+   compatible playback and wrong for native clips; the preview (attached on `…Aim`) and the game (attached
+   on `…Relaxed`) disagreed by the un-retuned socket, not by the pose — proven by sampling the live PIE
+   skeleton against the clip on the same mesh: every bone ≤0.1°, grip vector 35.1 = 35.1 cm.
+
+**Root-motion set swapped too (same session, later):** the 122 `rm_W2_*` clips the CHT played from
+`/Game/AZ/NoWeapons/RootMotions/` (starts, stops, pivots, stance changes, jump takeoffs) are the pack's
+non-IPC clips with an `rm_` prefix added on import, so their MetaHuman twins are `AZ_RTG_MH_W2_<x>` (no
+`rm_`). Their retargeted root motion was already in the root track (jog jump 477 vs 495 cm, 90° pivots
+preserved) but the flags were off: `enable_root_motion`, `root_motion_root_lock`, `force_root_lock`
+(jumps), `loop`, `rate_scale` transplanted from the old clip, notifies copied where present. CHT: 126 refs
+→ 0 `rm_` refs left. The 10 `AS_P01_Jump_*_Land` composites still segment the old `rm_W2_*_Jump*` clips.
+
+**Open:** `PSD_P01_Land` + 10 `AS_P01_Jump_*` composites + 2 `Fall_v2` still SurvivalMan-sourced;
+`AimYaw` reads −90 when looking straight ahead (pre-existing, check the AO axis convention when aiming);
+4 orphan nodes (2 Modify Bone + 2 conversions) in `AZ_ABP_MoverHero_MHC` to delete on the next compile.
