@@ -1,0 +1,23 @@
+{
+  "status": "compiled_saved_readback_passed",
+  "native_build": "Succeeded",
+  "ability": "/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_AZ_GA_FirearmFire",
+  "ability_status": "<BlueprintStatus.BS_UP_TO_DATE: 3>",
+  "input": "Input.Action.PrimaryAttack",
+  "instance_owned_tags": "(GameplayTags=((TagName=\"Ability.State.Shooting\")))",
+  "required_tags": "(GameplayTags=((TagName=\"Weapon.Rifle\")))",
+  "rifle_manifest_count": 3,
+  "muzzle_location": [
+    -1.082305908203125,
+    60.27040863037111,
+    11.934843063354498
+  ],
+  "muzzle_forward": [
+    -1.048990684667789e-15,
+    1.0,
+    -1.3101872457011263e-22
+  ],
+  "dirty_content": [],
+  "dirty_maps": [],
+  "no_pie": true
+}

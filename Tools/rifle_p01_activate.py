@@ -26,6 +26,7 @@ PROFILE = '/Game/AZ/Blueprints/Animation/MotionMatching/RifleP01/DA_WeaponAnim_P
 CHOOSER = '/Game/AZ/Blueprints/Animation/MotionMatching/CHT_v2_CharacterAnimations'
 AO = '/Game/AZ/Blueprints/Animation/AO_Rifle_Aim'
 ABILITY = '/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_AZ_GA_FirearmAim'
+FIRE_ABILITY = '/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_AZ_GA_FirearmFire'
 ACTION = '/Game/AZ/Blueprints/Input/InputActions/RT/AZ_IA_RT_Aim'
 INPUT_CONFIG = '/Game/AZ/Blueprints/Input/AZ_InputConfig'
 MAPPING_CONTEXT = '/Game/AZ/Blueprints/Input/InputActions/RT/AZ_IMC_RT_PawnInputs'
@@ -179,9 +180,14 @@ def patched_manifest(original):
             counts[kind] += 1
             current = dict(fragment_fields).get('AbilitiesToGrant', '()')
             granted = split_top_level(parenthesized(current))
-            if granted and granted != [expected_ability]:
+            fire_ability = object_reference('/Script/Engine.BlueprintGeneratedClass', FIRE_ABILITY, True)
+            if len(granted) != len(set(granted)) or any(value not in (expected_ability, fire_ability) for value in granted):
                 raise RuntimeError('Existing foreign/legacy ability grants require explicit review; refusing to enable or remove them')
-            fragment = kind + encode_fields(replace_field(fragment_fields, 'AbilitiesToGrant', '(' + expected_ability + ')'))
+            # The later firing milestone owns its grant; this aim authoring pass
+            # preserves it without enabling firing on a pickup that lacks it.
+            if expected_ability not in granted:
+                granted.insert(0, expected_ability)
+            fragment = kind + encode_fields(replace_field(fragment_fields, 'AbilitiesToGrant', '(' + ','.join(granted) + ')'))
         result.append(fragment)
     if counts[WEAPON_FRAGMENT] != 1 or counts[GRANT_FRAGMENT] > 1:
         raise RuntimeError('Expected one weapon fragment and at most one ability-grant fragment')
@@ -214,8 +220,12 @@ def assert_manifest_preserved(before, after):
                 == [(key, value) for key, value in grants[0] if key != 'AbilitiesToGrant'],
                 'An unrelated ability-grant fragment field changed')
     expected = object_reference('/Script/Engine.BlueprintGeneratedClass', ABILITY, True)
-    require(split_top_level(parenthesized(dict(grants[0]).get('AbilitiesToGrant', '()'))) == [expected],
-            'Manifest ability reference did not resolve to the single new held-aim ability')
+    actual_grants = split_top_level(parenthesized(dict(grants[0]).get('AbilitiesToGrant', '()')))
+    fire = object_reference('/Script/Engine.BlueprintGeneratedClass', FIRE_ABILITY, True)
+    old_abilities = split_top_level(parenthesized(dict(old_grants[0]).get('AbilitiesToGrant', '()'))) if old_grants else []
+    require(actual_grants.count(expected) == 1 and actual_grants.count(fire) == old_abilities.count(fire)
+            and len(actual_grants) == 1 + old_abilities.count(fire),
+            'Aim must be granted once and the firing milestone grant must be preserved')
     weapon = [dict(fragment_parts(f)[1]) for f in new_fragments if fragment_parts(f)[0] == WEAPON_FRAGMENT]
     require(len(weapon) == 1 and PROFILE in weapon[0].get('AnimationProfile', ''), 'AnimationProfile reference did not resolve')
 

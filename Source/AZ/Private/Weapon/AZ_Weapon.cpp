@@ -9,7 +9,15 @@
 #include "AbilitySystem/TargetActors/AZ_GATA_SphereTrace.h"
 #include "Character/AZ_HeroCharacter.h"
 #include "Components/BoxComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Pawn.h"
+#include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
+#include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Particles/ParticleSystem.h"
+#include "Sound/SoundBase.h"
 
 
 // Sets default values
@@ -84,6 +92,24 @@ AAZ_Weapon::AAZ_Weapon()
 	LeftHandIKAdjustments.Add(EAZ_WeaponPoseState::Throwing,         ZeroAdj);
 }
 
+void AAZ_Weapon::SetOwner(AActor* NewOwner)
+{
+	AActor* PreviousOwner = GetOwner();
+	Super::SetOwner(NewOwner);
+	if (GetOwner() != PreviousOwner)
+	{
+		OnOwnershipChanged.Broadcast();
+	}
+}
+
+void AAZ_Weapon::OnRep_Owner()
+{
+	Super::OnRep_Owner();
+	// Replication can resolve Owner after the controller's equipment selection.
+	// Some replication paths also call SetOwner; presentation snapshots deduplicate.
+	OnOwnershipChanged.Broadcast();
+}
+
 USkeletalMeshComponent* AAZ_Weapon::GetWeaponMesh1P() const
 {
 	return WeaponMesh1P;
@@ -92,6 +118,56 @@ USkeletalMeshComponent* AAZ_Weapon::GetWeaponMesh1P() const
 USkeletalMeshComponent* AAZ_Weapon::GetWeaponMesh3P() const
 {
 	return WeaponMesh3P;
+}
+
+void AAZ_Weapon::ConfigureFirearmPresentation(const FAZ_Inv_CommonUI_WeaponStateFragment& Definition)
+{
+	if (!HasAuthority()) return;
+	FirearmMuzzleSocketName = Definition.MuzzleSocketName;
+	FirearmFireSound = Definition.FireSound;
+	FirearmMuzzleFlash = Definition.MuzzleFlash;
+	ForceNetUpdate();
+}
+
+void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit, bool bHitConfirmed,
+	UParticleSystem* WorldImpactEffect, float WorldImpactScale)
+{
+	if (GetNetMode() == NM_DedicatedServer) return;
+	// This is the authority's accepted scenery hit, independent of damage feedback
+	// and of whether the weapon still has a valid muzzle when the RPC arrives.
+	if (IsValid(WorldImpactEffect) && Hit.IsValidBlockingHit()
+		&& FMath::IsFinite(WorldImpactScale) && WorldImpactScale > 0.f
+		&& !Hit.ImpactPoint.ContainsNaN() && !Hit.ImpactNormal.ContainsNaN())
+	{
+		const FVector SurfaceNormal = Hit.ImpactNormal.GetSafeNormal();
+		if (!SurfaceNormal.IsNearlyZero())
+		{
+			// The authored +X direction points away from the surface. A 1 cm offset
+			// keeps the initial smoke sprites from being buried in the hit geometry.
+			UGameplayStatics::SpawnEmitterAtLocation(this, WorldImpactEffect,
+				Hit.ImpactPoint + SurfaceNormal, SurfaceNormal.Rotation(), FVector(WorldImpactScale),
+				true, EPSCPoolMethod::AutoRelease, true);
+		}
+	}
+	const APawn* OwningPawn = Cast<APawn>(GetOwner());
+	if (bHitConfirmed && IsValid(OwningPawn) && OwningPawn->IsLocallyControlled())
+	{
+		OnFirearmHitConfirmed.Broadcast(Hit);
+	}
+	if (!IsValid(WeaponMesh3P)
+		|| FirearmMuzzleSocketName.IsNone() || !WeaponMesh3P->DoesSocketExist(FirearmMuzzleSocketName)) return;
+
+	const FTransform Muzzle = WeaponMesh3P->GetSocketTransform(FirearmMuzzleSocketName, RTS_World);
+	if (Muzzle.ContainsNaN()) return;
+	if (IsValid(FirearmFireSound))
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FirearmFireSound, Muzzle.GetLocation(), Muzzle.Rotator());
+	}
+	if (IsValid(FirearmMuzzleFlash))
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAttached(FirearmMuzzleFlash, WeaponMesh3P, FirearmMuzzleSocketName,
+			FVector::ZeroVector, FRotator::ZeroRotator, EAttachLocation::SnapToTarget, true);
+	}
 }
 
 void AAZ_Weapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -103,6 +179,9 @@ void AAZ_Weapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 	DOREPLIFETIME_CONDITION(AAZ_Weapon, MaxPrimaryClipAmmo, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AAZ_Weapon, SecondaryClipAmmo, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AAZ_Weapon, MaxSecondaryClipAmmo, COND_OwnerOnly);
+	DOREPLIFETIME(AAZ_Weapon, FirearmMuzzleSocketName);
+	DOREPLIFETIME(AAZ_Weapon, FirearmFireSound);
+	DOREPLIFETIME(AAZ_Weapon, FirearmMuzzleFlash);
 }
 
 void AAZ_Weapon::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)

@@ -20,8 +20,14 @@ class AAZ_GATA_LineTrace;
 enum class EAZ_AbilityInputID : uint8;
 class AAZ_HeroCharacter;
 class UAZ_AbilitySystemComponent;
+class UNiagaraSystem;
+class UParticleSystem;
+class USoundBase;
+struct FAZ_Inv_CommonUI_WeaponStateFragment;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FWeaponAmmoChangedDelegate, int32, OldValue, int32, NewValue);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_FirearmHitConfirmed, const FHitResult&, Hit);
+DECLARE_MULTICAST_DELEGATE(FAZ_WeaponOwnershipChanged);
 
 UCLASS()
 class AZ_API AAZ_Weapon : public AAZ_Item, public IAbilitySystemInterface
@@ -31,6 +37,12 @@ class AZ_API AAZ_Weapon : public AAZ_Item, public IAbilitySystemInterface
 public:
 	// Sets default values for this actor's properties
 	AAZ_Weapon();
+
+	virtual void SetOwner(AActor* NewOwner) override;
+	virtual void OnRep_Owner() override;
+
+	/** Native presentation readiness notification; ownership remains the actor's replicated truth. */
+	FAZ_WeaponOwnershipChanged OnOwnershipChanged;
 
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -132,6 +144,18 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AZ|Weapon")
 	virtual USkeletalMeshComponent* GetWeaponMesh3P() const;
 
+	/** Copy only observer-facing assets from the selected item's authoritative definition. */
+	void ConfigureFirearmPresentation(const FAZ_Inv_CommonUI_WeaponStateFragment& Definition);
+
+	/** Called once by the authority after a shot is accepted; never mutates ammunition or applies damage. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayFirearmShot(const FHitResult& Hit, bool bHitConfirmed,
+		UParticleSystem* WorldImpactEffect, float WorldImpactScale);
+
+	/** Accepted hit feedback for this weapon's locally controlled owner. */
+	UPROPERTY(BlueprintAssignable, Category = "AZ|Weapon|Fire")
+	FAZ_FirearmHitConfirmed OnFirearmHitConfirmed;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
@@ -230,6 +254,16 @@ public:
 	UInputMappingContext* FireMappingContext;
 
 protected:
+	/** Transient mirrors for remote cosmetics only; gameplay tuning is read from the inventory fragment. */
+	UPROPERTY(Transient, Replicated)
+	FName FirearmMuzzleSocketName = TEXT("Muzzle");
+
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<USoundBase> FirearmFireSound = nullptr;
+
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UNiagaraSystem> FirearmMuzzleFlash = nullptr;
+
 	/*UFUNCTION()
 	void PickUpWeapon(AEchoHero* PickUpCharacter);*/
 	

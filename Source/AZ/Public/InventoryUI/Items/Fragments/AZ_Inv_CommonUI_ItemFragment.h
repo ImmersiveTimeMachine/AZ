@@ -17,6 +17,10 @@ class UAZ_Inv_CommonUI_CompositeBaseWidget;
 class UAZ_Inv_CompositeBase;
 class UAZ_GameplayAbility;
 class UAZ_WeaponAnimationProfile;
+class UAZ_HUDReticleDefinition;
+class UNiagaraSystem;
+class UParticleSystem;
+class USoundBase;
 
 USTRUCT(BlueprintType)
 struct FAZ_Inv_CommonUI_ItemFragment
@@ -291,6 +295,10 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon")
 	TObjectPtr<UAZ_WeaponAnimationProfile> AnimationProfile = nullptr;
 
+	/** Optional local HUD presentation. No definition means this weapon has no aiming reticle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|UI")
+	TObjectPtr<UAZ_HUDReticleDefinition> ReticleDefinition = nullptr;
+
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	int32 CurrentClipAmmo{30};
 
@@ -317,6 +325,38 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	float SpreadAim{0.5f};
+
+	/** Static firearm tuning; magazine inventory items remain the only source of current rounds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="1", ForceUnits="cm"))
+	float MaxRange = 10000.f;
+
+	/** A real socket on the active weapon mesh is required; there is no component-origin fallback. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	FName MuzzleSocketName = TEXT("Muzzle");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	bool bRequiresAimToFire = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	TObjectPtr<USoundBase> FireSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	TObjectPtr<UNiagaraSystem> MuzzleFlash = nullptr;
+
+	/** Optional one-shot scenery impact; author the effect to emit outward along local +X. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	TObjectPtr<UParticleSystem> WorldImpactEffect = nullptr;
+
+	/** Uniform cosmetic scale. Zero disables the scenery impact without affecting the shot. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0"))
+	float WorldImpactScale = 1.f;
+
+	/** Hearing is emitted by the authoritative accepted-shot operation, independently of audio playback. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0"))
+	float ShotNoiseLoudness = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0", ForceUnits="cm"))
+	float ShotNoiseMaxRange = 3000.f;
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	FGameplayTag FireMode;

@@ -1,5 +1,11 @@
 # Rifle, detachable magazines, inventory and HUD implementation plan
 
+**Firing continuation, 2026-09-08:** the first aim-required single-shot milestone is
+built and its assets are wired/saved. The regular build succeeded, both affected
+Blueprints compiled UpToDate, and final asset readback passed. User PIE acceptance
+is the next step; firing gameplay has not yet been runtime-verified. Resume from
+C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-firing-status.md.
+
 Status, 2026-09-07: the first pickup/inventory/basic-equipment milestone is implemented in C++ and authored assets. Full AZEditor build succeeded, and asset defaults were rechecked after restarting the editor. After correcting the Mover capsule's disabled pickup overlaps, the user reported that everything works. The user's PIE logs confirm rifle/magazine pickup, rifle equipment and drop transactions. No automated tests were added and Codex did not start PIE or editor tests. Resume details: C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-inventory-foundation-status.md. Later rifle animation, shooting, reload and HUD phases below remain planned.
 
 **Priority update from the user:** implement the major systems first. Use the existing rifle skeletal mesh as-is initially. Mechanical animation, detailed magazine handoffs and final visual tuning are deferred. The completed content audit is sufficient to begin the inventory/equipment foundation; unresolved cosmetic details do not block it. Correct muzzle/shot geometry is still required before the firing milestone.

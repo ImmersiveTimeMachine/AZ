@@ -2,6 +2,7 @@
 
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AZ_GA_FirearmFire.h"
 #include "Animation/AZ_WeaponAnimationProfile.h"
 #include "AZ_GameplayTags.h"
 #include "Character/AZ_HeroPawn.h"
@@ -82,7 +83,10 @@ void UAZ_Inv_CommonUI_EquipmentComponent::CancelActiveAim()
 	UAZ_AbilitySystemComponent* ASC = BoundASC.IsValid() ? BoundASC.Get() : GetASC();
 	if (!ASC) return;
 	const FGameplayTag AimInput = FAZ_GameplayTags::Get().Input_Action_Aim;
-	const FGameplayTagContainer InputTags(AimInput);
+	FGameplayTagContainer InputTags(AimInput);
+	// Menu/hard interrupts also terminate a firearm waiting for release. Keep fist
+	// actions out of this cancellation path even though they share primary input.
+	if (Selection.Item && Selection.Item->IsWeapon()) InputTags.AddTag(FAZ_GameplayTags::Get().Input_Action_PrimaryAttack);
 	ASC->ClearWeaponInput(InputTags);
 	if (OwningPlayerController.IsValid() && OwningPlayerController->HasAuthority() && !OwningPlayerController->IsLocalController())
 	{
@@ -93,7 +97,8 @@ void UAZ_Inv_CommonUI_EquipmentComponent::CancelActiveAim()
 		FScopedAbilityListLock AbilityLock(*ASC);
 		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
 		{
-			if (Spec.IsActive() && Spec.GetDynamicSpecSourceTags().HasTagExact(AimInput)) AimHandles.Add(Spec.Handle);
+			if (Spec.IsActive() && (Spec.GetDynamicSpecSourceTags().HasTagExact(AimInput)
+				|| (Spec.Ability && Spec.Ability->IsA<UAZ_GA_FirearmFire>()))) AimHandles.Add(Spec.Handle);
 		}
 	}
 	for (const FGameplayAbilitySpecHandle& Handle : AimHandles) ASC->CancelAbilityHandle(Handle);
@@ -282,6 +287,7 @@ AAZ_Weapon* UAZ_Inv_CommonUI_EquipmentComponent::PrepareWeaponActor(UAZ_Inv_Comm
 	Weapon->SetActorHiddenInGame(true);
 	Weapon->FinishSpawning(Pawn->GetActorTransform());
 	Weapon->MakeCosmetic();
+	Weapon->ConfigureFirearmPresentation(*WeaponState);
 	if (!Weapon->GetWeaponMesh3P() || !Weapon->GetWeaponMesh3P()->GetSkeletalMeshAsset()
 		|| !OwningSkeletalMesh->DoesSocketExist(Weapon->RelaxedSocketName)
 		|| !OwningSkeletalMesh->DoesSocketExist(Weapon->CarrySocketName))

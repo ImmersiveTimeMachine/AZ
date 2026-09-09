@@ -6,8 +6,10 @@
 #include "EnhancedInputSubsystems.h"
 #include "GameplayTagContainer.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AZ_GA_FirearmFire.h"
 #include "AZ/AZ.h"
-#include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
+#include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
+#include "UI/AZ_PlayerUIComponent.h"
 #include "AbilitySystemInterface.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Equipment/AZ_EquipmentManagerComponent.h"
@@ -25,11 +27,26 @@
 #include "AZ_GameplayTags.h"
 #include "Input/AZ_InputConfig.h"
 
+namespace
+{
+	bool IsFreshPressFireInput(const UAZ_AbilitySystemComponent* ASC, const FGameplayTag InputTag)
+	{
+		if (!ASC) return false;
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (Spec.Ability && Spec.Ability->IsA<UAZ_GA_FirearmFire>()
+				&& Spec.GetDynamicSpecSourceTags().HasTagExact(InputTag)) return true;
+		}
+		return false;
+	}
+}
+
 
 AAZ_PlayerController::AAZ_PlayerController()
 {
 	// Code-owned cross-pawn quick-bar. Configure its Slots on BP_AZ_PlayerController.
 	QuickBar = CreateDefaultSubobject<UAZ_QuickBarComponent>(TEXT("QuickBar"));
+	PlayerUI = CreateDefaultSubobject<UAZ_PlayerUIComponent>(TEXT("PlayerUI"));
 }
 
 void AAZ_PlayerController::BeginPlay()
@@ -43,6 +60,7 @@ void AAZ_PlayerController::BeginPlay()
 		CommonUI_InventoryComponent->OnInventoryMenuToggled.AddDynamic(this, &ThisClass::HandleInventoryMenuToggled);
 	}
 
+	if (PlayerUI) PlayerUI->RefreshBindings();
 	CreateHUDWidget();
 
 	// Cross-pawn base layer of the IMC stack. Per-pawn IAs land on top via the
@@ -78,6 +96,12 @@ UAbilitySystemComponent* AAZ_PlayerController::GetAbilitySystemComponent() const
 		return ASI->GetAbilitySystemComponent();
 	}
 	return nullptr;
+}
+
+void AAZ_PlayerController::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	if (PlayerUI) PlayerUI->RefreshBindings();
 }
 
 void AAZ_PlayerController::SetupInputComponent()
@@ -169,11 +193,13 @@ void AAZ_PlayerController::OnPossess(APawn* aPawn)
 	// Push on listen-host (where this PC is also local-controller). Skipped on
 	// dedicated server (no LocalPlayer → AddMappingContext guarded inside helper).
 	PushPawnInputMappingContext(aPawn);
+	if (PlayerUI) PlayerUI->RefreshBindings();
 }
 
 void AAZ_PlayerController::AcknowledgePossession(APawn* P)
 {
 	Super::AcknowledgePossession(P);
+	if (PlayerUI) PlayerUI->RefreshBindings();
 
 	// Client-side push. P can be nullptr when the server unpossesses — treat that
 	// as a pop (RemoveMappingContext with nullptr IMC is a no-op via the guard).
@@ -191,6 +217,7 @@ void AAZ_PlayerController::OnUnPossess()
 {
 	RemovePawnInputMappingContext(GetPawn());
 	Super::OnUnPossess();
+	if (PlayerUI) PlayerUI->RefreshBindings();
 }
 
 void AAZ_PlayerController::PushPawnInputMappingContext(APawn* InPawn)
@@ -263,8 +290,10 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagPressed(InputTag);
-		// Aim is a hold with a fresh-press activation edge, never an auto-retry.
-		if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim) Asc->AbilityInputTagHeld(InputTag, false);
+		// Firearm actions own their cadence. A held frame must never become another
+		// semi-auto shot, or a shot after a failed press while aim was unavailable.
+		if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim || IsFreshPressFireInput(Asc, InputTag))
+			Asc->AbilityInputTagHeld(InputTag, false);
 	}
 	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact) PrimaryInteract();
 	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagPressed: %s"), *InputTag.ToString());
@@ -291,6 +320,7 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim) return;
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
+		if (IsFreshPressFireInput(Asc, InputTag)) return;
 		Asc->AbilityInputTagHeld(InputTag);
 	}
 	UE_LOG(Log_AZ, Verbose, TEXT("AbilityInputTagHeld: %s"), *InputTag.ToString());
@@ -301,11 +331,12 @@ void AAZ_PlayerController::CreateHUDWidget()
 	if (!IsLocalController())
 		return;
 
-	HUDWidget = CreateWidget<UAZ_InventoryHudWidget>(this,InventoryHudWidgetClass);
+	if (IsValid(HUDWidget)) return;
+	HUDWidget = CreateWidget<UAZ_Inv_CommonUI_InventoryHudWidget>(this,InventoryHudWidgetClass);
 
 	if (IsValid(HUDWidget))
 	{
-		HUDWidget->AddToViewport();
+		HUDWidget->AddToPlayerScreen(0);
 	}
 	else
 	{

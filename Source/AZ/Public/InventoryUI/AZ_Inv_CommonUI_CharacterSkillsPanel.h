@@ -35,6 +35,13 @@ public:
 
 protected:
 
+	virtual void NativePreConstruct() override;
+	virtual void NativeConstruct() override;
+
+	/** Retain the authored layout, but do not present sample RPG data as gameplay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Inventory|Skills")
+	bool bShowUnsupportedSkills = false;
+
 	// -- Menu Switcher (Skills / Details tabs) --
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -128,6 +135,8 @@ protected:
 	UVerticalBox* DetailsVBox;
 
 private:
+
+	void ApplyUnsupportedSkillsVisibility();
 
 	UTextBlock* GetSkillNameText(int32 Index) const;
 	UTextBlock* GetSkillValueText(int32 Index) const;

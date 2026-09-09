@@ -43,6 +43,12 @@ public:
 	TArray<UAZ_Inv_CommonUI_InventoryItem*> GetItems() const { return InventoryList.GetAllItems(); }
 	bool ContainsItem(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	UAZ_Inv_CommonUI_InventoryItem* FindItemById(const FGuid& ItemId) const;
+	UFUNCTION(BlueprintPure, Category="AZ|Inventory|Ammo")
+	FAZ_WeaponAmmoSnapshot GetWeaponAmmoSnapshot(const FGuid& WeaponItemId) const;
+	/** Authority only. A successful compare-and-swap authorizes one shot; retain its expected revision across callbacks. */
+	bool TryConsumeWeaponRound(const UObject* WeaponSource, const FGuid& WeaponItemId,
+		const FGuid& ExpectedMagazineId, int64 ExpectedAmmoRevision, uint32 ExpectedEquipmentGeneration,
+		const FGuid& ShotId, FAZ_WeaponAmmoSnapshot& OutSnapshot);
 	FIntPoint GetGridDimensions(EInv_ItemCategory Category) const;
 	const TArray<FAZ_InventoryGridPlacement>& GetPlacements() const { return GridPlacements; }
 	FAZ_Inv_CommonUI_SlotAvailabilityResult GetRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 StackAmountOverride = -1) const;
@@ -121,6 +127,8 @@ private:
 	bool IsPlacementFree(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 GridIndex, const TArray<FAZ_InventoryGridPlacement>& Placements) const;
 	void RemoveOwnedItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 	bool RemoveStackPlacements(const FGuid& ItemId, int32 Count);
+	/** Authoritative cadence survives fire ability restarts and selection changes. Expired entries are pruned on shot requests. */
+	TMap<FGuid, double> WeaponNextShotTimes;
 
 	TWeakObjectPtr<APlayerController> OwningController;
 

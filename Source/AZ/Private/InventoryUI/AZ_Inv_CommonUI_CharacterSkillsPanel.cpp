@@ -10,6 +10,29 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 
+void UAZ_Inv_CommonUI_CharacterSkillsPanel::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+	ApplyUnsupportedSkillsVisibility();
+}
+
+void UAZ_Inv_CommonUI_CharacterSkillsPanel::NativeConstruct()
+{
+	Super::NativeConstruct();
+	ApplyUnsupportedSkillsVisibility();
+}
+
+void UAZ_Inv_CommonUI_CharacterSkillsPanel::ApplyUnsupportedSkillsVisibility()
+{
+	if (!bShowUnsupportedSkills)
+	{
+		// Every authored row currently lacks a gameplay owner/range or upgrade action.
+		// Collapse the whole panel so icons and sample detail/upgrade text cannot leak
+		// from sibling containers. Preserve its tree and setter API for the RPG phase.
+		SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
 void UAZ_Inv_CommonUI_CharacterSkillsPanel::SetUpgradeNotificationText(const FText& InText)
 {
 	if (UpgradeNotificationText)

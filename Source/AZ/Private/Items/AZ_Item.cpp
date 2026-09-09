@@ -9,7 +9,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Character/AZ_HeroCharacter.h"
 #include "Inventory/AZ_InventoryItemDefinition.h"
-#include "InventoryOld/Widgets/HUD/AZ_InventoryHudWidget.h"
+#include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
 #include "Player/AZ_PlayerController.h"
 
 namespace

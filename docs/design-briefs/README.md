@@ -9,6 +9,9 @@ being re-proposed.
 
 | brief | question |
 |---|---|
+| `bullet-impact-status.md` | Rifle impact smoke built and saved; reticle persistence repaired; user gameplay check pending. |
+| `hud-reticle-status.md` | Scalable per-weapon rifle reticle implemented, built and saved; user gameplay check pending. |
+| `hud-implementation-plan.md` | September 8 live HUD/inventory/GAS/GASP audit and proposed phased implementation, ownership, asset reuse, input handling and manual acceptance. |
 | `hud-design-next-session.md` | Approved CHALK HUD v03, native GIMP layer requirements, existing asset findings, and next-session asset-review/implementation-plan agenda. |
 | `stop-animation-problem-statement.md` | Why stop animations failed to play or match the capsule, and what the stable architecture is. Led to the latched stop contract and curve-driven braking. |
 | `anim-speed-drive-problem-statement.md` | Should capsule speed come from a per-frame animation curve (`velocity = inputDir × clipSpeed`) rather than from tuned constants? |

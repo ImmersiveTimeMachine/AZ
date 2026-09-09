@@ -45,10 +45,11 @@ public:
 	UFUNCTION(BlueprintPure, Category="AZ|Equipment") UAZ_Inv_CommonUI_InventoryItem* GetActiveItem() const { return Selection.Item; }
 	UFUNCTION(BlueprintPure, Category="AZ|Equipment") FGameplayTag GetActiveProfile() const { return Selection.Profile; }
 	UFUNCTION(BlueprintPure, Category="AZ|Equipment") int32 GetActiveIntrinsicSlotIndex() const { return Selection.IntrinsicSlotIndex; }
+	uint32 GetSelectionGeneration() const { return Selection.Generation; }
 	UFUNCTION(BlueprintPure, Category="AZ|Equipment") UAZ_WeaponAnimationProfile* GetActiveAnimationProfile() const;
 	/** A valid source is the committed, owned physical item and its current representation. */
 	bool IsActiveWeaponSource(const UObject* Source) const;
-	/** Cancel held aim and discard its input without disturbing locomotion or melee. */
+	/** Cancel aim/fire and discard their input without disturbing locomotion or melee. */
 	void CancelActiveAim();
 
 	/** True means accepted (possibly queued at the outgoing action's cancel boundary). */

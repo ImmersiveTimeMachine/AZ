@@ -76,6 +76,86 @@ UAZ_Inv_CommonUI_InventoryItem* UAZ_Inv_CommonUI_InventoryComponent::FindItemByI
     return nullptr;
 }
 
+FAZ_WeaponAmmoSnapshot UAZ_Inv_CommonUI_InventoryComponent::GetWeaponAmmoSnapshot(const FGuid& WeaponItemId) const
+{
+    FAZ_WeaponAmmoSnapshot Snapshot;
+    Snapshot.WeaponItemId = WeaponItemId;
+    const auto* WeaponItem = FindItemById(WeaponItemId);
+    if (!WeaponItem || !WeaponItem->IsWeapon() || WeaponItem->IsMagazine() ||
+        WeaponItem->GetLocation() != EAZ_InventoryItemLocation::Backpack || WeaponItem->GetParentItemId().IsValid() ||
+        WeaponItem->GetTotalStackCount() != 1) return Snapshot;
+    const auto* Weapon = WeaponItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
+    if (!Weapon || !Weapon->bUsesDetachableMagazines || Weapon->MagazineFamily.IsNone()) return Snapshot;
+
+    Snapshot.MagazineItemId = WeaponItem->GetInsertedMagazineId();
+    for (const auto* Item : GetItems())
+    {
+        if (Item->GetLocation() != EAZ_InventoryItemLocation::Backpack || Item->GetParentItemId().IsValid() ||
+            Item->GetInsertedMagazineId().IsValid() || Item->IsWeapon() || Item->GetTotalStackCount() != 1) continue;
+        const auto* Magazine = Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
+        if (Magazine && Magazine->MagazineFamily == Weapon->MagazineFamily && Magazine->Capacity > 0 &&
+            Item->GetMagazineRounds() >= 0 && Item->GetMagazineRounds() <= Magazine->Capacity &&
+            Item->GetInstanceState().AmmoRevision >= 0) ++Snapshot.SpareMagazineCount;
+    }
+    if (!Snapshot.MagazineItemId.IsValid())
+    {
+        Snapshot.MagazineState = EAZ_WeaponMagazineState::NoMagazine;
+        return Snapshot;
+    }
+    const auto* MagazineItem = FindItemById(Snapshot.MagazineItemId);
+    if (!MagazineItem || MagazineItem == WeaponItem || MagazineItem->IsWeapon() ||
+        MagazineItem->GetLocation() != EAZ_InventoryItemLocation::WeaponMagazine ||
+        MagazineItem->GetParentItemId() != WeaponItemId || MagazineItem->GetInsertedMagazineId().IsValid() ||
+        MagazineItem->GetTotalStackCount() != 1) return Snapshot;
+    const auto* Magazine = MagazineItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
+    if (!Magazine || Magazine->MagazineFamily != Weapon->MagazineFamily || Magazine->Capacity <= 0 ||
+        MagazineItem->GetMagazineRounds() < 0 || MagazineItem->GetMagazineRounds() > Magazine->Capacity ||
+        MagazineItem->GetInstanceState().AmmoRevision < 0) return Snapshot;
+
+    Snapshot.Rounds = MagazineItem->GetMagazineRounds();
+    Snapshot.Capacity = Magazine->Capacity;
+    Snapshot.AmmoRevision = MagazineItem->GetInstanceState().AmmoRevision;
+    Snapshot.MagazineState = Snapshot.Rounds > 0 ? EAZ_WeaponMagazineState::Loaded : EAZ_WeaponMagazineState::Empty;
+    return Snapshot;
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::TryConsumeWeaponRound(const UObject* WeaponSource, const FGuid& WeaponItemId,
+    const FGuid& ExpectedMagazineId, int64 ExpectedAmmoRevision, uint32 ExpectedEquipmentGeneration,
+    const FGuid& ShotId, FAZ_WeaponAmmoSnapshot& OutSnapshot)
+{
+    OutSnapshot = GetWeaponAmmoSnapshot(WeaponItemId);
+    if (!GetOwner() || !GetOwner()->HasAuthority() || !GetWorld() || !ShotId.IsValid() ||
+        !ExpectedMagazineId.IsValid() || ExpectedAmmoRevision < 0 || ExpectedAmmoRevision == MAX_int64) return false;
+    const auto* Equipment = GetOwner()->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>();
+    auto* WeaponItem = FindItemById(WeaponItemId);
+    if (!Equipment || !WeaponItem || Equipment->GetActiveItem() != WeaponItem ||
+        Equipment->GetSelectionGeneration() != ExpectedEquipmentGeneration || !Equipment->IsActiveWeaponSource(WeaponSource)) return false;
+    if (OutSnapshot.MagazineState != EAZ_WeaponMagazineState::Loaded ||
+        OutSnapshot.MagazineItemId != ExpectedMagazineId || OutSnapshot.AmmoRevision != ExpectedAmmoRevision) return false;
+
+    const auto* Weapon = WeaponItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
+    if (!Weapon || !FMath::IsFinite(Weapon->FireRate) || Weapon->FireRate <= 0.f) return false;
+    const double Now = GetWorld()->GetTimeSeconds();
+    for (auto It = WeaponNextShotTimes.CreateIterator(); It; ++It)
+    {
+        if (It.Value() <= Now + UE_KINDA_SMALL_NUMBER) It.RemoveCurrent();
+    }
+    if (WeaponNextShotTimes.Contains(WeaponItemId)) return false;
+
+    auto* MagazineItem = FindItemById(ExpectedMagazineId);
+    if (!MagazineItem) return false;
+    // Finish both mutations and cadence bookkeeping before callbacks can submit the same request again.
+    --MagazineItem->InstanceState.CurrentRounds;
+    ++MagazineItem->InstanceState.AmmoRevision;
+    WeaponNextShotTimes.Add(WeaponItemId, Now + 1.0 / static_cast<double>(Weapon->FireRate));
+    OutSnapshot = GetWeaponAmmoSnapshot(WeaponItemId);
+    UE_LOG(LogAZInventory, Log, TEXT("[Inventory] Shot debited shot=%s weapon=%s magazine=%s generation=%u revision=%lld rounds=%d/%d"),
+        *ShotId.ToString(), *WeaponItemId.ToString(), *ExpectedMagazineId.ToString(), ExpectedEquipmentGeneration,
+        OutSnapshot.AmmoRevision, OutSnapshot.Rounds, OutSnapshot.Capacity);
+    NotifyInventoryChanged();
+    return true;
+}
+
 FIntPoint UAZ_Inv_CommonUI_InventoryComponent::GetGridDimensions(EInv_ItemCategory Category) const
 {
     switch (Category)
@@ -170,7 +250,7 @@ bool UAZ_Inv_CommonUI_InventoryComponent::ValidatePickupPayload(const FAZ_Invent
     const auto* Weapon = Root.Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
     const auto* RootMag = Root.Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
     if (!Root.Manifest.IsStackable() && Root.StackCount != 1) return false;
-    if (RootMag && (RootMag->Capacity <= 0 || RootMag->MagazineFamily.IsNone() || Root.State.CurrentRounds < 0 || Root.State.CurrentRounds > RootMag->Capacity)) return false;
+    if (RootMag && (RootMag->Capacity <= 0 || RootMag->MagazineFamily.IsNone() || Root.State.CurrentRounds < 0 || Root.State.CurrentRounds > RootMag->Capacity || Root.State.AmmoRevision < 0)) return false;
     if (Children.IsEmpty()) return !Root.State.InsertedMagazineId.IsValid();
     if (Children.Num() != 1 || !Weapon || !Weapon->bUsesDetachableMagazines || Weapon->MagazineFamily.IsNone() || RootMag) return false;
     const auto& Child = Children[0];
@@ -179,7 +259,7 @@ bool UAZ_Inv_CommonUI_InventoryComponent::ValidatePickupPayload(const FAZ_Invent
         !FindItemById(Child.State.InstanceId) && Child.State.InstanceId == Root.State.InsertedMagazineId &&
         Child.State.ParentItemId == Root.State.InstanceId && Child.State.Location == EAZ_InventoryItemLocation::WeaponMagazine &&
         !Child.State.InsertedMagazineId.IsValid() && Magazine->MagazineFamily == Weapon->MagazineFamily &&
-        Magazine->Capacity > 0 && Child.State.CurrentRounds >= 0 && Child.State.CurrentRounds <= Magazine->Capacity;
+        Magazine->Capacity > 0 && Child.State.CurrentRounds >= 0 && Child.State.CurrentRounds <= Magazine->Capacity && Child.State.AmmoRevision >= 0;
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::TryAddItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent)

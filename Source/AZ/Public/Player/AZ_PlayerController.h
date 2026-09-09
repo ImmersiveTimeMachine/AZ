@@ -8,7 +8,8 @@
 
 class UAZ_Inv_CommonUI_InventoryComponent;
 class UAZ_Inv_InventoryComponent;
-class UAZ_InventoryHudWidget;
+class UAZ_Inv_CommonUI_InventoryHudWidget;
+class UAZ_PlayerUIComponent;
 class UInputAction;
 class UInputMappingContext;
 class UAbilitySystemComponent;
@@ -53,7 +54,7 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 
 	UPROPERTY()
-	TObjectPtr<UAZ_InventoryHudWidget> HUDWidget;
+	TObjectPtr<UAZ_Inv_CommonUI_InventoryHudWidget> HUDWidget;
 
 	UFUNCTION(BlueprintCallable, Category = "AZ|Character|Input")
 	void ToggleInventoryMenu();
@@ -78,6 +79,7 @@ protected:
 	virtual void AcknowledgePossession(APawn* P) override;
 
 	virtual void BeginPlay() override;
+	virtual void OnRep_PlayerState() override;
 
 	/** Pushes the pawn's DefaultMappingContext at priority 2. Called from both
 	 *  OnPossess (server) and AcknowledgePossession (client). */
@@ -88,7 +90,7 @@ protected:
 	void CreateHUDWidget();
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|HUD")
-	TSubclassOf<UAZ_InventoryHudWidget> InventoryHudWidgetClass;
+	TSubclassOf<UAZ_Inv_CommonUI_InventoryHudWidget> InventoryHudWidgetClass;
 
 	UFUNCTION()
 	void HandlePickupPromptToggled(bool bVisible);
@@ -119,6 +121,10 @@ private:
 	/** Cross-pawn quick-bar (equip/loadout). Owned by the PC so it survives pawn swaps. */
 	UPROPERTY(VisibleAnywhere, Category = "AZ|QuickBar")
 	TObjectPtr<UAZ_QuickBarComponent> QuickBar;
+
+	/** Shared local presentation bindings for the HUD and inventory panels. */
+	UPROPERTY(VisibleAnywhere, Category="AZ|UI")
+	TObjectPtr<UAZ_PlayerUIComponent> PlayerUI;
 
 	TWeakObjectPtr<UAZ_Inv_InventoryComponent> InventoryComponent;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;
