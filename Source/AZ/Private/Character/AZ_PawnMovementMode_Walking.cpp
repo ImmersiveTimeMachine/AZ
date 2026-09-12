@@ -8,10 +8,21 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "MoverComponent.h"
 #include "MoverDataModelTypes.h"
 #include "MoverTypes.h"   // FMoverEventContext
 #include "DefaultMovementSet/Settings/StanceSettings.h"
+
+// [v2 Facing] SIM-SIDE branch trace. The game-thread [v2 Cam] line shows WHAT the body did; this shows WHY —
+// which facing branch the sim took and the smoothing time it handed the critically-damped spring. Added
+// 2026-09-11 after the logs caught the body covering 95 deg in 0.25 s (373 deg/s) on aim entry, where the aim
+// turn-in-place pacing should have capped it near 67: the pacing did not run, and only the sim can say whether
+// that is the RotationMode, a missing custom-input block, held move input, or a delta the mode disagrees with.
+static TAutoConsoleVariable<int32> CVarAZFacingDebug(
+	TEXT("az.Facing.Debug"), 1,
+	TEXT("1 = log [v2 Facing] sim-side facing-branch telemetry (which branch, smoothing time, delta, angular velocity)."),
+	ECVF_Default);
 
 UAZ_PawnMovementMode_Walking::UAZ_PawnMovementMode_Walking()
 {
@@ -183,10 +194,22 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 	// desired facing direction. Strafe (combat-ready) overrides it with a tight aim-lock.
 	const FAZ_MoverCustomInputs* FacingInputs =
 		StartState.InputCmd.InputCollection.FindDataByType<FAZ_MoverCustomInputs>();
-	const bool bStrafeFacing = FacingInputs && (FacingInputs->RotationMode == EAZ_RotationMode::Strafe
-		|| FacingInputs->RotationMode == EAZ_RotationMode::Aiming);
+	// AIMING gets its own FLAT facing time and skips the strafe ramp entirely — see AimFacingTime's comment: the
+	// ramp paces the body against a turn-start clip that never plays while aiming, so it was pure lag. Checked
+	// first because Aiming used to fall into the strafe branch below.
+	const bool bAimFacing = FacingInputs && FacingInputs->RotationMode == EAZ_RotationMode::Aiming;
+	const bool bStrafeFacing = FacingInputs && FacingInputs->RotationMode == EAZ_RotationMode::Strafe;
+	const bool bHadFacingInputs = (FacingInputs != nullptr);   // [v2 Facing] diagnostic only
 
-	if (bStrafeFacing)
+	if (bAimFacing)
+	{
+		// Flat, fast spring. The aim turn-in-place is a yaw-rate CLAMP applied after the spring below (from the
+		// InputCmd's AimTurnYawRateLimit), never state kept on this mode object: the trajectory predictor runs this
+		// function ~60 times a frame and any latch here is overwritten by those steps.
+		bAimTurningInPlace = FacingInputs->AimTurnYawRateLimit > KINDA_SMALL_NUMBER;   // [v2 Facing] 'tip' = a yaw-rate limit is active (turn-in-place OR the plain aim cap)
+		FacingSmoothingTime = AimFacingTime;
+	}
+	else if (bStrafeFacing)
 	{
 		// Strafe (combat-ready): aim-lock spring, but RAMP the spring time by how far the body is off its target
 		// so a big move-start turn matches the turn-start CLIP instead of outrunning it. The angle band mirrors the
@@ -232,6 +255,21 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		FacingSmoothingTime = FMath::Max(0.f, FacingSmoothingTime - SnapShorten);
 	}
 
+	if (CVarAZFacingDebug.GetValueOnAnyThread() != 0)
+	{
+		const float DbgDelta = static_cast<float>(CachedRotationOffsetDegrees);
+		if (FMath::Abs(DbgDelta) > 3.f || FMath::Abs(InOutAngularVelocityDegrees.Z) > 10.f)
+		{
+			UE_LOG(LogTemp, Display,
+				TEXT("[v2 Facing] inputs=%d mode=%d aim=%d strafe=%d moveZero=%d tip=%d delta=%+.1f T=%.3f angVelZ=%+.0f dt=%.4f"),
+				bHadFacingInputs ? 1 : 0,
+				bHadFacingInputs ? static_cast<int32>(FacingInputs->RotationMode) : -1,
+				bAimFacing ? 1 : 0, bStrafeFacing ? 1 : 0, bMoveInputZero ? 1 : 0,
+				bAimTurningInPlace ? 1 : 0, DbgDelta, FacingSmoothingTime,
+				InOutAngularVelocityDegrees.Z, DeltaSeconds);
+		}
+	}
+
 	// GRABBED overrides both branches above: the held body must reach the grabber's line inside the catch
 	// close-in from ANY start angle. ProduceInput points OrientationIntent at the grabber; this only makes the
 	// spring fast enough to matter before the paired clips' first frame (see GrabbedFacingTime).
@@ -243,6 +281,15 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 	// Phase 4: pass OverridenDesiredFacing (raw DesiredFacing + aim offset) to the parent spring-damper.
 	Super::GenerateWalkMove_Implementation(StartState, DeltaSeconds, SimContext, DesiredVelocity,
 		OverridenDesiredFacing, CurrentFacing, InOutAngularVelocityDegrees, InOutVelocity);
+
+	// AIM TURN-IN-PLACE: clamp the yaw rate the spring asked for. Full turn speed from the first tick, a spring-shaped
+	// tail only in the last few degrees, identical in the live tick and in every predictor step. The clamped value
+	// is also next tick's spring velocity state, so the spring never carries a faster rate into the next tick.
+	if (FacingInputs && FacingInputs->AimTurnYawRateLimit > KINDA_SMALL_NUMBER)
+	{
+		const double Limit = FacingInputs->AimTurnYawRateLimit;
+		InOutAngularVelocityDegrees.Z = FMath::Clamp(InOutAngularVelocityDegrees.Z, -Limit, Limit);
+	}
 
 	// GRABBED = ROOTED. The input layer zeroes the move intent at the catch, but a running body keeps its
 	// momentum and brakes at StoppingDeceleration — at sprint that is on the order of the whole PSI catch

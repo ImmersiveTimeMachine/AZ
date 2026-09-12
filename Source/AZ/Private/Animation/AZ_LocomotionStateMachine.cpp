@@ -21,6 +21,10 @@ namespace
 	// so only the takeoff is timed; the rest is governed by MovementMode == InAir. Feel-tunable — promote to
 	// an EditDefaultsOnly UPROPERTY on the AnimInstance if designers need to tune it live.
 	constexpr float TakeoffDurationSeconds = 0.20f;
+
+	// AIM TURN-IN-PLACE: the enter/exit angles and the master switch arrive in FAZ_LocoSMInputs (copied from the
+	// walking mode each tick), so the SM and the mode cannot drift apart. Only the entry dwell lives here.
+	constexpr float AimTurnInPlaceMinIdleSeconds = 0.20f;   // settle after a stop before a turn may start
 }
 
 // Bucket a signed facing->desired yaw (deg, +right) into a turn-start clip selector. Thresholds above; side
@@ -70,6 +74,14 @@ FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 	Out.bJustLanded       = (NewState == EAZ_StateMachineState::TransitionToIdle
 	                         || NewState == EAZ_StateMachineState::TransitionToLocomotion) ? bLatchedJustLanded : false;
 
+	if (NewState == EAZ_StateMachineState::IdleLoop
+		&& PreviousState != EAZ_StateMachineState::IdleLoop
+		&& PreviousState != EAZ_StateMachineState::IdleBreak
+		&& PreviousState != EAZ_StateMachineState::IdleTurnLeft
+		&& PreviousState != EAZ_StateMachineState::IdleTurnRight)
+	{
+		LastIdleEntryTime = In.WorldNow;
+	}
 	PreviousState = NewState;
 	return Out;
 }
@@ -259,14 +271,27 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			// Strafe SIDEWAYS/BACK: directional step-off (Fwd, no turn). Strafe FORWARD: bucket like explore — a
 			// forward move has movement==camera, so the bucket (body→movement) == the body→camera realign, and the
 			// cosmetic WalkFwdStart90_L etc. (step-while-turning) masks the spring align. Explore always buckets.
+			// AIMING never buckets (see FAZ_LocoSMInputs::bIsAiming): the aim cone parks the body off-camera on
+			// purpose, so bucketing would quantise that offset up to the next 90/135/180 turn clip and let its root
+			// motion over-rotate the body, then unwind. The facing spring turns by the exact angle instead.
 			const bool bStrafeNonForwardStart = In.bStrafe && In.MovementDirection != EAZ_MovementDirection::F;
-			LatchedStartDirection = bStrafeNonForwardStart
+			LatchedStartDirection = (bStrafeNonForwardStart || In.bIsAiming)
 				? EAZ_StartDirection::Fwd
 				: BucketStartDirection(In.PendingStartAngleDeg);
 			bLatchedMovingTransition = false;   // from rest → from-rest start clips
 			TransitionEndTime = Now + 1.0f;     // overridden by the real clip length
 			return EAZ_StateMachineState::TransitionToLocomotion;
 		}
+
+		// AIM TURN-IN-PLACE, move pressed mid-turn: the move out-ranks the turn and takes the normal start
+		// route, which for aiming is a plain forward start (never a bucketed RM turn — see bIsAiming above).
+		// The at-rest hold/exit lives in the not-moving switch below.
+		case EAZ_StateMachineState::IdleTurnLeft:
+		case EAZ_StateMachineState::IdleTurnRight:
+			LatchedStartDirection = EAZ_StartDirection::Fwd;
+			bLatchedMovingTransition = false;
+			TransitionEndTime = Now + 1.0f;
+			return EAZ_StateMachineState::TransitionToLocomotion;
 
 		case EAZ_StateMachineState::TransitionToLocomotion:
 			if (TransitionEndTime > 0.f && Now >= TransitionEndTime)
@@ -379,6 +404,19 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			TransitionEndTime = Now + 1.0f;
 			return EAZ_StateMachineState::TransitionStance;
 		}
+		// AIM TURN-IN-PLACE entry. Aiming keeps the body on the camera even at rest, so a camera sweep
+		// rotates the capsule under a standing idle and the feet slide. Past the enter angle, hand the turn to
+		// the stepping clip (chooser rows on IdleTurnLeft/Right); the walking mode paces the facing spring to
+		// that clip's rate so the two agree. Cancels a pending/playing idle break; rescheduled on return.
+		if (In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
+			&& Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
+		{
+			IdleBreakEndTime  = -1.f;
+			NextIdleBreakTime = -1.f;
+			return In.AimYawDeltaDeg > 0.f
+				? EAZ_StateMachineState::IdleTurnRight
+				: EAZ_StateMachineState::IdleTurnLeft;
+		}
 		if (IdleBreakEndTime > 0.f && Now >= IdleBreakEndTime)
 		{
 			IdleBreakEndTime  = -1.f;
@@ -397,6 +435,26 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			return EAZ_StateMachineState::IdleLoop;
 		}
 		return EAZ_StateMachineState::TransitionStance;
+
+	// AIM TURN-IN-PLACE hold. The clip LOOPS, so the state's length is the ANGLE, not the clip: stay while the
+	// body is still swinging toward the camera; exit on alignment (hysteresis vs the enter angle) or when aim
+	// ends. A sign flip mid-turn (camera swept back past the body) re-enters on the other side. A move-start
+	// out of the turn is handled in the moving switch above.
+	case EAZ_StateMachineState::IdleTurnLeft:
+	case EAZ_StateMachineState::IdleTurnRight:
+		if (In.Stance != PreviousStance)
+		{
+			TransitionEndTime = Now + 1.0f;
+			return EAZ_StateMachineState::TransitionStance;
+		}
+		if (!In.bAimTurnInPlaceEnabled || !In.bIsAiming || FMath::Abs(In.AimYawDeltaDeg) <= In.AimTurnInPlaceExitDeg)
+		{
+			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+			return EAZ_StateMachineState::IdleLoop;
+		}
+		return In.AimYawDeltaDeg > 0.f
+			? EAZ_StateMachineState::IdleTurnRight
+			: EAZ_StateMachineState::IdleTurnLeft;
 
 	// Aborted start: input released while the start transition still plays but the body is still moving —
 	// the same moving→idle edge as a loop stop, so it must route through TransitionToIdle (the machine's
@@ -421,6 +479,19 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			NextIdleBreakTime = -1.f;
 			TransitionEndTime = Now + 1.0f;   // overridden by the clip's real length
 			return EAZ_StateMachineState::TransitionStance;
+		}
+		// AIM TURN-IN-PLACE entry. Aiming keeps the body on the camera even at rest, so a camera sweep
+		// rotates the capsule under a standing idle and the feet slide. Past the enter angle, hand the turn to
+		// the stepping clip (chooser rows on IdleTurnLeft/Right); the walking mode paces the facing spring to
+		// that clip's rate so the two agree. Cancels a pending/playing idle break; rescheduled on return.
+		if (In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
+			&& Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
+		{
+			IdleBreakEndTime  = -1.f;
+			NextIdleBreakTime = -1.f;
+			return In.AimYawDeltaDeg > 0.f
+				? EAZ_StateMachineState::IdleTurnRight
+				: EAZ_StateMachineState::IdleTurnLeft;
 		}
 		if (NextIdleBreakTime < 0.f)
 		{

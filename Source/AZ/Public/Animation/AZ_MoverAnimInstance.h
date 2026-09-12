@@ -48,19 +48,41 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AZ|V2|Anim")
 	FAZ_v2_ChooserContext ChooserContext;
 
-	/** Game-thread snapshot of the committed inventory weapon's editor-assigned animation profile. */
+	/** Game-thread cosmetic profile snapshot; the incoming weapon is primed beneath its draw montage. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	TObjectPtr<UAZ_WeaponAnimationProfile> ActiveWeaponAnimationProfile = nullptr;
 
 	/** Bind these to a Rotation Offset Blend Space node after the full-body locomotion pose. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	TObjectPtr<UBlendSpace> WeaponAimOffset = nullptr;
+	/** Game-thread pose snapshots for the standing/crouching aim-lock sequence players. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	TObjectPtr<UAnimSequence> WeaponStandingAimPose = nullptr;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	TObjectPtr<UAnimSequence> WeaponCrouchingAimPose = nullptr;
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float AimYaw = 0.f;
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float AimPitch = 0.f;
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float AimAlpha = 0.f;
+	/** 0 standing -> 1 crouching, eased. Selects the torso source of the aim upper-body LOCK in the AnimGraph
+	 *  (Two-Way Blend: A = standing aim idle, B = crouched aim idle; Alpha bound here). A float on purpose: an
+	 *  AnimGraph property binding cannot copy a UENUM class (ChooserContext.Stance is an FEnumProperty and
+	 *  PropertyAccess only promotes plain bytes -> "Cannot copy property (EAZ_Stance -> float)"), and exposing
+	 *  enum entries on a Blend-Poses-by-enum node is an editor-only C++ action. Float -> float just binds. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float AimStanceAlpha = 0.f;
+	/** Ease rate for AimStanceAlpha (per second); ~6 settles the torso-source swap in ~0.3 s instead of a pop. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Weapon", meta = (ClampMin = "0"))
+	float AimStanceBlendSpeed = 6.f;
+
+	/** Actor yaw rate (deg/s, signed, lightly smoothed), sampled on the game thread each update. Drives the play
+	 *  rate of the aim turn-in-place clips so the feet match the capsule's turn at any speed (see
+	 *  GetWeaponLoopPlayRate). Not a UPROPERTY: transient, rebuilt every frame. */
+	float BodyYawRateDegPerSec = 0.f;
+	float PrevBodyYawDeg = 0.f;
+	bool bHasPrevBodyYaw = false;
 
 	/** Optional lowered-weapon upper body; the graph preserves locomotion below spine_02. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")

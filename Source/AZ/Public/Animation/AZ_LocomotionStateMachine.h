@@ -70,6 +70,27 @@ struct FAZ_LocoSMInputs
 	 *  back strafe starts force a plain directional step-off (those forward-turn clips don't fit them). */
 	EAZ_MovementDirection MovementDirection = EAZ_MovementDirection::F;
 
+	/** FIREARM AIMING (ChooserContext.bIsAiming). Suppresses turn-start BUCKETING at a move-start: with an aim
+	 *  free-look cone the body is deliberately parked off-camera (up to AimFacingConeDeg), so a forward move-start
+	 *  would bucket that angle to the nearest 90/135/180 turn clip, whose ROOT MOTION then turns the body by the
+	 *  clip's baked amount and suppresses the facing spring for its whole length. At a 60 deg cone that is a 90 deg
+	 *  clip for a 60 deg need: the body over-rotates, then the spring unwinds the excess once the clip ends — the
+	 *  2026-09-11 "rotates too much and then goes back" report (measured the same way in explore at 54 needed /
+	 *  145 turned). Forcing Fwd keeps the plain forward start and lets the spring rotate by the ACTUAL angle,
+	 *  continuously, with nothing to unwind. Same treatment strafe already gives its sideways/back starts. */
+	bool bIsAiming = false;
+
+	/** Signed body→camera yaw (deg, +right) — ChooserContext.RotationOffset, refreshed EVERY tick (unlike
+	 *  PendingStartAngleDeg, which only updates while moving). Drives the aim turn-in-place entry/exit at rest. */
+	float AimYawDeltaDeg = 0.f;
+
+	/** Aim turn-in-place gating, copied from the walking mode each tick so the SM and the mode can never disagree:
+	 *  bAimTurnInPlaceEnabled (master switch, default off), enter/exit angles. Disabled => IdleTurnLeft/Right are
+	 *  never entered and the aim idle plays while the body tracks the camera. */
+	bool bAimTurnInPlaceEnabled = false;
+	float AimTurnInPlaceEnterDeg = 35.f;
+	float AimTurnInPlaceExitDeg = 6.f;
+
 	/** True while the obstacle sensor reports an active reaction (Brace/Blocked). The SM HOLDS LocomotionLoop and
 	 *  skips start/stop/turn transitions so a wall reaction can't be interrupted by turning / stick-flicker into
 	 *  the wall (those would fire pivots/stops that out-match the reaction row). Grounded-only; clears the instant
@@ -168,6 +189,11 @@ private:
 	EAZ_Stance PreviousStance = EAZ_Stance::Standing;
 
 	float NextIdleBreakTime = -1.f;
+	/** World time the SM last ENTERED IdleLoop from a non-idle phase (stop, stance, land, aborted start). The
+	 *  aim turn-in-place entry waits AimTurnInPlaceMinIdleSeconds after this: right after a stop the facing spring
+	 *  still carries the fast moving-time momentum, so a >=35 deg delta closes in ~70 ms and the turn state would
+	 *  only FLASH its clip (measured 0.07 s on 2026-09-11). */
+	float LastIdleEntryTime = -1.f;
 	float IdleBreakEndTime  = -1.f;
 	float TransitionEndTime = -1.f;
 	/** World time the active impact-reaction clip is ~done; holds LocomotionLoop past the sensor's brief trigger

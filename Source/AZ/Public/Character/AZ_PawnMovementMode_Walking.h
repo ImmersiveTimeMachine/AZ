@@ -127,6 +127,55 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Strafe", meta = (ClampMin = "0", ForceUnits = "s"))
 	float StrafeTurnFacingTime = 0.50f;
 
+	// ---- Aiming (firearm ADS) facing ----
+	/** Aiming facing time — FLAT, no angle ramp, unlike strafe. Aiming used to share the strafe ramp, so a large
+	 *  body→camera angle spent StrafeTurnFacingTime (0.5s) turning. That ramp exists to pace the body against a
+	 *  90/135/180 TURN-START CLIP; while aiming there is none — the aim turn-in-place clips
+	 *  (Stand_Aim_Turn_In_Place_L/R) exist in the retargeted set but no chooser row plays them, and the SM now
+	 *  forces a plain forward start while aiming (FAZ_LocoSMInputs::bIsAiming). So the slow band was pacing
+	 *  against an animation that never comes: pure lag, and the source of the 2026-09-11 "bound" feel.
+	 *
+	 *  Low is the point here: with an aim free-look cone the body only moves once the camera pushes PAST the cone,
+	 *  and then it should arrive immediately so the pawn keeps sitting on the cone edge. Still a spring, not a
+	 *  snap, so the mesh never teleports. Raise toward StrafeFacingTime if the turn reads too mechanical. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "s"))
+	float AimFacingTime = 0.07f;
+
+	/** AIM TURN-IN-PLACE pacing rate (deg/s). At REST the aim body still tracks the camera, so without a stepping
+	 *  clip the capsule spins under a standing idle and the feet slide. The SM hands a large at-rest delta to
+	 *  IdleTurnLeft/Right, whose chooser rows push the aim turn-in-place LOOP; this makes the facing spring turn at
+	 *  roughly that clip's angular rate so the feet stay with the turn. 67 deg/s is the authored rate of
+	 *  AZ_RTG_MH_W2_Stand_Aim_Turn_In_Place_L/R_Loop (45 deg over 0.67 s) — raising it turns faster but the feet
+	 *  start to slip, until the clip's play rate is driven from this too. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "1", ForceUnits = "deg/s"))
+	float AimTurnInPlaceRateDegPerSec = 67.f;
+
+	/** Enter/exit the paced at-rest turn. ★ MUST MATCH the constants of the same name in
+	 *  AZ_LocomotionStateMachine.cpp — the mode decides when to PACE, the SM decides when to show the CLIP, and
+	 *  both read the same body→camera angle. Drift gives a paced turn with no clip (reads as lag) or a clip with
+	 *  a snapping body. Enter > Exit is deliberate hysteresis against flicker at the boundary. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "degrees"))
+	float AimTurnInPlaceEnterDeg = 35.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "degrees"))
+	float AimTurnInPlaceExitDeg = 6.f;
+
+	/** AIM TURN-IN-PLACE master switch. OFF (default): while aiming the body simply tracks the camera with the flat
+	 *  AimFacingTime spring, no stepping clip, no rate limit - the behaviour the user signed off as "the pistol works
+	 *  very well" (2026-09-11). ON: past AimTurnInPlaceEnterDeg at rest the body turns at AimTurnInPlaceRateDegPerSec
+	 *  under the aim turn-in-place loop (SM IdleTurnLeft/Right, chooser rows 304-307 / 397-400). Left in because the
+	 *  machinery is deterministic and complete; the stepping loops in both weapon sets rock the hips at any rate
+	 *  much above their authored 67-90 deg/s, so it needs purpose-made fast turn clips before it reads well. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim")
+	bool bAimTurnInPlaceEnabled = false;
+
+	/** Max body yaw rate while aiming (deg/s, 0 = unlimited). The flat AimFacingTime spring (0.05 s) is right for
+	 *  tracking the camera, but on aim ENTRY from a large angle it is a teleport: recorded 2026-09-11, aim pressed
+	 *  with the character facing the camera (171 deg off) -> 137 deg in the first tick, 2328 deg/s, a one-frame
+	 *  motion-blur smear. 540 turns 180 deg in ~0.35 s: still fast, but a turn the eye can follow. Rides the
+	 *  InputCmd (FAZ_MoverCustomInputs::AimTurnYawRateLimit) like the turn-in-place limit, so it is deterministic. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "deg/s"))
+	float AimMaxYawRateDegPerSec = 540.f;
+
 	// ---- Grabbed facing ----
 	/** Facing time while the body is HELD (FAZ_MoverCustomInputs.bGrabbed). A caught hero must be square to
 	 *  the grabber before the paired catch clips' first frame — the PoseSearch Interaction search already
@@ -188,4 +237,8 @@ protected:
 	 *  offset so the spring damper always picks the short arc toward DesiredFacing. */
 	UPROPERTY(Transient)
 	double CachedRotationOffsetDegrees = 0.0;
+
+	/** Diagnostic mirror of the InputCmd's AimTurnYawRateLimit > 0 (the limit itself is produced in the pawn's
+	 *  ProduceInput and shipped in the InputCmd so rollback re-simulation replays it identically). */
+	bool bAimTurningInPlace = false;
 };

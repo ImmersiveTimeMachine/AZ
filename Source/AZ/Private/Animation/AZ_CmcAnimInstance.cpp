@@ -1784,6 +1784,8 @@ void UAZ_CmcAnimInstance::Update_LocomotionStateMachine(float DeltaSeconds)
 	SMIn.bHoldTakeoffPhase    = false;
 	SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 	SMIn.bStrafe              = ChooserContext.bStrafe;
+	SMIn.bIsAiming            = ChooserContext.bIsAiming;
+	SMIn.AimYawDeltaDeg       = static_cast<float>(ChooserContext.RotationOffset);
 	SMIn.MovementDirection    = ChooserContext.MovementDirection;
 	SMIn.bObstacleReacting    = (ChooserContext.Reaction != EAZ_ObstacleReaction::None);
 	SMIn.bStopOnAbortedStart  = true;

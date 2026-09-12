@@ -1,6 +1,18 @@
 // Copyright Artur. AZ project.
 
 #include "Animation/AZ_MoverAnimInstance.h"
+#include "HAL/IConsoleManager.h"
+
+// [v2 Aim] the UPPER-BODY side of aiming, which no other line shows: the camera-body residual, the aim-offset yaw
+// target after the range fade, the interpolated yaw actually driving the blendspace, the fade weight, the aim
+// layer alpha, the body yaw rate and the SM state. 2026-09-11: three aim-entry defects (torso twisting to the
+// clamp and unwinding, a one-tick body spin, the camera dolly through the head) were invisible to [v2 Facing]
+// and [v2 Cam]; a recording synced to the log found them. This line would have shown the first one directly.
+// Throttled to ~10 Hz while aiming and something is moving. az.Aim.Debug 0 silences it.
+static TAutoConsoleVariable<int32> CVarAZAimDebug(
+	TEXT("az.Aim.Debug"), 1,
+	TEXT("1 = log [v2 Aim] upper-body aim telemetry (residual, AO target/actual yaw, fade weight, aim alpha, body yaw rate, SM)."),
+	ECVF_Default);
 
 #include "Character/Cmc/AZ_CmcCharacterBase.h"          // [SPIKE: spike/cmc-backport] CMC (v3) backend
 #include "GameFramework/CharacterMovementComponent.h"
@@ -231,6 +243,8 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 	LastPushedDir8                    = EAZ_EightWayDirection::F;
 	ChooserContext.MovementDirection8 = EAZ_EightWayDirection::F;
 	WeaponAimOffset                  = nullptr;
+	WeaponStandingAimPose            = nullptr;
+	WeaponCrouchingAimPose           = nullptr;
 	AimYaw = AimPitch = AimAlpha      = 0.f;
 	WeaponRelaxedPose                = nullptr;
 	WeaponRelaxedAlpha               = 0.f;
@@ -257,21 +271,46 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// The chooser/BlendStack path reads this snapshot and never reaches into inventory on an anim worker.
 	ChooserContext.OwnedTags.Reset();
 	Cached_Pawn->GetOwnedGameplayTags(ChooserContext.OwnedTags);
-	ChooserContext.bStrafe = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
-	ChooserContext.bIsAiming = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Aiming);
+	// The existing aim animation vocabulary represents a raised firearm. Precision
+	// aim remains a separate tag for camera zoom; Ready uses the same hands/facing.
+	ChooserContext.bIsAiming = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Aiming)
+		|| Cached_Pawn->IsAimTurningInPlace()   // an aim turn finishes after release: keep the turn clip + aim idle for its tail
+		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_FirearmReady);
+	ChooserContext.bStrafe = ChooserContext.bIsAiming
+		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
 	UAZ_WeaponAnimationProfile* NewWeaponProfile = nullptr;
+	bool bDrawPresentation = false;
 	if (const AController* Controller = Cached_Pawn->GetController())
 	{
 		ChooserContext.AimingRotation = Controller->GetControlRotation();
 		if (const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Controller->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>())
 		{
 			NewWeaponProfile = Equipment->GetActiveAnimationProfile();
+			UAZ_WeaponAnimationProfile* DrawProfile = nullptr;
+			FGameplayTag DrawWeaponTag;
+			if (Equipment->TryGetDrawAnimationPresentation(DrawProfile, DrawWeaponTag))
+			{
+				// Complete the base-pose crossfade while the draw still owns the
+				// upper body. Starting it at commit would expose the outgoing idle
+				// after the shorter montage fade, producing a relaxed-pose twitch.
+				ChooserContext.OwnedTags.RemoveTag(Equipment->GetActiveProfile());
+				ChooserContext.OwnedTags.RemoveTag(FAZ_GameplayTags::Get().Weapon_None);
+				ChooserContext.OwnedTags.AddTag(DrawWeaponTag);
+				NewWeaponProfile = DrawProfile;
+				bDrawPresentation = true;
+			}
 		}
 	}
 	if (NewWeaponProfile != ActiveWeaponAnimationProfile)
 	{
-		UE_LOG(LogTemp, Display, TEXT("[WeaponAnim] %s profile=%s"),
-			*GetNameSafe(Cached_Pawn), *GetNameSafe(NewWeaponProfile));
+		UE_LOG(LogTemp, Display, TEXT("[WeaponAnim] %s profile=%s draw=%d"),
+			*GetNameSafe(Cached_Pawn), *GetNameSafe(NewWeaponProfile), bDrawPresentation);
+		if (NewWeaponProfile)
+		{
+			// Never fade a previous weapon's additive correction over the new profile's base poses.
+			WeaponAimOffset = nullptr;
+			AimAlpha = 0.f;
+		}
 	}
 	ActiveWeaponAnimationProfile = NewWeaponProfile;
 
@@ -632,22 +671,58 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ChooserContext.RotationOffset = FRotator::NormalizeAxis(
 		ChooserContext.AimingRotation.Yaw - Cached_Pawn->GetActorRotation().Yaw);
 
+	// Body yaw rate for the aim turn-in-place play rate (feet follow the capsule at any turn speed).
+	{
+		const float BodyYawDeg = static_cast<float>(Cached_Pawn->GetActorRotation().Yaw);
+		if (bHasPrevBodyYaw && DeltaSeconds > KINDA_SMALL_NUMBER)
+		{
+			const float RawRate = FRotator::NormalizeAxis(BodyYawDeg - PrevBodyYawDeg) / DeltaSeconds;
+			BodyYawRateDegPerSec = FMath::FInterpTo(BodyYawRateDegPerSec, RawRate, DeltaSeconds, 20.f);
+		}
+		PrevBodyYawDeg = BodyYawDeg;
+		bHasPrevBodyYaw = true;
+	}
+
 	// The additive aim layer owns only the upper-body correction; Mover still owns actor facing.
 	// Keep the last AO asset through its blend-out so unequip does not replace it with null mid-fade.
 	const UAZ_WeaponAnimationProfile* WeaponProfile = ActiveWeaponAnimationProfile.Get();
+	if (WeaponProfile)
+	{
+		// Snapshot both sources on the game thread. A newly selected profile replaces even null
+		// fields immediately; it must never borrow the previous weapon's torso pose.
+		WeaponStandingAimPose = WeaponProfile->StandingAimPose;
+		WeaponCrouchingAimPose = WeaponProfile->CrouchingAimPose;
+		if (!WeaponStandingAimPose || !WeaponCrouchingAimPose)
+		{
+			AimAlpha = 0.f;
+		}
+	}
 	UBlendSpace* RequestedAimOffset = WeaponProfile
 		? (ChooserContext.Stance == EAZ_Stance::Crouching
 			? WeaponProfile->CrouchingAimOffset.Get() : WeaponProfile->StandingAimOffset.Get())
 		: nullptr;
-	const bool bApplyWeaponAim = ChooserContext.bIsAiming && RequestedAimOffset;
+	// Reload owns both hands. Preserve held aim and camera framing while its authored
+	// pose plays, but fade the additive aim layer out of the magazine manipulation.
+	const bool bApplyWeaponAim = ChooserContext.bIsAiming && RequestedAimOffset
+		&& WeaponStandingAimPose && WeaponCrouchingAimPose
+		&& !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Reloading)
+		&& !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_WeaponSwitching);
 	if (RequestedAimOffset)
 	{
 		WeaponAimOffset = RequestedAimOffset;
 	}
 	const float AimSpeed = WeaponProfile ? WeaponProfile->AimInterpSpeed : 15.f;
-	const float TargetAimYaw = WeaponProfile
-		? FMath::Clamp(static_cast<float>(ChooserContext.RotationOffset), -WeaponProfile->MaxAimYaw, WeaponProfile->MaxAimYaw)
-		: 0.f;
+	// Yaw: the residual between camera and body, clamped to the blendspace range and FADED OUT when the residual is
+	// large (the body is turning to the camera; the torso must not slam to the clamp and unwind as the legs arrive).
+	float TargetAimYaw = 0.f;
+	if (WeaponProfile)
+	{
+		const float DeltaYaw = static_cast<float>(ChooserContext.RotationOffset);
+		const float FadeStart = FMath::Max(0.f, WeaponProfile->AimOffsetYawFadeStartDeg);
+		const float FadeEnd = FMath::Max(FadeStart + 1.f, WeaponProfile->AimOffsetYawFadeEndDeg);
+		const float RangeWeight = 1.f - FMath::Clamp((FMath::Abs(DeltaYaw) - FadeStart) / (FadeEnd - FadeStart), 0.f, 1.f);
+		TargetAimYaw = FMath::Clamp(DeltaYaw, -WeaponProfile->MaxAimYaw, WeaponProfile->MaxAimYaw) * RangeWeight;
+	}
 	const float TargetAimPitch = WeaponProfile
 		? FMath::Clamp(static_cast<float>(FRotator::NormalizeAxis(ChooserContext.AimingRotation.Pitch)),
 			-WeaponProfile->MaxAimPitch, WeaponProfile->MaxAimPitch)
@@ -658,18 +733,50 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		? (bApplyWeaponAim ? WeaponProfile->AimBlendInSpeed : WeaponProfile->AimBlendOutSpeed)
 		: 10.f;
 	AimAlpha = FMath::FInterpTo(AimAlpha, bApplyWeaponAim ? 1.f : 0.f, DeltaSeconds, AimAlphaSpeed);
+
+	if (CVarAZAimDebug.GetValueOnGameThread() != 0 && (AimAlpha > KINDA_SMALL_NUMBER || bApplyWeaponAim))
+	{
+		static double LastAimLogTime = 0.0;
+		static float LastLoggedYaw = 0.f, LastLoggedAlpha = 0.f;
+		const double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		const bool bSomethingMoves = FMath::Abs(AimYaw - LastLoggedYaw) > 1.f || FMath::Abs(AimAlpha - LastLoggedAlpha) > 0.02f
+			|| FMath::Abs(BodyYawRateDegPerSec) > 15.f || FMath::Abs(static_cast<float>(ChooserContext.RotationOffset)) > 3.f;
+		if (bSomethingMoves && NowSec - LastAimLogTime >= 0.1)
+		{
+			LastAimLogTime = NowSec; LastLoggedYaw = AimYaw; LastLoggedAlpha = AimAlpha;
+			float RangeW = 1.f;
+			if (WeaponProfile)
+			{
+				const float FadeStart = FMath::Max(0.f, WeaponProfile->AimOffsetYawFadeStartDeg);
+				const float FadeEnd = FMath::Max(FadeStart + 1.f, WeaponProfile->AimOffsetYawFadeEndDeg);
+				RangeW = 1.f - FMath::Clamp((FMath::Abs(static_cast<float>(ChooserContext.RotationOffset)) - FadeStart) / (FadeEnd - FadeStart), 0.f, 1.f);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[v2 Aim] cam->body=%+.1f aoTarget=%+.1f aoYaw=%+.1f aoPitch=%+.1f rangeW=%.2f aimAlpha=%.2f bodyYawRate=%+.0f SM=%d profile=%s"),
+				static_cast<float>(ChooserContext.RotationOffset), TargetAimYaw, AimYaw, AimPitch, RangeW, AimAlpha,
+				BodyYawRateDegPerSec, static_cast<int32>(ChooserContext.SMState), *GetNameSafe(WeaponProfile));
+		}
+	}
 	if (!RequestedAimOffset && AimAlpha <= KINDA_SMALL_NUMBER)
 	{
 		WeaponAimOffset = nullptr;
+		WeaponStandingAimPose = nullptr;
+		WeaponCrouchingAimPose = nullptr;
 		AimAlpha = 0.f;
 	}
+	// Stance selector for the aim upper-body lock (AnimGraph Two-Way Blend between the standing and crouched aim
+	// idles, Alpha bound to this). Same crouch channel the chooser uses — ChooserContext.Stance, set above from
+	// the Mover's IsCrouching() — eased so the torso source swaps over ~0.3 s rather than popping on the frame
+	// the capsule resizes. Runs regardless of AimAlpha: it must already be right when the lock fades in.
+	AimStanceAlpha = FMath::FInterpTo(AimStanceAlpha,
+		ChooserContext.Stance == EAZ_Stance::Crouching ? 1.f : 0.f, DeltaSeconds, AimStanceBlendSpeed);
 	UAnimSequence* RequestedRelaxedPose = WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr;
 	if (RequestedRelaxedPose)
 	{
 		WeaponRelaxedPose = RequestedRelaxedPose;
 	}
 	const bool bApplyRelaxedPose = RequestedRelaxedPose && !ChooserContext.bIsAiming
-		&& ChooserContext.Gait != EAZ_Gait::Sprint;
+		&& ChooserContext.Gait != EAZ_Gait::Sprint
+		&& !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_WeaponSwitching);
 	WeaponRelaxedAlpha = FMath::FInterpTo(WeaponRelaxedAlpha, bApplyRelaxedPose ? 1.f : 0.f, DeltaSeconds,
 		WeaponProfile ? WeaponProfile->RelaxedPoseBlendSpeed : 8.f);
 	if (!RequestedRelaxedPose && WeaponRelaxedAlpha <= KINDA_SMALL_NUMBER)
@@ -837,6 +944,15 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		SMIn.bUseAirLoop          = AirLoopProfile && AirLoopProfile->bUseAirLoop;
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops, no body-turning
+		SMIn.bIsAiming            = ChooserContext.bIsAiming; // aiming: never bucket a turn-start (cone vs RM overshoot)
+		SMIn.AimYawDeltaDeg       = static_cast<float>(ChooserContext.RotationOffset);   // body→camera, aim TIP gate
+		if (const UAZ_PawnMovementMode_Walking* TipMode = Cast<UAZ_PawnMovementMode_Walking>(
+				Cached_MoverComponent ? Cached_MoverComponent->FindMovementModeByName(TEXT("Walking")) : nullptr))
+		{
+			SMIn.bAimTurnInPlaceEnabled = TipMode->bAimTurnInPlaceEnabled;   // one source of truth: the walking mode
+			SMIn.AimTurnInPlaceEnterDeg = TipMode->AimTurnInPlaceEnterDeg;
+			SMIn.AimTurnInPlaceExitDeg  = TipMode->AimTurnInPlaceExitDeg;
+		}
 		SMIn.MovementDirection    = ChooserContext.MovementDirection;   // strafe forward move-start → cosmetic turn-start
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
 		SMIn.IdleBreakMaxTime     = IdleBreakMaxTime;
@@ -1144,47 +1260,32 @@ void UAZ_MoverAnimInstance::UpdateAnimation_Cmc(float DeltaSeconds)
 	}
 }
 
+// The outer BlendStack's WantedPlayRate is separate from this INNER sample rate.
+// Keep the turn diagnostic so the fixed playback rate can be checked in user logs.
+
+static TAutoConsoleVariable<int32> CVarAZTipRateDebug(
+	TEXT("az.TipRate.Debug"), 1,
+	TEXT("1 = log [v2 TipRate] (SM turn state, body yaw rate, clip rate, play rate handed to the turn-in-place clip)."),
+	ECVF_Default);
+
 double UAZ_MoverAnimInstance::GetWeaponLoopPlayRate(const FAnimNodeReference& BlendStackInput) const
 {
-	const UAZ_WeaponAnimationProfile* Profile = ActiveWeaponAnimationProfile.Get();
-	if (!Profile || !Profile->bUseLoopPlayRate || Profile->SpeedCurveName.IsNone()
-		|| ChooserContext.SMState != EAZ_StateMachineState::LocomotionLoop
-		|| !FMath::IsFinite(ChooserContext.Speed2D) || ChooserContext.Speed2D < 0.f)
+	// Player animations run at their authored 1x speed. Body-turn and movement
+	// speed must not speed up or slow down the animation sample.
+	if (ChooserContext.SMState == EAZ_StateMachineState::IdleTurnLeft
+		|| ChooserContext.SMState == EAZ_StateMachineState::IdleTurnRight)
 	{
-		return 1.0;
+		if (CVarAZTipRateDebug.GetValueOnAnyThread() != 0)
+		{
+			static int32 Throttle = 0;
+			if ((++Throttle % 6) == 0)
+			{
+				UE_LOG(LogTemp, Display, TEXT("[v2 TipRate] SM=%d bodyYawRate=%+.0f -> playRate=1.00 (fixed)"),
+					static_cast<int32>(ChooserContext.SMState), BodyYawRateDegPerSec);
+			}
+		}
 	}
-
-	// These accessors intentionally take the INNER BlendStackInput. Each outgoing/incoming sample
-	// uses its own clip and time; the blended output's Speed curve is not a valid denominator.
-	UAnimSequence* Sequence = Cast<UAnimSequence>(UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAsset(BlendStackInput));
-	if (!Sequence || !Profile->PlayRateLoopAssets.Contains(Sequence))
-	{
-		return 1.0;
-	}
-	bool bLooping = false;
-	UPoseSearchLibrary::IsAnimationAssetLooping(Sequence, bLooping);
-	const float SequenceLength = Sequence->GetPlayLength();
-	const float SampleTime = UBlendStackAnimNodeLibrary::GetCurrentBlendStackAnimAssetTime(BlendStackInput);
-	if (!bLooping || SequenceLength <= KINDA_SMALL_NUMBER || !FMath::IsFinite(SampleTime))
-	{
-		return 1.0;
-	}
-
-	float DepictedSpeed = 0.f;
-	const float CurveTime = FMath::Fmod(FMath::Max(0.f, SampleTime), SequenceLength);
-	if (!UAnimationWarpingLibrary::GetCurveValueFromAnimation(Sequence, Profile->SpeedCurveName, CurveTime, DepictedSpeed)
-		|| !FMath::IsFinite(DepictedSpeed) || !FMath::IsFinite(Profile->LoopPlayRateMinDepictedSpeed)
-		|| DepictedSpeed <= FMath::Max(KINDA_SMALL_NUMBER, Profile->LoopPlayRateMinDepictedSpeed))
-	{
-		return 1.0;
-	}
-	if (!FMath::IsFinite(Profile->LoopPlayRateMin) || !FMath::IsFinite(Profile->LoopPlayRateMax)
-		|| Profile->LoopPlayRateMin <= 0.f || Profile->LoopPlayRateMax < Profile->LoopPlayRateMin)
-	{
-		return 1.0;
-	}
-	return FMath::Clamp(static_cast<double>(ChooserContext.Speed2D) / static_cast<double>(DepictedSpeed),
-		static_cast<double>(Profile->LoopPlayRateMin), static_cast<double>(Profile->LoopPlayRateMax));
+	return 1.0;
 }
 
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
@@ -1291,7 +1392,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	// Serial-keyed: each SMState CHANGE mints a new TransitionSerial (game thread); a committed push stamps
 	// it. Equal serials = "this same transition entry already pushed" → locked. Comparing raw SMState here
 	// let a bailed push's stale cache suppress a later same-state transition entirely (audit P0-3).
-	if (bInTransition && TransitionSerial == LastPushedTransitionSerial && !bForceBlend)
+	// A draw may prime the next weapon while a locomotion transition is playing.
+	// Its profile must reach the stack before the draw montage releases the torso.
+	if (bInTransition && TransitionSerial == LastPushedTransitionSerial && !bForceBlend
+		&& ActiveWeaponAnimationProfile == LastPushedWeaponAnimationProfile)
 	{
 		return;
 	}

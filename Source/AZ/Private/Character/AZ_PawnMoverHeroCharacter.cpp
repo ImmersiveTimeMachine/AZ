@@ -1,6 +1,15 @@
 // Copyright Artur. AZ project.
 
 #include "Character/AZ_PawnMoverHeroCharacter.h"
+#include "HAL/IConsoleManager.h"
+
+// [v2 Cam] telemetry: the camera and facing path had no trace in the log, so every "it drifts" report so far had
+// to be diagnosed by guesswork. One line at 4 Hz, only while the view or the body is actually turning, carrying
+// everything the framing depends on. az.Cam.Debug 0 silences it.
+static TAutoConsoleVariable<int32> CVarAZCamDebug(
+	TEXT("az.Cam.Debug"), 1,
+	TEXT("1 = log [v2 Cam] camera/facing telemetry (local pawn, 4 Hz, only while the view or body turns)."),
+	ECVF_Default);
 #include "MoverComponent.h"   // GetBaseVisualComponentTransform (grab mesh anchor rest Z)
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
@@ -14,6 +23,9 @@
 #include "Character/AZ_MovementDirectionCapabilityComponent.h"
 #include "Character/AZ_ObstacleSensorComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
+#include "Character/AZ_PawnMovementMode_Walking.h"
+#include "Animation/AZ_WeaponAnimationProfile.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Animation/AZ_MoverAnimInstance.h"  // IsPlayingImpactReaction (lock movement during the flinch)
 #include "AZ_GameplayTags.h"                 // FAZ_GameplayTags::Get()
@@ -79,6 +91,9 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	CameraBoom->TargetArmLength = 220.f;
 	CameraBoom->SocketOffset = FVector(0.f, 70.f, 0.f);
 	CameraBoom->bUsePawnControlRotation = true;
+	// Positional lag is OWNED PER STANCE (FAZ_CameraStanceConfig, default OFF): UpdateCameraForMode rewrites
+	// these three from the active stance every tick, so what is set here (or authored on the boom in the BP)
+	// never reaches the screen. Kept only so the boom is sane before the first camera tick.
 	CameraBoom->bEnableCameraLag = true;
 	CameraBoom->CameraLagSpeed = 8.f;
 	CameraBoom->CameraLagMaxDistance = 50.f;
@@ -292,6 +307,54 @@ void AAZ_PawnMoverHeroCharacter::Tick(float DeltaTime)
 	UpdateCameraForMode(DeltaTime);
 	UpdateGrabMeshAnchor(DeltaTime);
 	TryMovementCancelAttack();
+	UpdateWeaponGaitSpeeds();
+}
+
+void AAZ_PawnMoverHeroCharacter::UpdateWeaponGaitSpeeds()
+{
+	// PER-WEAPON GAIT SPEEDS. A weapon set's loops depict the speed they were authored at; running the capsule
+	// faster than that slides the feet, and speeding the clips up instead reads as fast-motion. So the speed comes
+	// down to the animation. See UAZ_WeaponAnimationProfile::WalkSpeedOverride for the measurements.
+	//
+	// Equipment-change driven, not per frame: the early-out below is the common path. Equipment is replicated
+	// state, so authority, clients and a rollback re-sim all land on the same numbers.
+	if (!MoverComponent) { return; }
+	UAZ_PawnMovementMode_Walking* Walking = Cast<UAZ_PawnMovementMode_Walking>(
+		MoverComponent->FindMode_Mutable(UAZ_PawnMovementMode_Walking::StaticClass(), DefaultModeNames::Walking));
+	if (!Walking) { return; }
+
+	// Capture the mode's authored values ONCE, before anything overrides them, so unequipping restores the real
+	// baseline (which a designer may have tuned) instead of a constant compiled in here.
+	if (!bBaseGaitSpeedsCaptured)
+	{
+		BaseWalkSpeed   = Walking->WalkSpeed;
+		BaseRunSpeed    = Walking->RunSpeed;
+		BaseSprintSpeed = Walking->SprintSpeed;
+		BaseCrouchSpeed = Walking->CrouchSpeed;
+		bBaseGaitSpeedsCaptured = true;
+	}
+
+	UAZ_WeaponAnimationProfile* Profile = nullptr;
+	if (const AController* PawnController = GetController())
+	{
+		if (const UAZ_Inv_CommonUI_EquipmentComponent* Equipment =
+			PawnController->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>())
+		{
+			Profile = Equipment->GetActiveAnimationProfile();
+		}
+	}
+	if (Profile == LastAppliedSpeedProfile) { return; }
+	LastAppliedSpeedProfile = Profile;
+
+	// 0 on a field means "this weapon has no opinion" — keep the mode's baseline for that gait.
+	auto Pick = [](float Override, float Base) { return Override > 0.f ? Override : Base; };
+	Walking->WalkSpeed   = Profile ? Pick(Profile->WalkSpeedOverride,   BaseWalkSpeed)   : BaseWalkSpeed;
+	Walking->RunSpeed    = Profile ? Pick(Profile->RunSpeedOverride,    BaseRunSpeed)    : BaseRunSpeed;
+	Walking->SprintSpeed = Profile ? Pick(Profile->SprintSpeedOverride, BaseSprintSpeed) : BaseSprintSpeed;
+	Walking->CrouchSpeed = Profile ? Pick(Profile->CrouchSpeedOverride, BaseCrouchSpeed) : BaseCrouchSpeed;
+
+	UE_LOG(LogTemp, Display, TEXT("[WeaponSpeed] profile=%s walk=%.0f run=%.0f sprint=%.0f crouch=%.0f"),
+		*GetNameSafe(Profile), Walking->WalkSpeed, Walking->RunSpeed, Walking->SprintSpeed, Walking->CrouchSpeed);
 }
 
 void AAZ_PawnMoverHeroCharacter::TryMovementCancelAttack()
@@ -472,12 +535,90 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 		}
 	}
 
+	// PER-KEY AIM FRAMING. The body does not hold still relative to the capsule while it moves (rifle aim set,
+	// 2026-09-09: torso up to 29cm forward / 16cm sideways off its aim-idle pose), so the aim framing tuned on
+	// the idle is wrong as soon as the pawn walks. CameraAimingDirectional carries the socket offset to use per
+	// movement KEY, resolved from the raw input in CAMERA space on purpose: the first cut blended by velocity in
+	// ACTOR space, and with the body parked inside the aim cone a camera turn with W held swept that blend
+	// through the diagonals — the camera slid sideways on every look. Aim only (user rule): Explore orients the
+	// body to its motion, so a per-key framing means nothing there. Smoothed below by the stance interp, so a
+	// key press eases into its framing over ~0.4s at InterpSpeed 8 instead of snapping.
+	FVector TargetSocketOffset = Target->SocketOffset;
+	if (Target == &CameraAiming)
+	{
+		// CachedMoveInputIntent: X = forward (W/S), Y = right (D/A), camera-yaw space, zeroed on key release.
+		TargetSocketOffset = CameraAimingDirectional.Resolve(
+			FVector2D(CachedMoveInputIntent.X, CachedMoveInputIntent.Y), Target->SocketOffset);
+	}
+
 	// Critically-damped-ish glide toward the mode's framing (the "transition"). Composes fine with the boom's
 	// own camera lag — that smooths the camera following the boom; this moves the boom's target offset/length.
 	const float Speed = Target->InterpSpeed;
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, Target->BoomLength, DeltaTime, Speed);
-	CameraBoom->SocketOffset    = FMath::VInterpTo(CameraBoom->SocketOffset, Target->SocketOffset, DeltaTime, Speed);
+	CameraBoom->SocketOffset    = FMath::VInterpTo(CameraBoom->SocketOffset, TargetSocketOffset, DeltaTime, Speed);
 	Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, Target->FOV, DeltaTime, Speed));
+
+	// Aim the CAMERA, not the boom. The boom's rotation is the player's control rotation
+	// (bUsePawnControlRotation) and also decides where the collision probe sweeps; rotating the camera at the
+	// boom's end re-centres the pawn on screen without touching either.
+	Camera->SetRelativeRotation(FMath::RInterpTo(Camera->GetRelativeRotation(), Target->RotationOffset, DeltaTime, Speed));
+
+	// PER-STANCE POSITIONAL LAG. The boom trailing the capsule is worth up to CameraLagMaxDistance of screen
+	// slide on every acceleration — a weight you may want while exploring, wrong for aiming, where the framing
+	// must hold. The stance OWNS the boom's three lag properties from here (default OFF in every stance, which
+	// is how the hero's boom was authored before this existed); nothing set on the boom itself survives.
+	//
+	// Faded through CameraLagSpeed rather than by toggling bEnableCameraLag: the bool is a hard switch and
+	// would snap the boom from "trailing by up to 50cm" to "exact" in one frame. Speed is continuous, and a
+	// large enough value completes the interp within the frame, which IS no lag. Note the max distance is NOT
+	// faded to zero for the same purpose — 0 disables the CLAMP (unlimited trail), the opposite of the intent
+	// (SpringArmComponent.cpp:158). Rotation lag is left alone: it smooths the player's own look input and
+	// should feel identical in every stance.
+	constexpr float LagDisabledSpeed = 1000.f;   // interp completes inside one frame => effectively no lag
+	const float TargetLagSpeed = Target->bEnableCameraLag ? Target->CameraLagSpeed : LagDisabledSpeed;
+	CameraBoom->bEnableCameraLag = true;
+	CameraBoom->CameraLagSpeed = FMath::FInterpTo(CameraBoom->CameraLagSpeed, TargetLagSpeed, DeltaTime, Speed);
+	if (Target->bEnableCameraLag)
+	{
+		CameraBoom->CameraLagMaxDistance = FMath::FInterpTo(CameraBoom->CameraLagMaxDistance,
+			Target->CameraLagMaxDistance, DeltaTime, Speed);
+	}
+
+	// [v2 Cam] telemetry — see CVarAZCamDebug. Printed at most 4x/s and only while the view or the body turned
+	// (or the socket offset moved) since the last line, so an idle pawn is silent. bodyRate is the average yaw
+	// rate over the interval: a non-zero rate while ctrl is still IS the drift.
+	if (CVarAZCamDebug.GetValueOnGameThread() != 0)
+	{
+		const UWorld* TelemetryWorld = GetWorld();
+		const double Now = TelemetryWorld ? TelemetryWorld->GetTimeSeconds() : 0.0;
+		const AController* PawnController = GetController();
+		const float CtrlYaw = PawnController ? static_cast<float>(PawnController->GetControlRotation().Yaw) : 0.f;
+		const float BodyYaw = static_cast<float>(GetActorRotation().Yaw);
+		const double Elapsed = Now - CamDebugLastTime;
+		const float CtrlDelta = FRotator::NormalizeAxis(CtrlYaw - CamDebugLastCtrlYaw);
+		const float BodyDelta = FRotator::NormalizeAxis(BodyYaw - CamDebugLastBodyYaw);
+		const bool bChanged = FMath::Abs(CtrlDelta) > 0.5f || FMath::Abs(BodyDelta) > 0.5f
+			|| !CameraBoom->SocketOffset.Equals(CamDebugLastSocket, 0.5f);
+		if (Elapsed >= 0.25 && bChanged)
+		{
+			const float BodyRate = (CamDebugLastTime > 0.0 && Elapsed < 2.0) ? BodyDelta / static_cast<float>(Elapsed) : 0.f;
+			const TCHAR* ModeName = (Target == &CameraAiming) ? TEXT("Aim")
+				: (Target == &CameraStrafe) ? TEXT("Strafe")
+				: (Target == &CameraExplore) ? TEXT("Explore") : TEXT("Grab");
+			const FRotator CamRel = Camera->GetRelativeRotation();
+			UE_LOG(LogTemp, Display,
+				TEXT("[v2 Cam] %s ctrl=%.1f body=%.1f cam->body=%.1f hold=%.1f(%d) bodyRate=%.0f deg/s | arm=%.0f sock=(%.1f,%.1f,%.1f) tgt=(%.1f,%.1f,%.1f) camRel=(%.1f,%.1f,%.1f) lagSpd=%.0f | in=(%.2f,%.2f)"),
+				ModeName, CtrlYaw, BodyYaw, FRotator::NormalizeAxis(CtrlYaw - BodyYaw), AimHoldYaw, bAimHoldValid ? 1 : 0, BodyRate,
+				CameraBoom->TargetArmLength, CameraBoom->SocketOffset.X, CameraBoom->SocketOffset.Y, CameraBoom->SocketOffset.Z,
+				TargetSocketOffset.X, TargetSocketOffset.Y, TargetSocketOffset.Z,
+				CamRel.Pitch, CamRel.Yaw, CamRel.Roll, CameraBoom->CameraLagSpeed,
+				CachedMoveInputIntent.X, CachedMoveInputIntent.Y);
+			CamDebugLastTime = Now;
+			CamDebugLastCtrlYaw = CtrlYaw;
+			CamDebugLastBodyYaw = BodyYaw;
+			CamDebugLastSocket = CameraBoom->SocketOffset;
+		}
+	}
 }
 
 void AAZ_PawnMoverHeroCharacter::SetGrabFacingTarget(const AActor* Target)
@@ -866,7 +1007,11 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking) || bGrabbed)
 			WorldMove = FVector::ZeroVector;
 		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
-		bAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming);
+		// This local flag selects raised-weapon facing and movement, not camera zoom.
+		// UpdateCameraForMode continues to require the explicit precision-aim tag.
+		bAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming)
+			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_FirearmReady);
+		bStrafe |= bAiming;
 	}
 
 	// (Obstacle blocking is now handled upstream by the movement-capability clamp on WorldMove above — a wall ahead
@@ -887,12 +1032,75 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	//     creep). NOTE: the strafe START transition is excluded from the RM move (see AZ_MoverAnimInstance) so the
 	//     spring aligns from the FIRST moving frame instead of waiting out the start clip (that wait was the
 	//     "double": start-clip motion, then realign). WASD = directional side-steps / back-pedal vs the camera.
-	if (bAiming)
+	if (!bAiming && !bAimTurningInPlace)   // a turn in progress keeps its hold through the release tail
 	{
-		// Rifle aim tracks the current viewing direction even at idle. The existing
-		// fists strafe path below retains its idle hold and move-start alignment latch.
+		bAimHoldValid = false;   // next aim entry latches the hold where the body is then
+	}
+	if (bAiming || bAimTurningInPlace)   // aiming, or finishing an aim turn after release (see IsAimTurningInPlace)
+	{
+		// AIM CONE (free look). The body used to chase the camera every frame, so you could never look one way
+		// and hold the body another — turn the camera and the whole character swung round with it. Now the body
+		// HOLDS a heading while the camera stays within AimFacingConeDeg of it, and past that the heading is
+		// DRAGGED so the camera sits exactly on the cone's edge: keep turning and the body follows continuously,
+		// only as far as it must. The residual body-to-camera twist is carried by AO_Rifle_Aim, whose samples
+		// stop at +/-90 yaw — which is why the cone is clamped below that. 0 restores the old always-chase.
+		//
+		// THE HELD HEADING IS FROZEN STATE, NOT "THE BODY'S CURRENT YAW". The first cut fed the spring the
+		// current yaw as its target, and the walking mode's facing is a spring-damper with angular-velocity
+		// state: given a target that moves with the body it sees zero error and only ever damps, so after every
+		// drag the body coasted and the target coasted with it ("I rotate the camera and it drifts"). A frozen
+		// heading gives the spring something to settle ON. Same doctrine as the strafe latch below.
+		//
+		// Movement stays CAMERA-relative (WorldMove above is built from the camera yaw), so W is still "forward
+		// on screen" while the body is off-axis; the chooser just picks the matching diagonal strafe loop.
 		bStrafeAligning = false;
-		CharacterDefaultInputs.OrientationIntent = YawOnly.Vector();
+		const float CamYaw = static_cast<float>(ControlRot.Yaw);
+		const float BodyYaw = static_cast<float>(GetActorRotation().Yaw);
+		// Root motion can turn the body without us (the aim turn-start clips carry 90/135/180 of yaw). If the
+		// body is far from the held heading, something other than the spring moved it — adopt where it is
+		// rather than snapping it back. The spring's own tracking lag during a drag never reaches this.
+		constexpr float RelatchDeg = 30.f;
+		if (!bAimHoldValid || FMath::Abs(FRotator::NormalizeAxis(BodyYaw - AimHoldYaw)) > RelatchDeg)
+		{
+			AimHoldYaw = BodyYaw;
+			bAimHoldValid = true;
+		}
+		// Drag: advance the held heading only as far as keeps the camera on the cone edge.
+		const float CamToHold = FRotator::NormalizeAxis(CamYaw - AimHoldYaw);
+		if (FMath::Abs(CamToHold) > AimFacingConeDeg)
+		{
+			AimHoldYaw = FRotator::NormalizeAxis(CamYaw - FMath::Sign(CamToHold) * AimFacingConeDeg);
+		}
+		CharacterDefaultInputs.OrientationIntent = FRotator(0.f, AimHoldYaw, 0.f).Vector();
+
+		// AIM TURN-IN-PLACE, produced HERE so it rides the InputCmd (see FAZ_MoverCustomInputs::AimTurnYawRateLimit).
+		// At rest, past the enter angle, the walking mode clamps the body's yaw rate to AimTurnInPlaceRateDegPerSec;
+		// latched down to the exit angle, and kept alive after the aim button is released so the turn FINISHES
+		// (a mid-turn stop left the spring's velocity to overshoot the idle hold and swing back). Tunables live on
+		// the walking mode (the sim owner); read here on the game thread.
+		AimTurnYawRateLimitInput = 0.f;
+		if (const UAZ_PawnMovementMode_Walking* Walking = MoverComponent ? Cast<UAZ_PawnMovementMode_Walking>(
+			MoverComponent->FindMode_Mutable(UAZ_PawnMovementMode_Walking::StaticClass(), DefaultModeNames::Walking)) : nullptr)
+		{
+			const float AimDeltaAbs = FMath::Abs(FRotator::NormalizeAxis(AimHoldYaw - BodyYaw));
+			if (!CachedMoveInputIntent.IsNearlyZero())                            { bAimTurningInPlace = false; }
+			else if (!Walking->bAimTurnInPlaceEnabled)                             { bAimTurningInPlace = false; }
+			else if (bAiming && AimDeltaAbs >= Walking->AimTurnInPlaceEnterDeg)   { bAimTurningInPlace = true; }
+			else if (AimDeltaAbs <= Walking->AimTurnInPlaceExitDeg)               { bAimTurningInPlace = false; }
+			if (bAimTurningInPlace)
+			{
+				AimTurnYawRateLimitInput = Walking->AimTurnInPlaceRateDegPerSec;
+			}
+			else if (Walking->AimMaxYawRateDegPerSec > KINDA_SMALL_NUMBER)
+			{
+				// Plain aim tracking: cap the spring so an aim entry from far off is a fast turn, not a one-frame spin.
+				AimTurnYawRateLimitInput = Walking->AimMaxYawRateDegPerSec;
+			}
+		}
+		else
+		{
+			bAimTurningInPlace = false;
+		}
 	}
 	else if (bStrafe)
 	{
@@ -975,8 +1183,10 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		// Strafe (combat-ready) → the walking mode tracks the camera TIGHTLY (aim-lock) instead of the
 		// explore lag-then-snap. Reuses the existing (replicated/reconciled) RotationMode field; same
 		// Movement.Strafe source as OrientationIntent above. GenerateWalkMove reads it.
-		CustomInputs.RotationMode = bAiming ? EAZ_RotationMode::Aiming
+		CustomInputs.RotationMode = (bAiming || bAimTurningInPlace) ? EAZ_RotationMode::Aiming
 			: (bStrafe ? EAZ_RotationMode::Strafe : EAZ_RotationMode::OrientToMovement);
+		if (!bAiming && !bAimTurningInPlace) { AimTurnYawRateLimitInput = 0.f; }
+		CustomInputs.AimTurnYawRateLimit = AimTurnYawRateLimitInput;   // aim turn-in-place, produced in the aim branch above
 		// Held: the walking mode swaps its facing spring for GrabbedFacingTime so the body squares up to the
 		// grabber before the paired catch clips' first frame (OrientationIntent already points at it above).
 		CustomInputs.bGrabbed = bGrabbed;

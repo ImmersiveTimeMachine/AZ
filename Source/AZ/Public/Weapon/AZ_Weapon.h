@@ -20,14 +20,20 @@ class AAZ_GATA_LineTrace;
 enum class EAZ_AbilityInputID : uint8;
 class AAZ_HeroCharacter;
 class UAZ_AbilitySystemComponent;
+class UAZ_Inv_CommonUI_EquipmentComponent;
 class UNiagaraSystem;
 class UParticleSystem;
 class USoundBase;
+class UAnimInstance;
+class UAnimMontage;
+class UAnimSequence;
 struct FAZ_Inv_CommonUI_WeaponStateFragment;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FWeaponAmmoChangedDelegate, int32, OldValue, int32, NewValue);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_FirearmHitConfirmed, const FHitResult&, Hit);
 DECLARE_MULTICAST_DELEGATE(FAZ_WeaponOwnershipChanged);
+DECLARE_MULTICAST_DELEGATE_OneParam(FAZ_ReloadAnimationInterrupted, const FGuid&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FAZ_EquipmentAnimationInterrupted, const FGuid&);
 
 UCLASS()
 class AZ_API AAZ_Weapon : public AAZ_Item, public IAbilitySystemInterface
@@ -40,6 +46,7 @@ public:
 
 	virtual void SetOwner(AActor* NewOwner) override;
 	virtual void OnRep_Owner() override;
+	virtual void OnRep_AttachmentReplication() override;
 
 	/** Native presentation readiness notification; ownership remains the actor's replicated truth. */
 	FAZ_WeaponOwnershipChanged OnOwnershipChanged;
@@ -112,6 +119,11 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
 	FName LeftHandGripSocket{ TEXT("LeftHandGrip") };
 
+	/** Optional weapon-mesh mechanism clip (for example, a pistol slide), played once per accepted shot.
+	 *  Uses single-node animation on WeaponMesh3P; leave unset for weapons driven by their own AnimBP. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Fire")
+	TObjectPtr<UAnimSequence> WeaponMeshFireAnimation = nullptr;
+
 	/**
 	 * Per-pose IK adjustments. Pre-populated with all pose states.
 	 * Tweak offsets per weapon to adjust left hand grip for each animation state.
@@ -151,6 +163,44 @@ public:
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_PlayFirearmShot(const FHitResult& Hit, bool bHitConfirmed,
 		UParticleSystem* WorldImpactEffect, float WorldImpactScale);
+
+	/** One reliable start per accepted trigger action; never restarts a running automatic loop per bullet. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_BeginFirearmAnimation(const FGuid& ActionId, bool bAutomatic);
+
+	/** Ordinary single-shot release lets the clip finish; cancellations interrupt it. Stale tokens are ignored. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_EndFirearmAnimation(const FGuid& ActionId, bool bInterruptSingle);
+
+	/** Stop this actor's exact animation, including a single shot outliving its ability. Authority replicates it. */
+	void StopFirearmAnimation();
+
+	/** Authority snapshots the selected reload pose and rate; cosmetics never transfer ammunition. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_BeginReloadAnimation(const FGuid& ActionId, UAnimSequence* Sequence,
+		float PlayRate, float BlendIn, float BlendOut, bool bCrouched, bool bRaisedAtStart,
+		FGuid ExpectedItemId, uint32 ExpectedGeneration, double StartedServerTime);
+
+	/** End only the matching reload presentation, leaving newer actions untouched. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_EndReloadAnimation(const FGuid& ActionId, bool bCommitted = false);
+
+	/** External interruption also cancels authority gameplay; normal ability completion uses the end RPC. */
+	void StopReloadAnimation();
+
+	/** Authority-only failure/interruption receipt. Normal completion is owned by the ability timer. */
+	FAZ_ReloadAnimationInterrupted OnReloadAnimationInterrupted;
+
+	/** Equipment owns the phase token and gameplay deadlines; this actor only presents the pose. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_BeginEquipmentAnimation(const FGuid& ActionId, UAnimSequence* Sequence,
+		FName Slot, float PlayRate, float BlendIn, float BlendOut);
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_EndEquipmentAnimation(const FGuid& ActionId);
+	FAZ_EquipmentAnimationInterrupted OnEquipmentAnimationInterrupted;
+
+	/** Authority changes the root attachment, preserving the visible mesh through a short local blend. */
+	void BlendToEquipmentSocket(FName Socket, float Duration);
 
 	/** Accepted hit feedback for this weapon's locally controlled owner. */
 	UPROPERTY(BlueprintAssignable, Category = "AZ|Weapon|Fire")
@@ -263,6 +313,77 @@ protected:
 
 	UPROPERTY(Transient, Replicated)
 	TObjectPtr<UNiagaraSystem> FirearmMuzzleFlash = nullptr;
+
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UParticleSystem> FirearmCascadeMuzzleFlash = nullptr;
+
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UAnimSequence> FirearmSingleFireAnimation = nullptr;
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UAnimSequence> FirearmAutomaticFireAnimation = nullptr;
+	/** Crouched-stance fire clips, selected at fire start from the Mover's crouch state the way reload selects its
+	 *  poses. Optional: unset falls back to the standing clip (the pre-2026-09-10 behaviour, which popped a crouched
+	 *  torso ~25 deg to the standing pose for every shot). */
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UAnimSequence> FirearmCrouchingSingleFireAnimation = nullptr;
+	UPROPERTY(Transient, Replicated)
+	TObjectPtr<UAnimSequence> FirearmCrouchingAutomaticFireAnimation = nullptr;
+	UPROPERTY(Transient, Replicated)
+	float FirearmAutomaticAnimationPlayRate = 1.f;
+	UPROPERTY(Transient, Replicated)
+	FName FirearmAnimationSlot = TEXT("RifleFire");
+	UPROPERTY(Transient, Replicated)
+	float FirearmAnimationBlendIn = 0.04f;
+	UPROPERTY(Transient, Replicated)
+	float FirearmAnimationBlendOut = 0.08f;
+
+	/** Local presentation ownership; never stored in the ASC's combat montage ledger. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> FirearmAnimationMontage = nullptr;
+	TWeakObjectPtr<UAnimInstance> FirearmAnimationInstance;
+	FGuid FirearmAnimationActionId;
+	TArray<FGuid> EndedFirearmAnimationActions;
+	bool bFirearmAutomaticAnimation = false;
+	void StopFirearmAnimationLocal();
+
+	/** Reload has separate ownership so releasing aim cannot end a magazine operation. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> ReloadAnimationMontage = nullptr;
+	TWeakObjectPtr<UAnimInstance> ReloadAnimationInstance;
+	/** Owner-only mirror of the authority's exact reload Ready hold; never owns ammunition. */
+	TWeakObjectPtr<UAZ_Inv_CommonUI_EquipmentComponent> ReloadReadyEquipment;
+	FGuid ReloadAnimationActionId;
+	TArray<FGuid> EndedReloadAnimationActions;
+	float ReloadAnimationBlendOut = 0.15f;
+	void StopReloadAnimationLocal();
+	void InterruptReloadAnimation(const FGuid& ActionId);
+	void OnReloadMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted, FGuid ExpectedActionId);
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> EquipmentAnimationMontage = nullptr;
+	TWeakObjectPtr<UAnimInstance> EquipmentAnimationInstance;
+	TWeakObjectPtr<AActor> EquipmentAnimationOwner;
+	FGuid EquipmentAnimationActionId;
+	TArray<FGuid> EndedEquipmentAnimationActions;
+	float EquipmentAnimationBlendOut = 0.1f;
+	bool bEndingEquipmentPresentation = false;
+	void StopEquipmentAnimationLocal();
+	void InterruptEquipmentAnimation(const FGuid& ActionId);
+	void OnEquipmentMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted, FGuid ExpectedActionId);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_BlendToEquipmentSocket(USkeletalMeshComponent* BodyMesh, FName Socket,
+		const FTransform& InitialMeshOffset, float Duration);
+	FTransform EquipmentSocketBlendStart = FTransform::Identity;
+	TWeakObjectPtr<USkeletalMeshComponent> EquipmentSocketBlendParent;
+	FName EquipmentSocketBlendSocket;
+	float EquipmentSocketBlendDuration = 0.f;
+	float EquipmentSocketBlendElapsed = 0.f;
+	bool bEquipmentSocketBlending = false;
+	bool bEquipmentSocketRestoreTick = false;
+	void BeginEquipmentSocketBlendLocal(USkeletalMeshComponent* BodyMesh, FName Socket,
+		const FTransform& MeshOffset, float Duration);
+	void ClearEquipmentSocketBlend();
 
 	/*UFUNCTION()
 	void PickUpWeapon(AEchoHero* PickUpCharacter);*/
@@ -382,7 +503,11 @@ protected:
 	UFUNCTION()
 	virtual void OnRep_MaxSecondaryClipAmmo(int32 OldMaxSecondaryClipAmmo);
 
-	UPROPERTY(BlueprintReadOnly, Category = "AZ|Weapon")
+	UFUNCTION()
+	void OnRep_CosmeticOnly();
+	void ApplyCosmeticPresentation();
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CosmeticOnly, Category = "AZ|Weapon")
 	bool bIsCosmeticOnly = false;
 	
 };

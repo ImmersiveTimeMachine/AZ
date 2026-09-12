@@ -347,6 +347,18 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double ControlRotationRate = 0.0;
+	/** AIM TURN-IN-PLACE: max body yaw rate this tick (deg/s, 0 = no limit). Produced in ProduceInput from the
+	 *  pawn's game-thread view (aiming or finishing an aim turn, no move input, body->target angle latched between
+	 *  the walking mode's enter/exit thresholds) and shipped in the InputCmd so every consumer of the sim - the
+	 *  live tick AND the ~60-step trajectory prediction Motion Matching runs through the same mode every frame -
+	 *  computes the identical turn. Mode-object latch state was the first cut: the predictor's steps mutated it
+	 *  and the live tick inherited garbage (2026-09-11).
+	 *  A rate LIMIT, not a spring time: pacing via T = angle/rate made the spring ramp up over ~0.3 s at large
+	 *  angles (T ~1 s), so the body accelerated slowly and the user released aim before the turn finished. With a
+	 *  fast spring clamped to this rate the body is at full turn speed on the first tick and decelerates only over
+	 *  the spring's short natural tail. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float AimTurnYawRateLimit = 0.f;
 
 	// --- FMoverDataStructBase overrides ---
 
@@ -359,7 +371,8 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 			|| !FMath::IsNearlyEqual(Auth.RotationOffset, RotationOffset)
 			|| (Auth.bWantsToCrouch != bWantsToCrouch)
 			|| (Auth.bGrabbed != bGrabbed)
-			|| !FMath::IsNearlyEqual(Auth.ControlRotationRate, ControlRotationRate);
+			|| !FMath::IsNearlyEqual(Auth.ControlRotationRate, ControlRotationRate)
+			|| !FMath::IsNearlyEqual(Auth.AimTurnYawRateLimit, AimTurnYawRateLimit);
 	}
 
 	virtual void Interpolate(const FMoverDataStructBase& From, const FMoverDataStructBase& To, float LerpFactor) override
@@ -374,6 +387,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		bGrabbed            = Source.bGrabbed;
 		RotationOffset      = FMath::Lerp(TypedFrom.RotationOffset, TypedTo.RotationOffset, LerpFactor);
 		ControlRotationRate = FMath::Lerp(TypedFrom.ControlRotationRate, TypedTo.ControlRotationRate, LerpFactor);
+		AimTurnYawRateLimit   = FMath::Lerp(TypedFrom.AimTurnYawRateLimit, TypedTo.AimTurnYawRateLimit, LerpFactor);
 	}
 
 	virtual void Merge(const FMoverDataStructBase& From) override
@@ -401,6 +415,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		Ar.SerializeBits(&bGrabbed, 1);
 		Ar << RotationOffset;
 		Ar << ControlRotationRate;
+		Ar << AimTurnYawRateLimit;
 		if (Ar.IsLoading())
 		{
 			MovementDirection = static_cast<EAZ_MovementDirection>(MD);

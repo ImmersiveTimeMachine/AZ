@@ -16,6 +16,7 @@ class UAbilitySystemComponent;
 class UAZ_GameplayAbility;
 class UAZ_PawnMoverComponent;
 class UAZ_MovementDirectionCapabilityComponent;
+class UAZ_WeaponAnimationProfile;
 class UNetworkPredictionComponent;
 class UMoverTrajectoryPredictor;
 class UCapsuleComponent;
@@ -139,6 +140,12 @@ public:
 	 *  starts the yaw sweep; clearing it starts the restore back to that stamped rotation. */
 	void SetGrabFacingTarget(const AActor* Target);
 
+	/** True while an aim turn-in-place is in progress, INCLUDING its tail after the aim button is released: the body
+	 *  finishes turning to the camera instead of stopping mid-turn with residual spring velocity (which overshot the
+	 *  idle hold and swung back - the "sway from side to side at the end"). The anim side ORs this into bIsAiming so
+	 *  the turn clip and the aim idle persist through the tail. */
+	bool IsAimTurningInPlace() const { return bAimTurningInPlace; }
+
 	/** The current grabber (null outside a grab). AnimInstance reads this for the grab hand-IK targets. */
 	const AActor* GetGrabFacingTarget() const { return GrabFacingTarget.Get(); }
 
@@ -213,6 +220,23 @@ public:
 	/** Aiming (ADS) — close + narrow. Used once the Aiming rotation mode is wired (ProduceInput sets it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
 	FAZ_CameraStanceConfig CameraAiming;
+
+	/** Aiming, per movement KEY (W / S / A / D): the socket offset to use while that key is held, ABSOLUTE in
+	 *  CameraAiming.SocketOffset's space. Leave a key at (0,0,0) to keep the idle SocketOffset for it; diagonals
+	 *  average the two keys. Aiming only, by user rule (2026-09-09): Explore orients the body to its motion, so
+	 *  a per-key framing means nothing there. Smoothed by CameraAiming.InterpSpeed like the rest of the framing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
+	FAZ_CameraDirectionalOffset CameraAimingDirectional;
+
+	/** AIMING free-look cone (degrees, each side). While aiming, the body HOLDS its facing as long as the camera
+	 *  stays within this of it, and is only dragged along once the camera pushes past — so you can look, and
+	 *  shoot, this far off the body without the whole character swinging round to the camera. 0 restores the
+	 *  old behaviour (body chases the camera every frame).
+	 *
+	 *  KEEP IT UNDER 90: the residual twist is carried by AO_Rifle_Aim, whose samples only span +/-90 yaw
+	 *  (L90..R90). Past that the aim offset has nothing left to give and the pose breaks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Movement|Facing", meta = (ClampMin = "0", ClampMax = "90", ForceUnits = "degrees"))
+	float AimFacingConeDeg = 60.f;
 
 	/** Grabbed (State.Grabbed) — pulled in tight on the struggle. HIGHEST precedence: while a Chalkie
 	 *  holds you nothing else frames the shot. Look input is frozen separately (OnLookTriggered gate). */
@@ -408,6 +432,38 @@ protected:
 	// current while a move is held). The latch drives to THIS frozen heading, not the live camera, so turning the
 	// camera after you stop does not drag the idle body around (that was the "idle still adjusts to camera" bug).
 	float StrafeAlignTargetYaw = 0.f;
+
+	// Aiming free-look cone: the FROZEN heading the body holds (see the aim branch of ProduceInput). Latched to
+	// the body on aim entry, advanced only when the camera pushes past AimFacingConeDeg (kept exactly on the cone
+	// edge), re-latched when root motion turns the body. The first cut fed the spring "the body's CURRENT yaw"
+	// as its target every frame, and a spring-damper with angular-velocity state given a target that moves with
+	// the body sees zero error and only ever damps: after every drag it coasted, and the hold coasted with it
+	// (the 2026-09-09 "I rotate the camera and it drifts" report).
+	float AimHoldYaw = 0.f;
+	/** Aim turn-in-place latch (game-thread producer state, see FAZ_MoverCustomInputs::AimTurnYawRateLimit). */
+	bool bAimTurningInPlace = false;
+	float AimTurnYawRateLimitInput = 0.f;
+	bool bAimHoldValid = false;
+
+	// [v2 Cam] telemetry state (throttle + rates). See the tail of UpdateCameraForMode.
+	double CamDebugLastTime = 0.0;
+	float CamDebugLastBodyYaw = 0.f;
+	float CamDebugLastCtrlYaw = 0.f;
+	FVector CamDebugLastSocket = FVector::ZeroVector;
+
+	/** PER-WEAPON GAIT SPEEDS (see UAZ_WeaponAnimationProfile::WalkSpeedOverride). The rifle set's loops depict a
+	 *  much slower walk than the mode's default, so the capsule speed comes DOWN to the animation rather than the
+	 *  clips being sped up, which would read as fast-motion. Applied on equipment change only.
+	 *  The baseline is captured from the mode on first use so unequipping restores whatever a designer tuned
+	 *  there, not a constant compiled in here. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAZ_WeaponAnimationProfile> LastAppliedSpeedProfile = nullptr;
+	bool bBaseGaitSpeedsCaptured = false;
+	float BaseWalkSpeed = 0.f;
+	float BaseRunSpeed = 0.f;
+	float BaseSprintSpeed = 0.f;
+	float BaseCrouchSpeed = 0.f;
+	void UpdateWeaponGaitSpeeds();
 
 	/** Interp the camera boom (arm length + socket offset) and FOV toward the current rotation-mode config.
 	 *  Local-viewer only; called every Tick. */

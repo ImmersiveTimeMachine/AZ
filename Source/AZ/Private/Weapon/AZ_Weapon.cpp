@@ -7,16 +7,28 @@
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/TargetActors/AZ_GATA_LineTrace.h"
 #include "AbilitySystem/TargetActors/AZ_GATA_SphereTrace.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AZ_WeaponAnimationProfile.h"
+#include "Animation/Skeleton.h"
+#include "AZ_GameplayTags.h"
 #include "Character/AZ_HeroCharacter.h"
+#include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Components/BoxComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "GameFramework/Pawn.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Particles/ParticleSystem.h"
+#include "Player/AZ_PlayerController.h"
 #include "Sound/SoundBase.h"
 
 
@@ -95,6 +107,15 @@ AAZ_Weapon::AAZ_Weapon()
 void AAZ_Weapon::SetOwner(AActor* NewOwner)
 {
 	AActor* PreviousOwner = GetOwner();
+	TGuardValue<bool> EquipmentEndingGuard(bEndingEquipmentPresentation,
+		bEndingEquipmentPresentation || PreviousOwner != NewOwner);
+	if (PreviousOwner != NewOwner)
+	{
+		StopFirearmAnimation();
+		StopReloadAnimation();
+		InterruptEquipmentAnimation(EquipmentAnimationActionId);
+		ClearEquipmentSocketBlend();
+	}
 	Super::SetOwner(NewOwner);
 	if (GetOwner() != PreviousOwner)
 	{
@@ -105,9 +126,54 @@ void AAZ_Weapon::SetOwner(AActor* NewOwner)
 void AAZ_Weapon::OnRep_Owner()
 {
 	Super::OnRep_Owner();
+	if (const UAnimInstance* AnimInstance = FirearmAnimationInstance.Get();
+		AnimInstance && AnimInstance->GetOwningActor() != GetOwner())
+	{
+		StopFirearmAnimation();
+	}
+	if (const UAnimInstance* AnimInstance = ReloadAnimationInstance.Get();
+		AnimInstance && AnimInstance->GetOwningActor() != GetOwner())
+	{
+		StopReloadAnimation();
+	}
+	if (EquipmentAnimationActionId.IsValid() && EquipmentAnimationOwner.Get() != GetOwner())
+	{
+		TGuardValue<bool> EquipmentEndingGuard(bEndingEquipmentPresentation, true);
+		InterruptEquipmentAnimation(EquipmentAnimationActionId);
+	}
+	if (bEquipmentSocketBlending && (!EquipmentSocketBlendParent.IsValid()
+		|| EquipmentSocketBlendParent->GetOwner() != GetOwner())) ClearEquipmentSocketBlend();
 	// Replication can resolve Owner after the controller's equipment selection.
 	// Some replication paths also call SetOwner; presentation snapshots deduplicate.
 	OnOwnershipChanged.Broadcast();
+}
+
+void AAZ_Weapon::OnRep_AttachmentReplication()
+{
+	USceneComponent* WeaponRoot = GetRootComponent();
+	USceneComponent* PreviousParent = WeaponRoot ? WeaponRoot->GetAttachParent() : nullptr;
+	const FName PreviousSocket = WeaponRoot ? WeaponRoot->GetAttachSocketName() : NAME_None;
+	const bool bHavePreviousMesh = IsValid(WeaponMesh3P) && PreviousParent;
+	const FTransform PreviousMeshWorld = bHavePreviousMesh ? WeaponMesh3P->GetComponentTransform() : FTransform::Identity;
+	const bool bWasBlending = bEquipmentSocketBlending;
+	Super::OnRep_AttachmentReplication();
+	if (!bHavePreviousMesh || PreviousMeshWorld.ContainsNaN() || !IsValid(WeaponMesh3P) || !WeaponRoot) return;
+	USkeletalMeshComponent* BodyMesh = Cast<USkeletalMeshComponent>(WeaponRoot->GetAttachParent());
+	if (!IsValid(BodyMesh) || BodyMesh != PreviousParent || BodyMesh->GetOwner() != GetOwner()) return;
+	const FName CurrentSocket = WeaponRoot->GetAttachSocketName();
+	const bool bCarryHandoff = bIsCosmeticOnly && PreviousSocket != CurrentSocket
+		&& ((PreviousSocket == CarrySocketName && (CurrentSocket == RelaxedSocketName || CurrentSocket == AimSocketName))
+			|| (CurrentSocket == CarrySocketName && (PreviousSocket == RelaxedSocketName || PreviousSocket == AimSocketName)));
+	if (bWasBlending || bCarryHandoff)
+	{
+		// An attachment can be applied before its cosmetic RPC. Preserve this
+		// observer's rendered pose immediately; the RPC will supply the authored
+		// duration without replacing it with a dedicated server's unevaluated pose.
+		const float RemainingDuration = bWasBlending
+			? FMath::Max(0.f, EquipmentSocketBlendDuration - EquipmentSocketBlendElapsed) : 0.1f;
+		BeginEquipmentSocketBlendLocal(BodyMesh, CurrentSocket,
+			PreviousMeshWorld.GetRelativeTransform(WeaponRoot->GetComponentTransform()), RemainingDuration);
+	}
 }
 
 USkeletalMeshComponent* AAZ_Weapon::GetWeaponMesh1P() const
@@ -126,7 +192,540 @@ void AAZ_Weapon::ConfigureFirearmPresentation(const FAZ_Inv_CommonUI_WeaponState
 	FirearmMuzzleSocketName = Definition.MuzzleSocketName;
 	FirearmFireSound = Definition.FireSound;
 	FirearmMuzzleFlash = Definition.MuzzleFlash;
+	FirearmCascadeMuzzleFlash = Definition.CascadeMuzzleFlash;
+	const UAZ_WeaponAnimationProfile* Profile = Definition.AnimationProfile.Get();
+	FirearmSingleFireAnimation = Profile ? Profile->SingleFireAnimation.Get() : nullptr;
+	FirearmAutomaticFireAnimation = Profile ? Profile->AutomaticFireAnimation.Get() : nullptr;
+	FirearmCrouchingSingleFireAnimation = Profile ? Profile->CrouchingSingleFireAnimation.Get() : nullptr;
+	FirearmCrouchingAutomaticFireAnimation = Profile ? Profile->CrouchingAutomaticFireAnimation.Get() : nullptr;
+	FirearmAutomaticAnimationPlayRate = 1.f;
+	FirearmAnimationSlot = Profile ? Profile->FireAnimationSlot : FName(TEXT("RifleFire"));
+	FirearmAnimationBlendIn = Profile && FMath::IsFinite(Profile->FireAnimationBlendIn)
+		? FMath::Clamp(Profile->FireAnimationBlendIn, 0.f, 1.f) : 0.04f;
+	FirearmAnimationBlendOut = Profile && FMath::IsFinite(Profile->FireAnimationBlendOut)
+		? FMath::Clamp(Profile->FireAnimationBlendOut, 0.f, 1.f) : 0.08f;
 	ForceNetUpdate();
+}
+
+void AAZ_Weapon::Multicast_BeginFirearmAnimation_Implementation(const FGuid& ActionId, bool bAutomatic)
+{
+	if (!ActionId.IsValid() || EndedFirearmAnimationActions.Contains(ActionId)
+		|| FirearmAnimationActionId == ActionId) return;
+	StopFirearmAnimationLocal();
+	// Montage-stop callbacks may already have canceled this action or begun a newer one.
+	if (FirearmAnimationActionId.IsValid() || EndedFirearmAnimationActions.Contains(ActionId)) return;
+	FirearmAnimationActionId = ActionId;
+	bFirearmAutomaticAnimation = bAutomatic;
+	// Keep action ownership on dedicated servers too, so later equipment cleanup can emit the matching end.
+	if (GetNetMode() == NM_DedicatedServer) return;
+	if (const APawn* OwnerPawn = Cast<APawn>(GetOwner()); OwnerPawn && OwnerPawn->IsLocallyControlled())
+	{
+		// Do not resurrect a queued shot pose after the owner lowered the firearm,
+		// opened UI, or changed sources. Remote observers receive the accepted action
+		// without depending on this player's private inventory/controller state.
+		const AAZ_PlayerController* Controller = Cast<AAZ_PlayerController>(OwnerPawn->GetController());
+		const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Controller
+			? Controller->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+		const UAbilitySystemComponent* HeroASC = Controller ? Controller->GetAbilitySystemComponent() : nullptr;
+		if (!Controller || Controller->IsInventoryInputCaptured() || !Equipment || !HeroASC
+			|| !Equipment->IsActiveWeaponSource(this) || !Equipment->IsFirearmRaised()
+			|| HeroASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Ability_State_Reloading))
+		{
+			UE_LOG(LogTemp, Display, TEXT("[FireAnim] ignored lowered or blocked owner start action=%s"), *ActionId.ToString());
+			StopFirearmAnimation();
+			return;
+		}
+	}
+
+	USkeletalMeshComponent* HeroMesh = nullptr;
+	if (const AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetOwner()))
+	{
+		HeroMesh = Hero->GetMesh();
+	}
+	else if (const AAZ_HeroCharacter* HeroCharacter = Cast<AAZ_HeroCharacter>(GetOwner()))
+	{
+		HeroMesh = HeroCharacter->GetThirdPersonMesh();
+	}
+	UAnimInstance* AnimInstance = IsValid(HeroMesh) ? HeroMesh->GetAnimInstance() : nullptr;
+	// Stance-selected clip, the way reload does it: both fire clips used to be STANDING poses, so a crouched shot
+	// popped the torso ~25 deg to the standing pose for the montage's length (crouch aim idle chest pitch 58 deg
+	// vs standing 81). Read the Mover's crouch state locally rather than threading it through the RPC: the state
+	// is replicated, the clip lasts ~0.4 s, and a one-frame mismatch at a stance edge is invisible. The crouch
+	// clips are optional per profile — unset falls back to the standing clip, which is exactly the old behaviour.
+	bool bCrouched = false;
+	if (const APawn* OwnerPawn = Cast<APawn>(GetOwner()))
+	{
+		if (const UCharacterMoverComponent* Mover = OwnerPawn->FindComponentByClass<UCharacterMoverComponent>())
+		{
+			bCrouched = Mover->IsCrouching();
+		}
+	}
+	UAnimSequence* Sequence = bAutomatic
+		? ((bCrouched && FirearmCrouchingAutomaticFireAnimation) ? FirearmCrouchingAutomaticFireAnimation.Get() : FirearmAutomaticFireAnimation.Get())
+		: ((bCrouched && FirearmCrouchingSingleFireAnimation) ? FirearmCrouchingSingleFireAnimation.Get() : FirearmSingleFireAnimation.Get());
+	if (!IsValid(AnimInstance) || !IsValid(Sequence) || FirearmAnimationSlot.IsNone()) return;
+
+	const USkeleton* SequenceSkeleton = Sequence->GetSkeleton();
+	const USkeletalMesh* MeshAsset = HeroMesh->GetSkeletalMeshAsset();
+	const USkeleton* MeshSkeleton = MeshAsset ? MeshAsset->GetSkeleton() : nullptr;
+	const FName FireGroup(TEXT("WeaponFire"));
+	if (!SequenceSkeleton || !MeshSkeleton
+		|| SequenceSkeleton->GetSlotGroupName(FirearmAnimationSlot) != FireGroup
+		|| MeshSkeleton->GetSlotGroupName(FirearmAnimationSlot) != FireGroup)
+	{
+		// A missing slot silently falls back to DefaultGroup, which would interrupt a combat montage.
+		UE_LOG(LogTemp, Warning, TEXT("[FireAnim] %s cannot play %s: slot %s must belong to WeaponFire on both skeletons"),
+			*GetName(), *GetNameSafe(Sequence), *FirearmAnimationSlot.ToString());
+		return;
+	}
+	AActor* AnimationOwner = GetOwner();
+	FirearmAnimationInstance = AnimInstance;
+	// Fire cadence belongs to gameplay; it must not retime the hero animation.
+	// Use the fixed rate locally too, including weapons created before a code patch.
+	const float PlayRate = 1.f;
+	UAnimMontage* StartedMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
+		Sequence, FirearmAnimationSlot, FirearmAnimationBlendIn, FirearmAnimationBlendOut, PlayRate, 1);
+	// OnMontageStarted runs inside the play call. An end, ownership change, or newer begin there
+	// must not be overwritten by the old call's return value, especially before making it loop.
+	if (FirearmAnimationActionId != ActionId || FirearmAnimationInstance.Get() != AnimInstance
+		|| GetOwner() != AnimationOwner || !IsValid(HeroMesh) || !IsValid(AnimInstance)
+		|| HeroMesh->GetAnimInstance() != AnimInstance)
+	{
+		if (IsValid(AnimInstance) && IsValid(StartedMontage))
+		{
+			AnimInstance->Montage_Stop(FirearmAnimationBlendOut, StartedMontage);
+		}
+		return;
+	}
+	FirearmAnimationMontage = StartedMontage;
+	if (bAutomatic && StartedMontage)
+	{
+		// A one-section loop has bounded time precision and no dependency on the sequence's editor Loop flag.
+		AnimInstance->Montage_SetNextSection(TEXT("Default"), TEXT("Default"), StartedMontage);
+	}
+	UE_LOG(LogTemp, Display, TEXT("[FireAnim] begin action=%s automatic=%d sequence=%s playing=%d rate=1.000"),
+		*ActionId.ToString(), bAutomatic, *GetNameSafe(Sequence), FirearmAnimationMontage != nullptr);
+}
+
+void AAZ_Weapon::Multicast_EndFirearmAnimation_Implementation(const FGuid& ActionId, bool bInterruptSingle)
+{
+	if (!ActionId.IsValid()) return;
+	// An accepted ammo publication can cancel an ability synchronously BEFORE it publishes its begin.
+	// Retain a small ordered receipt history so that late begin cannot restart that canceled action.
+	if (!EndedFirearmAnimationActions.Contains(ActionId))
+	{
+		if (EndedFirearmAnimationActions.Num() == 16) EndedFirearmAnimationActions.RemoveAt(0);
+		EndedFirearmAnimationActions.Add(ActionId);
+	}
+	if (ActionId != FirearmAnimationActionId) return;
+	if (bFirearmAutomaticAnimation || bInterruptSingle)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[FireAnim] end action=%s interrupt=%d"), *ActionId.ToString(), bInterruptSingle);
+		StopFirearmAnimationLocal();
+	}
+	// Retain a released single's ownership until it naturally finishes or an equipment/aim cleanup stops it.
+}
+
+void AAZ_Weapon::StopFirearmAnimation()
+{
+	if (FirearmAnimationActionId.IsValid())
+	{
+		const FGuid ActionId = FirearmAnimationActionId;
+		if (HasAuthority()) Multicast_EndFirearmAnimation(ActionId, true);
+		else Multicast_EndFirearmAnimation_Implementation(ActionId, true);
+	}
+	else
+	{
+		StopFirearmAnimationLocal();
+	}
+}
+
+void AAZ_Weapon::StopFirearmAnimationLocal()
+{
+	UAnimInstance* AnimInstance = FirearmAnimationInstance.Get();
+	UAnimMontage* Montage = FirearmAnimationMontage.Get();
+	// Clear ownership before Montage_Stop invokes any animation delegates that might start a newer action.
+	FirearmAnimationInstance.Reset();
+	FirearmAnimationMontage = nullptr;
+	FirearmAnimationActionId.Invalidate();
+	bFirearmAutomaticAnimation = false;
+	if (IsValid(AnimInstance) && IsValid(Montage))
+	{
+		AnimInstance->Montage_Stop(FirearmAnimationBlendOut, Montage);
+	}
+}
+
+void AAZ_Weapon::Multicast_BeginReloadAnimation_Implementation(const FGuid& ActionId, UAnimSequence* Sequence,
+	float PlayRate, float BlendIn, float BlendOut, bool bCrouched, bool bRaisedAtStart,
+	FGuid ExpectedItemId, uint32 ExpectedGeneration, double StartedServerTime)
+{
+	if (!ActionId.IsValid() || EndedReloadAnimationActions.Contains(ActionId)
+		|| ReloadAnimationActionId == ActionId) return;
+	StopReloadAnimationLocal();
+	// A montage-stop callback may already have canceled this start or installed a newer action.
+	if (ReloadAnimationActionId.IsValid() || EndedReloadAnimationActions.Contains(ActionId)) return;
+	ReloadAnimationActionId = ActionId;
+	ReloadAnimationBlendOut = FMath::IsFinite(BlendOut) ? FMath::Clamp(BlendOut, 0.f, 1.f) : 0.15f;
+	const float SafeBlendIn = FMath::IsFinite(BlendIn) ? FMath::Clamp(BlendIn, 0.f, 1.f) : 0.1f;
+	if (!IsValid(Sequence) || Sequence->GetAdditiveAnimType() != AAT_None || Sequence->HasRootMotion()
+		|| !FMath::IsFinite(Sequence->GetPlayLength()) || Sequence->GetPlayLength() <= 0.0
+		|| !FMath::IsFinite(Sequence->RateScale) || Sequence->RateScale <= 0.f
+		|| !FMath::IsFinite(PlayRate) || PlayRate <= 0.f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ReloadAnim] %s rejected invalid pose or playback rate action=%s sequence=%s"),
+			*GetName(), *ActionId.ToString(), *GetNameSafe(Sequence));
+		InterruptReloadAnimation(ActionId);
+		return;
+	}
+	// Authority's timer owns ammunition. An unrendered dedicated server still retains the action token.
+	if (GetNetMode() == NM_DedicatedServer) return;
+	if (const APawn* OwnerPawn = Cast<APawn>(GetOwner()); OwnerPawn && OwnerPawn->IsLocallyControlled())
+	{
+		// A server start can arrive after the owning player opened UI, changed equipment,
+		// or changed stance. Observers do not have this player's inventory/controller.
+		const AAZ_PlayerController* Controller = Cast<AAZ_PlayerController>(OwnerPawn->GetController());
+		UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Controller
+			? Controller->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+		const UAbilitySystemComponent* HeroASC = Controller ? Controller->GetAbilitySystemComponent() : nullptr;
+		const UCharacterMoverComponent* Mover = OwnerPawn->FindComponentByClass<UCharacterMoverComponent>();
+		if (!Controller || Controller->GetPawn() != OwnerPawn || Controller->IsInventoryInputCaptured()
+			|| !Equipment || !Equipment->IsActiveWeaponSource(this) || !HeroASC
+			|| !ExpectedItemId.IsValid() || Equipment->GetSelectionGeneration() != ExpectedGeneration
+			|| !IsValid(Equipment->GetActiveItem()) || Equipment->GetActiveItem()->GetInstanceId() != ExpectedItemId
+			|| !FMath::IsFinite(StartedServerTime) || StartedServerTime < 0.0
+			|| HeroASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Ability_State_MeleeAttacking)
+			|| !Mover || Mover->IsCrouching() != bCrouched)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[ReloadAnim] ignored blocked owner start action=%s"), *ActionId.ToString());
+			// The end receipt prevents another arrival of this action from resurrecting its pose.
+			InterruptReloadAnimation(ActionId);
+			return;
+		}
+		if (!HasAuthority() && bRaisedAtStart)
+		{
+			// The authority snapshots raised state. Its reliable presentation receipt
+			// can precede replicated Ready tags, so this owner-only mirror carries that
+			// validated decision rather than guessing from tag arrival order.
+			ReloadReadyEquipment = Equipment;
+			if (!Equipment->BeginFirearmReloadHold(this, ExpectedItemId,
+				ExpectedGeneration, ActionId, true, StartedServerTime))
+			{
+				InterruptReloadAnimation(ActionId);
+				return;
+			}
+			if (ReloadAnimationActionId != ActionId || ReloadReadyEquipment.Get() != Equipment) return;
+		}
+	}
+
+	USkeletalMeshComponent* HeroMesh = nullptr;
+	if (const AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetOwner()))
+	{
+		HeroMesh = Hero->GetMesh();
+	}
+	else if (const AAZ_HeroCharacter* HeroCharacter = Cast<AAZ_HeroCharacter>(GetOwner()))
+	{
+		HeroMesh = HeroCharacter->GetThirdPersonMesh();
+	}
+	UAnimInstance* AnimInstance = IsValid(HeroMesh) ? HeroMesh->GetAnimInstance() : nullptr;
+	const USkeleton* SequenceSkeleton = Sequence->GetSkeleton();
+	const USkeletalMesh* MeshAsset = IsValid(HeroMesh) ? HeroMesh->GetSkeletalMeshAsset() : nullptr;
+	const USkeleton* MeshSkeleton = MeshAsset ? MeshAsset->GetSkeleton() : nullptr;
+	const FName ReloadSlot(TEXT("RifleFire"));
+	const FName ReloadGroup(TEXT("WeaponFire"));
+	if (!IsValid(AnimInstance) || !SequenceSkeleton || !MeshSkeleton
+		|| SequenceSkeleton->GetSlotGroupName(ReloadSlot) != ReloadGroup
+		|| MeshSkeleton->GetSlotGroupName(ReloadSlot) != ReloadGroup)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ReloadAnim] %s cannot play %s: live hero anim instance and RifleFire in WeaponFire are required"),
+			*GetName(), *GetNameSafe(Sequence));
+		InterruptReloadAnimation(ActionId);
+		return;
+	}
+
+	AActor* AnimationOwner = GetOwner();
+	ReloadAnimationInstance = AnimInstance;
+	const float ActionBlendOut = ReloadAnimationBlendOut;
+	UAnimMontage* StartedMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
+		Sequence, ReloadSlot, SafeBlendIn, ActionBlendOut, PlayRate, 1);
+	// OnMontageStarted runs inside Play: do not overwrite an intervening cancel/owner change/new action.
+	if (ReloadAnimationActionId != ActionId || ReloadAnimationInstance.Get() != AnimInstance
+		|| GetOwner() != AnimationOwner || !IsValid(HeroMesh) || !IsValid(AnimInstance)
+		|| HeroMesh->GetAnimInstance() != AnimInstance)
+	{
+		if (IsValid(AnimInstance) && IsValid(StartedMontage))
+		{
+			AnimInstance->Montage_Stop(ActionBlendOut, StartedMontage);
+		}
+		// Mesh replacement may leave this token current without going through weapon ownership cleanup.
+		InterruptReloadAnimation(ActionId);
+		return;
+	}
+	ReloadAnimationMontage = StartedMontage;
+	if (!StartedMontage || !AnimInstance->Montage_IsPlaying(StartedMontage))
+	{
+		InterruptReloadAnimation(ActionId);
+		return;
+	}
+	FOnMontageBlendingOutStarted OnBlendingOut;
+	OnBlendingOut.BindUObject(this, &ThisClass::OnReloadMontageBlendingOut, ActionId);
+	AnimInstance->Montage_SetBlendingOutDelegate(OnBlendingOut, StartedMontage);
+	UE_LOG(LogTemp, Display, TEXT("[ReloadAnim] begin action=%s sequence=%s rate=%.3f"),
+		*ActionId.ToString(), *GetNameSafe(Sequence), PlayRate);
+}
+
+void AAZ_Weapon::Multicast_EndReloadAnimation_Implementation(const FGuid& ActionId, bool bCommitted)
+{
+	if (!ActionId.IsValid()) return;
+	// Remember even an end arriving before its start (e.g. synchronous ability cancellation).
+	if (!EndedReloadAnimationActions.Contains(ActionId))
+	{
+		if (EndedReloadAnimationActions.Num() >= 16) EndedReloadAnimationActions.RemoveAt(0);
+		EndedReloadAnimationActions.Add(ActionId);
+	}
+	if (ActionId != ReloadAnimationActionId) return;
+	UE_LOG(LogTemp, Display, TEXT("[ReloadAnim] end action=%s"), *ActionId.ToString());
+	const TWeakObjectPtr<UAZ_Inv_CommonUI_EquipmentComponent> ReadyEquipment = ReloadReadyEquipment;
+	ReloadReadyEquipment.Reset();
+	StopReloadAnimationLocal();
+	if (ReadyEquipment.IsValid()) ReadyEquipment->EndFirearmReloadHold(ActionId, bCommitted);
+}
+
+void AAZ_Weapon::StopReloadAnimation()
+{
+	if (ReloadAnimationActionId.IsValid())
+	{
+		const FGuid ActionId = ReloadAnimationActionId;
+		// Unlike the ability's expected end RPC, an external stop must release its
+		// gameplay reservation even when a requested equipment change later fails.
+		InterruptReloadAnimation(ActionId);
+	}
+	else
+	{
+		StopReloadAnimationLocal();
+	}
+}
+
+void AAZ_Weapon::StopReloadAnimationLocal()
+{
+	UAnimInstance* AnimInstance = ReloadAnimationInstance.Get();
+	UAnimMontage* Montage = ReloadAnimationMontage.Get();
+	const float BlendOut = ReloadAnimationBlendOut;
+	const FGuid EndedActionId = ReloadAnimationActionId;
+	const TWeakObjectPtr<UAZ_Inv_CommonUI_EquipmentComponent> ReadyEquipment = ReloadReadyEquipment;
+	// Normal ability completion stops the pose too. Clear before the callback so it cannot report interruption.
+	ReloadAnimationInstance.Reset();
+	ReloadAnimationMontage = nullptr;
+	ReloadAnimationActionId.Invalidate();
+	ReloadReadyEquipment.Reset();
+	if (IsValid(AnimInstance) && IsValid(Montage))
+	{
+		AnimInstance->Montage_Stop(BlendOut, Montage);
+	}
+	if (ReadyEquipment.IsValid()) ReadyEquipment->EndFirearmReloadHold(EndedActionId, false);
+}
+
+void AAZ_Weapon::InterruptReloadAnimation(const FGuid& ActionId)
+{
+	if (!ActionId.IsValid() || ReloadAnimationActionId != ActionId) return;
+	// End this presentation before notifying gameplay; its callback may cancel or start another action.
+	const FGuid InterruptedActionId = ActionId;
+	if (HasAuthority()) Multicast_EndReloadAnimation(InterruptedActionId);
+	else Multicast_EndReloadAnimation_Implementation(InterruptedActionId, false);
+	if (HasAuthority()) OnReloadAnimationInterrupted.Broadcast(InterruptedActionId);
+}
+
+void AAZ_Weapon::OnReloadMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted, FGuid ExpectedActionId)
+{
+	if (!bInterrupted || ReloadAnimationActionId != ExpectedActionId || ReloadAnimationMontage != Montage) return;
+	InterruptReloadAnimation(ExpectedActionId);
+}
+
+void AAZ_Weapon::Multicast_BeginEquipmentAnimation_Implementation(const FGuid& ActionId,
+	UAnimSequence* Sequence, FName Slot, float PlayRate, float BlendIn, float BlendOut)
+{
+	if (bEndingEquipmentPresentation || !ActionId.IsValid() || EndedEquipmentAnimationActions.Contains(ActionId)
+		|| EquipmentAnimationActionId == ActionId) return;
+	if (EquipmentAnimationActionId.IsValid()) InterruptEquipmentAnimation(EquipmentAnimationActionId);
+	else StopEquipmentAnimationLocal();
+	if (bEndingEquipmentPresentation || EquipmentAnimationActionId.IsValid()
+		|| EndedEquipmentAnimationActions.Contains(ActionId)) return;
+	EquipmentAnimationActionId = ActionId;
+	EquipmentAnimationOwner = GetOwner();
+	EquipmentAnimationBlendOut = FMath::IsFinite(BlendOut) ? FMath::Clamp(BlendOut, 0.f, 1.f) : 0.1f;
+	const float SafeBlendIn = FMath::IsFinite(BlendIn) ? FMath::Clamp(BlendIn, 0.f, 1.f) : 0.1f;
+	USkeletalMeshComponent* HeroMesh = nullptr;
+	if (const AAZ_PawnMoverHeroCharacter* PawnMoverHeroCharacter = Cast<AAZ_PawnMoverHeroCharacter>(GetOwner())) HeroMesh = PawnMoverHeroCharacter->GetMesh();
+	else if (const AAZ_HeroCharacter* HeroCharacter = Cast<AAZ_HeroCharacter>(GetOwner())) HeroMesh = HeroCharacter->GetThirdPersonMesh();
+	const USkeletalMesh* MeshAsset = IsValid(HeroMesh) ? HeroMesh->GetSkeletalMeshAsset() : nullptr;
+	const USkeleton* MeshSkeleton = MeshAsset ? MeshAsset->GetSkeleton() : nullptr;
+	const USkeleton* SequenceSkeleton = IsValid(Sequence) ? Sequence->GetSkeleton() : nullptr;
+	const FName EquipmentGroup(TEXT("WeaponFire"));
+	if (!IsValid(Sequence) || Sequence->GetAdditiveAnimType() != AAT_None || Sequence->HasRootMotion()
+		|| !FMath::IsFinite(Sequence->GetPlayLength()) || Sequence->GetPlayLength() <= 0.f
+		|| !FMath::IsFinite(Sequence->RateScale) || Sequence->RateScale <= 0.f
+		|| !FMath::IsFinite(PlayRate) || PlayRate <= 0.f || Slot.IsNone()
+		|| !SequenceSkeleton || !MeshSkeleton || !SequenceSkeleton->IsCompatibleMesh(MeshAsset)
+		|| SequenceSkeleton->GetSlotGroupName(Slot) != EquipmentGroup
+		|| MeshSkeleton->GetSlotGroupName(Slot) != EquipmentGroup)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[EquipmentAnim] rejected action=%s sequence=%s slot=%s"),
+			*ActionId.ToString(), *GetNameSafe(Sequence), *Slot.ToString());
+		InterruptEquipmentAnimation(ActionId);
+		return;
+	}
+	// An incoming weapon need not be selected yet. Equipment already validated the
+	// request, including quick-select UI; observers have no inventory/controller.
+	if (GetNetMode() == NM_DedicatedServer) return;
+	UAnimInstance* AnimInstance = HeroMesh->GetAnimInstance();
+	if (!IsValid(AnimInstance))
+	{
+		InterruptEquipmentAnimation(ActionId);
+		return;
+	}
+	AActor* AnimationOwner = GetOwner();
+	EquipmentAnimationInstance = AnimInstance;
+	const float ActionBlendOut = EquipmentAnimationBlendOut;
+	UAnimMontage* StartedMontage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
+		Sequence, Slot, SafeBlendIn, ActionBlendOut, PlayRate, 1);
+	if (StartedMontage)
+	{
+		// Equipment commits the new selection at the end of the phase. Automatic
+		// blend-out would expose the OLD weapon's idle during the last BlendOut
+		// seconds, then blend a second time when the new profile is selected.
+		// Hold the final pose until the phase advances, commits, or is canceled.
+		// Set this before playback: the montage instance snapshots the flag.
+		StartedMontage->bEnableAutoBlendOut = false;
+		if (AnimInstance->Montage_Play(StartedMontage, PlayRate) <= 0.f) StartedMontage = nullptr;
+	}
+	if (bEndingEquipmentPresentation || EquipmentAnimationActionId != ActionId
+		|| EquipmentAnimationInstance.Get() != AnimInstance || GetOwner() != AnimationOwner
+		|| !IsValid(HeroMesh) || !IsValid(AnimInstance) || HeroMesh->GetAnimInstance() != AnimInstance)
+	{
+		if (IsValid(AnimInstance) && IsValid(StartedMontage)) AnimInstance->Montage_Stop(ActionBlendOut, StartedMontage);
+		InterruptEquipmentAnimation(ActionId);
+		return;
+	}
+	EquipmentAnimationMontage = StartedMontage;
+	if (!StartedMontage || !AnimInstance->Montage_IsPlaying(StartedMontage))
+	{
+		InterruptEquipmentAnimation(ActionId);
+		return;
+	}
+	FOnMontageBlendingOutStarted OnBlendingOut;
+	OnBlendingOut.BindUObject(this, &ThisClass::OnEquipmentMontageBlendingOut, ActionId);
+	AnimInstance->Montage_SetBlendingOutDelegate(OnBlendingOut, StartedMontage);
+	UE_LOG(LogTemp, Display, TEXT("[EquipmentAnim] begin action=%s sequence=%s rate=%.3f"),
+		*ActionId.ToString(), *GetNameSafe(Sequence), PlayRate);
+}
+
+void AAZ_Weapon::Multicast_EndEquipmentAnimation_Implementation(const FGuid& ActionId)
+{
+	if (!ActionId.IsValid()) return;
+	if (!EndedEquipmentAnimationActions.Contains(ActionId))
+	{
+		if (EndedEquipmentAnimationActions.Num() >= 16) EndedEquipmentAnimationActions.RemoveAt(0);
+		EndedEquipmentAnimationActions.Add(ActionId);
+	}
+	if (EquipmentAnimationActionId != ActionId) return;
+	StopEquipmentAnimationLocal();
+}
+
+void AAZ_Weapon::StopEquipmentAnimationLocal()
+{
+	UAnimInstance* AnimInstance = EquipmentAnimationInstance.Get();
+	UAnimMontage* Montage = EquipmentAnimationMontage.Get();
+	const float BlendOut = EquipmentAnimationBlendOut;
+	EquipmentAnimationActionId.Invalidate();
+	EquipmentAnimationOwner.Reset();
+	EquipmentAnimationInstance.Reset();
+	EquipmentAnimationMontage = nullptr;
+	if (IsValid(AnimInstance) && IsValid(Montage)) AnimInstance->Montage_Stop(BlendOut, Montage);
+}
+
+void AAZ_Weapon::InterruptEquipmentAnimation(const FGuid& ActionId)
+{
+	if (!ActionId.IsValid() || EquipmentAnimationActionId != ActionId) return;
+	const FGuid InterruptedActionId = ActionId;
+	if (HasAuthority()) Multicast_EndEquipmentAnimation(InterruptedActionId);
+	else Multicast_EndEquipmentAnimation_Implementation(InterruptedActionId);
+	if (HasAuthority()) OnEquipmentAnimationInterrupted.Broadcast(InterruptedActionId);
+}
+
+void AAZ_Weapon::OnEquipmentMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted, FGuid ExpectedActionId)
+{
+	if (bInterrupted && EquipmentAnimationActionId == ExpectedActionId && EquipmentAnimationMontage == Montage)
+	{
+		InterruptEquipmentAnimation(ExpectedActionId);
+	}
+}
+
+void AAZ_Weapon::BlendToEquipmentSocket(FName Socket, float Duration)
+{
+	if (!HasAuthority() || bEndingEquipmentPresentation || !IsValid(WeaponMesh3P) || !GetRootComponent()
+		|| WeaponMesh3P->GetAttachParent() != GetRootComponent() || Socket.IsNone()) return;
+	USkeletalMeshComponent* BodyMesh = nullptr;
+	if (const AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetOwner())) BodyMesh = Hero->GetMesh();
+	else if (const AAZ_HeroCharacter* HeroCharacter = Cast<AAZ_HeroCharacter>(GetOwner())) BodyMesh = HeroCharacter->GetThirdPersonMesh();
+	if (!IsValid(BodyMesh) || !BodyMesh->DoesSocketExist(Socket)) return;
+	FTransform DestinationRoot = BodyMesh->GetSocketTransform(Socket);
+	// SnapToTargetNotIncludingScale preserves the root's current world scale.
+	DestinationRoot.SetScale3D(GetRootComponent()->GetComponentScale());
+	const FTransform InitialMeshOffset = WeaponMesh3P->GetComponentTransform().GetRelativeTransform(DestinationRoot);
+	const float SafeDuration = FMath::IsFinite(Duration) ? FMath::Max(0.f, Duration) : 0.f;
+	// Queue the reliable presentation before its new attachment can replicate. The
+	// local implementation also performs the authority's one root socket handoff.
+	Multicast_BlendToEquipmentSocket(BodyMesh, Socket, InitialMeshOffset, SafeDuration);
+	ForceNetUpdate();
+}
+
+void AAZ_Weapon::Multicast_BlendToEquipmentSocket_Implementation(USkeletalMeshComponent* BodyMesh,
+	FName Socket, const FTransform& InitialMeshOffset, float Duration)
+{
+	if (bEndingEquipmentPresentation || !IsValid(BodyMesh) || !IsValid(WeaponMesh3P) || !GetRootComponent()
+		|| (GetOwner() && BodyMesh->GetOwner() != GetOwner()) || Socket.IsNone() || !BodyMesh->DoesSocketExist(Socket)
+		|| InitialMeshOffset.ContainsNaN() || !FMath::IsFinite(Duration) || Duration < 0.f) return;
+	// A dedicated server does not evaluate the reach montage. Every rendered peer
+	// must preserve its own mesh placement, including any unfinished socket blend.
+	const FTransform LocalMeshWorld = WeaponMesh3P->GetComponentTransform();
+	const bool bPreserveLocalMesh = GetNetMode() != NM_DedicatedServer && !LocalMeshWorld.ContainsNaN()
+		&& WeaponMesh3P->GetAttachParent() == GetRootComponent()
+		&& GetRootComponent()->GetAttachParent() == BodyMesh;
+	if (!AttachToComponent(BodyMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket)) return;
+	const FTransform MeshOffset = bPreserveLocalMesh
+		? LocalMeshWorld.GetRelativeTransform(GetRootComponent()->GetComponentTransform()) : InitialMeshOffset;
+	BeginEquipmentSocketBlendLocal(BodyMesh, Socket, MeshOffset, Duration);
+}
+
+void AAZ_Weapon::BeginEquipmentSocketBlendLocal(USkeletalMeshComponent* BodyMesh, FName Socket,
+	const FTransform& MeshOffset, float Duration)
+{
+	const bool bRestoreTick = bEquipmentSocketBlending ? bEquipmentSocketRestoreTick : IsActorTickEnabled();
+	EquipmentSocketBlendParent = BodyMesh;
+	EquipmentSocketBlendSocket = Socket;
+	EquipmentSocketBlendStart = MeshOffset;
+	EquipmentSocketBlendDuration = Duration;
+	EquipmentSocketBlendElapsed = 0.f;
+	bEquipmentSocketRestoreTick = bRestoreTick;
+	bEquipmentSocketBlending = true;
+	if (Duration <= UE_KINDA_SMALL_NUMBER || GetNetMode() == NM_DedicatedServer)
+	{
+		ClearEquipmentSocketBlend();
+		return;
+	}
+	WeaponMesh3P->SetRelativeTransform(MeshOffset);
+	SetActorTickEnabled(true);
+}
+
+void AAZ_Weapon::ClearEquipmentSocketBlend()
+{
+	if (!bEquipmentSocketBlending) return;
+	bEquipmentSocketBlending = false;
+	EquipmentSocketBlendParent.Reset();
+	EquipmentSocketBlendSocket = NAME_None;
+	EquipmentSocketBlendStart = FTransform::Identity;
+	EquipmentSocketBlendDuration = EquipmentSocketBlendElapsed = 0.f;
+	if (IsValid(WeaponMesh3P)) WeaponMesh3P->SetRelativeTransform(FTransform::Identity);
+	SetActorTickEnabled(bEquipmentSocketRestoreTick);
 }
 
 void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit, bool bHitConfirmed,
@@ -159,6 +758,17 @@ void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit,
 
 	const FTransform Muzzle = WeaponMesh3P->GetSocketTransform(FirearmMuzzleSocketName, RTS_World);
 	if (Muzzle.ContainsNaN()) return;
+	// This multicast is sent only after authority commits a shot. This presentation
+	// call changes only the weapon mesh, never ammunition or the hero's animation instance.
+	if (IsValid(WeaponMeshFireAnimation))
+	{
+		const USkeleton* FireSkeleton = WeaponMeshFireAnimation->GetSkeleton();
+		const USkeletalMesh* WeaponMeshAsset = WeaponMesh3P->GetSkeletalMeshAsset();
+		if (FireSkeleton && WeaponMeshAsset && FireSkeleton->IsCompatibleMesh(WeaponMeshAsset))
+		{
+			WeaponMesh3P->PlayAnimation(WeaponMeshFireAnimation, false);
+		}
+	}
 	if (IsValid(FirearmFireSound))
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, FirearmFireSound, Muzzle.GetLocation(), Muzzle.Rotator());
@@ -168,11 +778,18 @@ void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit,
 		UNiagaraFunctionLibrary::SpawnSystemAttached(FirearmMuzzleFlash, WeaponMesh3P, FirearmMuzzleSocketName,
 			FVector::ZeroVector, FRotator::ZeroRotator, EAttachLocation::SnapToTarget, true);
 	}
+	else if (IsValid(FirearmCascadeMuzzleFlash))
+	{
+		UGameplayStatics::SpawnEmitterAttached(FirearmCascadeMuzzleFlash, WeaponMesh3P, FirearmMuzzleSocketName,
+			FVector::ZeroVector, FRotator::ZeroRotator, FVector::OneVector,
+			EAttachLocation::SnapToTarget, true, EPSCPoolMethod::AutoRelease, true);
+	}
 }
 
 void AAZ_Weapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AAZ_Weapon, bIsCosmeticOnly);
 
 	DOREPLIFETIME_CONDITION(AAZ_Weapon, OwningCharacter, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AAZ_Weapon, PrimaryClipAmmo, COND_OwnerOnly);
@@ -182,6 +799,15 @@ void AAZ_Weapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 	DOREPLIFETIME(AAZ_Weapon, FirearmMuzzleSocketName);
 	DOREPLIFETIME(AAZ_Weapon, FirearmFireSound);
 	DOREPLIFETIME(AAZ_Weapon, FirearmMuzzleFlash);
+	DOREPLIFETIME(AAZ_Weapon, FirearmCascadeMuzzleFlash);
+	DOREPLIFETIME(AAZ_Weapon, FirearmSingleFireAnimation);
+	DOREPLIFETIME(AAZ_Weapon, FirearmAutomaticFireAnimation);
+	DOREPLIFETIME(AAZ_Weapon, FirearmCrouchingSingleFireAnimation);
+	DOREPLIFETIME(AAZ_Weapon, FirearmCrouchingAutomaticFireAnimation);
+	DOREPLIFETIME(AAZ_Weapon, FirearmAutomaticAnimationPlayRate);
+	DOREPLIFETIME(AAZ_Weapon, FirearmAnimationSlot);
+	DOREPLIFETIME(AAZ_Weapon, FirearmAnimationBlendIn);
+	DOREPLIFETIME(AAZ_Weapon, FirearmAnimationBlendOut);
 }
 
 void AAZ_Weapon::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)
@@ -252,10 +878,25 @@ void AAZ_Weapon::NotifyActorEndOverlap(class AActor* OtherActor)
 void AAZ_Weapon::MakeCosmetic()
 {
 	bIsCosmeticOnly = true;
-	// Disable collision and any other gameplay-relevant logic.
+	ApplyCosmeticPresentation();
+}
+
+void AAZ_Weapon::OnRep_CosmeticOnly()
+{
+	ApplyCosmeticPresentation();
+}
+
+void AAZ_Weapon::ApplyCosmeticPresentation()
+{
+	if (!bIsCosmeticOnly) return;
+	// CommonUI inventory representations use AActor's attachment replication so
+	// OnRep_AttachmentReplication can preserve the visible mesh at a handoff.
+	// PickupSphere's inherited component replication would bypass that hook.
+	// Legacy world weapons never enter this path and retain component replication.
+	if (USceneComponent* WeaponRoot = GetRootComponent()) WeaponRoot->SetIsReplicated(false);
 	SetActorEnableCollision(false);
-	// You might also disable tick if it does anything important.
-	SetActorTickEnabled(false); 
+	if (bEquipmentSocketBlending) bEquipmentSocketRestoreTick = false;
+	else SetActorTickEnabled(false);
 }
 
 /*void AAZ_Weapon::OnSphereBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
@@ -315,6 +956,8 @@ void AAZ_Weapon::Equip()
 
 void AAZ_Weapon::UnEquip()
 {
+	StopFirearmAnimation();
+	StopReloadAnimation();
 	if (OwningCharacter == nullptr)
 	{
 		return;
@@ -526,6 +1169,11 @@ AAZ_GATA_SphereTrace* AAZ_Weapon::GetSphereTraceTargetActor()
 
 void AAZ_Weapon::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
+	bEndingEquipmentPresentation = true;
+	InterruptEquipmentAnimation(EquipmentAnimationActionId);
+	ClearEquipmentSocketBlend();
+	StopFirearmAnimationLocal();
+	StopReloadAnimationLocal();
 	if (LineTraceTargetActor)
 	{
 		LineTraceTargetActor->Destroy();
@@ -647,6 +1295,7 @@ void AAZ_Weapon::BeginPlay()
 	}
 	
 	Super::BeginPlay();
+	ApplyCosmeticPresentation();
 
 	//CollisionComp->OnComponentBeginOverlap.AddDynamic(this, &AAZ_Weapon::OnSphereBeginOverlap);
 	//CollisionComp->OnComponentEndOverlap.AddDynamic(this, &AAZ_Weapon::OnSphereEndOverlap);
@@ -656,5 +1305,24 @@ void AAZ_Weapon::BeginPlay()
 void AAZ_Weapon::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	if (!bEquipmentSocketBlending) return;
+	if (!IsValid(WeaponMesh3P) || !EquipmentSocketBlendParent.IsValid() || !GetRootComponent()
+		|| GetRootComponent()->GetAttachParent() != EquipmentSocketBlendParent.Get()
+		|| GetRootComponent()->GetAttachSocketName() != EquipmentSocketBlendSocket)
+	{
+		ClearEquipmentSocketBlend();
+		return;
+	}
+	EquipmentSocketBlendElapsed += FMath::Max(0.f, DeltaTime);
+	const float Alpha = EquipmentSocketBlendDuration > UE_KINDA_SMALL_NUMBER
+		? FMath::Clamp(EquipmentSocketBlendElapsed / EquipmentSocketBlendDuration, 0.f, 1.f) : 1.f;
+	if (Alpha >= 1.f)
+	{
+		ClearEquipmentSocketBlend();
+		return;
+	}
+	FTransform MeshOffset;
+	MeshOffset.Blend(EquipmentSocketBlendStart, FTransform::Identity, Alpha * Alpha * (3.f - 2.f * Alpha));
+	WeaponMesh3P->SetRelativeTransform(MeshOffset);
 }
 
