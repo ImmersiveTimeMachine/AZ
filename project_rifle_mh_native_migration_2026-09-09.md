@@ -5,12 +5,14 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3dd30bd7-e1c4-47aa-8af7-41a2784f5a5a
-  modified: 2026-09-09T05:27:59.050Z
+  modified: 2026-09-09T13:59:28.065Z
 ---
 
 # Rifle set = MetaHuman-native clips (2026-09-09)
 
-**State.** `CHT_v2` (50 refs), `PSD_P01_{Crouch,Jog,Walk}{Aim,Explore}` (8 members each),
+**State.** `CHT_v2` (50 idle/transition refs + 126 root-motion refs: the 122 `rm_W2_*` SurvivalMan clips
+from `/Game/AZ/NoWeapons/RootMotions/` → `AZ_RTG_MH_W2_<x>` — the pack's non-IPC clips, the `rm_` prefix
+was an import artefact; twins had the root motion but not the flags), `PSD_P01_{Crouch,Jog,Walk}{Aim,Explore}` (8 members each),
 `DA_WeaponAnim_P01.play_rate_loop_assets` (48), `AO_Rifle_Aim` (17 samples), `AZ_AM_Rifle_Fire` (segment
 → `AZ_RTG_MH_W2_Stand_Fire_Single`, 0–0.379 s window) all point at `AZ_RTG_MH_*` (`metahuman_base_skel`,
 919 clips, gitignored under Content/AZ/Assets). Still SurvivalMan-sourced: `PSD_P01_Land` + 10
@@ -41,10 +43,16 @@ and the additive setup on the 20 `Aim_Point_*` clips.
 - **`save_asset` returns False after PreSaveRoot saved** — verify by mtime.
 - **Indexes don't rebuild inside a running PIE.** Costs of 3,000–22,000 on the loops = stale index (built
   before the root rebuild). Stop/start PIE (or open the DB) after editing member clips.
-- **Sockets are per skeleton.** Tuned `RightHandRifleSocketAim/Relaxed` on `SKM_MHC_Hero_BodyMesh` are
-  the user's; `Tools/metahuman_fixup.py` now PRESERVES them. `…Relaxed` was derived from the user's `…Aim`
-  (rifle-in-hand re-expressed in the hand_r frame): loc (−6.63, 4.61, −1.86) rot (P −3.73, Y 102.63, R 18.36).
-  The preview-vs-game "difference" was this socket, not the pose.
+- **Sockets are per skeleton, and the user's tuned socket is the reference — do not derive.** The pawn's
+  mesh is `/Game/AZ/Blueprints/Character/AZ_MHC_Hero/Body/SKM_MHC_Hero_BodyMesh` (has the 9 sockets); the
+  retarget-source twin `/Game/MetaHumans/MHC_Hero/Body/…` has none. The user tuned `RightHandRifleSocketAim`
+  on `middle_01_r` and previews every clip attached there; `…Relaxed` is now IDENTICAL to it (bone +
+  transform), so aim/relaxed attach the same. Two numeric derivations were rejected by eye: re-expressing
+  the aim placement in the `hand_r` frame (40° off — the Aim socket rides a finger whose curl differs 27°
+  between poses) and a swing about hand_r putting the M16's `LeftHandGrip` on the `hand_l` bone (2.3 cm at
+  the wrist, still visibly off the palm — the wrist-bone metric is not what the eye judges). Live-PIE
+  sampling proved the pose itself equals the clip (≤0.1° every bone) — every "game vs preview" difference
+  was the attach socket. `Tools/metahuman_fixup.py` preserves both rifle sockets.
 - The user's batch left duplicates with a `1` suffix (`…_D91`, `…_Center1`) — name collisions, harmless.
 
 **Two-strike facts kept:** IK-arm goals in the 5.8 retargeter can't reach the source grip (no blend-to-source;

@@ -38,3 +38,11 @@ containers, and save does not fix it.
 
 Related: [[feedback_verify_never_presume]], [[feedback_stop_the_patch_loop]],
 [[project_grab_grapple_design]], [[feedback_python_gc_crash]].
+
+**★ CAVEAT (2026-09-11): `BlueprintEditorLibrary.compile_blueprint` on the HERO PAWN BP HUNG THE EDITOR** (main
+thread Responding=False, log stops at "Compiling Blueprint ..."; RiderLink still answers health but Python
+times out). Conditions: PIE had ended 6 min earlier, but `[v2 Play]` shows a hero anim instance still ticking
+in the editor world at the moment of the compile (level-viewport pawn / BP preview). Two earlier compiles of
+the same BP (18:33, 18:53) succeeded. Rule: for the pawn BP prefer writing the value + telling the user to
+compile/save in the editor; if scripting it, first confirm no `[v2 Play]` lines in the last second of the
+log and no PIE. Never do it while the user may be in PIE.
