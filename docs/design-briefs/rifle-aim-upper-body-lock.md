@@ -209,3 +209,10 @@ only OUTSIDE the turn (camera sweeps under the 35 deg enter angle, plain 0.05 s 
 
 Knobs: `AimTurnInPlaceRateDegPerSec` (pawn walking mode, 240) for the turn; `AimFacingTime` (0.05) for the
 sub-35 deg tracking; `AimTurnInPlaceEnterDeg/ExitDeg` must match the SM constants (35 / 6).
+
+## Next session (user, 2026-09-11 end of day)
+
+Use the rifle's own `AZ_RTG_MH_W2_*_Aim_Turn_In_Place_*_IPC` loops for the LOWER BODY only, only while
+aiming (never relaxed). The upper-body lock already makes any turn clip lower-body-only. The machinery is
+built and off behind `bAimTurnInPlaceEnabled`; the constraints are in memory
+`project_aim_tip_next_session_2026-09-12`.
