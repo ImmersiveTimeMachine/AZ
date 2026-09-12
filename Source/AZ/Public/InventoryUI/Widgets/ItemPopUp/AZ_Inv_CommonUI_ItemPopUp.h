@@ -17,6 +17,7 @@ DECLARE_DYNAMIC_DELEGATE_TwoParams(FAZ_CommonUI_PopUpMenuSplit, int32, SplitAmou
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuDrop, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuConsume, int32, Index);
 DECLARE_DYNAMIC_DELEGATE_OneParam(FAZ_CommonUI_PopUpMenuEquip, int32, Index);
+DECLARE_DYNAMIC_DELEGATE_TwoParams(FAZ_CommonUI_PopUpMenuLoadMagazine, int32, Index, FGuid, MagazineItemId);
 
 /**
  * CommonUI popup menu for item actions (split, drop, consume).
@@ -36,11 +37,15 @@ public:
 	FAZ_CommonUI_PopUpMenuDrop OnDrop;
 	FAZ_CommonUI_PopUpMenuConsume OnConsume;
 	FAZ_CommonUI_PopUpMenuEquip OnEquip;
+	FAZ_CommonUI_PopUpMenuLoadMagazine OnLoadMagazine;
 
 	int32 GetSplitAmount() const;
 	void CollapseSplitButton() const;
 	void CollapseConsumeButton() const;
 	void CollapseEquipButton() const;
+	/** Reuse the action button's presentation; magazine loading has its own callback. */
+	void ConfigureLoadMagazineAction(const FGuid& MagazineItemId, bool bCanLoad);
+	FGuid GetLoadMagazineItemId() const { return LoadMagazineItemId; }
 	void SetSliderParams(const float Max, const float Value) const;
 	FVector2D GetBoxSize() const;
 	void SetGridIndex(const int32 Index) { GridIndex = Index; }
@@ -70,6 +75,8 @@ private:
 	TObjectPtr<USizeBox> SizeBox_Root;
 
 	int32 GridIndex{INDEX_NONE};
+	/** Fixed when this popup is configured; clicks never look up a newer popup's selection. */
+	FGuid LoadMagazineItemId;
 
 	UFUNCTION()
 	void SplitButtonClicked(UCommonButtonBase* Button);

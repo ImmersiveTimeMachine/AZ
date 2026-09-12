@@ -46,6 +46,12 @@ struct AZ_API FAZ_PlayerWeaponView
 	bool bUsesMagazines = false;
 
 	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
+	bool bHasFireMode = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
+	EAZ_FirearmFireMode SelectedFireMode = EAZ_FirearmFireMode::Single;
+
+	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
 	FText DisplayName;
 
 	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
@@ -57,7 +63,7 @@ struct AZ_API FAZ_PlayerWeaponView
 	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
 	FGameplayTag Profile;
 
-	/** Preserve Unavailable, NoMagazine, Empty and Loaded; spares include empty magazines. */
+	/** Preserve Unavailable, NoMagazine, Empty and Loaded; spares count nonempty backpack magazines. */
 	UPROPERTY(BlueprintReadOnly, Category="AZ|UI|Weapon")
 	FAZ_WeaponAmmoSnapshot Ammo;
 };

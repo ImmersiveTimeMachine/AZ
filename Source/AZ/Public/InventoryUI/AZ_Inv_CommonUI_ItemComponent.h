@@ -31,7 +31,7 @@ public:
 	UAZ_Inv_CommonUI_ItemComponent();
 	
 	float GetPickupRadius() const { return PickupRadius; }
-	FString GetPickupMessage() const { return PickupMessage; }
+	FString GetPickupMessage() const;
 	FAZ_Inv_CommonUI_ItemManifest GetItemManifest() const { return PickupItemManifest; }
 	FAZ_Inv_CommonUI_ItemManifest& GetItemManifestMutable() { return PickupItemManifest; }
 

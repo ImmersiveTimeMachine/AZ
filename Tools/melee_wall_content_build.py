@@ -31,7 +31,7 @@ SOURCE_MONTAGES = {
 }
 CUTOFFS = (0.04, 0.07, 0.10, 0.13)
 ADVANCE_RATE = 1.0
-RETRACT_RATE = 0.8
+RETRACT_RATE = 1.0
 BLEND_IN = 0.025
 BLEND_OUT = 0.04
 ABILITY_FOLDER = '/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities'

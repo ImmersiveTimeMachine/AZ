@@ -190,7 +190,9 @@ struct AZ_API FAZ_GameplayTags
     // Ability State Tags (ActivationOwnedTags — on ASC while ability is active)
     FGameplayTag Ability_State_Shooting;
     FGameplayTag Ability_State_Reloading;
+    FGameplayTag Ability_State_WeaponSwitching;
     FGameplayTag Ability_State_Aiming;
+	FGameplayTag Ability_State_FirearmReady;
     FGameplayTag Ability_State_Sprinting;
     FGameplayTag Ability_State_MeleeAttacking;
     FGameplayTag Ability_State_Interacting;
@@ -566,6 +568,7 @@ struct AZ_API FAZ_GameplayTags
 
     // --- Ammunition Types ---
 	FGameplayTag Item_Type_Magazine_Rifle; // Individually tracked detachable rifle magazine.
+	FGameplayTag Item_Type_Magazine_Pistol; // Individually tracked detachable pistol magazine.
     FGameplayTag Item_Type_Ammo_Pistol; // Standard pistol rounds.
     FGameplayTag Item_Type_Ammo_Rifle; // Rifle cartridges.
     FGameplayTag Item_Type_Ammo_Shotgun; // Shotgun shells.

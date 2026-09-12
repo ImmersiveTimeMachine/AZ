@@ -50,6 +50,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton")
 	static TArray<FName> GetBoneNames(USkeleton* Skeleton);
 
+	/** Register a montage slot in its group without disturbing other slots. Does not save. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton|Animation")
+	static bool SetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName, FName GroupName);
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Skeleton|Animation")
+	static FName GetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName);
+
 	// --- Sockets ---
 	// Python cannot touch these at all: USkeleton::Sockets is protected to the reflection layer and
 	// USkeletalMeshSocket::SocketName is read-only, so a socket can otherwise only be authored by hand

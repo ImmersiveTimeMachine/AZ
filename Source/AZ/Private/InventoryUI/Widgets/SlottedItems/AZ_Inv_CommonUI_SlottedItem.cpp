@@ -5,6 +5,7 @@
 
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Engine/Texture2D.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
@@ -36,7 +37,7 @@ void UAZ_Inv_CommonUI_SlottedItem::SetInventoryItem(TWeakObjectPtr<UAZ_Inv_Commo
 		{
 			if (UTexture2D* Icon = ImageFragment->GetIcon())
 			{
-				Image_Icon->SetBrushFromTexture(Icon);
+				Image_Icon->SetBrushFromTexture(Icon, true);
 			}
 		}
 	}
@@ -48,7 +49,21 @@ void UAZ_Inv_CommonUI_SlottedItem::SetImageBrush(const FSlateBrush& Brush)
 {
 	if (Image_Icon)
 	{
-		Image_Icon->SetBrush(Brush);
+		FSlateBrush FittedBrush = Brush;
+		if (const UTexture2D* Texture = Cast<UTexture2D>(Brush.GetResourceObject()))
+		{
+			const FVector2D Bounds(Brush.ImageSize.X, Brush.ImageSize.Y);
+			const FVector2D TextureSize(Texture->GetSizeX(), Texture->GetSizeY());
+			if (FMath::IsFinite(Bounds.X) && FMath::IsFinite(Bounds.Y) && Bounds.X > 0.0 && Bounds.Y > 0.0
+				&& TextureSize.X > 0.0 && TextureSize.Y > 0.0)
+			{
+				// The grid owns the item footprint. The image's ScaleBox keeps its authored
+				// proportions inside that space, including when grid cells resize unequally.
+				const double Scale = FMath::Min(Bounds.X / TextureSize.X, Bounds.Y / TextureSize.Y);
+				FittedBrush.ImageSize = TextureSize * Scale;
+			}
+		}
+		Image_Icon->SetBrush(FittedBrush);
 	}
 }
 

@@ -832,9 +832,23 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuEquip(int32 Index)
 	DestroyItemPopUp();
 	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
-	if (!IsValid(RightClickedItem)) return;
+	if (!IsValid(RightClickedItem) || RightClickedItem->IsMagazine()) return;
 
 	CommonUI_InventoryComponent->Server_EquipSlotClicked(RightClickedItem, nullptr);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuLoadMagazine(int32 Index, FGuid MagazineItemId)
+{
+	if (!MagazineItemId.IsValid() || !IsValid(ItemPopUp) || ItemPopUp->GetGridIndex() != Index
+		|| ItemPopUp->GetLoadMagazineItemId() != MagazineItemId) return;
+	DestroyItemPopUp();
+	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
+	UAZ_Inv_CommonUI_InventoryItem* Item = CommonUI_InventoryComponent->FindItemById(MagazineItemId);
+	if (!IsValid(Item) || !Item->IsMagazine() || GridSlots[Index]->GetInventoryItem().Get() != Item
+		|| !CommonUI_InventoryComponent->CanLoadMagazine(Item)) return;
+	// The inventory captures this exact magazine and closes the menu before starting
+	// the timed reload. Never route magazines through character equipment slots.
+	CommonUI_InventoryComponent->RequestLoadMagazine(Item);
 }
 
 // =============================================================================
@@ -924,6 +938,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::DestroyItemPopUp()
 			GridSlots[PrevIndex]->SetItemPopUp(nullptr);
 		}
 		PopUp->OnDismissed.Unbind();
+		PopUp->OnLoadMagazine.Unbind();
 		PopUp->RemoveFromParent();
 	}
 }
@@ -978,7 +993,13 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 		ItemPopUp->CollapseConsumeButton();
 	}
 
-	if (RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>())
+	if (RightClickedItem->IsMagazine())
+	{
+		const bool bCanLoad = CommonUI_InventoryComponent.IsValid() && CommonUI_InventoryComponent->CanLoadMagazine(RightClickedItem);
+		ItemPopUp->ConfigureLoadMagazineAction(RightClickedItem->GetInstanceId(), bCanLoad);
+		ItemPopUp->OnLoadMagazine.BindDynamic(this, &ThisClass::OnPopUpMenuLoadMagazine);
+	}
+	else if (RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>())
 	{
 		ItemPopUp->OnEquip.BindDynamic(this, &ThisClass::OnPopUpMenuEquip);
 	}

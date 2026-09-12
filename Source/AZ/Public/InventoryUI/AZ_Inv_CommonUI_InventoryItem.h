@@ -35,8 +35,16 @@ public:
 	FGuid GetInsertedMagazineId() const { return InstanceState.InsertedMagazineId; }
 	int32 GetMagazineRounds() const { return InstanceState.CurrentRounds; }
 	int32 GetMagazineCapacity() const;
+	EAZ_FirearmFireMode GetSelectedFireMode() const { return InstanceState.SelectedFireMode; }
+	int64 GetFireModeRevision() const { return InstanceState.FireModeRevision; }
 	const FAZ_InventoryItemState& GetInstanceState() const { return InstanceState; }
 	void InitializeInstance(const FAZ_InventoryItemState& State, int32 StackCount);
+
+	/** Actual FULL cone at the supplied synchronized server time; reading never grows or resets recoil. */
+	float GetFirearmSpreadAngleDegrees(double ServerTime) const;
+
+	/** Additional HALF-angle above baseline, analytically recovered from the last accepted shot. */
+	float GetFirearmExtraSpreadRadiusDegrees(double ServerTime) const;
 	
 	        void SetItemManifest(const FAZ_Inv_CommonUI_ItemManifest& Manifest);
 	        const FAZ_Inv_CommonUI_ItemManifest& GetItemManifest() const;
@@ -46,6 +54,13 @@ public:
 	
 private:
 	friend class UAZ_Inv_CommonUI_InventoryComponent;
+	/** Only the accepted ammo transaction may append spread, before it publishes inventory changes. */
+	void RecordAcceptedFirearmShot(double ServerTime, const FAZ_FirearmRecoilSettings& Settings);
+
+	/** Deliberately absent from pickup/save payloads. A newly initialized item starts recovered. */
+	UPROPERTY(Transient, ReplicatedUsing=OnRep_ItemChanged)
+	FAZ_FirearmSpreadState FirearmSpread;
+
 	UPROPERTY(ReplicatedUsing=OnRep_ItemChanged)
 	FAZ_InventoryItemState InstanceState;
 

@@ -1,0 +1,58 @@
+{
+  "status": "compiled_saved_readback_passed",
+  "single": "/Game/AZ/Assets/M16/Riffle_RTG_MH/AZ_RTG_MH_W2_Stand_Fire_Single_IPC",
+  "automatic": "/Game/AZ/Assets/M16/Riffle_RTG_MH/AZ_RTG_MH_W2_Stand_Fire_Continuous",
+  "automatic_pulses_per_cycle": 4,
+  "mode_keys": [
+    "X"
+  ],
+  "slot": "RifleFire",
+  "group": "WeaponFire",
+  "blueprint_status": {
+    "/Game/AZ/Blueprints/Animation/MHC/AZ_ABP_MoverHero_MHC": "<BlueprintStatus.BS_UP_TO_DATE: 3>",
+    "/Game/AZ/Blueprints/Player/BP_AZ_PlayerController": "<BlueprintStatus.BS_UP_TO_DATE: 3>",
+    "/Game/AZ/Blueprints/Menu/HUD/WBP_AZ_GameHUD": "<BlueprintStatus.BS_UP_TO_DATE: 3>"
+  },
+  "graph_status": "verified_compiled_saved",
+  "rifles": [
+    {
+      "component": "/Game/AZ/Blueprints/Items/Equippables/Weapons/BPAZ_CommonUI_PickupItem.BPAZ_CommonUI_PickupItem_C:BPAZ_Inv_CommonUI_ItemComponent_GEN_VARIABLE",
+      "default_mode": "<AZ_FirearmFireMode.SINGLE: 0>",
+      "supported_modes": [
+        "<AZ_FirearmFireMode.SINGLE: 0>",
+        "<AZ_FirearmFireMode.AUTOMATIC: 1>"
+      ],
+      "fire_rate": 10.0,
+      "contained_magazines": [
+        "(Fragments=(/Script/AZ.AZ_Inv_CommonUI_GridFragment(Icon=None,GridSize=(X=1,Y=2),GridPadding=0.000000,FragmentTag=(TagName=\"Item.Fragment.Grid\")),/Script/AZ.AZ_Inv_CommonUI_ImageFragment(Icon=\"/Script/Engine.Texture2D'/Game/InventorySystemPro/ExampleContent/Common/Art/Ammo556/T_Ammo_556Icon.T_Ammo_556Icon'\",IconDimensions=(X=128.000000,Y=64.000000),FragmentTag=(TagName=\"Item.Fragment.Icon\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"02F923BC492F8936532974AC0BC87C8B\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Name.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"3B3B0AB64B74719799748DA835167F6A\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Primary.Name\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"49C5C671497F79E9A462DBA1C638C0AE\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"94B9721F43DE4621AB1DDDAE9087D717\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Description\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"D8879E3D4CB01535451B199524B0CC08\", \"Magazine:\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.Value\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"7D03FB7D48F681D0617431AA7206D6FC\", \"/\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Separator\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.MaxValue\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"5DD3D47E4FA4E739DBD5AD93C95FC845\", \"rounds\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_MagazineFragment(MagazineFamily=\"M16.Standard\",Capacity=30,InitialRounds=30,FragmentTag=(TagName=\"\"))),ItemCategory=Equippable,ItemTypeTag=(TagName=\"Item.Type.Magazine.Rifle\"),PickupActorClass=\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/Items/Equippables/Weapons/BP_Pickup_M16Magazine.BP_Pickup_M16Magazine_C'\")"
+      ]
+    },
+    {
+      "component": "/Game/AZ/Maps/L_001.L_001:PersistentLevel.BPAZ_CommonUI_PickupItem_C_2.BPAZ_Inv_CommonUI_ItemComponent",
+      "default_mode": "<AZ_FirearmFireMode.SINGLE: 0>",
+      "supported_modes": [
+        "<AZ_FirearmFireMode.SINGLE: 0>",
+        "<AZ_FirearmFireMode.AUTOMATIC: 1>"
+      ],
+      "fire_rate": 10.0,
+      "contained_magazines": [
+        "(Fragments=(/Script/AZ.AZ_Inv_CommonUI_GridFragment(Icon=None,GridSize=(X=1,Y=2),GridPadding=0.000000,FragmentTag=(TagName=\"Item.Fragment.Grid\")),/Script/AZ.AZ_Inv_CommonUI_ImageFragment(Icon=\"/Script/Engine.Texture2D'/Game/InventorySystemPro/ExampleContent/Common/Art/Ammo556/T_Ammo_556Icon.T_Ammo_556Icon'\",IconDimensions=(X=128.000000,Y=64.000000),FragmentTag=(TagName=\"Item.Fragment.Icon\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"02F923BC492F8936532974AC0BC87C8B\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Name.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"3B3B0AB64B74719799748DA835167F6A\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Primary.Name\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"49C5C671497F79E9A462DBA1C638C0AE\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"94B9721F43DE4621AB1DDDAE9087D717\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Description\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"D8879E3D4CB01535451B199524B0CC08\", \"Magazine:\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.Value\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"7D03FB7D48F681D0617431AA7206D6FC\", \"/\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Separator\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.MaxValue\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"5DD3D47E4FA4E739DBD5AD93C95FC845\", \"rounds\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_MagazineFragment(MagazineFamily=\"M16.Standard\",Capacity=30,InitialRounds=30,FragmentTag=(TagName=\"\"))),ItemCategory=Equippable,ItemTypeTag=(TagName=\"Item.Type.Magazine.Rifle\"),PickupActorClass=\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/Items/Equippables/Weapons/BP_Pickup_M16Magazine.BP_Pickup_M16Magazine_C'\")"
+      ]
+    },
+    {
+      "component": "/Game/AZ/Maps/L_001.L_001:PersistentLevel.BPAZ_CommonUI_PickupItem_C_4.BPAZ_Inv_CommonUI_ItemComponent",
+      "default_mode": "<AZ_FirearmFireMode.SINGLE: 0>",
+      "supported_modes": [
+        "<AZ_FirearmFireMode.SINGLE: 0>",
+        "<AZ_FirearmFireMode.AUTOMATIC: 1>"
+      ],
+      "fire_rate": 10.0,
+      "contained_magazines": [
+        "(Fragments=(/Script/AZ.AZ_Inv_CommonUI_GridFragment(Icon=None,GridSize=(X=1,Y=2),GridPadding=0.000000,FragmentTag=(TagName=\"Item.Fragment.Grid\")),/Script/AZ.AZ_Inv_CommonUI_ImageFragment(Icon=\"/Script/Engine.Texture2D'/Game/InventorySystemPro/ExampleContent/Common/Art/Ammo556/T_Ammo_556Icon.T_Ammo_556Icon'\",IconDimensions=(X=128.000000,Y=64.000000),FragmentTag=(TagName=\"Item.Fragment.Icon\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"02F923BC492F8936532974AC0BC87C8B\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Name.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"3B3B0AB64B74719799748DA835167F6A\", \"M16 magazine\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Primary.Name\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"49C5C671497F79E9A462DBA1C638C0AE\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"94B9721F43DE4621AB1DDDAE9087D717\", \"Detachable 30-round M16 magazine.\"),FragmentTag=(TagName=\"Item.Fragment.Description\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"D8879E3D4CB01535451B199524B0CC08\", \"Magazine:\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Text\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.Value\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"7D03FB7D48F681D0617431AA7206D6FC\", \"/\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.Separator\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=\"\",FragmentTag=(TagName=\"Item.Fragment.Ammo.MaxValue\")),/Script/AZ.AZ_Inv_CommonUI_Text_Fragment(FragmentText=NSLOCTEXT(\"\", \"5DD3D47E4FA4E739DBD5AD93C95FC845\", \"rounds\"),FragmentTag=(TagName=\"Item.Fragment.Ammo.StaticText\")),/Script/AZ.AZ_Inv_CommonUI_MagazineFragment(MagazineFamily=\"M16.Standard\",Capacity=30,InitialRounds=30,FragmentTag=(TagName=\"\"))),ItemCategory=Equippable,ItemTypeTag=(TagName=\"Item.Type.Magazine.Rifle\"),PickupActorClass=\"/Script/Engine.BlueprintGeneratedClass'/Game/AZ/Blueprints/Items/Equippables/Weapons/BP_Pickup_M16Magazine.BP_Pickup_M16Magazine_C'\")"
+      ]
+    }
+  ],
+  "dirty_content": [],
+  "dirty_maps": [],
+  "no_pie": true
+}

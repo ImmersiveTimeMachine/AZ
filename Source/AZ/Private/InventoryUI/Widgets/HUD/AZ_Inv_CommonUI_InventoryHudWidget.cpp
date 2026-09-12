@@ -31,6 +31,13 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 	if (AmmoRoundsText && DefaultAmmoFontSize == 0) DefaultAmmoFontSize = AmmoRoundsText->GetFont().Size;
 	ShowElement(HealthContainer, false);
 	ShowElement(WeaponContainer, false);
+	// Hide the authored magazine row until the first supported weapon view arrives.
+	ShowElement(SpareMagazinesText, false);
+	if (WidgetTree)
+	{
+		ShowElement(WidgetTree->FindWidget(TEXT("MagazineCountRow")), false);
+		ShowElement(WidgetTree->FindWidget(TEXT("MagazineIcon")), false);
+	}
 	ShowElement(LowHealthText, false);
 	HidePickupMessage();
 	ClearHitFeedback();
@@ -109,6 +116,24 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 	// equipment keep health visible without a misleading ammunition display.
 	const bool bShow = View.bHasWeapon && View.bUsesMagazines;
 	ShowElement(WeaponContainer, bShow);
+	ShowElement(SpareMagazinesText, bShow);
+	if (WidgetTree)
+	{
+		ShowElement(WidgetTree->FindWidget(TEXT("MagazineCountRow")), bShow);
+		ShowElement(WidgetTree->FindWidget(TEXT("MagazineIcon")), bShow);
+	}
+	if (SpareMagazinesText)
+	{
+		SpareMagazinesText->SetText(bShow
+			? FText::Format(LOCTEXT("SpareMagazines", "{0} MAGS"), FText::AsNumber(FMath::Max(0, View.Ammo.SpareMagazineCount)))
+			: FText::GetEmpty());
+	}
+	ShowElement(FireModeText, bShow && View.bHasFireMode);
+	if (FireModeText)
+	{
+		FireModeText->SetText(!bShow || !View.bHasFireMode ? FText::GetEmpty()
+			: View.SelectedFireMode == EAZ_FirearmFireMode::Automatic ? LOCTEXT("AutomaticFireMode", "AUTO") : LOCTEXT("SingleFireMode", "SINGLE"));
+	}
 	if (!bShow)
 	{
 		ClearHitFeedback();
@@ -117,7 +142,8 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 	}
 	if (WeaponIcon)
 	{
-		WeaponIcon->SetBrushFromTexture(View.Icon, false);
+		// The authored ScaleBox fits the texture's natural ratio inside the HUD host.
+		WeaponIcon->SetBrushFromTexture(View.Icon, true);
 		ShowElement(WeaponIcon, IsValid(View.Icon));
 	}
 	if (WeaponNameText) WeaponNameText->SetText(View.DisplayName);
@@ -143,12 +169,6 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 		AmmoRoundsText->SetText(Rounds);
 	}
 	if (AmmoCapacityText) AmmoCapacityText->SetText(Capacity);
-	if (SpareMagazinesText)
-	{
-		SpareMagazinesText->SetText(View.Ammo.MagazineState == EAZ_WeaponMagazineState::Unavailable
-			? LOCTEXT("SpareMagazinesUnavailable", "-- MAGS")
-			: FText::Format(LOCTEXT("SpareMagazines", "{0} MAGS"), FText::AsNumber(View.Ammo.SpareMagazineCount)));
-	}
 }
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::ShowPickupMessage_Implementation(const FString& Message)
@@ -179,7 +199,11 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::ClearHitFeedback()
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::HandleInventoryFull()
 {
-	const FText Message = LOCTEXT("InventoryFull", "INVENTORY FULL");
+	ShowTransientInfo(LOCTEXT("InventoryFull", "INVENTORY FULL"));
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::ShowTransientInfo(const FText& Message)
+{
 	if (InfoText && InfoContainer)
 	{
 		InfoText->SetText(Message);

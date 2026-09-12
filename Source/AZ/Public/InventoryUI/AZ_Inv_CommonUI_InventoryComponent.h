@@ -12,6 +12,7 @@
 
 class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
+class AAZ_Weapon;
 struct FAZ_Inv_CommonUI_ItemManifest;
 struct FAZ_InventoryPickupRecord;
 
@@ -34,6 +35,7 @@ public:
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
 	// Called every frame
@@ -49,6 +51,30 @@ public:
 	bool TryConsumeWeaponRound(const UObject* WeaponSource, const FGuid& WeaponItemId,
 		const FGuid& ExpectedMagazineId, int64 ExpectedAmmoRevision, uint32 ExpectedEquipmentGeneration,
 		const FGuid& ShotId, FAZ_WeaponAmmoSnapshot& OutSnapshot);
+	/** Authority-clock cadence for this physical weapon; zero means no pending restriction. */
+	double GetWeaponNextAllowedFireTime(const FGuid& WeaponItemId) const;
+	/** Authority only. Equipment validates/cancels firing first; this revalidates and commits the item mutation. */
+	bool TrySetWeaponFireMode(const UObject* WeaponSource, const FGuid& WeaponItemId,
+		uint32 ExpectedEquipmentGeneration, int64 ExpectedFireModeRevision, EAZ_FirearmFireMode NewMode);
+	/** Invalid requested ID cycles by stable magazine identity. Manual cycling includes empty magazines. */
+	bool CanReloadMagazine(const UObject* WeaponSource, const FGuid& WeaponItemId, uint32 ExpectedEquipmentGeneration,
+		const FGuid& RequestedMagazineId = FGuid(), bool bSkipEmpty = false) const;
+	/** Reserve the exact requested magazine or next eligible identity and its return space without changing rounds. */
+	bool TryBeginMagazineReload(const UObject* WeaponSource, const FGuid& WeaponItemId,
+		uint32 ExpectedEquipmentGeneration, const FGuid& ReloadId,
+		const FGuid& RequestedMagazineId = FGuid(), bool bSkipEmpty = false);
+	/** Commit the matching swap once. An already committed live action returns true without another mutation. */
+	bool TryCommitMagazineReload(const FGuid& ReloadId);
+	/** Read before ending the action, including during reentrant inventory-changed callbacks. */
+	bool IsMagazineReloadCommitted(const FGuid& ReloadId) const;
+	/** End/cancel only this action; an already committed swap is never rolled back. */
+	void EndMagazineReload(const FGuid& ReloadId);
+	bool IsItemReloadReserved(const FGuid& ItemId) const;
+	bool IsWeaponReloading(const FGuid& WeaponItemId) const;
+	/** Inventory-menu preview for loading this exact magazine into the active rifle. */
+	bool CanLoadMagazine(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
+	/** Submit an exact-magazine reload after releasing inventory input capture. Never swaps ammunition directly. */
+	bool RequestLoadMagazine(UAZ_Inv_CommonUI_InventoryItem* Item);
 	FIntPoint GetGridDimensions(EInv_ItemCategory Category) const;
 	const TArray<FAZ_InventoryGridPlacement>& GetPlacements() const { return GridPlacements; }
 	FAZ_Inv_CommonUI_SlotAvailabilityResult GetRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 StackAmountOverride = -1) const;
@@ -106,6 +132,9 @@ public:
 	UAZ_Inv_CommonUI_GameInventoryMenu* GetInventoryMenu() const { return InventoryMenu; }
 
 private:
+	UFUNCTION(Server, Reliable)
+	void Server_LoadMagazine(AAZ_Weapon* ExpectedSource, FGuid WeaponItemId, uint32 ExpectedGeneration,
+		FGuid MagazineItemId, int64 ExpectedIncomingRevision, FGuid ExpectedInsertedMagazineId, int64 ExpectedInsertedRevision);
 	
 	UPROPERTY(Replicated)
 	FAZ_Inv_CommonUI_InventoryFastArray InventoryList;
@@ -124,7 +153,30 @@ private:
 	UFUNCTION()
 	void OnRep_Placements();
 	bool ValidatePickupPayload(const FAZ_InventoryPickupRecord& Root, const TArray<FAZ_InventoryPickupRecord>& Children) const;
-	bool IsPlacementFree(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 GridIndex, const TArray<FAZ_InventoryGridPlacement>& Placements) const;
+	bool IsPlacementFree(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 GridIndex,
+		const TArray<FAZ_InventoryGridPlacement>& Placements, bool bIncludeReloadReservation = true) const;
+	struct FMagazineReloadReservation
+	{
+		FGuid ReloadId;
+		TWeakObjectPtr<const UObject> WeaponSource;
+		FGuid WeaponItemId;
+		uint32 EquipmentGeneration = 0;
+		FGuid IncomingMagazineId;
+		FGuid OutgoingMagazineId;
+		int64 IncomingAmmoRevision = -1;
+		int64 OutgoingAmmoRevision = -1;
+		int32 IncomingRounds = 0;
+		int32 OutgoingRounds = 0;
+		FAZ_InventoryGridPlacement IncomingPlacement;
+		FAZ_InventoryGridPlacement ReturnPlacement;
+		bool bSkipEmpty = false;
+		bool bCommitted = false;
+	};
+	FMagazineReloadReservation MagazineReload;
+	bool bMagazineReloadMutation = false;
+	bool BuildMagazineReloadReservation(const UObject* WeaponSource, const FGuid& WeaponItemId,
+		uint32 ExpectedEquipmentGeneration, const FGuid& RequestedMagazineId, bool bSkipEmpty,
+		FMagazineReloadReservation& OutReservation) const;
 	void RemoveOwnedItem(UAZ_Inv_CommonUI_InventoryItem* Item);
 	bool RemoveStackPlacements(const FGuid& ItemId, int32 Count);
 	/** Authoritative cadence survives fire ability restarts and selection changes. Expired entries are pruned on shot requests. */

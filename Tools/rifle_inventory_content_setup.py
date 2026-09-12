@@ -40,7 +40,7 @@ def text_fragment(tag, value):
 
 def manifest(package, magazine_rounds=None):
     is_magazine = magazine_rounds is not None
-    size = (1, 2) if is_magazine else (3, 2)
+    size = (1, 1) if is_magazine else (3, 2)
     icon = MAG_ICON if is_magazine else RIFLE_ICON
     title = 'M16 magazine' if is_magazine else 'M16'
     description = 'Detachable 30-round M16 magazine.' if is_magazine else 'M16 rifle with a detachable magazine.'
@@ -88,7 +88,8 @@ def main():
         item = component_template(bp)
         item.set_editor_property('pickup_item_manifest', manifest(path, rounds))
         item.set_editor_property('initial_contained_item_manifests', [])
-        item.set_editor_property('pickup_message', 'Press E to pick up M16 magazine (%d/30)' % rounds)
+        # Runtime pickup text appends the actual remaining rounds, including zero.
+        item.set_editor_property('pickup_message', 'Press E to pick up M16 magazine')
         cdo = unreal.get_default_object(bp.generated_class())
         cdo.get_component_by_class(unreal.StaticMeshComponent).set_editor_property('static_mesh', unreal.load_asset(MAG_MESH))
         cdo.get_component_by_class(unreal.SkeletalMeshComponent).set_editor_property('skeletal_mesh_asset', None)

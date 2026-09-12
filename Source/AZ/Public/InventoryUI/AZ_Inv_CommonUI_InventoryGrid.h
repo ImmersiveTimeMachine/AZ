@@ -228,6 +228,8 @@ private:
 	void OnPopUpMenuDrop(int32 Index);
 	UFUNCTION()
 	void OnPopUpMenuEquip(int32 Index);
+	UFUNCTION()
+	void OnPopUpMenuLoadMagazine(int32 Index, FGuid MagazineItemId);
 
 	void PutDownOnIndex(int32 Index);
 	void PutHoverItemBack();

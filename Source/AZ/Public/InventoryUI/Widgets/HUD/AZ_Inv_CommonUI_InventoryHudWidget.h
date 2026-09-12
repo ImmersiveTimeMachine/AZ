@@ -28,6 +28,8 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="AZ|Inventory")
 	void HidePickupMessage();
 	virtual void HidePickupMessage_Implementation();
+	/** Existing transient info lane, also used for authoritative selector refusal feedback. */
+	void ShowTransientInfo(const FText& Message);
 
 protected:
 	virtual void NativeConstruct() override;
@@ -56,6 +58,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> AmmoRoundsText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> AmmoCapacityText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> SpareMagazinesText;
+	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> FireModeText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UWidget> PickupContainer;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> PickupText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UWidget> InfoContainer;

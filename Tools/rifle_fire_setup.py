@@ -41,6 +41,7 @@ def patch_manifest(text):
     out, counts = [], {H.WEAPON_FRAGMENT: 0, H.GRANT_FRAGMENT: 0}
     aim = H.object_reference('/Script/Engine.BlueprintGeneratedClass', H.ABILITY, True)
     fire = H.object_reference('/Script/Engine.BlueprintGeneratedClass', ABILITY, True)
+    reload = H.object_reference('/Script/Engine.BlueprintGeneratedClass', H.RELOAD_ABILITY, True)
     for fragment in fragments:
         kind, values = H.fragment_parts(fragment)
         if kind == H.WEAPON_FRAGMENT:
@@ -61,7 +62,7 @@ def patch_manifest(text):
             counts[kind] += 1
             grants = H.split_top_level(H.parenthesized(dict(values).get('AbilitiesToGrant', '()')))
             H.require(grants.count(aim) == 1 and len(grants) == len(set(grants))
-                      and all(g in (aim, fire) for g in grants), 'Unexpected ability grants; inspect first')
+                      and all(g in (aim, fire, reload) for g in grants), 'Unexpected ability grants; inspect first')
             if fire not in grants:
                 grants.append(fire)
             fragment = kind + H.encode_fields(H.replace_field(values, 'AbilitiesToGrant', '(' + ','.join(grants) + ')'))

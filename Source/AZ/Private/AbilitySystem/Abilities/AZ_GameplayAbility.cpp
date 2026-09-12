@@ -7,6 +7,7 @@
 #include "Character/AZ_HeroCharacter.h"
 #include "Character/AZ_HeroPawn.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "Weapon/AZ_Weapon.h"
 
 UAZ_GameplayAbility::UAZ_GameplayAbility(const FObjectInitializer& ObjectInitializer)
@@ -37,6 +38,19 @@ void UAZ_GameplayAbility::PostInitProperties()
 bool UAZ_GameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags,
 	const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {
+	if (ActorInfo)
+	{
+		const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+		const auto& StateTags = FAZ_GameplayTags::Get();
+		if (ASC && ASC->HasMatchingGameplayTag(StateTags.Ability_State_WeaponSwitching))
+		{
+			const UObject* Source = GetSourceObject(Handle, ActorInfo);
+			const bool bEquipmentAction = Source && (Source->IsA<AAZ_Weapon>()
+				|| Source->IsA<UAZ_Inv_CommonUI_EquipmentComponent>());
+			if (bEquipmentAction || InputTag == StateTags.Input_Action_Sprint
+				|| GetAssetTags().HasTag(StateTags.Movement_Sprinting)) return false;
+		}
+	}
 	if (bCannotActivateWhileInteracting)
 	{
 		UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();

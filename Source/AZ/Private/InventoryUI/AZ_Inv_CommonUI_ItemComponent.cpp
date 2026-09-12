@@ -2,6 +2,7 @@
 
 
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
+#include "AZ_GameplayTags.h"
 #include "GameFramework/Actor.h"
 
 #include "Net/UnrealNetwork.h"
@@ -30,6 +31,33 @@ void UAZ_Inv_CommonUI_ItemComponent::DestroyItem() const
 {
 	if (auto Owner = GetOwner())
 		Owner->Destroy();
+}
+
+FString UAZ_Inv_CommonUI_ItemComponent::GetPickupMessage() const
+{
+	const auto* Magazine = PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
+	if (!Magazine) return PickupMessage;
+
+	FText ItemName = NSLOCTEXT("AZInventoryPickup", "MagazineName", "Magazine");
+	const auto& Tags = FAZ_GameplayTags::Get();
+	for (const FGameplayTag& Tag : {Tags.Item_Fragment_Name_StaticText, Tags.Item_Fragment_Name, Tags.Item_Fragment_Ammo_Primary_Name})
+	{
+		if (const auto* Name = PickupItemManifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tag);
+			Name && !Name->GetText().IsEmpty())
+		{
+			ItemName = Name->GetText();
+			break;
+		}
+	}
+	// Zero is a real empty magazine. A payload still arriving over replication
+	// stays unknown instead of presenting the class template's InitialRounds.
+	const bool bRoundsKnown = PickupState.InstanceId.IsValid() && Magazine->Capacity > 0
+		&& PickupState.CurrentRounds >= 0 && PickupState.CurrentRounds <= Magazine->Capacity;
+	const FText Unknown = NSLOCTEXT("AZInventoryPickup", "UnknownRounds", "--");
+	const FText Rounds = bRoundsKnown ? FText::AsNumber(PickupState.CurrentRounds) : Unknown;
+	const FText Capacity = Magazine->Capacity > 0 ? FText::AsNumber(Magazine->Capacity) : Unknown;
+	return FText::Format(NSLOCTEXT("AZInventoryPickup", "MagazinePrompt", "Press E to pick up {0} ({1}/{2})"),
+		ItemName, Rounds, Capacity).ToString();
 }
 
 void UAZ_Inv_CommonUI_ItemComponent::PickedUp()
@@ -62,6 +90,11 @@ bool UAZ_Inv_CommonUI_ItemComponent::InitializePickupPayload()
 	if (PickupState.InstanceId.IsValid()) return true;
 	PickupState.InstanceId = FGuid::NewGuid();
 	PickupState.Location = EAZ_InventoryItemLocation::World;
+	if (const auto* Weapon = PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
+		Weapon && Weapon->bUsesDetachableMagazines)
+	{
+		PickupState.SelectedFireMode = Weapon->DefaultFireMode;
+	}
 	if (const auto* Stack = PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>(); PickupItemManifest.IsStackable() && Stack)
 	{
 		PickupStackCount = FMath::Max(1, Stack->GetStackCount());

@@ -107,10 +107,9 @@ int32 UAZ_InventoryHudWidget::NativePaint(const FPaintArgs& Args, const FGeometr
 	if (AmmoSnapshot.MagazineState == EAZ_WeaponMagazineState::NoMagazine) Rounds = TEXT("NO MAG");
 	else if (AmmoSnapshot.MagazineState == EAZ_WeaponMagazineState::Empty || AmmoSnapshot.MagazineState == EAZ_WeaponMagazineState::Loaded)
 		Rounds = FString::Printf(TEXT("%d / %d"), AmmoSnapshot.Rounds, AmmoSnapshot.Capacity);
-	const FString Readout = FString::Printf(TEXT("%s   |   %d MAGS"), *Rounds, AmmoSnapshot.SpareMagazineCount);
 	FSlateDrawElement::MakeText(OutDrawElements, ++Result,
 		AllottedGeometry.ToPaintGeometry(FVector2D(280.f, 28.f), FSlateLayoutTransform(FVector2D(FMath::Max(12.0, Size.X - 310.0), FMath::Max(12.0, Size.Y - 70.0)))),
-		Readout, Font, ESlateDrawEffect::None, Color);
+		Rounds, Font, ESlateDrawEffect::None, Color);
 	if (GetWorld() && GetWorld()->GetRealTimeSeconds() < HitFeedbackUntil)
 	{
 		FSlateDrawElement::MakeText(OutDrawElements, ++Result,

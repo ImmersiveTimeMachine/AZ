@@ -1,5 +1,13 @@
 # Rifle, detachable magazines, inventory and HUD implementation plan
 
+**Magazine-policy update, 2026-09-09:** user approved circular manual magazine
+selection (including full/lower/empty), automatic skipping of empty magazines,
+an exact **Load into rifle** inventory action using the timed reload, and only
+inserted-magazine ammunition on the HUD. Inventory remains the single owner of
+magazine identities and current rounds. This supersedes fullest-spare selection
+and spare-count/reserve HUD recommendations below. Current implementation status:
+C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-circular-magazines-status.md.
+
 **Firing continuation, 2026-09-08:** the first aim-required single-shot milestone is
 built and its assets are wired/saved. The regular build succeeded, both affected
 Blueprints compiled UpToDate, and final asset readback passed. User PIE acceptance

@@ -140,6 +140,20 @@ TArray<FName> UAZ_SkeletonUtils::GetBoneNames(USkeleton* Skeleton)
 	return Names;
 }
 
+bool UAZ_SkeletonUtils::SetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName, FName GroupName)
+{
+	if (!Skeleton || SlotName.IsNone() || GroupName.IsNone()) return false;
+	Skeleton->Modify();
+	Skeleton->SetSlotGroupName(SlotName, GroupName);
+	Skeleton->MarkPackageDirty();
+	return Skeleton->GetSlotGroupName(SlotName) == GroupName;
+}
+
+FName UAZ_SkeletonUtils::GetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName)
+{
+	return Skeleton && !SlotName.IsNone() ? Skeleton->GetSlotGroupName(SlotName) : NAME_None;
+}
+
 bool UAZ_SkeletonUtils::AddSocket(USkeleton* Skeleton, FName SocketName, FName BoneName,
 	FVector RelativeLocation, FRotator RelativeRotation, bool bReplaceExisting)
 {

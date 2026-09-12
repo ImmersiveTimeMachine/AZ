@@ -83,6 +83,19 @@ void UAZ_Inv_CommonUI_ItemPopUp::SetSliderParams(const float Max, const float Va
 	}
 }
 
+void UAZ_Inv_CommonUI_ItemPopUp::ConfigureLoadMagazineAction(const FGuid& MagazineItemId, bool bCanLoad)
+{
+	if (!Button_Equip || !MagazineItemId.IsValid()
+		|| (LoadMagazineItemId.IsValid() && LoadMagazineItemId != MagazineItemId)) return;
+	LoadMagazineItemId = MagazineItemId;
+	Button_Equip->ButtonText = NSLOCTEXT("AZ_Inventory", "LoadMagazineIntoWeapon", "Load into weapon");
+	Button_Equip->SetButtonText(Button_Equip->ButtonText);
+	Button_Equip->SetVisibility(ESlateVisibility::Visible);
+	Button_Equip->SetIsEnabled(bCanLoad);
+	Button_Equip->SetToolTipText(bCanLoad ? FText::GetEmpty()
+		: NSLOCTEXT("AZ_Inventory", "LoadWeaponMagazineUnavailable", "Requires an active compatible weapon and room to return its magazine."));
+}
+
 FVector2D UAZ_Inv_CommonUI_ItemPopUp::GetBoxSize() const
 {
 	return FVector2D(SizeBox_Root->GetWidthOverride(), SizeBox_Root->GetHeightOverride());
@@ -114,7 +127,9 @@ void UAZ_Inv_CommonUI_ItemPopUp::ConsumeButtonClicked(UCommonButtonBase* Button)
 
 void UAZ_Inv_CommonUI_ItemPopUp::EquipButtonClicked(UCommonButtonBase* Button)
 {
-	if (OnEquip.ExecuteIfBound(GridIndex))
+	const bool bHandled = OnLoadMagazine.IsBound()
+		? OnLoadMagazine.ExecuteIfBound(GridIndex, LoadMagazineItemId) : OnEquip.ExecuteIfBound(GridIndex);
+	if (bHandled)
 	{
 		RemoveFromParent();
 	}

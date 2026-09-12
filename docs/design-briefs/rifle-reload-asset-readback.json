@@ -1,0 +1,21 @@
+{
+  "status": "verified_compiled_saved_reload",
+  "rifle_definitions": 3,
+  "durations": {
+    "standing_reload_animation": 5.300000190734863,
+    "standing_aim_reload_animation": 2.0,
+    "crouching_reload_animation": 2.3333332538604736,
+    "crouching_aim_reload_animation": 2.0
+  },
+  "input": "Input.Action.Reload",
+  "net_policy": "<GameplayAbilityNetExecutionPolicy.SERVER_INITIATED: 2>",
+  "instance_owned_tags": "(GameplayTags=((TagName=\"Ability.State.Reloading\")))",
+  "blueprint_statuses": {
+    "/Game/AZ/Blueprints/AbilitySystem/Hero/Abilities/BP_AZ_GA_FirearmReload.BP_AZ_GA_FirearmReload": "<BlueprintStatus.BS_UP_TO_DATE: 3>",
+    "/Game/AZ/Blueprints/Items/Equippables/Weapons/BPAZ_CommonUI_PickupItem.BPAZ_CommonUI_PickupItem": "<BlueprintStatus.BS_UP_TO_DATE: 3>"
+  },
+  "dirty_content": [
+    "/Game/AZ/Blueprints/Character/Hero/MHC/AZ_BP_PawnMoverHero_MHC"
+  ],
+  "dirty_maps": []
+}

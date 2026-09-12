@@ -240,7 +240,9 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     // =========================================================
     AddTag(GameplayTags.Ability_State_Shooting,       FName("Ability.State.Shooting"),       TEXT("Currently firing weapon"));
     AddTag(GameplayTags.Ability_State_Reloading,      FName("Ability.State.Reloading"),      TEXT("Currently reloading"));
+    AddTag(GameplayTags.Ability_State_WeaponSwitching, FName("Ability.State.WeaponSwitching"), TEXT("Holstering or drawing equipment"));
     AddTag(GameplayTags.Ability_State_Aiming,         FName("Ability.State.Aiming"),         TEXT("Currently aiming down sights"));
+	AddTag(GameplayTags.Ability_State_FirearmReady, FName("Ability.State.FirearmReady"), TEXT("Timed raised firearm posture independent of precision aim"));
     AddTag(GameplayTags.Ability_State_Sprinting,      FName("Ability.State.Sprinting"),      TEXT("Currently sprinting"));
     AddTag(GameplayTags.Ability_State_MeleeAttacking, FName("Ability.State.MeleeAttacking"), TEXT("Currently performing melee attack"));
     AddTag(GameplayTags.Ability_State_Interacting,    FName("Ability.State.Interacting"),    TEXT("Currently interacting with object"));
@@ -272,6 +274,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
 
     // Weapon Slot Tags (applied to the weapon actor to identify its equipped slot)
 	AddTag(GameplayTags.Item_Type_Magazine_Rifle, FName("Item.Type.Magazine.Rifle"), TEXT("Detachable rifle magazine with per-instance ammunition"));
+	AddTag(GameplayTags.Item_Type_Magazine_Pistol, FName("Item.Type.Magazine.Pistol"), TEXT("Detachable pistol magazine with per-instance ammunition"));
     AddTag(GameplayTags.Weapon_Slot_Primary,    FName("Weapon.Slot.Primary"),    TEXT("Weapon is in primary slot"));
     AddTag(GameplayTags.Weapon_Slot_Secondary,  FName("Weapon.Slot.Secondary"),  TEXT("Weapon is in secondary slot"));
     AddTag(GameplayTags.Weapon_Slot_Sidearm,    FName("Weapon.Slot.Sidearm"),    TEXT("Weapon is in sidearm slot"));

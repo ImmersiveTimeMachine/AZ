@@ -38,6 +38,7 @@ public:
 	/** Call when the local controller's PlayerState or possession changes. */
 	UFUNCTION(BlueprintCallable, Category="AZ|UI")
 	void RefreshBindings();
+	void NotifyInputCaptureChanged();
 
 	UFUNCTION(BlueprintPure, Category="AZ|UI")
 	FAZ_PlayerVitalsView GetVitalsView() const { return VitalsView; }
@@ -85,6 +86,8 @@ private:
 	FDelegateHandle HealthChangedHandle;
 	FDelegateHandle MaxHealthChangedHandle;
 	FDelegateHandle WeaponOwnershipChangedHandle;
+	/** Samples the item's analytical recovery only while a visible reticle is recovering. */
+	FTimerHandle ReticleRecoveryTimer;
 	TMap<FGameplayTag, FDelegateHandle> ReticleTagChangedHandles;
 	bool bInventoryOpen = false;
 	bool bEndingPlay = false;

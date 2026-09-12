@@ -2,6 +2,8 @@
 
 **Status: Phase 1 authorized and implemented on 2026-09-08; build and asset readback passed, user gameplay acceptance pending. Phases 2–6 remain later work.** See C:/UnrealEngine/Games/AZ/docs/design-briefs/hud-phase1-status.md for the current implementation and manual checks.
 
+September 9 priority update: the magazine icon is now implemented. The user requested quick-select planning next; the focused current plan is C:/UnrealEngine/Games/AZ/docs/design-briefs/quick-select-implementation-plan.md. Weapon quick select now precedes compass in the requested order. This is a plan, not authorization to implement every later RPG phase below.
+
 **User review correction:** the HUD was accepted visually, but hiding inventory placeholders changed the inventory's appearance. Skills, extra vitals and currency display were restored, keeping live health. This supersedes the placeholder-hiding recommendations below: preserve existing inventory presentation during HUD/data work and discuss unfinished gameplay bindings separately.
 
 Implement the approved A + compass design on the existing CommonUI/inventory/GAS foundation. Add one local-player presentation adapter, promote the existing CommonUI HUD base, adapt the useful vendor widgets, and make inventory and HUD display the same authoritative data. Preserve the current firearm/ammo/hit-feedback work. Quick-use and missing RPG systems are explicit later gameplay phases, not fabricated widget bindings.
@@ -86,7 +88,7 @@ flowchart LR
 |---|---|---|
 | HUD and inventory health | PS ASC → UAZ_VitalsAttributeSet Health/MaxHealth; GAS value-change delegates | Bind before initial snapshot; initialize immediately; both views agree. Never use PS.GetAttributeSet() cast to legacy Hero health. |
 | Weapon/icon/name | Equipment.GetActiveItem/GetActiveWeapon/GetActiveProfile + item manifest; OnEquipmentChanged | Active state follows equipment commit/OnRep. Navigation candidate is a separate temporary highlight. |
-| Rounds/capacity/spares | Inventory.GetWeaponAmmoSnapshot(active item ID); OnInventoryChanged and equipment changes | Preserve Loaded, Empty, NoMagazine and Unavailable. Unavailable is not zero. SpareMagazineCount includes empty compatible backpack magazines; MAGS means objects, not usable reloads. |
+| Inserted rounds/capacity | Inventory.GetWeaponAmmoSnapshot(active item ID); OnInventoryChanged and equipment changes | Preserve Loaded, Empty, NoMagazine and Unavailable. Unavailable is not zero. User-approved circular-magazine design hides the spare count and magazine icon; individual magazine rounds remain visible in inventory. |
 | Aim/actions/interruptions | ASC gameplay-tag changes: aiming, shooting, melee, grabbed, staggered | Drive visibility/eligibility; gameplay ability/equipment remains authoritative. Preserve confirmed-hit event feedback. |
 | Zero health | Vitals health ≤ 0; also observe death tags where present | Close/suppress new action UI appropriately; never manufacture a death tag. Full hero death/respawn is not implemented by this HUD. |
 | XP/level/points | AAZ_PlayerState accessors and change delegates | Bind supported inventory text to actual values; no permanent XP panel in A. |

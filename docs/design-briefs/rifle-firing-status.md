@@ -1,5 +1,9 @@
 # Rifle firing — built and wired, ready for user validation
 
+2026-09-09: User confirmed this single-shot slice works. Animation + automatic fire
+are now underway; reload is requested before configurable recoil. Current resume
+point: C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-automatic-status.md.
+
 Updated 2026-09-08. User resumed rifle mechanics. The next planned slice is firing
 after the existing pickup/equipment/aim integration. Aim-required, single-shot is
 the stated initial assumption; the optional hip-fire question has not been answered.

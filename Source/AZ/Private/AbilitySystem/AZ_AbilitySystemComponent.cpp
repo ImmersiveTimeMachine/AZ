@@ -11,6 +11,12 @@
 #include "AZ_ConsoleVariables.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
+#include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "Player/AZ_PlayerController.h"
+#include "Weapon/AZ_Weapon.h"
 #include "TimerManager.h"   // hit-stop restore timer (World.h only forward-declares FTimerManager)
 
 void UAZ_AbilitySystemComponent::GrantAbilitiesWithInputTag(const TArray<TSubclassOf<UAZ_GameplayAbility>>& Abilities)
@@ -43,6 +49,52 @@ void UAZ_AbilitySystemComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAZ_AbilitySystemComponent, RepAnimMontageInfoForMeshes);
+}
+
+void UAZ_AbilitySystemComponent::ServerTryActivateAbility_Implementation(FGameplayAbilitySpecHandle AbilityToActivate,
+	bool InputPressed, FPredictionKey PredictionKey)
+{
+	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+	bool bSprintRequest = false;
+	{
+		// Inspect the authority's actual grant. No client-supplied weapon or tag is
+		// trusted, and no spec pointer survives the cancellation callbacks below.
+		const FGameplayAbilitySpec* Spec = FindAbilitySpecFromHandle(AbilityToActivate);
+		if (Spec && IsValid(Spec->Ability)
+			&& Spec->GetDynamicSpecSourceTags().HasTagExact(Tags.Input_Action_Sprint))
+		{
+			const EGameplayAbilityNetSecurityPolicy::Type Policy = Spec->Ability->GetNetSecurityPolicy();
+			bSprintRequest = Policy != EGameplayAbilityNetSecurityPolicy::ServerOnlyExecution
+				&& Policy != EGameplayAbilityNetSecurityPolicy::ServerOnly;
+		}
+	}
+	if (bSprintRequest && GetOwnerRole() == ROLE_Authority
+		&& !HasMatchingGameplayTag(Tags.Ability_State_Reloading)
+		&& !HasMatchingGameplayTag(Tags.Ability_State_WeaponSwitching))
+	{
+		const APawn* Avatar = Cast<APawn>(GetAvatarActor());
+		AAZ_PlayerController* Player = Avatar ? Cast<AAZ_PlayerController>(Avatar->GetController()) : nullptr;
+		UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Player
+			? Player->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+		if (Player && Player->GetPawn() == Avatar && Player->GetAbilitySystemComponent() == this
+			&& !Player->IsInventoryInputCaptured() && Equipment
+			&& Equipment->IsActiveWeaponSource(Equipment->GetActiveWeapon()))
+		{
+			const UAZ_Inv_CommonUI_InventoryItem* Item = Equipment->GetActiveItem();
+			const auto* Definition = Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
+			if (Definition && Definition->bUsesDetachableMagazines)
+			{
+				// Ready can outlive both Fire and Aim, so cancelling their predicted
+				// instances alone does not clear authority's Ready/strafe ownership.
+				// Use the same ASC RPC as activation; a second actor RPC could arrive
+				// too late and leave Sprint blocked. These APIs release only their
+				// own contributions, retaining unrelated strafe owners.
+				Equipment->CancelFirearmReady();
+				Equipment->CancelActiveAim();
+			}
+		}
+	}
+	Super::ServerTryActivateAbility_Implementation(AbilityToActivate, InputPressed, PredictionKey);
 }
 
 void UAZ_AbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& InputTag)
@@ -452,6 +504,13 @@ void UAZ_AbilitySystemComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 void UAZ_AbilitySystemComponent::ApplyHitStop(float Seconds, float RateDuring)
 {
+	// Player animations remain at 1x even on impact. PlayerState ownership also
+	// identifies remote players whose controller is unavailable on this peer.
+	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActor());
+	if (Cast<APlayerState>(GetOwnerActor()) || (AvatarPawn && AvatarPawn->IsPlayerControlled()))
+	{
+		return;
+	}
 	const float Hold = FMath::Clamp(Seconds, 0.f, HitStopMaxSeconds);
 	if (Hold <= 0.f)
 	{

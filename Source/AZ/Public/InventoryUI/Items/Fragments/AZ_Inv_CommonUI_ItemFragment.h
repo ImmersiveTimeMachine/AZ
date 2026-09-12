@@ -5,7 +5,9 @@
 #include "CoreMinimal.h"
 #include "GameplayAbilitySpecHandle.h"
 #include "GameplayTagContainer.h"
+#include "InventoryUI/AZ_Inv_CommonUI_ItemState.h"
 #include "StructUtils/InstancedStruct.h"
+#include "Weapon/AZ_WeaponTypes.h"
 
 #include "AZ_Inv_CommonUI_ItemFragment.generated.h"
 
@@ -323,8 +325,13 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	float SpreadBase{1.f};
 
+	/** Baseline FULL cone angle. Accepted-shot recoil adds twice its additional radius to this angle. */
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory|Weapon")
 	float SpreadAim{0.5f};
+
+	/** Shot-driven spread and owner camera kick; ammunition remains on canonical magazine items. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(EditCondition="bUsesDetachableMagazines"))
+	FAZ_FirearmRecoilSettings Recoil;
 
 	/** Static firearm tuning; magazine inventory items remain the only source of current rounds. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="1", ForceUnits="cm"))
@@ -334,14 +341,41 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
 	FName MuzzleSocketName = TEXT("Muzzle");
 
+	/** Requires a raised posture (timed Ready or explicit RMB precision aim). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
 	bool bRequiresAimToFire = true;
+
+	/** Keep the firing posture this long after an accepted shot; precision aim has its own input lifetime. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0.1", ClampMax="60", ForceUnits="s"))
+	float ReadyDurationSeconds = 3.f;
+
+	/** Initial relaxed-to-raised preparation. Already raised weapons use only their normal fire cadence. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0", ClampMax="2", ForceUnits="s"))
+	float FirearmRaiseDelaySeconds = 0.12f;
+
+	/** Definition defaults only; an owned firearm's selected mode lives in its item state. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(EditCondition="bUsesDetachableMagazines"))
+	EAZ_FirearmFireMode DefaultFireMode = EAZ_FirearmFireMode::Single;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(EditCondition="bUsesDetachableMagazines"))
+	TArray<EAZ_FirearmFireMode> SupportedFireModes = {EAZ_FirearmFireMode::Single, EAZ_FirearmFireMode::Automatic};
+
+	bool IsFireModeSupported(EAZ_FirearmFireMode Mode) const
+	{
+		return bUsesDetachableMagazines
+			&& (Mode == EAZ_FirearmFireMode::Single || Mode == EAZ_FirearmFireMode::Automatic)
+			&& SupportedFireModes.Contains(Mode);
+	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
 	TObjectPtr<USoundBase> FireSound = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
 	TObjectPtr<UNiagaraSystem> MuzzleFlash = nullptr;
+
+	/** Optional Cascade muzzle flash for authored weapon packs; Niagara takes priority if both are set. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	TObjectPtr<UParticleSystem> CascadeMuzzleFlash = nullptr;
 
 	/** Optional one-shot scenery impact; author the effect to emit outward along local +X. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")

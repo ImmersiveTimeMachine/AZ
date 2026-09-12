@@ -1,0 +1,43 @@
+{
+  "status": "compiled_saved_recoil_readback_passed",
+  "native_build": "Succeeded",
+  "blueprint_statuses": {
+    "/Game/AZ/Blueprints/Items/Equippables/Weapons/BPAZ_CommonUI_PickupItem.BPAZ_CommonUI_PickupItem": "<BlueprintStatus.BS_UP_TO_DATE: 3>",
+    "/Game/AZ/Blueprints/Menu/HUD/Reticles/WBP_AZ_Reticle_Rifle.WBP_AZ_Reticle_Rifle": "<BlueprintStatus.BS_UP_TO_DATE: 3>"
+  },
+  "rifle_manifest_count": 3,
+  "tuning": {
+    "bEnabled": "True",
+    "SpreadRadiusPerShotDegrees": "0.080000",
+    "MaxAdditionalSpreadRadiusDegrees": "1.000000",
+    "SpreadRecoveryDelaySeconds": "0.150000",
+    "SpreadRecoverySpeedDegreesPerSecond": "1.250000",
+    "bCameraKickEnabled": "True",
+    "CameraPitchKickDegrees": "0.550000",
+    "CameraYawKickRadiusDegrees": "0.180000",
+    "MaxCameraPitchDegrees": "5.000000",
+    "MaxCameraYawDegrees": "1.500000",
+    "CameraRecoveryDelaySeconds": "0.120000",
+    "CameraRecoverySpeedDegreesPerSecond": "7.000000"
+  },
+  "reticle_tick_frequency": "<WidgetTickFrequency.AUTO: 1>",
+  "dirty_content": [],
+  "dirty_maps": [],
+  "no_pie": true,
+  "reticle": {
+    "status": "audit",
+    "leaf": "/Game/AZ/Blueprints/Menu/HUD/Reticles/WBP_AZ_Reticle_Rifle.WBP_AZ_Reticle_Rifle",
+    "widget_count": 10,
+    "host_clipping": "Inherit",
+    "bindings": {
+      "ArmUp": true,
+      "ArmDown": true,
+      "ArmLeft": true,
+      "ArmRight": true,
+      "OutlineUp": true,
+      "OutlineDown": true,
+      "OutlineLeft": true,
+      "OutlineRight": true
+    }
+  }
+}

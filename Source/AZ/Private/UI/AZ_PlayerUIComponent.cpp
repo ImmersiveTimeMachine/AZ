@@ -1,16 +1,19 @@
 // Copyright Artur. AZ project.
 
 #include "UI/AZ_PlayerUIComponent.h"
+#include "Player/AZ_PlayerController.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "AZ_GameplayTags.h"
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "Player/AZ_PlayerState.h"
+#include "TimerManager.h"
 #include "UI/AZ_HUDReticleDefinition.h"
 #include "UI/AZ_HUDReticleWidget.h"
 #include "Weapon/AZ_Weapon.h"
@@ -29,6 +32,7 @@ namespace
 		Result.AddTag(Tags.State_Combat_StruckPair);
 		Result.AddTag(Tags.Ability_State_MeleeAttacking);
 		Result.AddTag(Tags.Ability_State_Reloading);
+		Result.AddTag(Tags.Ability_State_WeaponSwitching);
 		Result.AddTag(Tags.Movement_Sprinting);
 		return Result;
 	}
@@ -106,6 +110,7 @@ void UAZ_PlayerUIComponent::RefreshBindings()
 				.AddUObject(this, &ThisClass::HandleVitalsChanged);
 			FGameplayTagContainer ReticleTags = ReticleBlockedTags();
 			ReticleTags.AddTag(FAZ_GameplayTags::Get().Ability_State_Aiming);
+			ReticleTags.AddTag(FAZ_GameplayTags::Get().Ability_State_FirearmReady);
 			for (const FGameplayTag& Tag : ReticleTags)
 			{
 				ReticleTagChangedHandles.Add(Tag,
@@ -223,6 +228,8 @@ void UAZ_PlayerUIComponent::RefreshWeapon()
 		{
 			Next.bHasWeapon = true;
 			Next.bUsesMagazines = Definition->bUsesDetachableMagazines;
+			Next.SelectedFireMode = Item->GetSelectedFireMode();
+			Next.bHasFireMode = Definition->IsFireModeSupported(Next.SelectedFireMode);
 			const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 			const auto* Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name_StaticText);
 			if (!Name) Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name);
@@ -255,7 +262,9 @@ void UAZ_PlayerUIComponent::RefreshWeapon()
 void UAZ_PlayerUIComponent::RefreshReticle()
 {
 	FAZ_PlayerReticleView Next;
+	bool bNeedsRecoverySample = false;
 	const APlayerController* Player = OwningController.Get();
+	const AAZ_PlayerController* AZPlayer = Cast<AAZ_PlayerController>(Player);
 	const APawn* Pawn = IsValid(Player) ? Player->GetPawn() : nullptr;
 	const UAbilitySystemComponent* ASC = BoundASC.Get();
 	const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = BoundEquipment.Get();
@@ -282,11 +291,15 @@ void UAZ_PlayerUIComponent::RefreshReticle()
 				Next.WeaponProfile = Profile;
 				Next.WeaponItemId = Item->GetInstanceId();
 				Next.bAiming = ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().Ability_State_Aiming);
-				// GA_FirearmFire currently uses this full cone angle in every firing mode.
-				// Legacy ASC spread and cosmetic movement/recoil bloom are not shot inputs.
-				if (WeaponDefinition->bUsesDetachableMagazines && FMath::IsFinite(WeaponDefinition->SpreadAim))
+				const UWorld* World = GetWorld();
+				const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+				const double ServerTime = GameState ? GameState->GetServerWorldTimeSeconds()
+					: World ? World->GetTimeSeconds() : 0.0;
+				// Share the firearm's analytical item state and server clock. The UI never
+				// accumulates shots or advances its own recovery curve.
+				if (WeaponDefinition->bUsesDetachableMagazines)
 				{
-					Next.SpreadAngleDegrees = FMath::Clamp(WeaponDefinition->SpreadAim, 0.f, 180.f);
+					Next.SpreadAngleDegrees = Item->GetFirearmSpreadAngleDegrees(ServerTime);
 				}
 				// Read current source values: tag callbacks can run before the other UI snapshots
 				// refresh, and inventory menu listeners may be invoked in either order.
@@ -294,9 +307,31 @@ void UAZ_PlayerUIComponent::RefreshReticle()
 				const bool bAlive = IsValid(Vitals) && FMath::IsFinite(Vitals->GetHealth())
 					&& FMath::IsFinite(Vitals->GetMaxHealth()) && Vitals->GetHealth() > 0.f && Vitals->GetMaxHealth() > 0.f;
 				Next.bVisible = bAlive && !Inventory->IsMenuOpen()
+					&& (!AZPlayer || !AZPlayer->IsInventoryInputCaptured())
 					&& !ASC->HasAnyMatchingGameplayTags(ReticleBlockedTags())
-					&& (!Definition->bAimOnly || Next.bAiming);
+					&& (!Definition->bAimOnly || Equipment->IsFirearmRaised());
+				bNeedsRecoverySample = Next.bVisible
+					&& Item->GetFirearmExtraSpreadRadiusDegrees(ServerTime) > 0.f;
 			}
+		}
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& Timers = World->GetTimerManager();
+		if (bNeedsRecoverySample)
+		{
+			if (!Timers.IsTimerActive(ReticleRecoveryTimer))
+			{
+				FTimerManagerTimerParameters Parameters;
+				Parameters.bLoop = true;
+				Parameters.bMaxOncePerFrame = true;
+				Timers.SetTimer(ReticleRecoveryTimer, this, &ThisClass::RefreshReticle, 1.f / 60.f, Parameters);
+			}
+		}
+		else
+		{
+			Timers.ClearTimer(ReticleRecoveryTimer);
 		}
 	}
 
@@ -372,6 +407,11 @@ void UAZ_PlayerUIComponent::HandleInventoryVisibilityChanged(bool bOpen)
 	bInventoryOpen = bOpen;
 	RefreshReticle();
 	OnInventoryVisibilityChanged.Broadcast(bInventoryOpen);
+}
+
+void UAZ_PlayerUIComponent::NotifyInputCaptureChanged()
+{
+	RefreshReticle();
 }
 
 void UAZ_PlayerUIComponent::HandleInventoryFull()

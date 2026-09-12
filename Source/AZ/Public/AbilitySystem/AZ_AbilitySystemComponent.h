@@ -160,6 +160,10 @@ public:
 
 protected:
 
+	/** Resolve remote sprint intent before GAS checks Ready's strafe contribution. */
+	virtual void ServerTryActivateAbility_Implementation(FGameplayAbilitySpecHandle AbilityToActivate,
+		bool InputPressed, FPredictionKey PredictionKey) override;
+
 	/*UFUNCTION(Client, Reliable)
 	void ClientEffectApplied(UAbilitySystemComponent* AbilitySystemComponent, const FGameplayEffectSpec& EffectSpec, FActiveGameplayEffectHandle ActiveEffectHandle);*/
 
