@@ -10,8 +10,12 @@
 // and [v2 Cam]; a recording synced to the log found them. This line would have shown the first one directly.
 // Throttled to ~10 Hz while aiming and something is moving. az.Aim.Debug 0 silences it.
 static TAutoConsoleVariable<int32> CVarAZAimDebug(
-	TEXT("az.Aim.Debug"), 1,
+	TEXT("az.Aim.Debug"), 0,
 	TEXT("1 = log [v2 Aim] upper-body aim telemetry (residual, AO target/actual yaw, fade weight, aim alpha, body yaw rate, SM)."),
+	ECVF_Default);
+static TAutoConsoleVariable<int32> CVarAZLeanDebug(
+	TEXT("az.Lean.Debug"), 0,
+	TEXT("1 = log [v2 Lean] lean-chain diagnostic every moving frame (rel, smoothed accel, budgets, lean). Off by default: ~60 lines/s."),
 	ECVF_Default);
 
 #include "Character/Cmc/AZ_CmcCharacterBase.h"          // [SPIKE: spike/cmc-backport] CMC (v3) backend
@@ -857,8 +861,8 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		//   smAcc ~ 0         -> no acceleration reaching us (steady speed = genuinely no lean).
 		//   rel ~ 0 w/ smAcc  -> budgets swamp the signal (turn/accel too gentle vs the reference).
 		//   lean != 0         -> C++ is fine and the remaining fault is the ABP binding.
-		// Gated to moving frames so idle does not spam. Remove once answered.
-		if (ChooserContext.bIsMoving)
+		// Gated to moving frames so idle does not spam, and OFF unless az.Lean.Debug=1 (was ~84 lines/s).
+		if (CVarAZLeanDebug.GetValueOnGameThread() != 0 && ChooserContext.bIsMoving)
 		{
 			UE_LOG(LogTemp, Warning,
 				TEXT("[v2 Lean] rel=(%+.2f,%+.2f) smAcc=%.0f budA=%.0f budD=%.0f scale=%.2f -> lean=(%+.2f,%+.2f) a=%.2f | gate=%d spd=%.0f SM=%d"),
@@ -1264,7 +1268,7 @@ void UAZ_MoverAnimInstance::UpdateAnimation_Cmc(float DeltaSeconds)
 // Keep the turn diagnostic so the fixed playback rate can be checked in user logs.
 
 static TAutoConsoleVariable<int32> CVarAZTipRateDebug(
-	TEXT("az.TipRate.Debug"), 1,
+	TEXT("az.TipRate.Debug"), 0,
 	TEXT("1 = log [v2 TipRate] (SM turn state, body yaw rate, clip rate, play rate handed to the turn-in-place clip)."),
 	ECVF_Default);
 

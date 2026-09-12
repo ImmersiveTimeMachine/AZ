@@ -216,3 +216,12 @@ Use the rifle's own `AZ_RTG_MH_W2_*_Aim_Turn_In_Place_*_IPC` loops for the LOWER
 aiming (never relaxed). The upper-body lock already makes any turn clip lower-body-only. The machinery is
 built and off behind `bAimTurnInPlaceEnabled`; the constraints are in memory
 `project_aim_tip_next_session_2026-09-12`.
+
+## Status 2026-09-12: aim turn-in-place ON
+
+Enabled on the MHC pawn's walking mode with the rifle `*_Aim_Turn_In_Place_{L,R}_Loop_IPC` loops as legs under the
+aim lock. Yaw-rate clamp tuned by the user to 360 deg/s (loop plays at 1.0, feet skate accepted for the speed),
+enter 45, exit 6. Log proof at rate 67: body yaw rate pinned at exactly 67 for 142 frames, correct rows picked;
+the pistol picks its own `AS_Pistol_TurnL/R_90Loop`. The telemetry console variables now default to 0
+(`[v2 Facing]` logged ~60x per frame and caused in-game lag); `az.Lean.Debug` gates the lean diagnostic.
+Follow-ups if the skate matters: per-weapon rate from the profile clip rate, discrete root-motion turns.

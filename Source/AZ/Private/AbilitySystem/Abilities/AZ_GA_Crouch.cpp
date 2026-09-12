@@ -1,6 +1,6 @@
 #include "AbilitySystem/Abilities/AZ_GA_Crouch.h"
 
-#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
+#include "Abilities/Tasks/AbilityTask_WaitInputPress.h"
 #include "Character/AZ_HeroCharacter.h"
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -22,16 +22,16 @@ void UAZ_GA_Crouch::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	// bTestAlreadyReleased=true: on the server the activation arrives via replication and the
-	// client may ALREADY have released a fast tap — the task then fires immediately instead
-	// of waiting forever for an event that already passed.
-	UAbilityTask_WaitInputRelease* WaitRelease =
-			UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased*/ true);
-	WaitRelease->OnRelease.AddDynamic(this, &UAZ_GA_Crouch::OnCrouchInputReleased);
-	WaitRelease->ReadyForActivation();   // ← the line everyone forgets in C++ (BP latent nodes call it for you)
-
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
-	// NO EndAbility here — staying active IS the feature (the held tag is the crouch state).
+	if (!IsActive()) return;
+	// Crouch is a toggle: ignore the activation press and wait for the NEXT press.
+	// The GAS task carries that edge to authority, including a fast second tap.
+	// Retain the existing reflected callback name for loaded Blueprint compatibility.
+	UAbilityTask_WaitInputPress* WaitPress =
+		UAbilityTask_WaitInputPress::WaitInputPress(this, /*bTestAlreadyPressed*/ false);
+	WaitPress->OnPress.AddDynamic(this, &UAZ_GA_Crouch::OnCrouchInputReleased);
+	WaitPress->ReadyForActivation();
+	// Remaining active owns Movement.Crouching; key release no longer ends it.
 }
 
 bool UAZ_GA_Crouch::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -63,6 +63,7 @@ void UAZ_GA_Crouch::EndAbility(const FGameplayAbilitySpecHandle Handle, const FG
 
 void UAZ_GA_Crouch::OnCrouchInputReleased(float TimeHeld)
 {
+	// Legacy reflected name; now called by the next-press task to toggle standing.
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
 			   /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 

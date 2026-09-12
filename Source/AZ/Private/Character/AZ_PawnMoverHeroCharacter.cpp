@@ -7,7 +7,7 @@
 // to be diagnosed by guesswork. One line at 4 Hz, only while the view or the body is actually turning, carrying
 // everything the framing depends on. az.Cam.Debug 0 silences it.
 static TAutoConsoleVariable<int32> CVarAZCamDebug(
-	TEXT("az.Cam.Debug"), 1,
+	TEXT("az.Cam.Debug"), 0,
 	TEXT("1 = log [v2 Cam] camera/facing telemetry (local pawn, 4 Hz, only while the view or body turns)."),
 	ECVF_Default);
 #include "MoverComponent.h"   // GetBaseVisualComponentTransform (grab mesh anchor rest Z)

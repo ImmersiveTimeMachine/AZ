@@ -20,7 +20,7 @@
 // turn-in-place pacing should have capped it near 67: the pacing did not run, and only the sim can say whether
 // that is the RotationMode, a missing custom-input block, held move input, or a delta the mode disagrees with.
 static TAutoConsoleVariable<int32> CVarAZFacingDebug(
-	TEXT("az.Facing.Debug"), 1,
+	TEXT("az.Facing.Debug"), 0,
 	TEXT("1 = log [v2 Facing] sim-side facing-branch telemetry (which branch, smoothing time, delta, angular velocity)."),
 	ECVF_Default);
 

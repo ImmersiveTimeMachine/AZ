@@ -456,6 +456,19 @@ void AAZ_PlayerController::OnUnPossess()
 {
 	ClearFirearmRecoil();
 	if (QuickSelect) QuickSelect->Close();
+	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
+	{
+		// Toggle stance must not follow the persistent PlayerState ASC into a new pawn.
+		const FGameplayTag CrouchInput = FAZ_GameplayTags::Get().Input_Action_Crouch;
+		TArray<FGameplayAbilitySpecHandle> CrouchHandles;
+		for (const FGameplayAbilitySpec& Spec : Asc->GetActivatableAbilities())
+		{
+			if (Spec.IsActive() && Spec.GetDynamicSpecSourceTags().HasTagExact(CrouchInput))
+				CrouchHandles.Add(Spec.Handle);
+		}
+		Asc->ClearWeaponInput(FGameplayTagContainer(CrouchInput));
+		for (const FGameplayAbilitySpecHandle& Handle : CrouchHandles) Asc->CancelAbilityHandle(Handle);
+	}
 	RemovePawnInputMappingContext(GetPawn());
 	Super::OnUnPossess();
 	if (PlayerUI) PlayerUI->RefreshBindings();
@@ -561,10 +574,29 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 			Asc->ClearWeaponInput(FGameplayTagContainer(FAZ_GameplayTags::Get().Input_Action_PrimaryAttack));
 			ClearFirearmRecoil();
 		}
+		// The next crouch press ends its waiting ability synchronously. Snapshot
+		// before dispatch so that same press cannot immediately activate it again.
+		const bool bCrouchInput = InputTag == FAZ_GameplayTags::Get().Input_Action_Crouch;
+		bool bCrouchWasActive = false;
+		if (bCrouchInput)
+		{
+			for (const FGameplayAbilitySpec& Spec : Asc->GetActivatableAbilities())
+			{
+				if (Spec.IsActive() && Spec.GetDynamicSpecSourceTags().HasTagExact(InputTag))
+				{
+					bCrouchWasActive = true;
+					break;
+				}
+			}
+		}
 		Asc->AbilityInputTagPressed(InputTag);
 		// Firearm actions own their cadence. A held frame must never become another
 		// semi-auto shot, or a shot after a failed press while aim was unavailable.
-		if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim
+		if (bCrouchInput)
+		{
+			if (!bCrouchWasActive) Asc->AbilityInputTagHeld(InputTag, false);
+		}
+		else if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim
 			|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload || IsFreshPressFireInput(Asc, InputTag))
 		{
 			const bool bActivated = Asc->AbilityInputTagHeld(InputTag, false);
@@ -607,7 +639,8 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 	if (MenuSuppressedInputTags.Contains(InputTag)) return;
 	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_PrimaryAttack
-		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload) return;
+		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload
+		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Crouch) return;
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		if (IsFreshPressFireInput(Asc, InputTag)) return;

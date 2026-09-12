@@ -62,6 +62,8 @@ Migrated from UE 5.7.4 on 2026-05-10. Active work: v2 character system (hero paw
 
 ## AZ Project State (sessions, plans, decisions)
 
+- [Ctrl toggle crouch](../design-briefs/crouch-toggle-status.md) — 2026-09-12: first Started press activates, next replicated InputPressed ends; release/held no longer toggle. Active-spec snapshot prevents immediate reactivation; unpossess cancels crouch. Native body-only fix built8.96s and Live Coding applied18:31:21UTC; no assets/PIE/tests. Existing reflected release callback name is intentionally retained but bound to next press.
+
 - [Fixed player animation speed](../design-briefs/player-animation-rate-status.md) — User requires player playback at 1x, including impacts. Removed turn/locomotion and automatic-fire retiming; player hit-stop bypassed. Rifle/pistol loop scaling disabled, all rate settings1; eight wall retracts now reverse at magnitude1, hero grab GroundMunch trimmed one near-identical end frame to preserve paired timing at1. Assets saved and Live Coding applied02:17UTC2026-09-12. Do not restore body-speed/cadence animation compensation. User visual check pending; receipts/backups in Saved/AnimationRate.
 
 - [Firearm Ready implementation](../design-briefs/firearm-ready-implementation-status.md) — 2026-09-11: approved LMB raise/fire without precisionzoom implemented forrifle+pistol;3s Ready,.12s raise, RMBprecision, exact initialshot queue andAUTO/reloadholds. Source-ownedReady/strafe, source+prediction-key receipts, cancellation/sprint integration. Fullbuild passed47.35s/DLL22:14:01UTC; finalbodyguardLiveCoding31s patch22:16:20. Native defaults3/.12 andbothFireBP cancellation policies verified. User gameplaychecknext; noPIE/testsstarted. Normalbuild beforefutureeditorrestart retainsfinalguard.
