@@ -1,6 +1,6 @@
 ---
 name: project_aim_tip_next_session_2026-09-12
-description: "★★★ START HERE 2026-09-12: user's instruction for the next session — aim turn-in-place using the rifle's own AZ_RTG_MH_W2_*_Aim_Turn_In_Place loops for the LOWER BODY ONLY, only while aiming (never relaxed). All machinery exists and is switched off; the wrong turns of 2026-09-11 and the numbers that constrain the design are listed here."
+description: "★★★ 2026-09-12 aim turn-in-place SHIPPED and ON: rifle AZ_RTG_MH_W2_*_Aim_Turn_In_Place_*_Loop_IPC loops for the lower body under the aim lock, capsule yaw-rate clamp 360 deg/s (user-tuned, feet skate accepted), enter 45 / exit 6; pistol picks its own TurnL/R_90Loop. Telemetry CVars now default 0 (az.Aim.Debug 1 to see [v2 Aim]). Open follow-ups: per-weapon rate, discrete RM turns."
 metadata:
   type: project
   originSessionId: 3dd30bd7-e1c4-47aa-8af7-41a2784f5a5a
@@ -8,6 +8,19 @@ metadata:
 ---
 
 # Aim turn-in-place — where the next session starts (user, 2026-09-11 23:59)
+
+## STATUS 2026-09-12 (after the session): DONE, user: "OK IT WORKS", then "360 for me works"
+- `bAimTurnInPlaceEnabled` = true on the MHC pawn's walking mode, `AimTurnInPlaceRateDegPerSec` = **360**
+  (user tuned from 67 -> 120 -> 360; the loop still plays at 1.0, so the feet skate during the turn and the
+  user accepts that for the speed), enter 45, exit 6. Saved in `AZ_BP_PawnMoverHero_MHC` 14:49.
+- Log proof of the mechanism (rate 67 run): 142 frames in SM 10/11, bodyYawRate pinned at exactly 67, picks =
+  `Stand_Aim_Turn_In_Place_{L,R}_Loop_IPC`; the PISTOL picks `AS_Pistol_TurnL/R_90Loop` (rows gated correctly).
+- Telemetry defaults flipped to 0 the same day (`az.Aim.Debug`, `az.Cam.Debug`, `az.Facing.Debug`,
+  `az.TipRate.Debug`, new `az.Lean.Debug`): `[v2 Facing]` logged ~60x/frame from inside GenerateWalkMove
+  (4,400 lines/s) and caused the user's in-game lag. Enable per test in the PIE console.
+- Open follow-ups if the skate bothers later: (1) per-weapon rate = profile `AimTurnInPlaceClipRateDegPerSec`
+  (rifle 67 / pistol 90) x one multiplier on the walking mode; (2) discrete RM turn clips for big swings
+  (pistol has 90/180, rifle has none).
 
 **The instruction, verbatim intent:** "we have turn anims, so we can use `AZ_RTG_MH_W2_*_Aim_Turn_In_Place`
 for the lower body only, when we are in aim, not in relaxed — remember, tomorrow we start from this."
