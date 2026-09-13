@@ -1,0 +1,121 @@
+{
+    "mesh":  "/Game/SurvivalMan/Meshes/Parts/Without_a_jacket/SKM_SurvivalMan_backpack2",
+    "source_assets_saved":  false,
+    "preview_scope":  "Original base color only; complex Unreal weather material is not recreated.",
+    "slots":  [
+                  {
+                      "slot":  0,
+                      "slot_name":  "SurvivalMan_Backpack",
+                      "material_instance":  "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst",
+                      "parent":  "/Game/SurvivalMan/MAT/M_SurvivalMan_Backpack",
+                      "texture_parameters":  [
+
+                                             ],
+                      "textures":  [
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Backpack_BaseColor",
+                                           "srgb":  true,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_DEFAULT: 0\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\textures\\T_SurvivalMan_Backpack_BaseColor.png",
+                                           "export_success":  true,
+                                           "export_errors":  [
+
+                                                             ],
+                                           "export_bytes":  29529415,
+                                           "png_dimensions":  [
+                                                                  4096,
+                                                                  4096
+                                                              ]
+                                       },
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Backpack_Normal",
+                                           "srgb":  false,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_NORMALMAP: 1\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  null
+                                       },
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Backpack_OcclusionRoughnessMetallic",
+                                           "srgb":  true,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_DEFAULT: 0\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  null
+                                       }
+                                   ]
+                  },
+                  {
+                      "slot":  1,
+                      "slot_name":  "SurvivalMan_Jacket",
+                      "material_instance":  "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Jacket_Inst",
+                      "parent":  "/Game/SurvivalMan/MAT/M_SurvivalMan_Jacket",
+                      "texture_parameters":  [
+
+                                             ],
+                      "textures":  [
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Jacket_BaseColor",
+                                           "srgb":  true,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_DEFAULT: 0\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\textures\\T_SurvivalMan_Jacket_BaseColor.png",
+                                           "export_success":  true,
+                                           "export_errors":  [
+
+                                                             ],
+                                           "export_bytes":  27532926,
+                                           "png_dimensions":  [
+                                                                  4096,
+                                                                  4096
+                                                              ]
+                                       },
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Jacket_Normal",
+                                           "srgb":  false,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_NORMALMAP: 1\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  null
+                                       },
+                                       {
+                                           "asset":  "/Game/SurvivalMan/TXT/Clothes/T_SurvivalMan_Jacket_OcclusionRoughnessMetallic",
+                                           "srgb":  true,
+                                           "compression":  "\u003cTextureCompressionSettings.TC_DEFAULT: 0\u003e",
+                                           "flip_green_channel":  false,
+                                           "export_png":  null
+                                       }
+                                   ]
+                  }
+              ],
+    "source_sha256_before":  {
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\Meshes\\Parts\\Without_a_jacket\\SKM_SurvivalMan_backpack2.uasset":  "cee0d0604791dabe3e1ab966916594a387709e9b252f1af17582c99262ea4639",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\MaterialInstance\\Clothes\\MI_SurvivalMan_Backpack_Inst.uasset":  "22083067e436153214ea81db1b80f86d5ee96acd266a0c2dc5a073649f134c82",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\M_SurvivalMan_Backpack.uasset":  "082b157307538d627c3a4f5184f7a0a3f94974004bc4bdfaf43ef92b219f65e7",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_BaseColor.uasset":  "26f2dfa69ee853eaf5cd9e633d99ba4613487341d0d3aa76ceb6ded4d796f122",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_Normal.uasset":  "35605d2424b377e0b73b61601edbaaa11821d1ebee2687b679caa81b610c0815",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_OcclusionRoughnessMetallic.uasset":  "189f98f689e193cc0e48503e0b823327b49f84d89f8573e998716f6806899c0b",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\MaterialInstance\\Clothes\\MI_SurvivalMan_Jacket_Inst.uasset":  "8cf238d8c5636521f5b9b98feeb3fdfe7ed23f0825516000fe45c1de3f19cd79",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\M_SurvivalMan_Jacket.uasset":  "b8f8194869524051876ac8f81963a5a99ebe0ccf6f3ebf1cab5abd9bafe97add",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_BaseColor.uasset":  "ee8c6cad14d1db4d8d2334760e68a09baaea5805148c4245bc993ebaea1ce23f",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_Normal.uasset":  "9a23e2539d1ddda019ca1404aae575927e1b28220b17fac97c31154bd2bd2c5d",
+                                 "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_OcclusionRoughnessMetallic.uasset":  "1103d597c77ebd7dc924c048d72efd197ed889c35aebca18249f48273915db86"
+                             },
+    "source_sha256_after":  {
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\Meshes\\Parts\\Without_a_jacket\\SKM_SurvivalMan_backpack2.uasset":  "cee0d0604791dabe3e1ab966916594a387709e9b252f1af17582c99262ea4639",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\MaterialInstance\\Clothes\\MI_SurvivalMan_Backpack_Inst.uasset":  "22083067e436153214ea81db1b80f86d5ee96acd266a0c2dc5a073649f134c82",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\M_SurvivalMan_Backpack.uasset":  "082b157307538d627c3a4f5184f7a0a3f94974004bc4bdfaf43ef92b219f65e7",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_BaseColor.uasset":  "26f2dfa69ee853eaf5cd9e633d99ba4613487341d0d3aa76ceb6ded4d796f122",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_Normal.uasset":  "35605d2424b377e0b73b61601edbaaa11821d1ebee2687b679caa81b610c0815",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Backpack_OcclusionRoughnessMetallic.uasset":  "189f98f689e193cc0e48503e0b823327b49f84d89f8573e998716f6806899c0b",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\MaterialInstance\\Clothes\\MI_SurvivalMan_Jacket_Inst.uasset":  "8cf238d8c5636521f5b9b98feeb3fdfe7ed23f0825516000fe45c1de3f19cd79",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\MAT\\M_SurvivalMan_Jacket.uasset":  "b8f8194869524051876ac8f81963a5a99ebe0ccf6f3ebf1cab5abd9bafe97add",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_BaseColor.uasset":  "ee8c6cad14d1db4d8d2334760e68a09baaea5805148c4245bc993ebaea1ce23f",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_Normal.uasset":  "9a23e2539d1ddda019ca1404aae575927e1b28220b17fac97c31154bd2bd2c5d",
+                                "C:\\UnrealEngine\\Games\\AZ\\Content\\SurvivalMan\\TXT\\Clothes\\T_SurvivalMan_Jacket_OcclusionRoughnessMetallic.uasset":  "1103d597c77ebd7dc924c048d72efd197ed889c35aebca18249f48273915db86"
+                            },
+    "source_hashes_unchanged":  true,
+    "identification_notes":  [
+                                 "Backpack atlas visibly includes cloth bag and pocket panels, buckles and straps, axe/hatchet metal and wood, knife wood with blue tape, and canteen surfaces.",
+                                 "User reference views identify a knife at the shoulder strap, side axe/hatchet with pointed rear spike, canteen in side pocket, and rope around bag.",
+                                 "Only base color preview is exported; ORM channel interpretation is intentionally not assumed from filename. Original ORM textures have sRGB=true."
+                             ]
+}

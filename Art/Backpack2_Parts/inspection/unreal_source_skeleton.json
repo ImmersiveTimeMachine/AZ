@@ -1,0 +1,547 @@
+{
+  "bones": [
+    {
+      "name": "root",
+      "parent": "None",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pelvis",
+      "parent": "root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.022415, y: 0.706751, z: 0.022415, w: -0.706751}, translation: {x: -0.000000, y: 2.280866, z: 95.896782}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "spine_01",
+      "parent": "pelvis",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: -0.125830, w: -0.992052}, translation: {x: 3.677053, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "spine_02",
+      "parent": "spine_01",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.030229, w: -0.999543}, translation: {x: 6.795057, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "spine_03",
+      "parent": "spine_02",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.095377, w: -0.995441}, translation: {x: 7.238228, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "spine_04",
+      "parent": "spine_03",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000004, y: -0.000000, z: 0.051177, w: -0.998690}, translation: {x: 8.523893, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "spine_05",
+      "parent": "spine_04",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000004, y: -0.000000, z: 0.005946, w: -0.999982}, translation: {x: 19.439800, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "neck_01",
+      "parent": "spine_05",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: -0.207301, w: -0.978277}, translation: {x: 11.887766, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "neck_02",
+      "parent": "neck_01",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000001, y: 0.000000, z: 0.016698, w: -0.999861}, translation: {x: 5.110260, y: 0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "head",
+      "parent": "neck_02",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000001, y: 0.000000, z: 0.103488, w: -0.994631}, translation: {x: 4.912971, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "clavicle_l",
+      "parent": "spine_05",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.083278, y: -0.754560, z: -0.041290, w: -0.649614}, translation: {x: 5.516269, y: -1.314766, z: -1.427904}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_l",
+      "parent": "clavicle_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.019943, y: -0.391734, z: -0.020195, w: -0.919641}, translation: {x: 17.809523, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_l",
+      "parent": "upperarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: -0.333633, w: -0.942703}, translation: {x: 27.771139, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_twist_02_l",
+      "parent": "lowerarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.011478, y: 0.014877, z: 0.017495, w: -0.999670}, translation: {x: 9.083692, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_twist_01_l",
+      "parent": "lowerarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.011478, y: 0.014877, z: 0.017495, w: -0.999670}, translation: {x: 18.167383, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "hand_l",
+      "parent": "lowerarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.557587, y: -0.001678, z: 0.020561, w: -0.829862}, translation: {x: 27.251074, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_metacarpal_l",
+      "parent": "hand_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.028966, y: -0.063705, z: -0.007109, w: -0.997523}, translation: {x: 3.444506, y: 0.384681, z: -2.379324}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_01_l",
+      "parent": "index_metacarpal_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.202557, w: -0.979271}, translation: {x: 5.877098, y: -0.043182, z: 0.240876}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_02_l",
+      "parent": "index_01_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.129597, w: -0.991567}, translation: {x: 4.080000, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_03_l",
+      "parent": "index_02_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.109009, w: -0.994041}, translation: {x: 2.595000, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_metacarpal_l",
+      "parent": "hand_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.037291, y: 0.000386, z: -0.020259, w: -0.999099}, translation: {x: 3.375834, y: 0.753571, z: -0.182864}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_01_l",
+      "parent": "middle_metacarpal_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.272051, w: -0.962283}, translation: {x: 6.098209, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_02_l",
+      "parent": "middle_01_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.180255, w: -0.983620}, translation: {x: 5.169000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_03_l",
+      "parent": "middle_02_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.087156, w: -0.996195}, translation: {x: 2.474000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_01_l",
+      "parent": "hand_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.505193, y: -0.369130, z: -0.067039, w: -0.777193}, translation: {x: 1.992447, y: -1.356605, z: -2.581536}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_02_l",
+      "parent": "thumb_01_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.033565, y: 0.010302, z: 0.201856, w: -0.978786}, translation: {x: 4.378000, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_03_l",
+      "parent": "thumb_02_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.087156, w: -0.996195}, translation: {x: 3.086000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_metacarpal_l",
+      "parent": "hand_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.218231, y: 0.188166, z: 0.058286, w: -0.955809}, translation: {x: 3.314378, y: 0.305917, z: 2.391111}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_01_l",
+      "parent": "pinky_metacarpal_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.089984, y: -0.017016, z: 0.128066, w: -0.987528}, translation: {x: 4.957568, y: 0.143120, z: -0.198840}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_02_l",
+      "parent": "pinky_01_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.184698, w: -0.982795}, translation: {x: 3.816000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_03_l",
+      "parent": "pinky_02_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.042896, w: -0.999080}, translation: {x: 2.040000, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_metacarpal_l",
+      "parent": "hand_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.116599, y: 0.100569, z: -0.025660, w: -0.987741}, translation: {x: 3.374304, y: 0.542517, z: 1.091757}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_01_l",
+      "parent": "ring_metacarpal_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.054216, y: -0.013177, z: 0.253540, w: -0.965715}, translation: {x: 5.645517, y: 0.041625, z: -0.020689}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_02_l",
+      "parent": "ring_01_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.164738, w: -0.986337}, translation: {x: 4.977000, y: 0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_03_l",
+      "parent": "ring_02_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.079921, w: -0.996801}, translation: {x: 2.265000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_twist_01_l",
+      "parent": "upperarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000054, y: 0.018790, z: -0.002850, w: -0.999819}, translation: {x: 9.257046, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_twist_02_l",
+      "parent": "upperarm_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 18.514091, y: -0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "clavicle_r",
+      "parent": "spine_05",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.754560, y: 0.083278, z: -0.649614, w: 0.041290}, translation: {x: 5.516220, y: -1.314811, z: 1.427873}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_r",
+      "parent": "clavicle_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.019943, y: -0.391734, z: -0.020195, w: -0.919641}, translation: {x: -17.809626, y: -0.000003, z: 0.000438}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_r",
+      "parent": "upperarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: -0.333633, w: -0.942703}, translation: {x: -27.770695, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_twist_02_r",
+      "parent": "lowerarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.011478, y: 0.014877, z: 0.017495, w: -0.999670}, translation: {x: -9.083662, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lowerarm_twist_01_r",
+      "parent": "lowerarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.011478, y: 0.014877, z: 0.017495, w: -0.999670}, translation: {x: -18.167305, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "hand_r",
+      "parent": "lowerarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.557587, y: -0.001678, z: 0.020561, w: -0.829862}, translation: {x: -27.251011, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_metacarpal_r",
+      "parent": "hand_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.218231, y: 0.188166, z: 0.058286, w: -0.955809}, translation: {x: -3.314677, y: -0.305935, z: -2.391287}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_01_r",
+      "parent": "pinky_metacarpal_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.089984, y: -0.017016, z: 0.128066, w: -0.987528}, translation: {x: -4.957301, y: -0.143261, z: 0.198920}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_02_r",
+      "parent": "pinky_01_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.184698, w: -0.982795}, translation: {x: -3.816036, y: -0.000030, z: 0.000033}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "pinky_03_r",
+      "parent": "pinky_02_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.042896, w: -0.999080}, translation: {x: -2.040000, y: 0.000018, z: -0.000031}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_metacarpal_r",
+      "parent": "hand_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.116599, y: 0.100569, z: -0.025660, w: -0.987741}, translation: {x: -3.374208, y: -0.542992, z: -1.091782}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_01_r",
+      "parent": "ring_metacarpal_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.054216, y: -0.013177, z: 0.253540, w: -0.965715}, translation: {x: -5.645712, y: -0.041443, z: 0.020675}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_02_r",
+      "parent": "ring_01_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.164738, w: -0.986337}, translation: {x: -4.977067, y: 0.000021, z: -0.000024}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ring_03_r",
+      "parent": "ring_02_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.079921, w: -0.996801}, translation: {x: -2.264975, y: -0.000050, z: -0.000011}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_metacarpal_r",
+      "parent": "hand_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.037291, y: 0.000386, z: -0.020259, w: -0.999099}, translation: {x: -3.375800, y: -0.754004, z: 0.182806}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_01_r",
+      "parent": "middle_metacarpal_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.272051, w: -0.962283}, translation: {x: -6.098366, y: 0.000124, z: 0.000001}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_02_r",
+      "parent": "middle_01_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.180255, w: -0.983620}, translation: {x: -5.168992, y: 0.000077, z: -0.000037}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "middle_03_r",
+      "parent": "middle_02_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.087156, w: -0.996195}, translation: {x: -2.474047, y: -0.000046, z: 0.000034}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_metacarpal_r",
+      "parent": "hand_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.028966, y: -0.063705, z: -0.007109, w: -0.997523}, translation: {x: -3.444514, y: -0.385167, z: 2.379309}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_01_r",
+      "parent": "index_metacarpal_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.202557, w: -0.979271}, translation: {x: -5.877205, y: 0.043412, z: -0.240952}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_02_r",
+      "parent": "index_01_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.129597, w: -0.991567}, translation: {x: -4.079933, y: -0.000005, z: 0.000032}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "index_03_r",
+      "parent": "index_02_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: 0.109009, w: -0.994041}, translation: {x: -2.595076, y: -0.000040, z: -0.000004}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_01_r",
+      "parent": "hand_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.505193, y: -0.369130, z: -0.067039, w: -0.777193}, translation: {x: -1.992833, y: 1.356657, z: 2.581326}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_02_r",
+      "parent": "thumb_01_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.033565, y: 0.010302, z: 0.201856, w: -0.978786}, translation: {x: -4.377825, y: -0.000427, z: -0.000136}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thumb_03_r",
+      "parent": "thumb_02_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: 0.087156, w: -0.996195}, translation: {x: -3.085952, y: 0.000015, z: 0.000046}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_twist_01_r",
+      "parent": "upperarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000054, y: 0.018790, z: -0.002850, w: -0.999819}, translation: {x: -9.256898, y: -0.000010, z: -0.000101}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "upperarm_twist_02_r",
+      "parent": "upperarm_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: 0.000000, z: 0.000000, w: -1.000000}, translation: {x: -18.513796, y: -0.000020, z: -0.000202}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack2",
+      "parent": "spine_04",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.058267, y: 0.704699, z: 0.704705, w: -0.058267}, translation: {x: 28.074049, y: -14.068564, z: -0.000110}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack3",
+      "parent": "Backpack2",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.252540, y: -0.194816, z: 0.578900, w: -0.750429}, translation: {x: 36.345436, y: 0.000000, z: -6.372451}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack4",
+      "parent": "Backpack3",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.308199, y: 0.316858, z: -0.441723, w: -0.780701}, translation: {x: 15.681931, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack5",
+      "parent": "Backpack4",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.008006, y: 0.044697, z: -0.118062, w: -0.991967}, translation: {x: 12.081180, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack6",
+      "parent": "Backpack3",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.653718, y: -0.713870, z: 0.074257, w: 0.239850}, translation: {x: -2.129678, y: 9.485408, z: -13.241773}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack7",
+      "parent": "Backpack6",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.250380, y: 0.000000, z: 0.000000, w: -0.968148}, translation: {x: 6.846178, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Axe1",
+      "parent": "Backpack3",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.047393, y: -0.147430, z: 0.105899, w: -0.982244}, translation: {x: -9.870074, y: 3.338538, z: -11.288581}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack9",
+      "parent": "Backpack3",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.443353, y: 0.368762, z: -0.474918, w: -0.664759}, translation: {x: 9.990825, y: 13.477989, z: 0.917536}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack10",
+      "parent": "Backpack9",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.426545, y: 0.064167, z: 0.068363, w: -0.899594}, translation: {x: 14.130479, y: -0.620336, z: 1.102538}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "Backpack11",
+      "parent": "Backpack10",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.127950, y: 0.006335, z: -0.099128, w: -0.986794}, translation: {x: 10.080946, y: 1.677511, z: -0.215213}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lantern",
+      "parent": "spine_04",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.391041, y: -0.898564, z: -0.193200, w: -0.048402}, translation: {x: 18.312099, y: -19.655634, z: -12.837203}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "lantern1",
+      "parent": "lantern",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 8.093304, y: 0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_r",
+      "parent": "pelvis",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.029462, y: -0.072405, z: 0.996519, w: -0.028969}, translation: {x: -2.365726, y: 0.119488, z: 9.969091}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_r",
+      "parent": "thigh_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: -0.043663, w: -0.999046}, translation: {x: 43.341263, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "foot_r",
+      "parent": "calf_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000666, y: -0.026877, z: 0.023239, w: -0.999368}, translation: {x: 42.217949, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ball_r",
+      "parent": "foot_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: -0.707107, w: -0.707107}, translation: {x: 7.009437, y: -15.237595, z: -0.538946}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_twist_02_r",
+      "parent": "calf_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000093, y: -0.002251, z: 0.023249, w: -0.999727}, translation: {x: 14.072650, y: -0.000000, z: 0.037729}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_twist_01_r",
+      "parent": "calf_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000093, y: -0.002251, z: 0.023249, w: -0.999727}, translation: {x: 28.145300, y: -0.000000, z: 0.075458}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_twist_01_r",
+      "parent": "thigh_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000026, y: -0.002253, z: -0.011408, w: -0.999932}, translation: {x: 14.447087, y: 0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_twist_02_r",
+      "parent": "thigh_r",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000026, y: -0.002253, z: -0.011408, w: -0.999932}, translation: {x: 28.894175, y: 0.000000, z: -0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_l",
+      "parent": "pelvis",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.072405, y: 0.029462, z: -0.028969, w: -0.996519}, translation: {x: -2.365711, y: 0.110044, z: -9.969203}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_l",
+      "parent": "thigh_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: -0.043663, w: -0.999046}, translation: {x: -43.341309, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "foot_l",
+      "parent": "calf_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000666, y: -0.026877, z: 0.023239, w: -0.999368}, translation: {x: -42.217915, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ball_l",
+      "parent": "foot_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000000, y: -0.000000, z: -0.707107, w: -0.707107}, translation: {x: -7.009437, y: 15.237589, z: 0.538887}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_twist_02_l",
+      "parent": "calf_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000093, y: -0.002251, z: 0.023249, w: -0.999727}, translation: {x: -14.072639, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "calf_twist_01_l",
+      "parent": "calf_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.000093, y: -0.002251, z: 0.023249, w: -0.999727}, translation: {x: -28.145277, y: -0.000005, z: -0.075448}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_twist_01_l",
+      "parent": "thigh_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000026, y: -0.002253, z: -0.011408, w: -0.999932}, translation: {x: -14.447103, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "thigh_twist_02_l",
+      "parent": "thigh_l",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000026, y: -0.002253, z: -0.011408, w: -0.999932}, translation: {x: -28.894205, y: 0.000002, z: -0.000008}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_foot_root",
+      "parent": "root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 0.000000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_foot_l",
+      "parent": "ik_foot_root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.063632, y: 0.704247, z: 0.041376, w: -0.705887}, translation: {x: 14.087671, y: -0.994258, z: 8.237638}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_foot_r",
+      "parent": "ik_foot_root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.705887, y: 0.041376, z: -0.704247, w: 0.063632}, translation: {x: -14.087559, y: -0.984835, z: 8.238232}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_hand_root",
+      "parent": "root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 0.000000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_hand_gun",
+      "parent": "ik_hand_root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.598460, y: 0.009649, z: 0.520600, w: -0.608875}, translation: {x: -47.768318, y: 15.698805, z: 104.466431}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_hand_l",
+      "parent": "ik_hand_gun",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: -0.457766, y: -0.645509, z: -0.611366, w: 0.000000}, translation: {x: 43.733570, y: 61.669849, z: 58.408112}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "ik_hand_r",
+      "parent": "ik_hand_gun",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: 0.000000, z: -0.000000, w: -1.000000}, translation: {x: 0.000000, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "interaction",
+      "parent": "root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 0.000000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    },
+    {
+      "name": "center_of_mass",
+      "parent": "root",
+      "local_transform": "<Struct 'Transform' (0x0000020439840210) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: -1.000000}, translation: {x: 0.000000, y: -0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}>"
+    }
+  ],
+  "bone_count": 101,
+  "source_settings": {
+    "import_translation": "<Struct 'Vector' (0x000002049CA124A0) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+    "import_rotation": "<Struct 'Rotator' (0x000002049CA124B8) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+    "import_uniform_scale": "1.0",
+    "convert_scene": "True",
+    "force_front_x_axis": "False",
+    "convert_scene_unit": "False",
+    "use_t0_as_ref_pose": "True",
+    "preserve_smoothing_groups": "True",
+    "normal_import_method": "<FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS_AND_TANGENTS: 2>",
+    "normal_generation_method": "<FBXNormalGenerationMethod.MIKK_T_SPACE: 1>",
+    "update_skeleton_reference_pose": "False"
+  },
+  "default_skeletal_settings": {
+    "import_translation": "<Struct 'Vector' (0x00000208F61DAA60) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+    "import_rotation": "<Struct 'Rotator' (0x00000208F61DAA78) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+    "import_uniform_scale": "1.0",
+    "convert_scene": "True",
+    "force_front_x_axis": "False",
+    "convert_scene_unit": "False",
+    "use_t0_as_ref_pose": "False",
+    "preserve_smoothing_groups": "True",
+    "normal_import_method": "<FBXNormalImportMethod.FBXNIM_COMPUTE_NORMALS: 0>",
+    "normal_generation_method": "<FBXNormalGenerationMethod.MIKK_T_SPACE: 1>",
+    "update_skeleton_reference_pose": "False"
+  },
+  "default_static_settings": {
+    "import_translation": "<Struct 'Vector' (0x00000208F61DE020) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+    "import_rotation": "<Struct 'Rotator' (0x00000208F61DE038) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+    "import_uniform_scale": "1.0",
+    "convert_scene": "True",
+    "force_front_x_axis": "False",
+    "convert_scene_unit": "False",
+    "normal_import_method": "<FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS: 1>",
+    "normal_generation_method": "<FBXNormalGenerationMethod.MIKK_T_SPACE: 1>"
+  },
+  "original_skeleton_dirty": null
+}

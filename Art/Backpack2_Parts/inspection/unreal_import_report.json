@@ -1,0 +1,695 @@
+{
+  "destination": "/Game/AZ/Assets/Items/Backpack2",
+  "assets": {
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Backpack": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Backpack",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Backpack.fbx",
+      "vertices": 6626,
+      "triangles": 9526,
+      "expected_triangles": 9526,
+      "bounds_cm": {
+        "min": [
+          -20.158605575561523,
+          -35.920387268066406,
+          62.2866325378418
+        ],
+        "max": [
+          21.146892547607422,
+          13.22301197052002,
+          155.88479614257812
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -20.1586052775383,
+          -35.920387506484985,
+          62.286633253097534
+        ],
+        "max": [
+          21.14689201116562,
+          13.223011791706085,
+          155.88479042053223
+        ]
+      },
+      "max_bounds_error_cm": 5.7220458984375e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        },
+        {
+          "slot": "MI_SurvivalMan_Jacket_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Jacket_Inst.MI_SurvivalMan_Jacket_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Knife": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Knife",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Knife.fbx",
+      "vertices": 214,
+      "triangles": 311,
+      "expected_triangles": 311,
+      "bounds_cm": {
+        "min": [
+          -16.3575496673584,
+          -34.921199798583984,
+          124.56452178955078
+        ],
+        "max": [
+          -3.1955299377441406,
+          -17.838088989257812,
+          152.0679473876953
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -16.357550024986267,
+          -34.92119908332825,
+          124.56451654434204
+        ],
+        "max": [
+          -3.19552980363369,
+          -17.838089168071747,
+          152.0679473876953
+        ]
+      },
+      "max_bounds_error_cm": 5.245208740234375e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Axe": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Axe",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Axe.fbx",
+      "vertices": 676,
+      "triangles": 1112,
+      "expected_triangles": 1112,
+      "bounds_cm": {
+        "min": [
+          -22.1564884185791,
+          -36.62546157836914,
+          73.3211669921875
+        ],
+        "max": [
+          -7.534531116485596,
+          -14.104063987731934,
+          115.67826080322266
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -22.15648740530014,
+          -36.6254597902298,
+          73.32116365432739
+        ],
+        "max": [
+          -7.534530758857727,
+          -14.104063808918,
+          115.67826271057129
+        ]
+      },
+      "max_bounds_error_cm": 3.337860107421875e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Bottle": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Bottle",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Bottle.fbx",
+      "vertices": 508,
+      "triangles": 660,
+      "expected_triangles": 660,
+      "bounds_cm": {
+        "min": [
+          12.316404342651367,
+          -27.124147415161133,
+          104.3518295288086
+        ],
+        "max": [
+          18.667617797851562,
+          -14.40070629119873,
+          118.7607421875
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          12.316404283046722,
+          -27.12414562702179,
+          104.35183048248291
+        ],
+        "max": [
+          18.667617440223694,
+          -14.400705695152283,
+          118.76074075698853
+        ]
+      },
+      "max_bounds_error_cm": 1.7881393432617188e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Bottle_Holder": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Bottle_Holder",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Bottle_Holder.fbx",
+      "vertices": 124,
+      "triangles": 196,
+      "expected_triangles": 196,
+      "bounds_cm": {
+        "min": [
+          11.955315589904785,
+          -29.004074096679688,
+          110.2452621459961
+        ],
+        "max": [
+          16.066593170166016,
+          -19.077167510986328,
+          119.72679901123047
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          11.955315619707108,
+          -29.00407314300537,
+          110.24526357650757
+        ],
+        "max": [
+          16.066592931747437,
+          -19.07716691493988,
+          119.7268009185791
+        ]
+      },
+      "max_bounds_error_cm": 1.9073486328125e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Rope": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Rope",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Rope.fbx",
+      "vertices": 696,
+      "triangles": 1184,
+      "expected_triangles": 1184,
+      "bounds_cm": {
+        "min": [
+          -17.803741455078125,
+          -31.252479553222656,
+          108.35114288330078
+        ],
+        "max": [
+          12.456422805786133,
+          -14.257366180419922,
+          126.8565902709961
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -17.80374050140381,
+          -31.252479553222656,
+          108.35113525390625
+        ],
+        "max": [
+          12.456422299146652,
+          -14.257365465164185,
+          126.85658931732178
+        ]
+      },
+      "max_bounds_error_cm": 7.62939453125e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Front_Pouch": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Assembly/SKM_Backpack2_Front_Pouch",
+      "group": "Assembly",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Front_Pouch.fbx",
+      "vertices": 1025,
+      "triangles": 1623,
+      "expected_triangles": 1623,
+      "bounds_cm": {
+        "min": [
+          -3.8467299938201904,
+          -34.274078369140625,
+          110.48898315429688
+        ],
+        "max": [
+          4.667069911956787,
+          -30.109329223632812,
+          119.06465148925781
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -3.8467299193143845,
+          -34.27407741546631,
+          110.48897504806519
+        ],
+        "max": [
+          4.667069762945175,
+          -30.109328031539917,
+          119.06465291976929
+        ]
+      },
+      "max_bounds_error_cm": 8.106231689453125e-06,
+      "ref_pose": {
+        "bone_count": 101,
+        "max_local_translation_error_cm": 0.0020182132720947266,
+        "max_local_scale_error": 5.245208740234375e-06,
+        "max_local_rotation_error_deg": 0.007710850247521336
+      },
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Axe": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Axe",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Axe.fbx",
+      "vertices": 676,
+      "triangles": 1112,
+      "expected_triangles": 1112,
+      "bounds_cm": {
+        "min": [
+          -10.284080505371094,
+          -1.3035601377487183,
+          -10.83638858795166
+        ],
+        "max": [
+          16.06498146057129,
+          1.3035606145858765,
+          32.03883361816406
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -10.284080356359482,
+          -1.3035601936280727,
+          -10.836388170719147
+        ],
+        "max": [
+          16.06498211622238,
+          1.30356065928936,
+          32.03883171081543
+        ]
+      },
+      "max_bounds_error_cm": 1.9073486328125e-06,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x00000207127988A0) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x00000207127988B8) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Backpack": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Backpack",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Backpack.fbx",
+      "vertices": 6626,
+      "triangles": 9526,
+      "expected_triangles": 9526,
+      "bounds_cm": {
+        "min": [
+          -35.404972076416016,
+          -20.26277732849121,
+          -56.35575485229492
+        ],
+        "max": [
+          13.738428115844727,
+          21.0427188873291,
+          37.242401123046875
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -35.40497124195099,
+          -20.26277780532837,
+          -56.355756521224976
+        ],
+        "max": [
+          13.738428056240082,
+          21.04271948337555,
+          37.24240064620972
+        ]
+      },
+      "max_bounds_error_cm": 1.6689300537109375e-06,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        },
+        {
+          "slot": "MI_SurvivalMan_Jacket_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Jacket_Inst.MI_SurvivalMan_Jacket_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B40F60) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B40F78) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Knife": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Knife",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Knife.fbx",
+      "vertices": 214,
+      "triangles": 311,
+      "expected_triangles": 311,
+      "bounds_cm": {
+        "min": [
+          -8.547372817993164,
+          -1.0058873891830444,
+          -3.879462957382202
+        ],
+        "max": [
+          24.389911651611328,
+          1.005892276763916,
+          4.531651020050049
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -8.547373116016388,
+          -1.0058874264359474,
+          -3.8794629275798798
+        ],
+        "max": [
+          24.38991069793701,
+          1.0058922693133354,
+          4.531650990247726
+        ]
+      },
+      "max_bounds_error_cm": 9.5367431640625e-07,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B45060) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B45078) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Bottle": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Bottle",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Bottle.fbx",
+      "vertices": 508,
+      "triangles": 660,
+      "expected_triangles": 660,
+      "bounds_cm": {
+        "min": [
+          -2.514822006225586,
+          -4.623745918273926,
+          -2.7706846594810486e-06
+        ],
+        "max": [
+          2.5148558616638184,
+          4.623768329620361,
+          13.925769805908203
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -2.5148220360279083,
+          -4.6237461268901825,
+          -2.7706846594810486e-06
+        ],
+        "max": [
+          2.5148559361696243,
+          4.623768478631973,
+          13.925769925117493
+        ]
+      },
+      "max_bounds_error_cm": 2.086162567138672e-07,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B40BA0) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B40BB8) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Bottle_Holder": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Bottle_Holder",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Bottle_Holder.fbx",
+      "vertices": 124,
+      "triangles": 196,
+      "expected_triangles": 196,
+      "bounds_cm": {
+        "min": [
+          -1.7771251201629639,
+          -5.240846633911133,
+          -3.60880708694458
+        ],
+        "max": [
+          1.7771254777908325,
+          5.2408447265625,
+          3.608804225921631
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -1.7771251499652863,
+          -5.240846425294876,
+          -3.6088071763515472
+        ],
+        "max": [
+          1.777125522494316,
+          5.240844935178757,
+          3.6088041961193085
+        ]
+      },
+      "max_bounds_error_cm": 2.086162567138672e-07,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B465A0) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B465B8) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Rope": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Rope",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Rope.fbx",
+      "vertices": 696,
+      "triangles": 1184,
+      "expected_triangles": 1184,
+      "bounds_cm": {
+        "min": [
+          -16.767234802246094,
+          -10.505576133728027,
+          -2.0111806392669678
+        ],
+        "max": [
+          16.767234802246094,
+          10.505576133728027,
+          2.011181354522705
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -16.767235100269318,
+          -10.505576431751251,
+          -2.01118066906929
+        ],
+        "max": [
+          16.767235100269318,
+          10.505575686693192,
+          2.01118141412735
+        ]
+      },
+      "max_bounds_error_cm": 4.470348358154297e-07,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B44020) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B44038) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    },
+    "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Front_Pouch": {
+      "asset": "/Game/AZ/Assets/Items/Backpack2/Meshes/Items/SM_Backpack2_Front_Pouch",
+      "group": "Items",
+      "filename": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Front_Pouch.fbx",
+      "vertices": 1025,
+      "triangles": 1623,
+      "expected_triangles": 1623,
+      "bounds_cm": {
+        "min": [
+          -1.4012056589126587,
+          -2.7276456356048584,
+          -2.514570951461792e-06
+        ],
+        "max": [
+          1.401206612586975,
+          2.7276418209075928,
+          7.812180995941162
+        ]
+      },
+      "expected_bounds_cm": {
+        "min": [
+          -1.4012056402862072,
+          -2.7276456356048584,
+          -2.514570951461792e-06
+        ],
+        "max": [
+          1.4012065716087818,
+          2.72764191031456,
+          7.812181115150452
+        ]
+      },
+      "max_bounds_error_cm": 1.1920928955078125e-07,
+      "ref_pose": null,
+      "materials": [
+        {
+          "slot": "MI_SurvivalMan_Backpack_Inst",
+          "material": "/Game/SurvivalMan/MAT/MaterialInstance/Clothes/MI_SurvivalMan_Backpack_Inst.MI_SurvivalMan_Backpack_Inst"
+        }
+      ],
+      "saved": true,
+      "material_getters_verified": true,
+      "simple_collision_primitives": 0,
+      "import_offset": {
+        "translation": "<Struct 'Vector' (0x0000020861B447A0) {x: 0.000000, y: 0.000000, z: 0.000000}>",
+        "rotation": "<Struct 'Rotator' (0x0000020861B447B8) {pitch: 0.000000, yaw: 0.000000, roll: 0.000000}>",
+        "scale": 1.0
+      },
+      "convex_collision_primitives": 1,
+      "total_collision_primitives": 1
+    }
+  },
+  "source_originals_unchanged": true,
+  "final_materials_verified": true,
+  "final_readback_verified": true
+}

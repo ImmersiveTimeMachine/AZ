@@ -1,0 +1,316 @@
+{
+  "source_blend": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_Separated.blend",
+  "source_blend_sha256": "f318c561f779841c533ced96ba8f445024ab6843adb3438ea5ce6ed0acf64d06",
+  "blender_file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_GameReady.blend",
+  "axes": "FBX Y forward/Z up; Unreal coords=(X,-Y,Z)*100 cm",
+  "parts": {
+    "Axe": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Axe.fbx",
+      "object": "SM_Backpack2_Axe",
+      "vertices": 676,
+      "triangles": 1112,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -10.284080356359482,
+          -1.3035601936280727,
+          -10.836388170719147
+        ],
+        "max": [
+          16.06498211622238,
+          1.30356065928936,
+          32.03883171081543
+        ]
+      },
+      "pivot_description": "Center of the wooden grip side plates; inside the handhold.",
+      "origin_world_m": [
+        -0.12100028991699219,
+        0.2044781744480133,
+        0.8400670289993286
+      ],
+      "rotation_rows": [
+        [
+          0.5356527606440181,
+          0.8443646633194859,
+          0.011155059471543575
+        ],
+        [
+          -0.8297963563757375,
+          0.5287682881503419,
+          -0.17844356080314921
+        ],
+        [
+          -0.15656987884006465,
+          0.08632735825871407,
+          0.9838869143636781
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "ee1b4634fb5d3684e3287cc5c159a6f6be96f05cc1f04937cbcb2d75fb0ed96f"
+    },
+    "Knife": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Knife.fbx",
+      "object": "SM_Backpack2_Knife",
+      "vertices": 214,
+      "triangles": 311,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -8.547373116016388,
+          -1.0058874264359474,
+          -3.8794629275798798
+        ],
+        "max": [
+          24.38991069793701,
+          1.0058922693133354,
+          4.531650990247726
+        ]
+      },
+      "pivot_description": "Center of the wooden and blue-wrapped grip.",
+      "origin_world_m": [
+        -0.12035036087036133,
+        0.3081408441066742,
+        1.4428156614303589
+      ],
+      "rotation_rows": [
+        [
+          0.3402516478680607,
+          -0.4653339529568187,
+          -0.8171249160003937
+        ],
+        [
+          0.8260487657979614,
+          -0.2672916669998756,
+          0.4961840397232588
+        ],
+        [
+          -0.44930196154338575,
+          -0.8438124655265582,
+          0.2934421073657581
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "83214f816ba552996b85ca8707197ca00a75b8598d90f639435795240a377293"
+    },
+    "Bottle": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Bottle.fbx",
+      "object": "SM_Backpack2_Bottle",
+      "vertices": 508,
+      "triangles": 660,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -2.5148220360279083,
+          -4.6237461268901825,
+          -2.7706846594810486e-06
+        ],
+        "max": [
+          2.5148559361696243,
+          4.623768478631973,
+          13.925769925117493
+        ]
+      },
+      "pivot_description": "Bottom center on the bottle axis, at the lowest surface.",
+      "origin_world_m": [
+        0.14657381176948547,
+        0.18056753277778625,
+        1.0659825801849365
+      ],
+      "rotation_rows": [
+        [
+          0.9865163795022666,
+          -0.09086292760000886,
+          -0.13612259680778838
+        ],
+        [
+          1.3877787807814457e-17,
+          0.8317271724288323,
+          -0.5551845734920411
+        ],
+        [
+          0.16366255825246093,
+          0.5476986753968783,
+          0.8205124788781489
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "0404d70b12cdcff66295ad6d196e08f1648856a715a31cbd9b9836ecb8dcb059"
+    },
+    "Backpack": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Backpack.fbx",
+      "object": "SM_Backpack2_Backpack",
+      "vertices": 6623,
+      "triangles": 9526,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -35.40497124195099,
+          -20.26277780532837,
+          -56.355756521224976
+        ],
+        "max": [
+          13.738428056240082,
+          21.04271948337555,
+          37.24240064620972
+        ]
+      },
+      "pivot_description": "Center of the main bag body and top flap, excluding shoulder harness and dangling strap extents.",
+      "origin_world_m": [
+        0.0010417178273200989,
+        0.22181959450244904,
+        1.186423897743225
+      ],
+      "rotation_rows": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "1dcc37192d4d595c1b8848f37681e645beab32609b0fcb2a3916b25bc6ca778b"
+    },
+    "Front_Pouch": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Front_Pouch.fbx",
+      "object": "SM_Backpack2_Front_Pouch",
+      "vertices": 1025,
+      "triangles": 1623,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -1.4012056402862072,
+          -2.7276456356048584,
+          -2.514570951461792e-06
+        ],
+        "max": [
+          1.4012065716087818,
+          2.72764191031456,
+          7.812181115150452
+        ]
+      },
+      "pivot_description": "Bottom-center of the upright pouch bounds.",
+      "origin_world_m": [
+        0.027316443622112274,
+        0.3156949281692505,
+        1.117655873298645
+      ],
+      "rotation_rows": [
+        [
+          -0.04963770807699151,
+          0.9459016148428913,
+          -0.3206341107469294
+        ],
+        [
+          -0.7981795759660795,
+          -0.23054393002085616,
+          -0.5565598447976178
+        ],
+        [
+          -0.600371103941115,
+          0.22829724345280517,
+          0.7664430221382262
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "83d0ab72cb579f26d42a9adc0cacd9f6374fa6a69d746b0d735cf6a3ccb0910c"
+    },
+    "Bottle_Holder": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Bottle_Holder.fbx",
+      "object": "SM_Backpack2_Bottle_Holder",
+      "vertices": 124,
+      "triangles": 196,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -1.7771251499652863,
+          -5.240846425294876,
+          -3.6088071763515472
+        ],
+        "max": [
+          1.777125522494316,
+          5.240844935178757,
+          3.6088041961193085
+        ]
+      },
+      "pivot_description": "Geometric center of the carrier cloth bounds, for attachment and manipulation.",
+      "origin_world_m": [
+        0.1380985528230667,
+        0.23766539990901947,
+        1.1597790718078613
+      ],
+      "rotation_rows": [
+        [
+          0.9865163795022666,
+          -0.09086292760000886,
+          -0.13612259680778838
+        ],
+        [
+          1.3877787807814457e-17,
+          0.8317271724288323,
+          -0.5551845734920411
+        ],
+        [
+          0.16366255825246093,
+          0.5476986753968783,
+          0.8205124788781489
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "2fbc267bf1cf8e85d09bb067b7ec3d4e3b5b05f7e6e2e3a80204b5da5d2dfbc2"
+    },
+    "Rope": {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Items\\SM_Backpack2_Rope.fbx",
+      "object": "SM_Backpack2_Rope",
+      "vertices": 696,
+      "triangles": 1184,
+      "expected_unreal_bounds_cm": {
+        "min": [
+          -16.767235100269318,
+          -10.505576431751251,
+          -2.01118066906929
+        ],
+        "max": [
+          16.767235100269318,
+          10.505575686693192,
+          2.01118141412735
+        ]
+      },
+      "pivot_description": "Geometric bounds center of the rotated rope loop.",
+      "origin_world_m": [
+        -0.03154120221734047,
+        0.22273588180541992,
+        1.1846365928649902
+      ],
+      "rotation_rows": [
+        [
+          0.9092955812596083,
+          0.03544523648691209,
+          0.41463861507599364
+        ],
+        [
+          0.21027218603458622,
+          0.8206872896536399,
+          -0.5312795689476483
+        ],
+        [
+          -0.35911997115447014,
+          0.5702771324639885,
+          0.7387941787173631
+        ]
+      ],
+      "transform_baked_into_geometry": true,
+      "fbx_geometry_verified": true,
+      "fbx_sha256": "785b56ab00b26268f8e7576cd0e5711a9dfedfaccd8d39b878f9dccb01c396dc"
+    }
+  }
+}

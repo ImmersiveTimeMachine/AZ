@@ -1,0 +1,66 @@
+{
+  "components": [
+    17,
+    121,
+    161,
+    29,
+    70
+  ],
+  "coincident_analysis_tolerance_m": 1e-06,
+  "note": "No geometry altered; virtual coordinate union for analysis only. Lower metal component is knife blade/guard, not a sheath, confirmed by native textured multi-angle render. Source blade tip is cut off and open.",
+  "boundary_edge_count": 11,
+  "nonmanifold_edges": 0,
+  "loops": [
+    {
+      "canonical_source_vertices": [
+        1333,
+        1334,
+        1335,
+        1337,
+        1340
+      ],
+      "edge_count": 5,
+      "degree2_closed_loop": true,
+      "world_bounds": [
+        [
+          -0.06020049750804901,
+          0.17838089168071747,
+          1.2456451654434204
+        ],
+        [
+          -0.0319552980363369,
+          0.23364728689193726,
+          1.27324640750885
+        ]
+      ],
+      "perimeter_m": 0.16262376988756685,
+      "location": "truncated open blade tip"
+    },
+    {
+      "canonical_source_vertices": [
+        1325,
+        1326,
+        1351,
+        1352,
+        1358,
+        1378
+      ],
+      "edge_count": 6,
+      "degree2_closed_loop": true,
+      "world_bounds": [
+        [
+          -0.11130689084529877,
+          0.26423099637031555,
+          1.3768471479415894
+        ],
+        [
+          -0.08455049991607666,
+          0.2937798798084259,
+          1.4016329050064087
+        ]
+      ],
+      "perimeter_m": 0.09967022725330031,
+      "location": "guard/handle interface opening covered by closed wooden handle"
+    }
+  ]
+}

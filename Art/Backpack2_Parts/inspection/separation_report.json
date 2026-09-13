@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "builder": "AZ_Backpack2_Separation_v2",
+  "blender_version": "5.2.1 LTS",
+  "source_object": "SKM_SurvivalMan_backpack2",
+  "source_archive": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_Source_Archive.blend",
+  "archive_sha256": "ed9b577fb311ed4a53984f37c59d8928b4ce59b8817844c12d3377e8e0482fda",
+  "source_state_sha256_before": "8a4215ad6f52500aef50196eef3238f77a2443e412b4da931545a9243e7b6f85",
+  "source_state_sha256_after": "8a4215ad6f52500aef50196eef3238f77a2443e412b4da931545a9243e7b6f85",
+  "mapping_sha256": "1dbba073df161d8f6f3f14d5792b3b3e85d90da7aa26d0e0a0007d5dfb66dad8",
+  "output": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_Separated.blend",
+  "source_vertices": 9866,
+  "source_faces": 14612,
+  "source_corners": 43836,
+  "source_uv_sums": {
+    "DiffuseUV": [
+      18799.184255726286,
+      25074.820559084415
+    ]
+  },
+  "source_vertex_weight_sum": 9865.999997138046,
+  "source_corner_weight_sum": 43835.99998585787,
+  "source_normal_sums": [
+    -112.69200240858481,
+    2001.3878521659644,
+    161.16466681787279
+  ],
+  "all_faces_present_exactly_once": true,
+  "source_geometry_unchanged": true,
+  "normal_component_tolerance": 0.0,
+  "world_component_tolerance": 1e-07,
+  "normal_storage_strategy": "Original corner vectors stored as native FLOAT_VECTOR custom_normal on working parts",
+  "assembled_collection": "BP2_Assembled",
+  "hidden_source_collection": "BP2_Source_Original",
+  "parts": [
+    {
+      "object": "BP2_Backpack",
+      "vertices": 6623,
+      "faces": 9526,
+      "corners": 28578,
+      "source_face_ids_sha256": "b166e427f5319bfb9a42491e4e6f03298bc48c24f85547909c98d8c0dec18b0f",
+      "source_vertex_ids_sha256": "626a53513c49e12fea7e1e8ce82b05b3f58917b215029713c028edbdb385a74a",
+      "material_faces": {
+        "0": 9070,
+        "1": 456
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          14825.21664164454,
+          15285.797993421555
+        ]
+      },
+      "vertex_weight_sum": 6622.999997748993,
+      "corner_weight_sum": 28577.99998934474,
+      "normal_sums": [
+        -250.17950280863442,
+        1448.2277048220858,
+        76.8018887732178
+      ],
+      "source_normal_sums": [
+        -250.17950280863442,
+        1448.2277048220858,
+        76.8018887732178
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Knife",
+      "vertices": 214,
+      "faces": 311,
+      "corners": 933,
+      "source_face_ids_sha256": "4d4dca78173c878dedde45a294067f1c90aff91e53a2af0d4657ae65c41c89ef",
+      "source_vertex_ids_sha256": "3c63e897cf74ddbed2815833257079edd16b7110552891fd0e6af8dc96d7aba1",
+      "material_faces": {
+        "0": 311
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          445.98418578505516,
+          455.5862221121788
+        ]
+      },
+      "vertex_weight_sum": 214.0,
+      "corner_weight_sum": 933.0,
+      "normal_sums": [
+        -40.43192716315389,
+        -80.41463300399482,
+        36.45180809404701
+      ],
+      "source_normal_sums": [
+        -40.43192716315389,
+        -80.41463300399482,
+        36.45180809404701
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Axe",
+      "vertices": 676,
+      "faces": 1112,
+      "corners": 3336,
+      "source_face_ids_sha256": "672cc5ab4c9649756e9b61a12fbbe3f31a9f90335b28a388e74ffa3302496e1f",
+      "source_vertex_ids_sha256": "f3e6871c1650e6a4f28b4f4cb3715f605d0781d3e1908102e602f861915b9655",
+      "material_faces": {
+        "0": 1112
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          1135.016254041344,
+          2759.1448190808296
+        ]
+      },
+      "vertex_weight_sum": 676.0,
+      "corner_weight_sum": 3336.0,
+      "normal_sums": [
+        65.17512737773359,
+        107.48107033595443,
+        17.08817200548947
+      ],
+      "source_normal_sums": [
+        65.17512737773359,
+        107.48107033595443,
+        17.08817200548947
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Bottle",
+      "vertices": 508,
+      "faces": 660,
+      "corners": 1980,
+      "source_face_ids_sha256": "241192f5ac2a2188fb26efad19694b22f7f6c4e47e0ec25b77dc52e31d8942bc",
+      "source_vertex_ids_sha256": "b905e61de62c95a8174b95079d6b33ed8f2cbbe22046c5d8a2d87cd97798625f",
+      "material_faces": {
+        "0": 660
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          1214.6712673529983,
+          373.37863129377365
+        ]
+      },
+      "vertex_weight_sum": 508.0,
+      "corner_weight_sum": 1980.0,
+      "normal_sums": [
+        59.6960077136755,
+        199.29523583874106,
+        298.3600497376174
+      ],
+      "source_normal_sums": [
+        59.6960077136755,
+        199.29523583874106,
+        298.3600497376174
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Bottle_Holder",
+      "vertices": 124,
+      "faces": 196,
+      "corners": 588,
+      "source_face_ids_sha256": "fc1e74e1b0d0e9288dfb8f58339e3ef8bcca0f1bcebf0dee5cff0d4b61335bdb",
+      "source_vertex_ids_sha256": "a66d72e57c9b8425cdce1239332c80f39a2b562f032540cffbc9f241f9669aee",
+      "material_faces": {
+        "0": 196
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          239.0083918273449,
+          312.50982743501663
+        ]
+      },
+      "vertex_weight_sum": 124.0,
+      "corner_weight_sum": 588.0,
+      "normal_sums": [
+        6.375480949878693,
+        -0.8882728074677289,
+        -13.891797166317701
+      ],
+      "source_normal_sums": [
+        6.375480949878693,
+        -0.8882728074677289,
+        -13.891797166317701
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Rope",
+      "vertices": 696,
+      "faces": 1184,
+      "corners": 3552,
+      "source_face_ids_sha256": "dedca9aff27a5a918a4e23e8c248716e50ebf7182029c182adba9df816a20e8d",
+      "source_vertex_ids_sha256": "4dd517a42e16edbf4b10bf8b3bfc6efd00208feae359e6cce1241b3b48a4e26c",
+      "material_faces": {
+        "0": 1184
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          81.7511732444982,
+          1813.232064127922
+        ]
+      },
+      "vertex_weight_sum": 695.9999993890524,
+      "corner_weight_sum": 3551.9999965131283,
+      "normal_sums": [
+        4.562712564598769,
+        -0.2970432750880718,
+        0.5306612490676343
+      ],
+      "source_normal_sums": [
+        4.562712564598769,
+        -0.2970432750880718,
+        0.5306612490676343
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    },
+    {
+      "object": "BP2_Front_Pouch",
+      "vertices": 1025,
+      "faces": 1623,
+      "corners": 4869,
+      "source_face_ids_sha256": "39f4f1c32bd4cfb09177767dce3769b6ea9326f99b73aa53bb9a8ddb28763a3f",
+      "source_vertex_ids_sha256": "e8996b31d10f5ce2bb45e868ebee36f5e6bdd4f0112ffafd5d6100a923b4bfe5",
+      "material_faces": {
+        "0": 1623
+      },
+      "uv_sums": {
+        "DiffuseUV": [
+          857.536341830506,
+          4075.17100161314
+        ]
+      },
+      "vertex_weight_sum": 1025.0,
+      "corner_weight_sum": 4869.0,
+      "normal_sums": [
+        42.11009895731695,
+        327.98379025573377,
+        -254.1761158752488
+      ],
+      "source_normal_sums": [
+        42.11009895731695,
+        327.98379025573377,
+        -254.1761158752488
+      ],
+      "normal_restore_required": false,
+      "native_normal_max_component_error": 0.0,
+      "normal_max_component_error": 0.0,
+      "normals_bit_exact": true,
+      "normal_storage": "FLOAT_VECTOR",
+      "world_max_component_error": 0.0,
+      "uv_weights_materials_topology_exact": true
+    }
+  ]
+}

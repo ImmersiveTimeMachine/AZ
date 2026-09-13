@@ -1,0 +1,214 @@
+{
+  "source_blend": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_Separated.blend",
+  "source_sha256_before": "f318c561f779841c533ced96ba8f445024ab6843adb3438ea5ce6ed0acf64d06",
+  "source_sha256_after": "f318c561f779841c533ced96ba8f445024ab6843adb3438ea5ce6ed0acf64d06",
+  "source_unchanged": true,
+  "blender_version": "5.2.1 LTS",
+  "export_collection": "BP2_Assembled",
+  "export_settings": {
+    "use_selection": true,
+    "object_types": [
+      "ARMATURE",
+      "MESH"
+    ],
+    "global_scale": 1.0,
+    "apply_unit_scale": true,
+    "apply_scale_options": "FBX_SCALE_NONE",
+    "axis_forward": "Y",
+    "axis_up": "Z",
+    "use_space_transform": true,
+    "bake_space_transform": false,
+    "use_mesh_modifiers": false,
+    "mesh_smooth_type": "FACE",
+    "use_mesh_edges": false,
+    "use_tspace": true,
+    "use_triangles": false,
+    "primary_bone_axis": "Y",
+    "secondary_bone_axis": "X",
+    "armature_nodetype": "ROOT",
+    "use_armature_deform_only": false,
+    "add_leaf_bones": false,
+    "bake_anim": false,
+    "bake_anim_use_all_bones": false,
+    "bake_anim_use_nla_strips": false,
+    "bake_anim_use_all_actions": false,
+    "bake_anim_force_startend_keying": false,
+    "path_mode": "STRIP",
+    "embed_textures": false,
+    "use_custom_props": false,
+    "batch_mode": "OFF"
+  },
+  "unreal_coordinate_mapping": "(Blender X, -Y, Z) * 100 cm",
+  "unreal_recommended_import": {
+    "convert_scene": true,
+    "force_front_x_axis": false,
+    "convert_scene_unit": false,
+    "import_uniform_scale": 1.0,
+    "import_normals_and_tangents": true,
+    "import_animations": false,
+    "update_skeleton_reference_pose": false
+  },
+  "files": [
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Backpack.fbx",
+      "sha256": "2fcc7b4cdb4b34d52b438658ec4a5d1a952413b12a8e82d007b722bb90ec35c8",
+      "fbx_version": 7400,
+      "vertices": 6623,
+      "faces": 9526,
+      "corners": 28578,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Knife.fbx",
+      "sha256": "73d9704558e15b88a5e94f10abd0f2ae1ca53e92da5a3a5cb6f0b40bf07dc42d",
+      "fbx_version": 7400,
+      "vertices": 214,
+      "faces": 311,
+      "corners": 933,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Axe.fbx",
+      "sha256": "d3243a41ca2bdadd6bbdd5c21edf1113119ca14666b3b767062bf51d805d9841",
+      "fbx_version": 7400,
+      "vertices": 676,
+      "faces": 1112,
+      "corners": 3336,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Bottle.fbx",
+      "sha256": "83a42050b8f63bb1a1a0c778618f3305553da668b35a162b4323e22eda906e89",
+      "fbx_version": 7400,
+      "vertices": 508,
+      "faces": 660,
+      "corners": 1980,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Bottle_Holder.fbx",
+      "sha256": "58890a78b0694eab27f74d035526325ef3691a3d7897086250e4d86b7d46d1fc",
+      "fbx_version": 7400,
+      "vertices": 124,
+      "faces": 196,
+      "corners": 588,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Rope.fbx",
+      "sha256": "925dad1227f78bf8baec437acca1fa663094c8026dbb5ec43064d326a5b69e39",
+      "fbx_version": 7400,
+      "vertices": 696,
+      "faces": 1184,
+      "corners": 3552,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    },
+    {
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\exports\\Assembly\\SKM_Backpack2_Front_Pouch.fbx",
+      "sha256": "914200d8232dbe097dc0e5cdaf5e1f29d3250d0e4feef49372305f773860debf",
+      "fbx_version": 7400,
+      "vertices": 1025,
+      "faces": 1623,
+      "corners": 4869,
+      "bones_including_root": 101,
+      "skin_clusters": 100,
+      "root_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "unit_scale_factor": 1.0,
+      "materials": [
+        "MI_SurvivalMan_Backpack_Inst",
+        "MI_SurvivalMan_Jacket_Inst"
+      ],
+      "normals_uv_weights_positions_topology_exact": true,
+      "tangents_and_binormals_present": true,
+      "animations": 0
+    }
+  ]
+}

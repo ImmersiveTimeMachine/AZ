@@ -1,0 +1,48 @@
+{
+  "parts": [
+    {
+      "object": "BP2_Backpack",
+      "vertices": 6623,
+      "faces": 9526
+    },
+    {
+      "object": "BP2_Knife",
+      "vertices": 214,
+      "faces": 311
+    },
+    {
+      "object": "BP2_Axe",
+      "vertices": 676,
+      "faces": 1112
+    },
+    {
+      "object": "BP2_Bottle",
+      "vertices": 508,
+      "faces": 660
+    },
+    {
+      "object": "BP2_Bottle_Holder",
+      "vertices": 124,
+      "faces": 196
+    },
+    {
+      "object": "BP2_Rope",
+      "vertices": 696,
+      "faces": 1184
+    },
+    {
+      "object": "BP2_Front_Pouch",
+      "vertices": 1025,
+      "faces": 1623
+    }
+  ],
+  "packed_base_color_images": [
+    "T_SurvivalMan_Backpack_BaseColor.png",
+    "T_SurvivalMan_Jacket_BaseColor.png"
+  ],
+  "material_preview": "Copied materials using original base colors; source materials retained unchanged.",
+  "original_files_unchanged": true,
+  "active_scene": "BP2_Assembled",
+  "review_scene": "BP2_Parts_Overview",
+  "preview_image": "C:\\UnrealEngine\\Games\\AZ\\Art\\Backpack2_Parts\\Backpack2_Parts_Overview.png"
+}
