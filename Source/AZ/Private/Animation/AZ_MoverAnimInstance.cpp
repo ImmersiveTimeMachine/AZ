@@ -200,6 +200,11 @@ FVector UAZ_MoverAnimInstance::ResolveGrabIKTarget(
 void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	ResetProceduralAnimationState();
+	Cached_Pawn = nullptr;
+	Cached_MoverComponent = nullptr;
+	Cached_CharacterMoverComponent = nullptr;
+	Cached_CmcCharacter = nullptr;
 
 	// The locomotion phase machine (extracted from the old DeriveSMState). NewObject with `this` as outer so
 	// the StateMachine UPROPERTY keeps it alive; tunables stay on this AnimInstance and are passed into Tick.
@@ -262,12 +267,14 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// entire Mover body below stays byte-identical (zero risk to the v2 pawn the spike compares against).
 	if (!Cached_Pawn && Cached_CmcCharacter)
 	{
+		ResetProceduralAnimationState();
 		UpdateAnimation_Cmc(DeltaSeconds);
 		return;
 	}
 
 	if (!Cached_Pawn || !Cached_MoverComponent)
 	{
+		ResetProceduralAnimationState();
 		return;
 	}
 
@@ -1042,6 +1049,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// descent (terrain-adaptive) → land on real floor contact. The teardown above kills the RM move on the
 	// apex edge. bUseHybridJump=false: pure physics — gait-scaled impulse, Walking→Falling, no RM move
 	// (the old float-then-drop fix path, kept for A/B).
+	UpdateProceduralAnimation(DeltaSeconds);
 }
 
 /**

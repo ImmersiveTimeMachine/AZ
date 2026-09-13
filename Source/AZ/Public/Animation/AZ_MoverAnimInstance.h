@@ -20,6 +20,9 @@ class UAZ_LocomotionStateMachine;
 class UAZ_ObstacleSensorComponent;
 class UAZ_WeaponAnimationProfile;
 class UBlendSpace;
+class UPrimitiveComponent;
+class USkeletalMesh;
+class AController;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -42,6 +45,37 @@ class AZ_API UAZ_MoverAnimInstance : public UAnimInstance
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	virtual void NativePostEvaluateAnimation() override;
+
+	/** Terrain correction and contact locking are cosmetic and keep authored playback speed. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet") bool bEnableProceduralFeet = true;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet") bool bEnableProceduralFootPinning = true;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="0")) int32 ProceduralFeetMaxLOD = 2;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="0")) float ProceduralFeetBlendSeconds = 0.2f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="0.01")) float ProceduralGroundNormalSmoothingSeconds = 0.08f;
+	/** Additional displacement beyond predicted travel before stale plant positions are discarded. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="1", ForceUnits="cm")) float ProceduralTeleportThresholdCm = 80.f;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") float ProceduralFeetAlpha = 0.f;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") FVector ProceduralGroundNormal = FVector::UpVector;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") FTransform ProceduralBasedMovementDelta = FTransform::Identity;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFeetRaycast = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFootPinning = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralSlopeWarping = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralHasTeleported = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFeetReset = true;
+	/** Rig relevance can request a reset; the pulse is consumed only after pose evaluation. */
+	UFUNCTION(BlueprintCallable, Category="AZ|Procedural|Feet", meta=(BlueprintThreadSafe))
+	void OnProceduralFeetBecameRelevant(const FAnimUpdateContext& Context, const FAnimNodeReference& Node);
+
+	/** A separate, explicitly registered paired hand contact; legacy grab IK remains disabled. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Interaction") bool bEnableProceduralInteractionIK = true;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Interaction", meta=(ClampMin="0")) int32 ProceduralInteractionMaxLOD = 2;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Interaction") float ProceduralInteractionAlpha = 0.f;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Interaction") float InteractionLeftHandAlpha = 0.f;
+	/** The source rig exposes its right-hand variable as double; preserve that binding type. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Interaction") double InteractionRightHandAlpha = 0.0;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Interaction") FTransform InteractionLeftHandTargetCS = FTransform::Identity;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Interaction") FTransform InteractionRightHandTargetCS = FTransform::Identity;
 
 	/** Single struct exposed to the AnimGraph — the chooser node binds to this as its
 	 *  Input Property. Refreshed every tick in NativeUpdateAnimation. */
@@ -568,4 +602,23 @@ protected:
 	// Plain members: game-thread write / worker read, fenced by the anim-task boundary like ChooserContext.
 	uint32 TransitionSerial = 0;
 	uint32 LastPushedTransitionSerial = 0;
+
+private:
+	void UpdateProceduralAnimation(float DeltaSeconds);
+	void ResetProceduralAnimationState();
+	TWeakObjectPtr<USkeletalMesh> PreviousProceduralMesh;
+	TWeakObjectPtr<USkeletalMeshComponent> PreviousProceduralMeshComponent;
+	TWeakObjectPtr<AAZ_PawnMoverHeroCharacter> PreviousProceduralOwner;
+	TWeakObjectPtr<AController> PreviousProceduralController;
+	TWeakObjectPtr<UPrimitiveComponent> PreviousProceduralBase;
+	FName PreviousProceduralBaseBone;
+	FTransform PreviousProceduralBaseTransform = FTransform::Identity;
+	FVector PreviousProceduralLocation = FVector::ZeroVector;
+	FVector PreviousProceduralMeshLocation = FVector::ZeroVector;
+	FVector PreviousProceduralVelocity = FVector::ZeroVector;
+	EAZ_Stance PreviousProceduralStance = EAZ_Stance::Standing;
+	bool bProceduralStateInitialized = false;
+	bool bPreviousProceduralFeetEligible = false;
+	bool bPreviousProceduralBaseValid = false;
+	bool bProceduralFootBonesValid = false;
 };

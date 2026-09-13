@@ -22,7 +22,7 @@ public class AZ : ModuleRules
 
 		if (Target.Type == TargetType.Editor)
 		{
-			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "AnimGraph", "BlueprintGraph", "KismetCompiler", "BlendStackEditor", "PoseSearchEditor", "AnimationWarpingEditor", "AnimGraphRuntime" });
+			PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "AnimGraph", "BlueprintGraph", "KismetCompiler", "BlendStackEditor", "PoseSearchEditor", "AnimationWarpingEditor", "AnimGraphRuntime", "ControlRig", "ControlRigDeveloper" });
 		}
 
 		SetupIrisSupport(Target);

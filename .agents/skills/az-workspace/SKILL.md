@@ -17,6 +17,10 @@ UE 5.7 third-person survival/action project. Active work: porting GASP `SandboxC
 > - **Modifying assets via Python through MCP execute_script** → skill `asset-modification-via-python`
 > - **Research / agent / file-path discipline** → skill `agent-and-research-discipline`
 
+## Reusable mesh roundtrip
+
+For Unreal -> Blender -> Unreal mesh separation, rigged wearable exports and standalone item pivots, use [ue-blender-asset-roundtrip](C:/Users/Artur/.codex/skills/ue-blender-asset-roundtrip/SKILL.md). It records source preservation, logical separation, FBX units/root handling, verified material assignment and the Backpack2 reference scripts.
+
 ## Project root
 
 `C:\UnrealEngine\Games\AZ\`

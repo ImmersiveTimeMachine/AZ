@@ -1,6 +1,7 @@
 // Copyright Artur. AZ project.
 
 #include "Character/AZ_PawnMoverHeroCharacter.h"
+#include "Animation/AZ_PairedHandContactComponent.h"
 #include "HAL/IConsoleManager.h"
 
 // [v2 Cam] telemetry: the camera and facing path had no trace in the log, so every "it drifts" report so far had
@@ -46,6 +47,7 @@ static TAutoConsoleVariable<int32> CVarAZCamDebug(
 AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	CreateDefaultSubobject<UAZ_PairedHandContactComponent>(TEXT("PairedHandContact"));
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickGroup = TG_PrePhysics;
 
@@ -261,6 +263,7 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 	{
 		MoverComponent->SetHandleJump(true);
 		MoverComponent->SetHandleStanceChanges(true);   // archetype-proof: a BP that serialized false can't override
+		MoverComponent->OnBasedMovementApplied.AddUniqueDynamic(this, &ThisClass::OnCameraBasedMovementApplied);
 	}
 
 	// NOTE: RM bridge (capsule side) deliberately NOT queued here yet. FLayeredMove_RootMotionAttribute
@@ -443,6 +446,7 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	// framing a purely cosmetic, client-local thing (co-op-safe: each client frames its own pawn).
 	if (!IsLocallyControlled() || !CameraBoom || !Camera)
 	{
+		ResetCameraHeightSmoothing();
 		return;
 	}
 
@@ -554,6 +558,7 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 	// Critically-damped-ish glide toward the mode's framing (the "transition"). Composes fine with the boom's
 	// own camera lag — that smooths the camera following the boom; this moves the boom's target offset/length.
 	const float Speed = Target->InterpSpeed;
+	UpdateCameraHeightSmoothing(DeltaTime, Speed, bGrabbedFraming);
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, Target->BoomLength, DeltaTime, Speed);
 	CameraBoom->SocketOffset    = FMath::VInterpTo(CameraBoom->SocketOffset, TargetSocketOffset, DeltaTime, Speed);
 	Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, Target->FOV, DeltaTime, Speed));

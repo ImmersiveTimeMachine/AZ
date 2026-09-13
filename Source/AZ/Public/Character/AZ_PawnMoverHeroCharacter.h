@@ -221,6 +221,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Camera|Modes")
 	FAZ_CameraStanceConfig CameraAiming;
 
+	/** Smooth grounded step-up/down corrections without adding lateral or look-input lag. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Camera|Ground Height")
+	bool bSmoothCameraSteps = true;
+	/** Seconds to halve a terrain-height correction. Higher values produce a softer glide. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Camera|Ground Height", meta=(ClampMin="0.01", ClampMax="0.5", ForceUnits="s"))
+	float CameraStepSmoothingHalfLife = 0.08f;
+	/** Maximum vertical lag from consecutive steps; collision clearance can reduce this further. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Camera|Ground Height", meta=(ClampMin="0", ClampMax="100", ForceUnits="cm"))
+	float CameraStepMaxOffset = 40.f;
+
 	/** Aiming, per movement KEY (W / S / A / D): the socket offset to use while that key is held, ABSOLUTE in
 	 *  CameraAiming.SocketOffset's space. Leave a key at (0,0,0) to keep the idle SocketOffset for it; diagonals
 	 *  average the two keys. Aiming only, by user rule (2026-09-09): Explore orients the body to its motion, so
@@ -468,6 +478,23 @@ protected:
 	/** Interp the camera boom (arm length + socket offset) and FOV toward the current rotation-mode config.
 	 *  Local-viewer only; called every Tick. */
 	void UpdateCameraForMode(float DeltaTime);
+	void UpdateCameraHeightSmoothing(float DeltaTime, float StanceInterpSpeed, bool bCinematicFraming);
+	void ResetCameraHeightSmoothing();
+	UFUNCTION()
+	void OnCameraBasedMovementApplied(const FTransform& TransformDelta, const FMoverTimeStep& TimeStep);
+	FVector CrouchCameraOffset = FVector::ZeroVector;
+	FVector CameraPendingBaseDisplacement = FVector::ZeroVector;
+	FVector CameraPreviousFootPoint = FVector::ZeroVector;
+	FVector CameraPreviousVelocity = FVector::ZeroVector;
+	FVector CameraPreviousUp = FVector::UpVector;
+	float CameraStepOffset = 0.f;
+	float CameraPreviousHalfHeight = 0.f;
+	double CameraHeightLastUpdateTime = 0.0;
+	TWeakObjectPtr<AController> CameraHeightController;
+	TWeakObjectPtr<USpringArmComponent> CameraHeightBoom;
+	bool bCameraHeightInitialized = false;
+	bool bCameraPreviouslyGrounded = false;
+	bool bCameraPreviousSkipInterpolation = false;
 
 	void OnMoveTriggered(const FInputActionValue& Value);
 	void OnMoveCompleted(const FInputActionValue& Value);

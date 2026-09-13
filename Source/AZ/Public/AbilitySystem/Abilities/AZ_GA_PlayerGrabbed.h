@@ -180,6 +180,8 @@ private:
 	bool StartPairedFollow();
 	/** Drops the follow link. Safe when nothing was following. */
 	void StopPairedFollow();
+	/** Ends only this activation's optional cosmetic hand-contact action. */
+	void EndHandContact();
 	/** Queues the socket-lock layered move on our own mover (no-op when disabled or a socket is missing). */
 	void StartGrabAnchor();
 	/** Paired teardown: cancels the lock by Mover feature tag. Safe to call when nothing was queued. */
@@ -202,6 +204,7 @@ private:
 	UPROPERTY() UAnimMontage* CachedStruggleMontage = nullptr;
 	/** Our half of the paired montage while it is following the grabber's (null = v1 route). */
 	UPROPERTY() UAnimMontage* CachedPairedMontage = nullptr;
+	FGuid PairedHandContactId;
 
 	TWeakObjectPtr<const AActor> Grabber;
 	int32 Presses = 0;

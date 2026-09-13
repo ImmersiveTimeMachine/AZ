@@ -9,6 +9,7 @@
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AZ_PairedHandContactComponent.h"
 #include "AZ_ConsoleVariables.h"
 #include "AZ_GameplayTags.h"
 #include "Camera/AZ_GrabCameraShakes.h"
@@ -306,7 +307,10 @@ bool UAZ_GA_PlayerGrabbed::StartPairedFollow()
 		return false;
 	}
 
-	const float Started = OwnAnim->Montage_Play(CachedPairedMontage, 1.f);
+	// The GAS montage ledger publishes the follower's section/position to simulated observers.
+	// MontageSync_Follow below still owns local timing; no second cosmetic montage player is needed.
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	const float Started = ASC ? ASC->PlayMontage(this, CurrentActivationInfo, CachedPairedMontage, 1.f, CatchSection) : 0.f;
 	if (Started <= 0.f)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Grab] paired follow FAILED: %s would not play (slot missing from the hero ABP?)"),
@@ -321,6 +325,10 @@ bool UAZ_GA_PlayerGrabbed::StartPairedFollow()
 
 	// From here the leader owns position, play rate and every section jump. We never steer.
 	OwnAnim->MontageSync_Follow(CachedPairedMontage, LeaderAnim, LeaderMontage);
+	if (UAZ_PairedHandContactComponent* Contacts = Hero->FindComponentByClass<UAZ_PairedHandContactComponent>())
+	{
+		PairedHandContactId = Contacts->BeginPairedGrab(const_cast<AActor*>(GrabberActor), CachedPairedMontage, LeaderMontage);
+	}
 
 	UE_LOG(LogTemp, Display, TEXT("[Grab] paired follow ARMED: %s follows %s on %s"),
 		*GetNameSafe(CachedPairedMontage), *GetNameSafe(LeaderMontage), *GetNameSafe(GrabberActor));
@@ -329,6 +337,7 @@ bool UAZ_GA_PlayerGrabbed::StartPairedFollow()
 
 void UAZ_GA_PlayerGrabbed::StopPairedFollow()
 {
+	EndHandContact();
 	if (!CachedPairedMontage)
 	{
 		return;
@@ -341,6 +350,18 @@ void UAZ_GA_PlayerGrabbed::StopPairedFollow()
 		// outcome section and we want it to play out. An abnormal end blends it out through the ASC.
 	}
 	CachedPairedMontage = nullptr;
+}
+
+void UAZ_GA_PlayerGrabbed::EndHandContact()
+{
+	if (AActor* Avatar = GetAvatarActorFromActorInfo())
+	{
+		if (UAZ_PairedHandContactComponent* Contacts = Avatar->FindComponentByClass<UAZ_PairedHandContactComponent>())
+		{
+			Contacts->EndPairedGrab(PairedHandContactId);
+		}
+	}
+	PairedHandContactId.Invalidate();
 }
 
 void UAZ_GA_PlayerGrabbed::StartGrabAnchor()
@@ -482,6 +503,7 @@ void UAZ_GA_PlayerGrabbed::OnGrabberReleased(FGameplayEventData Payload)
 
 void UAZ_GA_PlayerGrabbed::OnOutcomeBegan(FGameplayEventData Payload)
 {
+	EndHandContact(); // The first supported contact ends with Wrestle, before escape or bite.
 	// THE PAYOFF IS A DIFFERENT SHOT. Both outcomes reach here (escape and bite) while State.Grabbed is
 	// still up, so the pawn keeps its grab framing precedence — we just tell it WHICH grab framing.
 	// Without this the whole escape plays behind a 130cm over-the-shoulder boom with the struggle rumble
@@ -584,6 +606,7 @@ void UAZ_GA_PlayerGrabbed::FinishGrab(bool bEscaped, bool bNotifyGrabber)
 		return;
 	}
 	bResolved = true;
+	EndHandContact();
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(WindowTimer);
@@ -680,6 +703,16 @@ void UAZ_GA_PlayerGrabbed::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 	// Release the sync and the socket lock BEFORE the facing target: all of these must go on every exit
 	// path (escape, timeout, grabber death, external cancel) or the hero keeps being driven by a grab
 	// that is over. Both are no-ops on the route that didn't use them.
+	// The paired follower now participates in the ASC montage ledger for observers. On cancellation,
+	// stop only that exact montage if this ability still owns it; never stop a replacement action.
+	if (bWasCancelled && CachedPairedMontage)
+	{
+		if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+			ASC && ASC->GetAnimatingAbility() == this && ASC->GetCurrentMontage() == CachedPairedMontage)
+		{
+			ASC->CurrentMontageStop(0.2f);
+		}
+	}
 	StopPairedFollow();
 	StopGrabAnchor();
 	if (AAZ_PawnMoverHeroCharacter* Hero = GetHeroPawnFromActorInfo())
