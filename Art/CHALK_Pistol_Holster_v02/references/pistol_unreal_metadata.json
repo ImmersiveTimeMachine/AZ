@@ -1,0 +1,44 @@
+{
+  "asset": "/Game/AZ/Blueprints/Items/Equippables/Weapons/Pistol/SM_Pistol_Pickup.SM_Pistol_Pickup",
+  "class": "StaticMesh",
+  "render_vertices": 3003,
+  "render_triangles": 3245,
+  "uv_count": 1,
+  "bounds_cm": {
+    "origin": [
+      -2.384185791015625e-07,
+      10.091166973114014,
+      4.109438419342041
+    ],
+    "extent": [
+      2.2107999324798584,
+      15.601101398468018,
+      9.373549938201904
+    ]
+  },
+  "materials": [
+    {
+      "index": 0,
+      "slot": "Material_0",
+      "material": "/Game/MilitaryWeapDark/Weapons/Materials/M_Pistol_01.M_Pistol_01",
+      "textures": [
+        {
+          "parameter": "Base Color",
+          "texture": "/Game/MilitaryWeapDark/Weapons/Textures/Pistols_B_Diff.Pistols_B_Diff"
+        },
+        {
+          "parameter": "Normal",
+          "texture": "/Game/MilitaryWeapDark/Weapons/Textures/Pistols_B_Norm.Pistols_B_Norm"
+        },
+        {
+          "parameter": "Masks",
+          "texture": "/Game/MilitaryWeapDark/Weapons/Textures/Pistols_B_Masks.Pistols_B_Masks"
+        }
+      ]
+    }
+  ],
+  "source_sha256_before": "d455af3559b565e2d81b353fa72b07889ad28b42dc243b0d656d689a13f90bec",
+  "export_success": true,
+  "export_errors": [],
+  "source_sha256_after": "d455af3559b565e2d81b353fa72b07889ad28b42dc243b0d656d689a13f90bec"
+}

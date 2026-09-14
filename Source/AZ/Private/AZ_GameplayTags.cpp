@@ -306,6 +306,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.State_Combat_Staggered, FName("State.Combat.Staggered"), TEXT("A stagger-class reaction owns the body (hit-react flinch or pack step-back) — gates BT attacks; explicit duration set where the reaction starts"));
     AddTag(GameplayTags.State_Combat_Grabbing, FName("State.Combat.Grabbing"), TEXT("Chalkie is mid-grab: holds its Active slot, plays the grab pose, exempt from flinch-cancel while grabbing"));
     AddTag(GameplayTags.State_Grabbed,         FName("State.Grabbed"),         TEXT("Player is caught: movement + camera frozen (ProduceInput / OnLookTriggered gate); struggle-mash to escape"));
+    AddTag(GameplayTags.State_Traversing,      FName("State.Traversing"),      TEXT("A traversal action (mantle/vault/climb) owns the body and the capsule: FullBody montage + Mover Traversing mode"));
     AddTag(GameplayTags.State_Combat_StruckPair, FName("State.Combat.StruckPair"), TEXT("Chalkie is the victim half of a PoseSearch-Interaction strike pair (GA_HitReact via Event.Strike.Victim): other reaction triggers are ignored until it ends"));
     AddTag(GameplayTags.Mover_GrabAnchor,      FName("Mover.AZ.GrabAnchor"),   TEXT("Mover feature tag on the grab socket-lock layered move — CancelFeaturesWithTag ends the hold's attachment"));
     AddTag(GameplayTags.State_Grab_Catching,   FName("State.Grab.Catching"),   TEXT("Paired grab stage: the catch clip is playing"));

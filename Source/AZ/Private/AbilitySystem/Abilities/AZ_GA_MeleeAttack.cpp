@@ -989,10 +989,6 @@ void UAZ_GA_MeleeAttack::OnSweepHit(const FHitResult& Hit)
 	const float ImpactMaxRange = ReadConfigFloat(this, TEXT("ImpactNoiseMaxRange"), 1000.f);
 	UAISense_Hearing::ReportNoiseEvent(Avatar->GetWorld(), Target->GetActorLocation(),
 		ImpactLoudness, NoiseInstigator, ImpactMaxRange, FName("Combat"));
-	// TEMP noise debug (remove with [ChalkieDiag]): sphere = the engine's ACTUAL carry for a
-	// 700-HearingRange listener (AISense_Hearing.cpp:147-152).
-	const float CarryRadius = FMath::Min(700.f, ImpactMaxRange) * FMath::Max(0.f, ImpactLoudness);
-	DrawDebugSphere(Avatar->GetWorld(), Target->GetActorLocation(), CarryRadius, 24, FColor::Yellow, false, 2.f);
 }
 
 bool UAZ_GA_MeleeAttack::PrepareEnvironmentMontage(UAnimMontage*& Montage, const FVector* PlannedWarpDestination)

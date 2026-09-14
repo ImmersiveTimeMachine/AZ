@@ -26,11 +26,87 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DefaultMovementSet/NavMoverComponent.h"
+#include "DefaultMovementSet/InstantMovementEffects/BasicInstantMovementEffects.h"
 #include "Engine/CollisionProfile.h"
 #include "GameplayTagContainer.h"
+#include "MovementMode.h"
 #include "MoverDataModelTypes.h"            // FCharacterDefaultInputs, EMoveInputType
 #include "MotionWarpingComponent.h"
 #include "NetworkPredictionComponent.h"
+
+namespace
+{
+	struct FCorpseFinishWait
+	{
+		FTimerHandle Timer;
+		uint64 ObservedEndFrame = MAX_uint64;
+		int32 ObservedEndSimFrame = INDEX_NONE;
+	};
+
+	void ApplyCorpseCollision(AAZ_PawnMoverInfectedCharacter* Pawn)
+	{
+		const UAbilitySystemComponent* ASC = Pawn->GetAbilitySystemComponent();
+		const FAZ_GameplayTags& CorpseTags = FAZ_GameplayTags::Get();
+		const bool bSettled = ASC && ASC->HasMatchingGameplayTag(CorpseTags.Character_Dead);
+		if (!ASC || (!bSettled && !ASC->HasMatchingGameplayTag(CorpseTags.Character_Dying))) return;
+
+		if (UCapsuleComponent* Capsule = Pawn->Capsule)
+		{
+			// Keep world sweeps for the collapse's root motion, but a dying pawn
+			// must no longer trap the player or the rest of the pack.
+			Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+			Capsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+			if (bSettled) Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+		if (bSettled)
+		{
+			if (USkeletalMeshComponent* Mesh = Pawn->GetMesh())
+			{
+				// The existing PhysicsAsset supplies kinematic body shapes. Both
+				// firearm hits and the feet rig query Visibility; movement uses Pawn.
+				// No ragdoll, navigation obstacle or upright bullet target remains.
+				Mesh->SetCollisionObjectType(ECC_PhysicsBody);
+				Mesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+				Mesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+				Mesh->SetGenerateOverlapEvents(false);
+				Mesh->SetCanEverAffectNavigation(false);
+				Mesh->CanCharacterStepUpOn = ECB_No;
+				Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			}
+		}
+	}
+
+	void SettleAnimatedCorpse(AAZ_PawnMoverInfectedCharacter* Pawn)
+	{
+		UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(Pawn->GetAbilitySystemComponent());
+		const FAZ_GameplayTags& CorpseTags = FAZ_GameplayTags::Get();
+		if (!Pawn->HasAuthority() || !ASC || ASC->HasMatchingGameplayTag(CorpseTags.Character_Dead)) return;
+
+		if (UAZ_PawnMoverComponent* Mover = Pawn->GetMoverComponent())
+		{
+			Mover->ReleaseRootMotion(Mover->GetRootMotionGeneration());
+			// Deactivate alone does NOT stop the NetworkPrediction backend. Its
+			// built-in Null mode holds the final transform without gravity/floor
+			// queries, and the instant effect clears both velocities in sync state.
+			const TSharedPtr<FApplyVelocityEffect> Stop = MakeShared<FApplyVelocityEffect>();
+			Stop->VelocityToApply = FVector::ZeroVector;
+			Stop->bAdditiveVelocity = false;
+			Stop->ForceMovementMode = UNullMovementMode::NullModeName;
+			Mover->QueueInstantMovementEffect(Stop);
+			Mover->Deactivate(); // retain the existing corpse/AI inactivity latch
+		}
+		if (USkeletalMeshComponent* Mesh = Pawn->GetMesh()) Mesh->bPauseAnims = true;
+
+		// Persistent GAS tags carry both collision phases to observers. Their
+		// ASC continues the replicated montage; do not freeze an earlier client
+		// pose merely because the settlement tag arrived before its final frame.
+		ASC->AddStateTag(CorpseTags.Character_Dead);
+		ASC->RemoveStateTag(CorpseTags.Character_Dying);
+		ApplyCorpseCollision(Pawn);
+		Pawn->ForceNetUpdate();
+		UE_LOG(LogTemp, Display, TEXT("[Corpse] %s settled: capsule=off body=query Visibility=block Pawn=ignore movement=Null"), *Pawn->GetName());
+	}
+}
 
 AAZ_PawnMoverInfectedCharacter::AAZ_PawnMoverInfectedCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -147,6 +223,16 @@ void AAZ_PawnMoverInfectedCharacter::BeginPlay()
 	{
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(VitalsAttributeSet->GetHealthAttribute())
 			.AddUObject(this, &AAZ_PawnMoverInfectedCharacter::HandleHealthChanged);
+	}
+	if (AbilitySystemComponent)
+	{
+		const FAZ_GameplayTags& CorpseTags = FAZ_GameplayTags::Get();
+		for (const FGameplayTag& Tag : {CorpseTags.Character_Dying, CorpseTags.Character_Dead})
+		{
+			AbilitySystemComponent->RegisterGameplayTagEvent(Tag, EGameplayTagEventType::NewOrRemoved)
+				.AddWeakLambda(this, [this](const FGameplayTag, int32) { ApplyCorpseCollision(this); });
+		}
+		ApplyCorpseCollision(this); // also handles tags received before BeginPlay
 	}
 }
 
@@ -309,65 +395,61 @@ bool AAZ_PawnMoverInfectedCharacter::IsStaggerReactionPlaying() const
 	return ASC && ASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Combat_Staggered);
 }
 
-void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float RagdollDelay)
+void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float CollapseDuration)
 {
-	// Death latch: only death deactivates the Mover (corpses are PERMANENT now — no lifespan to latch on).
-	if (MoverComponent && !MoverComponent->IsActive())
+	UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(AbilitySystemComponent);
+	const FAZ_GameplayTags& CorpseTags = FAZ_GameplayTags::Get();
+	if (!HasAuthority() || !ASC || ASC->HasMatchingGameplayTag(CorpseTags.Character_Dying)
+		|| ASC->HasMatchingGameplayTag(CorpseTags.Character_Dead))
 	{
 		return;
 	}
 
-	// MINIMAL anim-only death (user decision 2026-07-21): the montage holds its last frame and that IS
-	// the corpse. No ragdoll, capsule collision UNTOUCHED, mesh stays attached and Mover-managed (the
-	// visual-component null + collision changes were ragdoll-era plumbing — nulling the visual comp
-	// mid-game can leave a stale smoothing offset baked into the mesh transform). RagdollCorpse() stays
-	// unused for the day corpse physics is wanted (explosions).
-	// NEVER DestroyComponent a live Mover: the NetworkPrediction backend keeps ticking the registered
-	// simulation -> use-after-free crash in WalkingMode::SimulationTick (learned 2026-07-21).
-	(void)RagdollDelay;
-
-	// Publish the corpse's true state BEFORE detaching (audit: the Aggressive tag lived on replicated
-	// state forever): dead things are Dormant.
-	if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(AbilitySystemComponent))
-	{
-		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
-		ASC->RemoveStateTag(AZTags.State_Infected_Aggressive);
-		ASC->RemoveStateTag(AZTags.State_Infected_Alerted);
-		ASC->AddStateTag(AZTags.State_Infected_Dormant);
-	}
-
-	// Brain off (controller detaches + BT stops); movement sim off — but DEFERRED (audit finding,
-	// both agents): GA_Death queues the collapse root-motion move in this same call stack; an
-	// immediate Deactivate discards it and the body collapses in place instead of where the clip
-	// says. RagdollDelay = 0.6 x montage length, so /0.6 recovers the full clip duration.
+	ASC->RemoveStateTag(CorpseTags.State_Infected_Aggressive);
+	ASC->RemoveStateTag(CorpseTags.State_Infected_Alerted);
+	ASC->AddStateTag(CorpseTags.State_Infected_Dormant);
+	ASC->AddStateTag(CorpseTags.Character_Dying);
+	ApplyCorpseCollision(this);
+	ForceNetUpdate();
+	CachedAIMoveIntentWorld = CachedAIDesiredFacingWorld = FVector::ZeroVector;
 	DetachFromControllerPendingDestroy();
-	if (MoverComponent)
+
+	// Preserve the animated collapse and its root motion until its exact montage
+	// instance finishes. Death montages hold their last frame without blending
+	// out, so OnMontageEnded is not a reliable completion event here.
+	UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	FAnimMontageInstance* Instance = CollapseDuration > 0.f && Anim ? Anim->GetActiveMontageInstance() : nullptr;
+	if (Instance && Instance->IsPlaying())
 	{
-		const float DeactivateDelay = (RagdollDelay > 0.f) ? (RagdollDelay / 0.6f) + 0.1f : 0.f;
-		if (DeactivateDelay > 0.f)
-		{
-			FTimerHandle DeactivateTimer;
-			GetWorldTimerManager().SetTimer(DeactivateTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		const int32 InstanceId = Instance->GetInstanceID();
+		const TWeakObjectPtr<UAnimInstance> DeathAnim = Anim;
+		const TWeakObjectPtr<UAnimMontage> DeathMontage = Instance->Montage;
+		const TSharedRef<FCorpseFinishWait> FinishWait = MakeShared<FCorpseFinishWait>();
+		GetWorldTimerManager().SetTimer(FinishWait->Timer, FTimerDelegate::CreateWeakLambda(this,
+			[this, DeathAnim, DeathMontage, InstanceId, FinishWait]()
 			{
-				if (MoverComponent)
+				const FAnimMontageInstance* Current = DeathAnim.IsValid() ? DeathAnim->GetMontageInstanceForID(InstanceId) : nullptr;
+				if (Current && Current->Montage == DeathMontage.Get() && Current->IsPlaying()) return;
+				// Let animation publish the final pose and Mover consume its final
+				// root-motion delta before freezing either system.
+				if (FinishWait->ObservedEndFrame == MAX_uint64)
 				{
-					MoverComponent->Deactivate();
+					FinishWait->ObservedEndFrame = GFrameCounter;
+					FinishWait->ObservedEndSimFrame = MoverComponent ? MoverComponent->GetLastTimeStep().ServerFrame : INDEX_NONE;
+					return;
 				}
-			}), DeactivateDelay, false);
-		}
-		else
-		{
-			MoverComponent->Deactivate();
-		}
+				if (GFrameCounter == FinishWait->ObservedEndFrame
+					|| (MoverComponent && MoverComponent->GetLastTimeStep().ServerFrame == FinishWait->ObservedEndSimFrame)) return;
+				GetWorldTimerManager().ClearTimer(FinishWait->Timer);
+				SettleAnimatedCorpse(this);
+			}), .05f, true);
 	}
-	FTimerHandle FreezeTimer;
-	GetWorldTimerManager().SetTimer(FreezeTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+	else
 	{
-		if (Mesh)
-		{
-			Mesh->bPauseAnims = true;
-		}
-	}), 4.f, false);
+		SettleAnimatedCorpse(this);
+	}
+	UE_LOG(LogTemp, Display, TEXT("[Corpse] %s collapsing: Pawn=ignore world collision retained montage=%s"),
+		*GetName(), *GetNameSafe(Instance ? Instance->Montage : nullptr));
 	UE_LOG(LogTemp, Display, TEXT("[Vitals] %s DIED"), *GetName());
 }
 

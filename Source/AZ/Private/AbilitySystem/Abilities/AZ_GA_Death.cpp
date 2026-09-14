@@ -6,6 +6,7 @@
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimInstance.h"
 #include "AZ_GameplayTags.h"
 #include "AI/AZ_HordeSubsystem.h"
 #include "AI/AZ_InfectedAIController.h"
@@ -70,7 +71,7 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 	}
 
 	UAnimMontage* DeathMontage = UAZ_GA_MeleeAttack::FindAnimSetMontage(Avatar, DeathProperty);
-	float RagdollDelay = 0.f;   // no montage (no anim set / hero until his set exists) -> instant ragdoll
+	float CollapseDuration = 0.f; // no montage -> immediate settled corpse
 	if (DeathMontage)
 	{
 		// bStopWhenAbilityEnds=false: the ability ends right after setup, the montage plays on and the
@@ -82,13 +83,14 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		if (MontageTask)
 		{
 			MontageTask->ReadyForActivation();
-			RagdollDelay = DeathMontage->GetPlayLength() * RagdollAtMontageFraction;
-
-			// Root-motion death: the montage now sources the ROOT clip (real collapse trajectory) — the
-			// layered move makes the CAPSULE follow it, so the body falls WHERE the anim says, not in place.
-			if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+			if (const UAnimInstance* Anim = ActorInfo->GetAnimInstance(); Anim && Anim->Montage_IsPlaying(DeathMontage))
 			{
-				Mover->DriveRootMotion(DeathMontage->GetPlayLength());
+				CollapseDuration = DeathMontage->GetPlayLength();
+				// Only a successfully started death montage may drive the capsule.
+				if (UAZ_PawnMoverComponent* Mover = Avatar->FindComponentByClass<UAZ_PawnMoverComponent>())
+				{
+					Mover->DriveRootMotion(CollapseDuration);
+				}
 			}
 		}
 	}
@@ -105,7 +107,7 @@ void UAZ_GA_Death::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 				Horde->NotifyAggro(DyingController, Killer ? Killer->GetActorLocation() : Avatar->GetActorLocation());
 			}
 		}
-		Infected->BeginCorpse(RagdollDelay);
+		Infected->BeginCorpse(CollapseDuration);
 	}
 
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);

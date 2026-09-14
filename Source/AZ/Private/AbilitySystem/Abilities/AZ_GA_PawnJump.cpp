@@ -6,6 +6,7 @@
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AZ_GameplayTags.h"
 #include "Character/AZ_JumpRequester.h"
+#include "Character/AZ_TraversalComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -53,6 +54,26 @@ void UAZ_GA_PawnJump::ActivateAbility(
 	}
 
 	AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
+
+	// ---- TRAVERSAL ARBITRATION — exactly one owner per press, decided HERE ----
+	// This must sit above SetJumpPressed and above the landing-wait lifecycle below, for two independent
+	// reasons:
+	//   1. Movement.Jumping plus the WaitGameplayEvent/watchdog pair would otherwise stay installed for the
+	//      whole mantle, and the landing event that ends them never comes — wedging every later jump.
+	//   2. The Mover ABORTS animation root motion outright when a jump was just pressed and there is no
+	//      montage warping context yet (RootMotionAttributeLayeredMove.cpp:137-141). A mantle started after
+	//      that flag is set plays its montage in full with the capsule never leaving the ground.
+	// Consumption rule: only a mantle that actually ACTIVATED eats the press. No candidate, no grant, a
+	// committed impact reaction, or a blocked activation all fall through to the ordinary jump below.
+	if (UAZ_TraversalComponent* Traversal = Avatar ? Avatar->FindComponentByClass<UAZ_TraversalComponent>() : nullptr)
+	{
+		if (Traversal->TryStartMantle())
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+			return;
+		}
+	}
+
 	if (IAZ_JumpRequester* Requester = Cast<IAZ_JumpRequester>(Avatar))
 	{
 		Requester->SetJumpPressed(true);

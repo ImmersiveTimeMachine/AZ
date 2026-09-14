@@ -53,6 +53,22 @@ void UAZ_PawnMoverComponent::OnRegister()
 		AddMovementModeFromClass(RMActionModeName, UAZ_PawnMovementMode_RMAction::StaticClass());
 	}
 
+	// Traversal (mantle today; vault/hurdle/climb later) is the SAME mechanics with the apex handoff OFF:
+	// a self-contained action whose END is measured, so root motion stays authoritative all the way to the
+	// ledge instead of surrendering to gravity at the top of the arc. A SECOND registered instance rather
+	// than a flag on the jump's, because the jump's own defaults must not move and the anim spine
+	// discriminates the two by name (mode mapping) and by bHandOffToFallingAtApex (jump-rise vs traversal).
+	static const FName TraversingModeName(TEXT("Traversing"));
+	if (!FindMovementModeByName(TraversingModeName))
+	{
+		AddMovementModeFromClass(TraversingModeName, UAZ_PawnMovementMode_RMAction::StaticClass());
+		if (UAZ_PawnMovementMode_RMAction* TraversalMode =
+				Cast<UAZ_PawnMovementMode_RMAction>(FindMovementModeByName(TraversingModeName)))
+		{
+			TraversalMode->bHandOffToFallingAtApex = false;
+		}
+	}
+
 	RefreshSharedSettings();
 	Super::OnRegister();
 

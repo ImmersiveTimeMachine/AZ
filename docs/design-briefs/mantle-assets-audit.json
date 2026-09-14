@@ -1,0 +1,362 @@
+﻿{
+    "captured_utc":  "2026-09-14T03:39:45Z",
+    "project":  "C:/UnrealEngine/Games/AZ",
+    "method":  "Read-only Unreal Python inspection; no source or asset edits",
+    "records":  [
+                    {
+                        "kind":  "MANTLE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  3.4000000953674316,
+                                     "sections":  [
+                                                      "0 Default start=0.000 len=3.400 next=\u003cstop\u003e"
+                                                  ],
+                                     "notifies":  [
+                                                      "0 PoseSearchSamplingRange track=2 start=0.000 dur=0.611",
+                                                      "1 MotionWarping track=1 start=0.393 dur=0.389 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "2 MotionWarping track=1 start=0.782 dur=0.318 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.332 dur=2.068"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "sequence_length":  4.266666889190674,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F127E22580) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 3.400000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "enable_root_motion":  "True",
+                                                                            "force_root_lock":  "True",
+                                                                            "rate_scale":  "1.0",
+                                                                            "root_motion_root_lock":  "\u003cRootMotionRootLock.REF_POSE: 0\u003e"
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Relaxed_Traversal_Mantle_1_0_walk_F_Rfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  3.4000000953674316,
+                                     "sections":  [
+                                                      "0 Default start=0.000 len=3.400 next=\u003cstop\u003e"
+                                                  ],
+                                     "notifies":  [
+                                                      "0 PoseSearchSamplingRange track=2 start=0.000 dur=0.606",
+                                                      "1 MotionWarping track=1 start=0.393 dur=0.389 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "2 MotionWarping track=1 start=0.782 dur=0.318 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.332 dur=2.068"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "sequence_length":  4.266666889190674,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F127E21440) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_walk_F_Lfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 3.400000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "enable_root_motion":  "True",
+                                                                            "force_root_lock":  "True",
+                                                                            "rate_scale":  "1.0",
+                                                                            "root_motion_root_lock":  "\u003cRootMotionRootLock.REF_POSE: 0\u003e"
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Neutral_Traversal_Mantle_1_0_walk_F_Lfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  3.4000000953674316,
+                                     "sections":  [
+                                                      "0 Default start=0.000 len=3.400 next=\u003cstop\u003e"
+                                                  ],
+                                     "notifies":  [
+                                                      "0 PoseSearchBranchIn track=2 start=0.000 dur=0.369",
+                                                      "1 MotionWarping track=1 start=0.393 dur=0.418 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "2 MotionWarping track=1 start=0.811 dur=0.123 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=0.80]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.332 dur=2.068"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Lfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "sequence_length":  3.4000000953674316,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F0BB9F9180) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Lfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Lfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 3.400000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "enable_root_motion":  "True",
+                                                                            "force_root_lock":  "True",
+                                                                            "rate_scale":  "1.0",
+                                                                            "root_motion_root_lock":  "\u003cRootMotionRootLock.REF_POSE: 0\u003e"
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Neutral_Traversal_Mantle_1_0_walk_F_Rfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  3.799999952316284,
+                                     "sections":  [
+                                                      "0 Default start=0.000 len=3.800 next=\u003cstop\u003e"
+                                                  ],
+                                     "notifies":  [
+                                                      "0 PoseSearchBranchIn track=2 start=0.000 dur=0.745",
+                                                      "1 MotionWarping track=1 start=0.757 dur=0.434 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "2 MotionWarping track=1 start=1.191 dur=0.142 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.672 dur=2.128"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Rfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "sequence_length":  3.799999952316284,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F0BB9FF4E0) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_walk_F_Rfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 3.800000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "enable_root_motion":  "True",
+                                                                            "force_root_lock":  "True",
+                                                                            "rate_scale":  "1.0",
+                                                                            "root_motion_root_lock":  "\u003cRootMotionRootLock.REF_POSE: 0\u003e"
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_STAND_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  2.0,
+                                     "notifies":  [
+                                                      "0 PoseSearchSamplingRange track=2 start=0.000 dur=0.033",
+                                                      "1 MotionWarping track=1 start=0.141 dur=0.224 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "2 MotionWarping track=1 start=0.365 dur=0.435 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.321 dur=0.679"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "length":  2.0,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001EFE1650A00) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 2.000000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "rm_enabled":  true,
+                                                                            "root_samples":  {
+                                                                                                 "0.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -100.991997, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.3":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -95.800735, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.7":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -73.176407, z: 58.653687}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -40.226250, z: 99.154137}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.5":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -0.959061, z: 99.155067}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "2.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.001358, z: 99.155067}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e"
+                                                                                             }
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_STAND_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Relaxed_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  2.0,
+                                     "notifies":  [
+                                                      "0 PoseSearchSamplingRange track=2 start=0.000 dur=0.033",
+                                                      "1 MotionWarping track=1 start=0.141 dur=0.224 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "2 MotionWarping track=1 start=0.365 dur=0.335 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.324 dur=0.676"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "length":  3.5,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F38E1BDD40) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot.AZRTG_GASP_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 2.000000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "rm_enabled":  true,
+                                                                            "root_samples":  {
+                                                                                                 "0.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: -117.003044, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.3":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: -92.910088, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.7":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: -55.464893, z: 99.154953}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: -23.081003, z: 99.154953}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.5":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 99.155350}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "2.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED60340F0) {rotation: {x: 0.000000, y: -0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 99.154953}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e"
+                                                                                             }
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_STAND_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  2.0,
+                                     "notifies":  [
+                                                      "0 PoseSearchBranchIn track=2 start=0.000 dur=0.100",
+                                                      "1 MotionWarping track=1 start=0.141 dur=0.224 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "2 MotionWarping track=1 start=0.365 dur=0.334 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.421 dur=0.579"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "length":  2.0,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F38E1BF540) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 2.000000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "rm_enabled":  true,
+                                                                            "root_samples":  {
+                                                                                                 "0.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -117.003044, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.3":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -92.911240, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.7":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -55.464420, z: 99.154968}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -23.079704, z: 99.154968}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.5":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 99.155457}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "2.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034180) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 99.155457}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e"
+                                                                                             }
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_STAND_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/AZ/Assets/GASP/AZRTG_GASP_AM_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "length":  2.0,
+                                     "notifies":  [
+                                                      "0 PoseSearchBranchIn track=2 start=0.000 dur=0.101",
+                                                      "1 MotionWarping track=1 start=0.225 dur=0.224 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "2 MotionWarping track=1 start=0.450 dur=0.350 [warp target=FrontLedge trans=1 rot=1 type=0 method=0 maxRate=0.0 timeMult=1.00]",
+                                                      "3 BP_NotifyState_TraversalBlendOut_C track=1 start=1.552 dur=0.448"
+                                                  ],
+                                     "slots":  [
+                                                   {
+                                                       "slot":  "DefaultSlot",
+                                                       "segments":  [
+                                                                        {
+                                                                            "sequence":  "/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                                                            "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                                                            "length":  2.0,
+                                                                            "segment":  "\u003cStruct \u0027AnimSegment\u0027 (0x000001F38E1BF5D0) {anim_reference: \"/Script/Engine.AnimSequence\u0027/Game/AZ/Assets/GASP/AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.AZRTG_GASP_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot\u0027\", start_pos: 0.000000, anim_start_time: 0.000000, anim_end_time: 2.000000, anim_play_rate: 1.000000, looping_count: 1}\u003e",
+                                                                            "rm_enabled":  true,
+                                                                            "root_samples":  {
+                                                                                                 "0.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -100.991997, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.3":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -95.800735, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "0.7":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -73.176407, z: 58.653687}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -40.226250, z: 99.154137}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "1.5":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: -0.959061, z: 99.155067}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                                                                                 "2.0":  "\u003cStruct \u0027Transform\u0027 (0x000001EED6034210) {rotation: {x: -0.000000, y: 0.000000, z: -0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.001358, z: 99.155067}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e"
+                                                                                             }
+                                                                        }
+                                                                    ]
+                                                   }
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_SOURCE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/AM_M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                     "length":  2.0,
+                                     "slots":  [
+                                                   "\u003cStruct \u0027SlotAnimationTrack\u0027 (0x000001F12FFA0A60) {slot_name: \"DefaultSlot\", anim_track: {anim_segments: ((CachedPlayLength=2.000000,AnimReference=\"/Script/Engine.AnimSequence\u0027/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot\u0027\",AnimEndTime=2.000000))}}\u003e"
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_SOURCE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/AM_M_Relaxed_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                     "length":  2.0,
+                                     "slots":  [
+                                                   "\u003cStruct \u0027SlotAnimationTrack\u0027 (0x000001F12FFAB440) {slot_name: \"DefaultSlot\", anim_track: {anim_segments: ((CachedPlayLength=3.500000,AnimReference=\"/Script/Engine.AnimSequence\u0027/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot.M_Relaxed_Traversal_Mantle_1_0_stand_F_Lfoot\u0027\",AnimEndTime=2.000000))}}\u003e"
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_SOURCE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/AM_M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot",
+                                     "length":  2.0,
+                                     "slots":  [
+                                                   "\u003cStruct \u0027SlotAnimationTrack\u0027 (0x000001F12FFA3FE0) {slot_name: \"DefaultSlot\", anim_track: {anim_segments: ((CachedPlayLength=2.000000,AnimReference=\"/Script/Engine.AnimSequence\u0027/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot.M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot\u0027\",AnimEndTime=2.000000))}}\u003e"
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_SOURCE_AUDIT",
+                        "data":  {
+                                     "montage":  "/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/AM_M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot",
+                                     "length":  2.0,
+                                     "slots":  [
+                                                   "\u003cStruct \u0027SlotAnimationTrack\u0027 (0x000001F12FFAA7A0) {slot_name: \"DefaultSlot\", anim_track: {anim_segments: ((CachedPlayLength=2.000000,AnimReference=\"/Script/Engine.AnimSequence\u0027/Game/GameAnimationSample/Characters/UEFN_Mannequin/Animations/Traversal/Mantle/M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot.M_Neutral_Traversal_Mantle_1_0_stand_F_Rfoot\u0027\",AnimEndTime=2.000000))}}\u003e"
+                                               ]
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_WARP_DETAILS",
+                        "data":  {
+                                     "warp_target_name":  "FrontLedge",
+                                     "warp_point_anim_provider":  "\u003cWarpPointAnimProvider.BONE: 2\u003e",
+                                     "warp_point_anim_bone_name":  "attach",
+                                     "warp_point_anim_transform":  "\u003cStruct \u0027Transform\u0027 (0x000001F1048D7DA0) {rotation: {x: 0.000000, y: 0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                     "ignore_z_axis":  "False",
+                                     "warp_translation":  "True",
+                                     "warp_rotation":  "True"
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_WARP_DETAILS",
+                        "data":  {
+                                     "warp_target_name":  "FrontLedge",
+                                     "warp_point_anim_provider":  "\u003cWarpPointAnimProvider.BONE: 2\u003e",
+                                     "warp_point_anim_bone_name":  "attach",
+                                     "warp_point_anim_transform":  "\u003cStruct \u0027Transform\u0027 (0x000001F1048D79A0) {rotation: {x: 0.000000, y: 0.000000, z: 0.000000, w: 1.000000}, translation: {x: 0.000000, y: 0.000000, z: 0.000000}, scale3d: {x: 1.000000, y: 1.000000, z: 1.000000}}\u003e",
+                                     "ignore_z_axis":  "False",
+                                     "warp_translation":  "True",
+                                     "warp_rotation":  "True"
+                                 }
+                    },
+                    {
+                        "kind":  "MANTLE_BONE_AUDIT",
+                        "data":  {
+                                     "skeleton":  "/Game/MetaHumans/Common/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel",
+                                     "bone_count":  342,
+                                     "attach_present":  false,
+                                     "root_present":  true,
+                                     "hand_l_present":  true,
+                                     "hand_r_present":  true
+                                 }
+                    }
+                ]
+}

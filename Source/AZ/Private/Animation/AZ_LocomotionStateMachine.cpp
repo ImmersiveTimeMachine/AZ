@@ -135,8 +135,27 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	//     EAZ_StateMachineState::InAirLoop is PRODUCED AGAIN by this branch -- it had been reserved/unused
 	//     since 2026-06-14 -- and the touchdown block below already accepts it as a previous state.
 	//     bHoldTakeoffPhase is therefore load-bearing again, NOT vestigial.
-	// (Slide/Traversing: add explicit MovementMode cases here when those modes land -- the enum input exists
-	// for exactly that; do NOT add more bool flags.)
+	// ---- Traversal (mantle today; vault/hurdle/climb later): a FullBody montage owns the body and the
+	// Mover "Traversing" mode owns the capsule, so locomotion has nothing to choose. Held NEUTRAL rather
+	// than routed through the air phase: InAir would leave Previous == TransitionToInAir, and the touchdown
+	// block below would then fire the instant the action set us down -- stamping bJustLanded and selecting
+	// a Land2Walk on top of a mantle that had already finished standing the character up.
+	// Clearing the latches here is what makes the exit clean: Previous becomes IdleLoop, so no manufactured
+	// landing, and the grounded dispatch resumes normally on the next frame. ----
+	if (In.MovementMode == EAZ_MovementMode::Traversing)
+	{
+		PreviousStance     = In.Stance;
+		NextIdleBreakTime  = -1.f;
+		IdleBreakEndTime   = -1.f;
+		TransitionEndTime  = -1.f;
+		TakeoffEndTime     = -1.f;
+		ReactionEndTime    = -1.f;
+		bLatchedJustLanded = false;
+		return EAZ_StateMachineState::IdleLoop;
+	}
+
+	// (Slide: add an explicit MovementMode case here when that mode lands -- the enum input exists for
+	// exactly that; do NOT add more bool flags.)
 	if (In.MovementMode == EAZ_MovementMode::InAir)
 	{
 		PreviousStance     = In.Stance;

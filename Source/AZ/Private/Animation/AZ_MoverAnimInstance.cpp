@@ -422,8 +422,14 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		//    RM-driving it as well makes the two sources fight (jerky proxy motion). The proxy still
 		//    plays the clip and extracts root motion in place, so the mesh animates correctly while
 		//    replication carries the world movement.
+		//  - Not while a TRAVERSAL owns the capsule: the mantle/vault montage is already driving root
+		//    motion through the Traversing mode, and the cancel-and-requeue below would swap that drive
+		//    for a locomotion clip's ~zero delta — the pawn would freeze mid-climb while the animation
+		//    played on. Generation-scoping protects the ability's own RELEASE, never a third party's
+		//    broad cancel, so the guard belongs here at the writer.
 		const UWorld* World = GetWorld();
-		if (World && World->IsGameWorld() && Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy)
+		if (World && World->IsGameWorld() && Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy &&
+			Cached_MoverComponent->GetMovementModeName() != TEXT("Traversing"))
 		{
 			// REPLACE, don't stack: a direction reversal chains stop → turn-start with no
 			// non-transition frame between them, so the teardown below never runs in the gap —
@@ -498,6 +504,14 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// clip's RM lifts the capsule, the mode hands itself to Falling at the apex) and (b) the FUTURE
 		// vault/mantle traversal (bHandOffToFallingAtApex=false there — plays to completion).
 		ChooserContext.MovementMode = EAZ_MovementMode::InAir;
+	}
+	else if (ModeName == TEXT("Traversing"))
+	{
+		// Its OWN mode, deliberately NOT folded into InAir. A traversal is airborne in the physical sense,
+		// but reporting InAir would run the air phase and then fire the touchdown block when the action
+		// sets us down — manufacturing a jump landing (Land2Walk) at the top of a mantle. The SM instead
+		// holds a neutral pose for Traversing; the FullBody montage owns the body throughout.
+		ChooserContext.MovementMode = EAZ_MovementMode::Traversing;
 	}
 	// Slide / Swim left as default until those modes exist.
 
@@ -1036,7 +1050,11 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	};
 	// Sim proxies never queued an RM move (gated above), so there's nothing to cancel — and they must not
 	// touch their Mover (the capsule is replication-driven). Gate the teardown to the simulating machine too.
+	// Also NOT while a traversal owns the capsule: a mantle entered from a start/stop clip leaves a
+	// transition phase on its very first frame, and this broad cancel would kill the mantle's drive there —
+	// the montage would keep playing while the capsule stayed on the ground.
 	if (Cached_Pawn->GetLocalRole() != ROLE_SimulatedProxy &&
+		Cached_MoverComponent->GetMovementModeName() != TEXT("Traversing") &&
 		IsTransitionPhase(PreviousSMState) && !IsTransitionPhase(ChooserContext.SMState))
 	{
 		Cached_MoverComponent->CancelFeaturesWithTag(Mover_AnimRootMotion, /*bRequireExactMatch*/ false);

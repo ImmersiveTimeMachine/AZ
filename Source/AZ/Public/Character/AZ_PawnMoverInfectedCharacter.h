@@ -223,10 +223,10 @@ public:
 	void SetGrabTarget(AActor* InTarget) { GrabTarget = InTarget; }
 	AActor* GetGrabTarget() const { return GrabTarget.Get(); }
 
-	/** Corpse-ification, called by UAZ_GA_Death after it starts the (replicated) death montage:
-	 *  brain off, collision off, mover off, ragdoll at RagdollDelay (0 = instantly), despawn.
-	 *  Idempotent — lifespan doubles as the death latch. */
-	void BeginCorpse(float RagdollDelay);
+	/** Animated death: ignore pawns during collapse, then hold the final pose in Mover Null mode.
+	 *  Settled body shapes serve Visibility queries (feet/bullets), with the upright capsule off.
+	 *  GAS Dying/Dead tags replicate the collision phases. Duration 0 means no death montage. */
+	void BeginCorpse(float CollapseDuration);
 
 	/** Montage->ragdoll hand-off at the fall's impact beat: the authored clip sells the hit, physics
 	 *  settles the corpse against geometry (an animated fall ignores walls — bodies clipped through). */

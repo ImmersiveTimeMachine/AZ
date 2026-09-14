@@ -129,6 +129,12 @@ public:
 	 *  plays as a transition, not something you slide / run through. */
 	bool IsPlayingImpactReaction() const { return LatchedReaction != EAZ_ObstacleReaction::None; }
 
+	/** Which foot is currently carrying the body, curve-driven from contact_l (see the planted-foot curve
+	 *  guard — it only updates while a contact curve is actually present). Read by traversal to pick the
+	 *  mantle variant authored for that foot: entering a moving mantle on the wrong foot reads as a
+	 *  skipped step, because the clip starts by pushing off the foot it expects to be planted. */
+	bool IsLeftFootDown() const { return ChooserContext.bLeftFootDown; }
+
 	// ============ GRAB HAND-IK (idle + hands pinned on the grabber — user design 2026-07-24) ============
 	// The grabbed hold plays NO montage: base idle + two TwoBoneIK nodes in the AnimGraph pin the hero's
 	// hands onto the grabber's arms (contact sells the pairing). These are the nodes' bindings, gathered

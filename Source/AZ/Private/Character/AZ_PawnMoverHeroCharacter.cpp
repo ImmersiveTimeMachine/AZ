@@ -29,6 +29,7 @@ static TAutoConsoleVariable<int32> CVarAZCamDebug(
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "Animation/AZ_LocomotionTypes.h"   // FAZ_MoverCustomInputs, EAZ_Gait
 #include "Animation/AZ_MoverAnimInstance.h"  // IsPlayingImpactReaction (lock movement during the flinch)
+#include "Character/AZ_TraversalComponent.h"
 #include "AZ_GameplayTags.h"                 // FAZ_GameplayTags::Get()
 #include "Engine/CollisionProfile.h"
 #include "EnhancedInputComponent.h"
@@ -167,6 +168,10 @@ AAZ_PawnMoverHeroCharacter::AAZ_PawnMoverHeroCharacter(const FObjectInitializer&
 	// Motion warping. The Mover component discovers this by class in BeginPlay and adapts it; nothing else
 	// needs wiring. Inert until an attack montage carries a warp window and the ability registers a target.
 	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
+
+	// Contextual traversal (mantle). No tick — queried once per Jump press. Inert until the pawn Blueprint
+	// assigns its montages and ability class.
+	TraversalComponent = CreateDefaultSubobject<UAZ_TraversalComponent>(TEXT("TraversalComponent"));
 }
 
 namespace

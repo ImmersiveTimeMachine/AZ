@@ -302,6 +302,13 @@ struct AZ_API FAZ_GameplayTags
                                           //  (A′ loose-tag form today; becomes GA_HitReact's
                                           //  ActivationOwnedTags at arch step A.)
 
+    FGameplayTag State_Traversing;        // a traversal action (mantle today; vault/hurdle/climb later) owns the
+                                          //  body AND the capsule: a FullBody montage drives the pose while the
+                                          //  Mover "Traversing" mode follows its root motion. UAZ_GA_Mantle's
+                                          //  ActivationOwnedTags — it blocks on itself, so one traversal at a
+                                          //  time, and the anim spine reads it to keep locomotion from
+                                          //  manufacturing a jump landing when the action finishes.
+
     // --- GRAB / grapple (TLOU-style "caught") ---
     FGameplayTag State_Combat_Grabbing;   // Chalkie: mid-grab commit — holds its Active slot, plays the grab
                                           //  pose, and is exempt from the rule-8 flinch-cancel while grabbing

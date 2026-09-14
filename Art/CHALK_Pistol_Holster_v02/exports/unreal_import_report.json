@@ -1,0 +1,289 @@
+{
+  "status": "success",
+  "owner": "CHALK_PistolHolster01_v02",
+  "destination": "/Game/AZ/Assets/Items/PistolHolster01",
+  "expected_assets": [
+    "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01",
+    "/Game/AZ/Assets/Items/PistolHolster01/Meshes/SM_CHALK_PistolHolster01",
+    "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor",
+    "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal",
+    "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM"
+  ],
+  "saved_assets": [
+    {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor",
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Content\\AZ\\Assets\\Items\\PistolHolster01\\Textures\\T_CHALK_PistolHolster01_BaseColor.uasset",
+      "sha256": "010eb7279f1a8e4ce0511c34fde7ae032d344e103c20cf2c7f847e351f5bee0a"
+    },
+    {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal",
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Content\\AZ\\Assets\\Items\\PistolHolster01\\Textures\\T_CHALK_PistolHolster01_Normal.uasset",
+      "sha256": "9aa77e42e242215640e53c361715f2786873f9e4a1f1081f19ea0206ff404a87"
+    },
+    {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM",
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Content\\AZ\\Assets\\Items\\PistolHolster01\\Textures\\T_CHALK_PistolHolster01_ORM.uasset",
+      "sha256": "a271a1d5a818a5f2816d9a811e9e7d6c79aa22b4765478045d640ca7129d4e11"
+    },
+    {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01",
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Content\\AZ\\Assets\\Items\\PistolHolster01\\Materials\\M_CHALK_PistolHolster01.uasset",
+      "sha256": "2ba8eab5e9830389c44b1130e28a3dd6a07411f5fbc0a57ae6b8f87e9ebbf450"
+    },
+    {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Meshes/SM_CHALK_PistolHolster01",
+      "file": "C:\\UnrealEngine\\Games\\AZ\\Content\\AZ\\Assets\\Items\\PistolHolster01\\Meshes\\SM_CHALK_PistolHolster01.uasset",
+      "sha256": "9e676e76c626c644df94563749428ddc728f33e337f0af4c95453463e96ca140"
+    }
+  ],
+  "pie_started": false,
+  "level_modified": false,
+  "thumbnail_used_as_proof": false,
+  "manifest": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\exports\\export_manifest.json",
+  "manifest_sha256": "10686fadcf1ff9c3252d41cae04d004766caf163e48aa5093844caa061492f49",
+  "source_files": {
+    "fbx": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\exports\\SM_CHALK_PistolHolster01.fbx",
+    "base_color": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_BaseColor.png",
+    "normal": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_Normal.png",
+    "orm": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_ORM.png"
+  },
+  "source_sha256": {
+    "fbx": "ebce6822eaa06fc678697d75ff56315a3adc5b88ee1e0fbc2533e405bc2c2161",
+    "base_color": "ccd2a2f59b2f45ed415108445e346369cea3f61c84ae310f1fae63e5a43a53f4",
+    "normal": "ec883765f708683a6a5d837b39a5213991e6ddd66fbd1f5e8a7ce784936c0a76",
+    "orm": "6c9087c94346832bd027be4f23d9f712209530e7e9228630e60ac18f7c810f9f"
+  },
+  "textures": {
+    "base_color": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor.T_CHALK_PistolHolster01_BaseColor",
+      "compression": "<TextureCompressionSettings.TC_DEFAULT: 0>",
+      "srgb": true,
+      "flip_green_channel": false,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_COLOR: 0>"
+    },
+    "normal": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal",
+      "compression": "<TextureCompressionSettings.TC_NORMALMAP: 1>",
+      "srgb": false,
+      "flip_green_channel": true,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_NORMAL: 3>"
+    },
+    "orm": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+      "compression": "<TextureCompressionSettings.TC_MASKS: 2>",
+      "srgb": false,
+      "flip_green_channel": false,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_MASKS: 4>"
+    }
+  },
+  "material": {
+    "asset": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01",
+    "native_expression_count": 3,
+    "connections": [
+      {
+        "property": "<MaterialProperty.MP_BASE_COLOR: 5>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor.T_CHALK_PistolHolster01_BaseColor",
+        "channel": "RGB",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_9"
+      },
+      {
+        "property": "<MaterialProperty.MP_NORMAL: 10>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal",
+        "channel": "RGB",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_10"
+      },
+      {
+        "property": "<MaterialProperty.MP_AMBIENT_OCCLUSION: 18>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "R",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      },
+      {
+        "property": "<MaterialProperty.MP_ROUGHNESS: 8>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "G",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      },
+      {
+        "property": "<MaterialProperty.MP_METALLIC: 6>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "B",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      }
+    ],
+    "two_sided": false,
+    "tangent_space_normal": true
+  },
+  "mesh": {
+    "asset": "/Game/AZ/Assets/Items/PistolHolster01/Meshes/SM_CHALK_PistolHolster01.SM_CHALK_PistolHolster01",
+    "class": "StaticMesh",
+    "vertices": 150751,
+    "triangles": 155200,
+    "expected_triangles": 155200,
+    "uv_channels": 1,
+    "material_slots": [
+      {
+        "slot": "M_CHALK_PistolHolster01_Baked",
+        "material": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01"
+      }
+    ],
+    "bounds_cm": {
+      "min": [
+        -13.58359146118164,
+        -18.784212112426758,
+        -13.500000953674316
+      ],
+      "max": [
+        6.819561004638672,
+        4.380000114440918,
+        38.748722076416016
+      ]
+    },
+    "expected_bounds_cm": {
+      "min": [
+        -13.58359158039093,
+        -18.784211575984955,
+        -13.500000536441803
+      ],
+      "max": [
+        6.819561123847961,
+        4.38000001013279,
+        38.74872326850891
+      ]
+    },
+    "max_bounds_error_cm": 1.1920928955078125e-06,
+    "bounds_tolerance_cm": 0.05,
+    "export_matches": true,
+    "nanite": false,
+    "full_precision_uvs": true,
+    "high_precision_tangents": true,
+    "simple_collision_count": 0,
+    "convex_collision_count": 0,
+    "import_factory": "FbxFactory",
+    "normal_import_method": "<FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS_AND_TANGENTS: 2>",
+    "convert_scene": true,
+    "force_front_x_axis": false,
+    "convert_scene_unit": false,
+    "import_uniform_scale": 1.0
+  },
+  "textures_after_save": {
+    "base_color": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor.T_CHALK_PistolHolster01_BaseColor",
+      "compression": "<TextureCompressionSettings.TC_DEFAULT: 0>",
+      "srgb": true,
+      "flip_green_channel": false,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_COLOR: 0>"
+    },
+    "normal": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal",
+      "compression": "<TextureCompressionSettings.TC_NORMALMAP: 1>",
+      "srgb": false,
+      "flip_green_channel": true,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_NORMAL: 3>"
+    },
+    "orm": {
+      "asset": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+      "compression": "<TextureCompressionSettings.TC_MASKS: 2>",
+      "srgb": false,
+      "flip_green_channel": false,
+      "virtual_texture_streaming": false,
+      "sampler_type": "<MaterialSamplerType.SAMPLERTYPE_MASKS: 4>"
+    }
+  },
+  "material_after_save": {
+    "asset": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01",
+    "native_expression_count": 3,
+    "connections": [
+      {
+        "property": "<MaterialProperty.MP_BASE_COLOR: 5>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor.T_CHALK_PistolHolster01_BaseColor",
+        "channel": "RGB",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_9"
+      },
+      {
+        "property": "<MaterialProperty.MP_NORMAL: 10>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal",
+        "channel": "RGB",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_10"
+      },
+      {
+        "property": "<MaterialProperty.MP_AMBIENT_OCCLUSION: 18>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "R",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      },
+      {
+        "property": "<MaterialProperty.MP_ROUGHNESS: 8>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "G",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      },
+      {
+        "property": "<MaterialProperty.MP_METALLIC: 6>",
+        "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM",
+        "channel": "B",
+        "expression": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01:MaterialExpressionTextureSample_11"
+      }
+    ],
+    "two_sided": false,
+    "tangent_space_normal": true
+  },
+  "mesh_after_save": {
+    "asset": "/Game/AZ/Assets/Items/PistolHolster01/Meshes/SM_CHALK_PistolHolster01.SM_CHALK_PistolHolster01",
+    "class": "StaticMesh",
+    "vertices": 150751,
+    "triangles": 155200,
+    "expected_triangles": 155200,
+    "uv_channels": 1,
+    "material_slots": [
+      {
+        "slot": "M_CHALK_PistolHolster01_Baked",
+        "material": "/Game/AZ/Assets/Items/PistolHolster01/Materials/M_CHALK_PistolHolster01.M_CHALK_PistolHolster01"
+      }
+    ],
+    "bounds_cm": {
+      "min": [
+        -13.58359146118164,
+        -18.784212112426758,
+        -13.500000953674316
+      ],
+      "max": [
+        6.819561004638672,
+        4.380000114440918,
+        38.748722076416016
+      ]
+    },
+    "expected_bounds_cm": {
+      "min": [
+        -13.58359158039093,
+        -18.784211575984955,
+        -13.500000536441803
+      ],
+      "max": [
+        6.819561123847961,
+        4.38000001013279,
+        38.74872326850891
+      ]
+    },
+    "max_bounds_error_cm": 1.1920928955078125e-06,
+    "bounds_tolerance_cm": 0.05,
+    "export_matches": true,
+    "nanite": false,
+    "full_precision_uvs": true,
+    "high_precision_tangents": true,
+    "simple_collision_count": 0,
+    "convex_collision_count": 0,
+    "import_factory": "FbxFactory",
+    "normal_import_method": "<FBXNormalImportMethod.FBXNIM_IMPORT_NORMALS_AND_TANGENTS: 2>",
+    "convert_scene": true,
+    "force_front_x_axis": false,
+    "convert_scene_unit": false,
+    "import_uniform_scale": 1.0
+  },
+  "export_matches": true
+}

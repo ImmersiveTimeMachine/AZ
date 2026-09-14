@@ -1,0 +1,595 @@
+{
+  "asset": "CHALK Pistol Holster Option 01 / Canvas Thigh",
+  "concept_reference": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_Pistol_Holster_v01\\concepts\\01_Thigh_Canvas_Holster.png",
+  "concept_sha256": "e90df0ef0024597d22c41fce85347bf58808d2abf3a2742df7199728090104ad",
+  "output_blend": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v01\\CHALK_PistolHolster_01_CanvasThigh.blend",
+  "preview_render": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v01\\CHALK_PistolHolster_01_CanvasThigh_Preview.png",
+  "units": "meters",
+  "root": "PH01_Root_RightThigh",
+  "wearable_state": "unrigged authored model; intended for later right-thigh socket fit",
+  "model_collections": [
+    "PH01_Model / Canvas thigh holster",
+    "PH01_Details / Stitching and hardware"
+  ],
+  "review_collection": "PH01_ReviewOnly / Fit dummy, lights and camera",
+  "model_object_count": 67,
+  "model_objects": [
+    {
+      "name": "PH01_Root_RightThigh",
+      "type": "EMPTY",
+      "vertices": null,
+      "material_slots": []
+    },
+    {
+      "name": "PH01_HolsterBody / Waxed canvas shell",
+      "type": "MESH",
+      "vertices": 12,
+      "material_slots": [
+        "PH01_M_Canvas_Charcoal"
+      ]
+    },
+    {
+      "name": "PH01_FrontPanel / Reinforced canvas",
+      "type": "MESH",
+      "vertices": 12,
+      "material_slots": [
+        "PH01_M_Canvas_Charcoal"
+      ]
+    },
+    {
+      "name": "PH01_MouthBinding / Dark canvas",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Canvas_EdgeBinding"
+      ]
+    },
+    {
+      "name": "PH01_InteriorShadow / Open pocket",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Dark_Interior"
+      ]
+    },
+    {
+      "name": "PH01_Backplate / Soft thigh pad",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Canvas_EdgeBinding"
+      ]
+    },
+    {
+      "name": "PH01_UpperThighStrap / Olive webbing",
+      "type": "MESH",
+      "vertices": 62,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_LowerThighStrap / Olive webbing",
+      "type": "MESH",
+      "vertices": 62,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_UpperStrapConnector / L",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_UpperStrapConnector / R",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_LowerStrapConnector / L",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_LowerStrapConnector / R",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_BeltStabilizer / Olive webbing",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_RetentionTab / Olive webbing",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Olive_Webbing"
+      ]
+    },
+    {
+      "name": "PH01_PistolFitGuide / hidden",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Dark_Interior"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / L / left rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / L / right rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / L / upper rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / L / lower rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / R / left rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / R / right rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / R / upper rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_UpperAdjustmentFrame / R / lower rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / L / left rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / L / right rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / L / upper rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / L / lower rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / R / left rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / R / right rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / R / upper rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_LowerAdjustmentFrame / R / lower rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_BeltD_Ring / Hardware / left rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_BeltD_Ring / Hardware / right rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_BeltD_Ring / Hardware / upper rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_BeltD_Ring / Hardware / lower rail",
+      "type": "CURVE",
+      "vertices": null,
+      "material_slots": [
+        "PH01_M_Blackened_Hardware"
+      ]
+    },
+    {
+      "name": "PH01_RetentionSnap / Dull metal",
+      "type": "MESH",
+      "vertices": 48,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    },
+    {
+      "name": "PH01_BlueRepairPatch / Canvas",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Blue_RepairPatch"
+      ]
+    },
+    {
+      "name": "PH01_BluePatchStitch / 0.025 / -0.215",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BluePatchStitch / 0.025 / -0.169",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BluePatchStitch / 0.057 / -0.215",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BluePatchStitch / 0.057 / -0.169",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 01",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 02",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 03",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 04",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 05",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 06",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 07",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LeftSaddleStitch / 08",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 01",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 02",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 03",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 04",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 05",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 06",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 07",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_RightSaddleStitch / 08",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BottomSaddleStitch / 01",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BottomSaddleStitch / 02",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BottomSaddleStitch / 03",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BottomSaddleStitch / 04",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_BottomSaddleStitch / 05",
+      "type": "MESH",
+      "vertices": 8,
+      "material_slots": [
+        "PH01_M_Saddle_Stitching"
+      ]
+    },
+    {
+      "name": "PH01_LoadRivet / -0.064 / 0.004",
+      "type": "MESH",
+      "vertices": 32,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    },
+    {
+      "name": "PH01_LoadRivet / 0.064 / 0.004",
+      "type": "MESH",
+      "vertices": 32,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    },
+    {
+      "name": "PH01_LoadRivet / -0.062 / -0.177",
+      "type": "MESH",
+      "vertices": 32,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    },
+    {
+      "name": "PH01_LoadRivet / 0.062 / -0.177",
+      "type": "MESH",
+      "vertices": 32,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    },
+    {
+      "name": "PH01_LoadRivet / 0.000 / 0.012",
+      "type": "MESH",
+      "vertices": 32,
+      "material_slots": [
+        "PH01_M_Dull_Snap_Metal"
+      ]
+    }
+  ],
+  "materials": {
+    "Canvas Charcoal": "PH01_M_Canvas_Charcoal",
+    "Canvas Edge": "PH01_M_Canvas_EdgeBinding",
+    "Olive Webbing": "PH01_M_Olive_Webbing",
+    "Blue Repair": "PH01_M_Blue_RepairPatch",
+    "Stitching": "PH01_M_Saddle_Stitching",
+    "Hardware": "PH01_M_Blackened_Hardware",
+    "Snap Metal": "PH01_M_Dull_Snap_Metal",
+    "Interior": "PH01_M_Dark_Interior",
+    "Review Leg": "PH01_M_Review_Thigh",
+    "Floor": "PH01_M_Review_Floor"
+  },
+  "components": [
+    "tapered waxed-canvas holster body",
+    "soft thigh pad",
+    "two olive thigh straps",
+    "belt stabilizer and D-ring",
+    "retention tab with snap",
+    "saddle stitching",
+    "blue repair patch",
+    "load rivets and adjustment frames"
+  ],
+  "review_only_objects": [
+    "REVIEW_ThighDummy / not part of asset",
+    "REVIEW_Floor / not part of asset",
+    "REVIEW_Camera",
+    "REVIEW_Key / overcast",
+    "REVIEW_Fill / neutral",
+    "REVIEW_Rim / cool"
+  ],
+  "hidden_fit_guide": "PH01_PistolFitGuide / hidden",
+  "all_asset_components_parented_to_root": true,
+  "parented_component_count": 66,
+  "preview_lighting": {
+    "energies": {
+      "REVIEW_Key / overcast": 24,
+      "REVIEW_Fill / neutral": 8,
+      "REVIEW_Rim / cool": 14
+    },
+    "exposure": -2.4000000953674316
+  },
+  "packed_reference_image": "REFERENCE_Option01_CanvasThighConcept",
+  "hidden_reference_plane": "REFERENCE_Option01_CanvasThighConcept_Plane"
+}

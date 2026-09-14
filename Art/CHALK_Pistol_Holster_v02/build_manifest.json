@@ -1,0 +1,27 @@
+{
+  "file": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\CHALK_Holster01_Rebuilt.blend",
+  "approved_concept": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_Pistol_Holster_v01\\concepts\\01_Thigh_Canvas_Holster.png",
+  "old_file_unchanged": true,
+  "holster_collections": [
+    "01 / HOLSTER / shell and lining",
+    "02 / WEBBING / two thigh bands and suspension",
+    "03 / SEAMS / piping and fine stitches",
+    "04 / HARDWARE / rings and single snap"
+  ],
+  "holster_objects": 66,
+  "native_geometry": true,
+  "hollow_pocket": true,
+  "thigh_straps": 2,
+  "single_retention_snap": true,
+  "actual_pistol_reference": "/Game/AZ/Blueprints/Items/Equippables/Weapons/Pistol/SM_Pistol_Pickup",
+  "pistol_scale_preserved": true,
+  "root": "HOLSTER_ROOT / thigh attachment",
+  "material_status": "Native procedural cloth, webbing and scratched metal. No texture bake/Unreal import yet.",
+  "shell_audit": {
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "wall_volume_m3": 0.00020622054388308054
+  },
+  "all_holster_parts_follow_root": true,
+  "packed_reference_images": true
+}

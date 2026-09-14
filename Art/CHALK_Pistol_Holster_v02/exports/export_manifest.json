@@ -1,0 +1,938 @@
+{
+  "source_blend": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\CHALK_Holster01_Rebuilt.blend",
+  "source_blend_sha256": "2eff223c4d9fd2c219b6160b9deff05146fae057f1e06ba680786f81deb79810",
+  "source_unchanged": true,
+  "source_collections": [
+    "01 / HOLSTER / shell and lining",
+    "02 / WEBBING / two thigh bands and suspension",
+    "03 / SEAMS / piping and fine stitches",
+    "04 / HARDWARE / rings and single snap"
+  ],
+  "source_renderable_objects": 65,
+  "source_triangles": 398516,
+  "source_object_records": [
+    {
+      "source_object": "Belt adjuster / upper rounded slider",
+      "source_type": "CURVE",
+      "source_triangles": 1580,
+      "export_triangles": 1580,
+      "export_only_changes": [],
+      "material_roles": [
+        "metal_dark"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / doubled adjustment tail",
+      "source_type": "MESH",
+      "source_triangles": 888,
+      "export_triangles": 888,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / doubled adjustment tail / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / doubled adjustment tail / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / reinforced box 0.211",
+      "source_type": "CURVE",
+      "source_triangles": 7560,
+      "export_triangles": 2520,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / reinforced box 0.275",
+      "source_type": "CURVE",
+      "source_triangles": 7560,
+      "export_triangles": 2520,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / reinforced box 0.351",
+      "source_type": "CURVE",
+      "source_triangles": 7560,
+      "export_triangles": 2520,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / top folded loop",
+      "source_type": "MESH",
+      "source_triangles": 2296,
+      "export_triangles": 2296,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / top folded loop / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 12960,
+      "export_triangles": 4320,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Belt suspension / top folded loop / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 12960,
+      "export_triangles": 4320,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Blue field repair / frayed cloth patch",
+      "source_type": "MESH",
+      "source_triangles": 4752,
+      "export_triangles": 4752,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Blue repair / hand stitched perimeter",
+      "source_type": "CURVE",
+      "source_triangles": 4212,
+      "export_triangles": 1404,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Canvas pocket / real open cavity",
+      "source_type": "MESH",
+      "source_triangles": 68736,
+      "export_triangles": 17276,
+      "export_only_changes": [
+        "Export-only dense canvas base cage; one subdivision level removed"
+      ],
+      "material_roles": [
+        "canvas",
+        "lining"
+      ]
+    },
+    {
+      "source_object": "Front canvas panel / curved and softly worn",
+      "source_type": "MESH",
+      "source_triangles": 36608,
+      "export_triangles": 9344,
+      "export_only_changes": [
+        "Export-only dense canvas base cage; one subdivision level removed"
+      ],
+      "material_roles": [
+        "canvas"
+      ]
+    },
+    {
+      "source_object": "Front seam / fine saddle row 1",
+      "source_type": "CURVE",
+      "source_triangles": 20520,
+      "export_triangles": 6840,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Front seam / fine saddle row 2",
+      "source_type": "CURVE",
+      "source_triangles": 19440,
+      "export_triangles": 6480,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower band / box X reinforced end",
+      "source_type": "CURVE",
+      "source_triangles": 6912,
+      "export_triangles": 2304,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower band / folded adjustment terminal",
+      "source_type": "MESH",
+      "source_triangles": 1768,
+      "export_triangles": 1768,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Lower band / folded adjustment terminal / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 4968,
+      "export_triangles": 1656,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower band / folded adjustment terminal / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 4968,
+      "export_triangles": 1656,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower band / sewn right attachment",
+      "source_type": "MESH",
+      "source_triangles": 1064,
+      "export_triangles": 1064,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Lower band / sewn right attachment / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower band / sewn right attachment / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower blackened slider / rounded continuous frame",
+      "source_type": "CURVE",
+      "source_triangles": 1580,
+      "export_triangles": 1580,
+      "export_only_changes": [],
+      "material_roles": [
+        "metal_dark"
+      ]
+    },
+    {
+      "source_object": "Lower thigh band / continuous soft loop",
+      "source_type": "MESH",
+      "source_triangles": 8448,
+      "export_triangles": 8448,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Lower thigh band / continuous soft loop / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 18036,
+      "export_triangles": 6012,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Lower thigh band / continuous soft loop / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 18036,
+      "export_triangles": 6012,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Mouth seam / below rolled rim",
+      "source_type": "CURVE",
+      "source_triangles": 13932,
+      "export_triangles": 4644,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 00",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 01",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 02",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 03",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 04",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 05",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 06",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 07",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 08",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 09",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 10",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 11",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 12",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 13",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 14",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 15",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 16",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Patch edge / loose yarn 17",
+      "source_type": "CURVE",
+      "source_triangles": 104,
+      "export_triangles": 104,
+      "export_only_changes": [],
+      "material_roles": [
+        "blue_patch"
+      ]
+    },
+    {
+      "source_object": "Retention tab / curved snap fastening",
+      "source_type": "MESH",
+      "source_triangles": 2120,
+      "export_triangles": 2120,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Retention tab / curved snap fastening / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 8316,
+      "export_triangles": 2772,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Retention tab / curved snap fastening / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 8316,
+      "export_triangles": 2772,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Retention tab / lower box stitch",
+      "source_type": "CURVE",
+      "source_triangles": 4752,
+      "export_triangles": 1584,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Rolled fabric edge / continuous U seam",
+      "source_type": "CURVE",
+      "source_triangles": 3216,
+      "export_triangles": 3216,
+      "export_only_changes": [],
+      "material_roles": [
+        "binding"
+      ]
+    },
+    {
+      "source_object": "Single weathered steel snap / domed cap",
+      "source_type": "MESH",
+      "source_triangles": 960,
+      "export_triangles": 960,
+      "export_only_changes": [],
+      "material_roles": [
+        "metal"
+      ]
+    },
+    {
+      "source_object": "Snap / dark recessed rim",
+      "source_type": "MESH",
+      "source_triangles": 960,
+      "export_triangles": 960,
+      "export_only_changes": [],
+      "material_roles": [
+        "metal_dark"
+      ]
+    },
+    {
+      "source_object": "Soft rolled open mouth rim",
+      "source_type": "CURVE",
+      "source_triangles": 1920,
+      "export_triangles": 1920,
+      "export_only_changes": [],
+      "material_roles": [
+        "binding"
+      ]
+    },
+    {
+      "source_object": "Upper band / box X reinforced end",
+      "source_type": "CURVE",
+      "source_triangles": 6912,
+      "export_triangles": 2304,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper band / folded adjustment terminal",
+      "source_type": "MESH",
+      "source_triangles": 1768,
+      "export_triangles": 1768,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Upper band / folded adjustment terminal / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 4968,
+      "export_triangles": 1656,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper band / folded adjustment terminal / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 4968,
+      "export_triangles": 1656,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper band / sewn right attachment",
+      "source_type": "MESH",
+      "source_triangles": 1064,
+      "export_triangles": 1064,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Upper band / sewn right attachment / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper band / sewn right attachment / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 2160,
+      "export_triangles": 720,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper blackened slider / rounded continuous frame",
+      "source_type": "CURVE",
+      "source_triangles": 1580,
+      "export_triangles": 1580,
+      "export_only_changes": [],
+      "material_roles": [
+        "metal_dark"
+      ]
+    },
+    {
+      "source_object": "Upper thigh band / continuous soft loop",
+      "source_type": "MESH",
+      "source_triangles": 8448,
+      "export_triangles": 8448,
+      "export_only_changes": [],
+      "material_roles": [
+        "webbing"
+      ]
+    },
+    {
+      "source_object": "Upper thigh band / continuous soft loop / edge stitching 1",
+      "source_type": "CURVE",
+      "source_triangles": 18036,
+      "export_triangles": 6012,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    },
+    {
+      "source_object": "Upper thigh band / continuous soft loop / edge stitching 2",
+      "source_type": "CURVE",
+      "source_triangles": 18036,
+      "export_triangles": 6012,
+      "export_only_changes": [
+        "Thread curve resolution_u/render_resolution_u=2; bevel_resolution=0"
+      ],
+      "material_roles": [
+        "thread"
+      ]
+    }
+  ],
+  "export_blend": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\CHALK_Holster01_UnrealExport.blend",
+  "export_blend_sha256": "1389e1021fe63054e728151fb519b3af5fcfcf77a7068654eddf32b7f0b35be3",
+  "fbx_path": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\exports\\SM_CHALK_PistolHolster01.fbx",
+  "fbx_sha256": "ebce6822eaa06fc678697d75ff56315a3adc5b88ee1e0fbc2533e405bc2c2161",
+  "fbx_version": 7400,
+  "expected_triangles": 155200,
+  "expected_vertices": 100836,
+  "expected_bounds_ue_cm": {
+    "min": [
+      -13.58359158039093,
+      -18.784211575984955,
+      -13.500000536441803
+    ],
+    "max": [
+      6.819561123847961,
+      4.38000001013279,
+      38.74872326850891
+    ]
+  },
+  "material_slots": 1,
+  "uv_count": 1,
+  "uv_name": "UVAtlas",
+  "atlas_resolution": 4096,
+  "atlas_uv_area_sum": 0.11814355105161667,
+  "texture_files": {
+    "base_color": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_BaseColor.png",
+    "normal": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_Normal.png",
+    "orm": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\T_CHALK_PistolHolster01_ORM.png"
+  },
+  "texture_sha256": {
+    "base_color": "ccd2a2f59b2f45ed415108445e346369cea3f61c84ae310f1fae63e5a43a53f4",
+    "normal": "ec883765f708683a6a5d837b39a5213991e6ddd66fbd1f5e8a7ce784936c0a76",
+    "orm": "6c9087c94346832bd027be4f23d9f712209530e7e9228630e60ac18f7c810f9f"
+  },
+  "bake_statistics": {
+    "base_color": {
+      "min": [
+        0.0015479875728487968,
+        0.0015479875728487968,
+        0.0015479875728487968
+      ],
+      "max": [
+        0.6452559232711792,
+        0.6608534455299377,
+        0.6371232867240906
+      ],
+      "mean": [
+        0.0755024403333664,
+        0.07004180550575256,
+        0.05418172851204872
+      ],
+      "seconds": 5.35
+    },
+    "normal": {
+      "min": [
+        0.05665455758571625,
+        0.23726679384708405,
+        0.7176998853683472
+      ],
+      "max": [
+        0.9346318244934082,
+        0.78000807762146,
+        1.0000100135803223
+      ],
+      "mean": [
+        0.4999225437641144,
+        0.4999884068965912,
+        0.9999209046363831
+      ],
+      "seconds": 5.08
+    },
+    "orm": {
+      "min": [
+        0.0,
+        0.45061928033828735,
+        0.0
+      ],
+      "max": [
+        1.0,
+        1.0,
+        0.9300000071525574
+      ],
+      "mean": [
+        0.9041008353233337,
+        0.9712120890617371,
+        0.004930193070322275
+      ],
+      "seconds": 4.88
+    }
+  },
+  "normal_convention": "Blender tangent +Y / OpenGL; Unreal flip_green_channel=True",
+  "orm_channels": {
+    "R": "AO, local holster only, distance0.03m and16 AO node samples",
+    "G": "linear roughness",
+    "B": "linear metallic"
+  },
+  "texture_srgb": {
+    "base_color": true,
+    "normal": false,
+    "orm": false
+  },
+  "bake_engine": "Cycles",
+  "bake_device": "NVIDIA GeForce RTX 4080 SUPER",
+  "bake_samples": 8,
+  "export_geometry_note": "Approved game copy: thread bevel0, curve resolution2, shell/front Subsurf0. No decimation. Bounds shift<0.015mm; measured master surface deviation<0.95mm.",
+  "pivot": "Original approved thigh-attachment origin, identity transform",
+  "coordinate_recipe": "FBX Y forward/Z up, metric scale1; UE=(X,-Y,Z)*100cm",
+  "pistol_excluded": true,
+  "reference_studio_root_excluded_from_fbx": true,
+  "fbx_geometry_verified": true,
+  "elapsed_seconds": 21.86,
+  "baked_preview": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\exports\\SM_CHALK_PistolHolster01_BakedPreview.png",
+  "texture_bit_depth": {
+    "base_color": 8,
+    "normal": 16,
+    "orm": 16
+  },
+  "base_color_depth_conversion": {
+    "reason": "Unreal FTextureSource treats RGBA16 as linear; use 8-bit encoded sRGB base color.",
+    "original_16bit_backup": "C:\\UnrealEngine\\Games\\AZ\\Art\\CHALK_Pistol_Holster_v02\\textures\\source_16bit\\T_CHALK_PistolHolster01_BaseColor_sRGB16.png",
+    "original_16bit_sha256": "c188d745fdf3aff46b4c02c45417c983de1e4adf36c7a79d976cb01429f51253",
+    "method": "Native Blender PNG8 RGB; Standard, exposure0, gamma1, sRGB display, dithering0. No rebake.",
+    "max_encoded_srgb_error": 0.0019629597663879395,
+    "allowed_encoded_srgb_error": 0.00392156862745098,
+    "sample_verification": [
+      {
+        "xy": [
+          100,
+          3650
+        ],
+        "original_linear": [
+          0.03650616481900215,
+          0.03169122338294983,
+          0.02647900953888893
+        ],
+        "converted_encoded_srgb": [
+          0.21176472306251526,
+          0.19607844948768616,
+          0.1764705926179886
+        ],
+        "converted_linear": [
+          0.0368894524872303,
+          0.031896039843559265,
+          0.026241222396492958
+        ]
+      },
+      {
+        "xy": [
+          300,
+          3400
+        ],
+        "original_linear": [
+          0.06553817540407181,
+          0.06489565223455429,
+          0.03408719599246979
+        ],
+        "converted_encoded_srgb": [
+          0.2823529541492462,
+          0.2823529541492462,
+          0.2039215862751007
+        ],
+        "converted_linear": [
+          0.06480327993631363,
+          0.06480327993631363,
+          0.03433981165289879
+        ]
+      },
+      {
+        "xy": [
+          750,
+          3600
+        ],
+        "original_linear": [
+          0.03738259896636009,
+          0.032611746340990067,
+          0.02748740464448929
+        ],
+        "converted_encoded_srgb": [
+          0.21176472306251526,
+          0.20000001788139343,
+          0.18039216101169586
+        ],
+        "converted_linear": [
+          0.0368894524872303,
+          0.03310477361083031,
+          0.027320891618728638
+        ]
+      },
+      {
+        "xy": [
+          240,
+          2250
+        ],
+        "original_linear": [
+          0.06302513927221298,
+          0.06298360973596573,
+          0.03361025080084801
+        ],
+        "converted_encoded_srgb": [
+          0.27843138575553894,
+          0.27843138575553894,
+          0.20000001788139343
+        ],
+        "converted_linear": [
+          0.06301002949476242,
+          0.06301002949476242,
+          0.03310477361083031
+        ]
+      }
+    ],
+    "source_normal_orm_fbx_unchanged": true
+  }
+}

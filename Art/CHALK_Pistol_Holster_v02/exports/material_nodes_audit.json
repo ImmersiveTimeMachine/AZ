@@ -1,0 +1,22 @@
+[
+  {
+    "name": "MaterialExpressionTextureSample_1",
+    "class": "MaterialExpressionTextureSample",
+    "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal"
+  },
+  {
+    "name": "MaterialExpressionTextureSample_3",
+    "class": "MaterialExpressionTextureSample",
+    "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_BaseColor.T_CHALK_PistolHolster01_BaseColor"
+  },
+  {
+    "name": "MaterialExpressionTextureSample_4",
+    "class": "MaterialExpressionTextureSample",
+    "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_Normal.T_CHALK_PistolHolster01_Normal"
+  },
+  {
+    "name": "MaterialExpressionTextureSample_5",
+    "class": "MaterialExpressionTextureSample",
+    "texture": "/Game/AZ/Assets/Items/PistolHolster01/Textures/T_CHALK_PistolHolster01_ORM.T_CHALK_PistolHolster01_ORM"
+  }
+]

@@ -581,6 +581,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Movement")
 	TObjectPtr<class UMotionWarpingComponent> MotionWarpingComponent;
 
+	/** Ledge detection for contextual traversal (mantle today). Does not tick — UAZ_GA_PawnJump asks it
+	 *  once per Jump press whether there is a mantle here, and it answers from a handful of traces. The
+	 *  montages, the ability class and the detection bands are configured on it in the pawn Blueprint. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Traversal")
+	TObjectPtr<class UAZ_TraversalComponent> TraversalComponent;
+
 	/** Default team id for this pawn class. Player pawns default to 0; AI subclasses
 	 *  set their team in the constructor or at spawn. Read by AI perception. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|AI")
