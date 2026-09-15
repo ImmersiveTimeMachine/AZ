@@ -81,7 +81,8 @@ class AZ_API UAZ_AT_PlayMontageAndWaitForEvent : public UAbilityTask
 			float Rate = 1.f,
 			FName StartSection = NAME_None,
 			bool bStopWhenAbilityEnds = true,
-			float AnimRootMotionTranslationScale = 1.f);
+			float AnimRootMotionTranslationScale = 1.f,
+			float StartTimeSeconds = 0.f);
 
 private:
 	/** Montage that is playing */
@@ -95,6 +96,12 @@ private:
 	/** Playback rate */
 	UPROPERTY()
 	float Rate;
+
+	/** Montage TIME to start from. Traversal uses this to skip authored approach the character has no room
+	 *  to perform, instead of asking motion warping to compress it. Optional and defaulted, so every
+	 *  existing caller is unaffected. */
+	UPROPERTY()
+	float StartTimeSeconds;
 
 	/** Section to start montage from */
 	UPROPERTY()

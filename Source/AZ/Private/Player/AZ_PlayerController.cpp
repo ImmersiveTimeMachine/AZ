@@ -596,6 +596,13 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 		{
 			if (!bCrouchWasActive) Asc->AbilityInputTagHeld(InputTag, false);
 		}
+		else if (InputTag == FAZ_GameplayTags::Get().Input_Action_Jump)
+		{
+			// ASC Pressed only forwards input to an already-active ability. Jump is excluded from
+			// repeated Held callbacks, so this fresh Started edge must make its one activation attempt.
+			// No buffer: a refused press must not become a delayed jump or traversal.
+			Asc->AbilityInputTagHeld(InputTag, false);
+		}
 		else if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim
 			|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload || IsFreshPressFireInput(Asc, InputTag))
 		{
@@ -637,9 +644,19 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 		return;
 	}
 	if (MenuSuppressedInputTags.Contains(InputTag)) return;
+	// Jump is a FRESH-PRESS action, and until 2026-09-15 it was not. Held frames reached the ASC, whose
+	// loop re-activates any INACTIVE matching spec — and Jump ends immediately after Started or BodyBusy,
+	// so its spec was inactive again the very next frame. Holding Space therefore re-asked the traversal
+	// query every tick until something took, which is indistinguishable from an input buffer and is the
+	// opposite of the one-press-one-decision policy. It also drowned the logs: 109 rejections against 20
+	// traversals in a single session, most of them the same press re-counted.
+	// Excluded HERE rather than by disabling held input globally, which other abilities rely on (a held
+	// LMB re-punches when the recovery window opens). Hold-to-jump-higher is unaffected: that rides
+	// AbilityInputTagReleased -> UAbilityTask_WaitInputRelease, not this path.
 	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Aim
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_PrimaryAttack
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload
+		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Jump
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Crouch) return;
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{

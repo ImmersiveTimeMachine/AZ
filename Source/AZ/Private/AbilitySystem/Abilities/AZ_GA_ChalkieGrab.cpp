@@ -21,9 +21,13 @@
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Character/AZ_PawnMoverComponent.h"
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "DefaultMovementSet/LayeredMoves/BasicLayeredMoves.h"
+#include "DefaultMovementSet/Settings/CommonLegacyMovementSettings.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -35,6 +39,183 @@
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "PoseSearch/PoseSearchInteractionLibrary.h"
 #include "PoseSearch/PoseSearchLibrary.h"
+
+namespace
+{
+	// The standing pair has no vertical catch/alignment animation. Allow one normal Mover step (40cm)
+	// plus floor-snap slack, rather than demanding identical Z on stairs/slopes or accepting a platform.
+	constexpr float GrabMaxFeetHeightDifference = 45.f;
+	constexpr float GrabMaxPlanarReach = 230.f; // matches the BT's existing rushing-target reach
+	constexpr float GrabContactRadius = 10.f;
+	constexpr float GrabFloorSlack = 5.f;
+
+	struct FGrabBody
+	{
+		const UCapsuleComponent* Capsule = nullptr;
+		FVector Center = FVector::ZeroVector;
+		float Radius = 0.f;
+		float HalfHeight = 0.f;
+		float StepHeight = 40.f;
+		float WalkableNormalZ = 0.71f;
+		float FeetZ = 0.f;
+	};
+
+	bool ReadGrabBody(const AActor* Actor, FGrabBody& OutBody)
+	{
+		if (!IsValid(Actor)) return false;
+		OutBody.Capsule = Cast<UCapsuleComponent>(Actor->GetRootComponent());
+		const UCharacterMoverComponent* Mover = Actor->FindComponentByClass<UCharacterMoverComponent>();
+		if (!OutBody.Capsule || !OutBody.Capsule->IsQueryCollisionEnabled() || !Mover || !Mover->IsOnGround()) return false;
+		OutBody.Center = OutBody.Capsule->GetComponentLocation();
+		OutBody.Radius = OutBody.Capsule->GetScaledCapsuleRadius();
+		OutBody.HalfHeight = OutBody.Capsule->GetScaledCapsuleHalfHeight();
+		OutBody.FeetZ = static_cast<float>(OutBody.Center.Z) - OutBody.HalfHeight;
+		if (const UCommonLegacyMovementSettings* Settings = Mover->FindSharedSettings<UCommonLegacyMovementSettings>())
+		{
+			OutBody.StepHeight = FMath::Clamp(Settings->MaxStepHeight, 0.f, 40.f);
+			OutBody.WalkableNormalZ = Settings->MaxWalkSlopeCosine;
+		}
+		return !OutBody.Center.ContainsNaN() && FMath::IsFinite(OutBody.HalfHeight)
+			&& FMath::IsFinite(OutBody.Radius) && OutBody.Radius > 0.f && OutBody.HalfHeight >= OutBody.Radius;
+	}
+
+	FCollisionQueryParams GrabQueryParams(const AActor& Grabber, const AActor& Victim)
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(AZGrabClearance), false);
+		Params.AddIgnoredActor(&Grabber);
+		Params.AddIgnoredActor(&Victim);
+		TArray<AActor*> Attached;
+		Grabber.GetAttachedActors(Attached, true, true);
+		Params.AddIgnoredActors(Attached);
+		Victim.GetAttachedActors(Attached, true, true);
+		Params.AddIgnoredActors(Attached);
+		return Params;
+	}
+
+	bool IsGrabBlockingScenery(const UPrimitiveComponent* Component, const UCapsuleComponent& Capsule)
+	{
+		// Other pack members are handled by the existing grab token/step-back rules. Solid static AND
+		// movable scenery must block; triggers and the participants' carried meshes must not.
+		return Component && Component->IsQueryCollisionEnabled() && !Cast<APawn>(Component->GetOwner())
+			&& Component->GetCollisionResponseToChannel(Capsule.GetCollisionObjectType()) == ECR_Block
+			&& Capsule.GetCollisionResponseToChannel(Component->GetCollisionObjectType()) == ECR_Block;
+	}
+
+	bool GrabSweepBlocked(const UWorld& World, const UCapsuleComponent& Capsule, const FVector& Start,
+		const FVector& End, const FCollisionShape& Shape, const FCollisionQueryParams& Params, FHitResult& OutHit)
+	{
+		TArray<FHitResult> Hits;
+		World.SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
+			FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllObjects), Shape, Params);
+		for (const FHitResult& Hit : Hits)
+		{
+			if (IsGrabBlockingScenery(Hit.GetComponent(), Capsule))
+			{
+				OutHit = Hit;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool IsGrabCloseInClear(const AActor& Grabber, const AActor& Victim, const FVector& Destination, FString& OutReason)
+	{
+		FGrabBody Body;
+		if (!ReadGrabBody(&Grabber, Body) || Destination.ContainsNaN() || !Grabber.GetWorld())
+		{
+			OutReason = TEXT("invalid or ungrounded close-in body");
+			return false;
+		}
+		const UWorld& World = *Grabber.GetWorld();
+		const FCollisionQueryParams Params = GrabQueryParams(Grabber, Victim);
+		// The live close-in remains XY-only; Mover owns floor following. Resolve the actual support at
+		// its destination so the clearance query follows a normal step/slope instead of sweeping into it.
+		const float FloorReach = Body.StepHeight + GrabFloorSlack;
+		const FVector FloorXY(Destination.X, Destination.Y, Body.FeetZ);
+		TArray<FHitResult> FloorHits;
+		World.LineTraceMultiByObjectType(FloorHits, FloorXY + FVector(0.f, 0.f, FloorReach),
+			FloorXY - FVector(0.f, 0.f, FloorReach),
+			FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllObjects), Params);
+		const FHitResult* Floor = FloorHits.FindByPredicate([&Body](const FHitResult& Hit)
+		{
+			return IsGrabBlockingScenery(Hit.GetComponent(), *Body.Capsule);
+		});
+		if (!Floor || Floor->bStartPenetrating || Floor->ImpactNormal.Z < Body.WalkableNormalZ)
+		{
+			OutReason = TEXT("close-in destination has no reachable walkable support");
+			return false;
+		}
+		const FVector End(Destination.X, Destination.Y, Floor->ImpactPoint.Z + Body.HalfHeight + 2.f);
+		// Preserve the body radius and head clearance, omitting only the step-height bottom slice. This
+		// accepts normal stair risers while still rejecting a wall/railing across the alignment corridor.
+		const float RaisedHalfHeight = FMath::Max(Body.Radius, Body.HalfHeight - Body.StepHeight * 0.5f - 0.5f);
+		const FVector Raise(0.f, 0.f, Body.HalfHeight - RaisedHalfHeight - 0.5f);
+		FHitResult Hit;
+		if (GrabSweepBlocked(World, *Body.Capsule, Body.Center + Raise, End + Raise,
+			FCollisionShape::MakeCapsule(Body.Radius, RaisedHalfHeight), Params, Hit))
+		{
+			OutReason = FString::Printf(TEXT("close-in corridor blocked by %s"), *GetNameSafe(Hit.GetActor()));
+			return false;
+		}
+		TArray<FOverlapResult> Overlaps;
+		World.OverlapMultiByObjectType(Overlaps, End, FQuat::Identity,
+			FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllObjects),
+			FCollisionShape::MakeCapsule(Body.Radius, FMath::Max(Body.Radius, Body.HalfHeight - 0.5f)), Params);
+		for (const FOverlapResult& Overlap : Overlaps)
+		{
+			if (IsGrabBlockingScenery(Overlap.GetComponent(), *Body.Capsule))
+			{
+				OutReason = FString::Printf(TEXT("close-in destination occupied by %s"), *GetNameSafe(Overlap.GetActor()));
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
+bool UAZ_GA_ChalkieGrab::CanStartGrab(const AActor* Grabber, const AActor* Victim, FString* OutReason)
+{
+	auto Reject = [OutReason](const FString& Reason)
+	{
+		if (OutReason) *OutReason = Reason;
+		return false;
+	};
+	if (OutReason) OutReason->Reset();
+	FGrabBody GrabberBody, VictimBody;
+	if (!Grabber || !Victim || Grabber == Victim || !Grabber->GetWorld()
+		|| Grabber->GetWorld() != Victim->GetWorld()
+		|| !ReadGrabBody(Grabber, GrabberBody) || !ReadGrabBody(Victim, VictimBody))
+	{
+		return Reject(TEXT("standing grab requires two grounded capsule bodies"));
+	}
+	const float FeetDifference = FMath::Abs(GrabberBody.FeetZ - VictimBody.FeetZ);
+	if (FeetDifference > GrabMaxFeetHeightDifference)
+	{
+		return Reject(FString::Printf(TEXT("foot-height gap %.1fcm exceeds standing-pair reach %.1fcm"),
+			FeetDifference, GrabMaxFeetHeightDifference));
+	}
+	if (FVector::DistSquared2D(GrabberBody.Center, VictimBody.Center) > FMath::Square(GrabMaxPlanarReach))
+	{
+		return Reject(TEXT("target moved outside grab reach"));
+	}
+	const FCollisionQueryParams Params = GrabQueryParams(*Grabber, *Victim);
+	const float LowHeight = FMath::Max(GrabberBody.StepHeight, VictimBody.StepHeight) + GrabContactRadius + GrabFloorSlack;
+	for (const bool bUpperBody : { false, true })
+	{
+		const float GrabberHeight = bUpperBody ? FMath::Max(LowHeight, GrabberBody.HalfHeight * 1.4f) : LowHeight;
+		const float VictimHeight = bUpperBody ? FMath::Max(LowHeight, VictimBody.HalfHeight * 1.4f) : LowHeight;
+		const FVector Start(GrabberBody.Center.X, GrabberBody.Center.Y, GrabberBody.FeetZ + GrabberHeight);
+		const FVector End(VictimBody.Center.X, VictimBody.Center.Y, VictimBody.FeetZ + VictimHeight);
+		FHitResult Hit;
+		if (GrabSweepBlocked(*Grabber->GetWorld(), *GrabberBody.Capsule, Start, End,
+			FCollisionShape::MakeSphere(GrabContactRadius), Params, Hit))
+		{
+			return Reject(FString::Printf(TEXT("%s contact corridor blocked by %s"),
+				bUpperBody ? TEXT("upper-body") : TEXT("lower-body"), *GetNameSafe(Hit.GetActor())));
+		}
+	}
+	return true;
+}
 
 UAZ_GA_ChalkieGrab::UAZ_GA_ChalkieGrab()
 {
@@ -73,12 +254,6 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
-
-	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
 
 	AActor* Avatar = GetAvatarActorFromActorInfo();
 	const APawn* AvatarPawn = Cast<APawn>(Avatar);
@@ -119,6 +294,19 @@ void UAZ_GA_ChalkieGrab::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 			*GetNameSafe(Avatar), Avatar != nullptr, *GetNameSafe(Target), TargetASC != nullptr,
 			CachedPairedMontage != nullptr, Loop != nullptr,
 			TargetASC ? TargetASC->HasMatchingGameplayTag(Tags.State_Grabbed) : 0);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+
+	FString ReachFailure;
+	if (!CanStartGrab(Avatar, Target, &ReachFailure))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Grab] %s ABORT before catch: %s"), *GetNameSafe(Avatar), *ReachFailure);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
@@ -244,6 +432,13 @@ void UAZ_GA_ChalkieGrab::BeginCatch()
 	}
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	UAnimMontage* Loop = CachedLoopMontage;
+	FString ReachFailure;
+	if (!CanStartGrab(Avatar, Target, &ReachFailure))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Grab] %s ABORT at deferred catch: %s"), *GetNameSafe(Avatar), *ReachFailure);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
 
 	// CLOSE-IN: slide the grabber onto the prey THROUGH the Mover sim (a short layered velocity move,
 	// the same mechanism the knockback uses). The ATTACKER travels; the player keeps their position.
@@ -264,6 +459,12 @@ void UAZ_GA_ChalkieGrab::BeginCatch()
 			const FVector DirToChalkie = (Avatar->GetActorLocation() - HeroLoc).GetSafeNormal2D();
 			const FVector ContactPoint = HeroLoc + DirToChalkie * GrabHoldDistance;
 			const FVector Displacement = (ContactPoint - Avatar->GetActorLocation()) * FVector(1.f, 1.f, 0.f);
+			if (!IsGrabCloseInClear(*Avatar, *Target, Avatar->GetActorLocation() + Displacement, ReachFailure))
+			{
+				UE_LOG(LogTemp, Display, TEXT("[Grab] %s ABORT legacy alignment: %s"), *GetNameSafe(Avatar), *ReachFailure);
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+				return;
+			}
 			if (!Displacement.IsNearlyZero(1.f) && GrabCloseSeconds > KINDA_SMALL_NUMBER)
 			{
 				const TSharedPtr<FLayeredMove_LinearVelocity> CloseMove = MakeShared<FLayeredMove_LinearVelocity>();
@@ -290,6 +491,14 @@ void UAZ_GA_ChalkieGrab::BeginCatch()
 	}
 
 	// Catch the player: the event triggers GA_PlayerGrabbed on the PLAYER's own avatar.
+	// Revalidate immediately before the authoritative handshake, after search/montage setup. The victim
+	// repeats this check before applying its lock, so neither event route can bypass physical eligibility.
+	if (!CanStartGrab(Avatar, Target, &ReachFailure))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Grab] %s ABORT before victim commit: %s"), *GetNameSafe(Avatar), *ReachFailure);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
 	FGameplayEventData Payload;
 	Payload.EventTag = Tags.Event_Grabbed;
 	Payload.Instigator = Avatar;
@@ -537,6 +746,11 @@ bool UAZ_GA_ChalkieGrab::TryCatchSearch(AActor* Target)
 	{
 		return Fallback(TEXT("aligned target implausibly far (>400cm)"));
 	}
+	FString AlignmentFailure;
+	if (!IsGrabCloseInClear(*Infected, *Target, SelfFrom + Displacement, AlignmentFailure))
+	{
+		return Fallback(*AlignmentFailure); // legacy alignment must pass the same clearance check
+	}
 
 	if (UAZ_PawnMoverComponent* Mover = Infected->FindComponentByClass<UAZ_PawnMoverComponent>())
 	{
@@ -591,7 +805,9 @@ bool UAZ_GA_ChalkieGrab::TryCatchSearch(AActor* Target)
 			SelfResult->SelectedTime, HeroResult->SelectedTime);
 	}
 	CatchStartPosition = SelfResult->SelectedTime;
-	CatchPlayRate = FMath::Clamp(SelfResult->WantedPlayRate, 0.8f, 1.2f);
+	// The victim follows this leader's rate. PSI may choose the entry pose, but must never retime
+	// the player's paired animation: the project's fixed 1x playback rule applies to the whole pair.
+	CatchPlayRate = 1.f;
 	return true;
 }
 

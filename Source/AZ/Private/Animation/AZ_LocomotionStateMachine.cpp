@@ -25,6 +25,10 @@ namespace
 	// AIM TURN-IN-PLACE: the enter/exit angles and the master switch arrive in FAZ_LocoSMInputs (copied from the
 	// walking mode each tick), so the SM and the mode cannot drift apart. Only the entry dwell lives here.
 	constexpr float AimTurnInPlaceMinIdleSeconds = 0.20f;   // settle after a stop before a turn may start
+
+	// Same 10 cm/s idle cutoff used by AZ_AnimInstance::bHasVelocity. A settled climb can retain
+	// ~1 cm/s numerical motion; that must still take the normal idle/from-rest-start route.
+	constexpr float TraversalExitMovingSpeed = 10.f;
 }
 
 // Bucket a signed facing->desired yaw (deg, +right) into a turn-start clip selector. Thresholds above; side
@@ -141,7 +145,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	// block below would then fire the instant the action set us down -- stamping bJustLanded and selecting
 	// a Land2Walk on top of a mantle that had already finished standing the character up.
 	// Clearing the latches here is what makes the exit clean: Previous becomes IdleLoop, so no manufactured
-	// landing, and the grounded dispatch resumes normally on the next frame. ----
+	// landing. A moving exit resumes the loop below; a settled exit uses normal grounded dispatch. ----
 	if (In.MovementMode == EAZ_MovementMode::Traversing)
 	{
 		PreviousStance     = In.Stance;
@@ -249,6 +253,25 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			NextIdleBreakTime  = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
 			return EAZ_StateMachineState::IdleLoop;
 		}
+	}
+
+	// A traversal's neutral source pose is not evidence that the character came to rest. If the action
+	// released us still moving and the collision-clamped input permits continued movement, let the loop
+	// chooser match the actual outgoing PoseHistory instead of replaying a from-rest start for ~0.62s.
+	// Suppression, airborne modes and impact reactions keep their precedence above. Released or blocked
+	// input, and settled standing/climb exits, retain their existing dispatch below.
+	if (In.bJustExitedTraversal && In.MovementMode == EAZ_MovementMode::OnGround
+		&& In.bIsMoving && FMath::IsFinite(In.PlanarSpeed) && In.PlanarSpeed > TraversalExitMovingSpeed)
+	{
+		PreviousStance = In.Stance;
+		NextIdleBreakTime = -1.f;
+		IdleBreakEndTime = -1.f;
+		TransitionEndTime = -1.f;
+		TakeoffEndTime = -1.f;
+		LatchedStartDirection = EAZ_StartDirection::Fwd;
+		bLatchedMovingTransition = false;
+		bLatchedJustLanded = false;
+		return EAZ_StateMachineState::LocomotionLoop;
 	}
 
 	// ---- Grounded dispatch. The movement-intent split must precede the switch: the SAME previous phase routes

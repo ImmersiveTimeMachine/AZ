@@ -39,6 +39,11 @@ public:
 	 *  CDO, so the patch must land on the granted class itself. Null = patch the native class. */
 	static void ConfigureCDO(UClass* GrantClass = nullptr);
 
+	/** Physical eligibility for this standing grab pair, independent of the melee attack gates.
+	 *  Checks grounded foot-height reach and solid scenery between both bodies. Repeat before commit;
+	 *  an earlier BT decision is not permission to catch someone who moved onto another elevation. */
+	static bool CanStartGrab(const AActor* Grabber, const AActor* Victim, FString* OutReason = nullptr);
+
 protected:
 	/** Committing to a grab cancels this Chalkie's own swing, and a corpse cannot grab. State.Combat.
 	 *  Grabbing stays an EXPLICIT loose tag (see bAppliedGrabbingTag) — one owner per fact. */
@@ -186,8 +191,7 @@ private:
 	/** Entry frame the PSI search picked on the flat paired-montage timeline (0 = legacy: section
 	 *  start). Reset in the per-grab latch block — InstancedPerActor. */
 	float CatchStartPosition = 0.f;
-	/** Play rate the search suggested (1 = legacy). Applied from the entry; the schema has no velocity
-	 *  channels so expect ~1 — logged either way. */
+	/** Fixed 1x for both routes: the victim follows this leader, so the search cannot retime the pair. */
 	float CatchPlayRate = 1.f;
 
 	/** True once the paired montage resolved and loaded — selects section-driven flow over the v1 pair. */

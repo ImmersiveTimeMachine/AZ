@@ -11,6 +11,7 @@ UAZ_AT_PlayMontageAndWaitForEvent::UAZ_AT_PlayMontageAndWaitForEvent(const FObje
 	: Super(ObjectInitializer), MontageToPlay(nullptr), AnimRootMotionTranslationScale(0)
 {
 	Rate = 1.f;
+	StartTimeSeconds = 0.f;
 	bStopWhenAbilityEnds = true;
 }
 
@@ -33,7 +34,7 @@ void UAZ_AT_PlayMontageAndWaitForEvent::Activate()
 			// Bind to event callback
 			EventHandle = AZ_AbilitySystemComponent->AddGameplayEventTagContainerDelegate(EventTags, FGameplayEventTagMulticastDelegate::FDelegate::CreateUObject(this, &UAZ_AT_PlayMontageAndWaitForEvent::OnGameplayEvent));
 
-			if (AZ_AbilitySystemComponent->PlayMontage(Ability, Ability->GetCurrentActivationInfo(), MontageToPlay, Rate, StartSection) > 0.f)
+			if (AZ_AbilitySystemComponent->PlayMontage(Ability, Ability->GetCurrentActivationInfo(), MontageToPlay, Rate, StartSection, StartTimeSeconds) > 0.f)
 			{
 				// Playing a montage could potentially fire off a callback into game code which could kill this ability! Early out if we are  pending kill.
 				if (ShouldBroadcastAbilityTaskDelegates() == false)
@@ -114,7 +115,7 @@ void UAZ_AT_PlayMontageAndWaitForEvent::OnDestroy(bool AbilityEnded)
 }
 
 UAZ_AT_PlayMontageAndWaitForEvent* UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(UGameplayAbility* OwningAbility, FName TaskInstanceName,
-                                                                                                 UAnimMontage* MontageToPlay, FGameplayTagContainer EventTags, float Rate, FName StartSection, bool bStopWhenAbilityEnds, float AnimRootMotionTranslationScale)
+                                                                                                 UAnimMontage* MontageToPlay, FGameplayTagContainer EventTags, float Rate, FName StartSection, bool bStopWhenAbilityEnds, float AnimRootMotionTranslationScale, float StartTimeSeconds)
 {
 	UAZ_AT_PlayMontageAndWaitForEvent* NewTask = NewAbilityTask<UAZ_AT_PlayMontageAndWaitForEvent>(OwningAbility, TaskInstanceName);
 	NewTask->MontageToPlay = MontageToPlay;
@@ -123,6 +124,7 @@ UAZ_AT_PlayMontageAndWaitForEvent* UAZ_AT_PlayMontageAndWaitForEvent::PlayMontag
 	NewTask->StartSection = StartSection;
 	NewTask->bStopWhenAbilityEnds = bStopWhenAbilityEnds;
 	NewTask->AnimRootMotionTranslationScale = AnimRootMotionTranslationScale;
+	NewTask->StartTimeSeconds = StartTimeSeconds;
 	return NewTask;
 }
 

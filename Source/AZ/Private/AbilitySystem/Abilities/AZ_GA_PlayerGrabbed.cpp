@@ -1,6 +1,7 @@
 // Copyright Artur. AZ project.
 
 #include "AbilitySystem/Abilities/AZ_GA_PlayerGrabbed.h"
+#include "AbilitySystem/Abilities/AZ_GA_ChalkieGrab.h"
 
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_WaitInputPressWithTags.h"
@@ -109,6 +110,15 @@ void UAZ_GA_PlayerGrabbed::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;   // ends BEFORE State.Grabbed is applied — nothing to unwind
+	}
+	AActor* VictimAvatar = GetAvatarActorFromActorInfo();
+	FString ReachFailure;
+	if (VictimAvatar && VictimAvatar->HasAuthority()
+		&& !UAZ_GA_ChalkieGrab::CanStartGrab(EventInstigator, VictimAvatar, &ReachFailure))
+	{
+		UE_LOG(LogTemp, Display, TEXT("[Grab] victim refused catch from %s: %s"), *GetNameSafe(EventInstigator), *ReachFailure);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return; // no ability cancellation, mesh anchor, or paired animation for an unreachable grabber
 	}
 
 	Grabber = EventInstigator;

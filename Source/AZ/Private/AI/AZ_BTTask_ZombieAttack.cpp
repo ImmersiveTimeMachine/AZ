@@ -162,7 +162,10 @@ EBTNodeResult::Type UAZ_BTTask_ZombieAttack::ExecuteTask(UBehaviorTreeComponent&
 					&& !TargetASC->HasMatchingGameplayTag(FAZ_GameplayTags::Get().State_Grabbed);
 
 				UAZ_HordeSubsystem* Horde = Pawn->GetWorld()->GetSubsystem<UAZ_HordeSubsystem>();
-				if (bOffCooldown && bTargetFree && Horde && Horde->RequestGrabToken(Chalkie, Target))
+				// Grab-specific physical eligibility. A failed pair placement leaves the ordinary melee
+				// choice intact and does not consume a grab token or the forced-grab one-shot.
+				if (bOffCooldown && bTargetFree && UAZ_GA_ChalkieGrab::CanStartGrab(Pawn, Target)
+					&& Horde && Horde->RequestGrabToken(Chalkie, Target))
 				{
 					ChosenAbilityClass = GrabAbilityClass;
 					bGrabRun = true;

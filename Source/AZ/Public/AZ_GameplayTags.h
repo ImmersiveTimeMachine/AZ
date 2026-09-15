@@ -302,6 +302,13 @@ struct AZ_API FAZ_GameplayTags
                                           //  (A′ loose-tag form today; becomes GA_HitReact's
                                           //  ActivationOwnedTags at arch step A.)
 
+    FGameplayTag Event_Traversal_Handoff; // ANIM-LED: the traversal clip has carried the capsule far enough onto
+                                          //  supported ground that locomotion can take the body back. Authored as
+                                          //  a SendGameplayEvent notify at a MEASURED per-montage time (see
+                                          //  project_mantle_handoff_spec) on the MOVING clips only — the standing
+                                          //  clips settle on their own and carry no marker. Events drive the
+                                          //  handoff; the ability's timer is only a watchdog.
+
     FGameplayTag State_Traversing;        // a traversal action (mantle today; vault/hurdle/climb later) owns the
                                           //  body AND the capsule: a FullBody montage drives the pose while the
                                           //  Mover "Traversing" mode follows its root motion. UAZ_GA_Mantle's

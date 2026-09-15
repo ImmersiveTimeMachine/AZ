@@ -1197,6 +1197,13 @@ void UAZ_Inv_CommonUI_EquipmentComponent::BindAbilityEvents()
 	UnbindAbilityEvents();
 	if (!ASC) return;
 	BoundASC = ASC;
+	// The ASC can become available after the initial empty selection was published.
+	// Keep its weapon state aligned with the explicit Explore selection on authority.
+	if (GetOwner()->HasAuthority() && Selection.Profile == FAZ_GameplayTags::Get().Weapon_None
+		&& !Selection.Item && Selection.IntrinsicSlotIndex == INDEX_NONE)
+	{
+		ASC->OnWeaponEquipped(Selection.Profile);
+	}
 	FGameplayTagContainer Tags = EquipmentBlockTags();
 	Tags.AddTag(FAZ_GameplayTags::Get().State_Combat_CancelWindow);
 	Tags.AddTag(FAZ_GameplayTags::Get().Ability_State_Aiming);
@@ -1285,7 +1292,23 @@ void UAZ_Inv_CommonUI_EquipmentComponent::InitializeOwner(APlayerController* Pla
 	InventoryComponent = PlayerController->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>();
 	if (InventoryComponent.IsValid()) InventoryComponent->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::OnInventoryChanged);
 	PlayerController->OnPossessedPawnChanged.AddUniqueDynamic(this, &ThisClass::OnPossessedPawnChange);
+	// A fresh empty loadout starts in Explore. Do not replace a restored or already
+	// committed selection when ownership/bindings are refreshed later.
+	const bool bInitializeExplore = !bIsProxy && PlayerController->HasAuthority()
+		&& Selection.Generation == 0 && !Selection.Profile.IsValid()
+		&& !Selection.Item && !Selection.Weapon && Selection.IntrinsicSlotIndex == INDEX_NONE;
+	if (bInitializeExplore)
+	{
+		Selection.Profile = FAZ_GameplayTags::Get().Weapon_None;
+		++Selection.Generation;
+	}
 	OnPossessedPawnChange(nullptr, PlayerController->GetPawn());
+	if (bInitializeExplore)
+	{
+		PublishSelection(nullptr);
+		UE_LOG(LogTemp, Display, TEXT("[Equipment] initialized generation=%u profile=%s (Explore)"),
+			Selection.Generation, *Selection.Profile.ToString());
+	}
 }
 
 void UAZ_Inv_CommonUI_EquipmentComponent::BeginPlay()

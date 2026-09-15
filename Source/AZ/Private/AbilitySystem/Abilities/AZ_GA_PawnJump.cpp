@@ -65,12 +65,27 @@ void UAZ_GA_PawnJump::ActivateAbility(
 	//      that flag is set plays its montage in full with the capsule never leaving the ground.
 	// Consumption rule: only a mantle that actually ACTIVATED eats the press. No candidate, no grant, a
 	// committed impact reaction, or a blocked activation all fall through to the ordinary jump below.
+	// THREE outcomes, not two. Reading a bare false as consent is what let a committed impact reaction
+	// produce an ordinary jump — the opposite of the agreed policy that a reaction finishes first.
 	if (UAZ_TraversalComponent* Traversal = Avatar ? Avatar->FindComponentByClass<UAZ_TraversalComponent>() : nullptr)
 	{
-		if (Traversal->TryStartMantle())
+		switch (Traversal->TryStartMantle())
 		{
+		case EAZ_MantleRequestResult::Started:
+			// The mantle owns the press. End without ever setting jump-pressed.
 			EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 			return;
+
+		case EAZ_MantleRequestResult::BodyBusy:
+			// Something already owns the body (a committed flinch, a grab, an in-flight traversal). Eat
+			// the press and do nothing: it must not become a jump, and it must not be buffered into a late
+			// mantle either. The contract is a FRESH press once the body is free.
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+			return;
+
+		case EAZ_MantleRequestResult::NoCandidate:
+		default:
+			break;   // genuinely nothing to traverse — fall through to the ordinary jump
 		}
 	}
 

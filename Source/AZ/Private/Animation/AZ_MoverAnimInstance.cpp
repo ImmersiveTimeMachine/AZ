@@ -80,6 +80,24 @@ static TWeakObjectPtr<const UObject> GLastContinuingAsset;
 static float GLastContinuingTime = 0.f;
 static int32 GLastContinuingConv = -1;   // 1 = BlendStackNode ref resolved to a blend stack, 0 = it did not
 static int32 GLastContinuingLoop = -1;   // 1 = bLoop was true at the search (continuity is loop-only)
+
+// ★ Transitional-anim trail for the on-screen HUD. Every other line of that HUD is a SINGLE-FRAME
+// snapshot, which cannot answer the question traversal actually poses: what did the body go THROUGH to
+// get here? A hurdle that hands back cleanly and one that cold-starts look identical in a snapshot --
+// they differ only in the SEQUENCE (montage -> Loop, versus montage -> Idle -> Start -> Loop). Sampled
+// by OBSERVING changes from UpdateDebug on the game thread, so nothing is written from the anim
+// worker's push path; a clip that lives less than one frame is the only thing this can miss.
+struct FAZ_AnimHistoryEntry
+{
+	FString Name;        // clip / montage asset name, or an explicit "(end)" marker
+	FString Context;     // Mover movement mode + SM state at the moment of the change
+	float   WorldTime = 0.f;
+	bool    bMontage  = false;
+};
+static constexpr int32 GAnimHistoryMax = 6;
+static TArray<FAZ_AnimHistoryEntry>       GAnimHistory;      // oldest first; rendered newest first
+static TWeakObjectPtr<const UObject>      GHistLastAnim;
+static TWeakObjectPtr<const UAnimMontage> GHistLastMontage;
 #endif
 
 // ★ NOT DEBUG - the two maps below are read AND written on the committed-push path in EVERY build
@@ -489,6 +507,9 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// MovementMode from the active mode's registered name (set on the MoverComponent's MovementModes map).
 	const FName ModeName = Cached_MoverComponent->GetMovementModeName();
+	// Keep the observed exit edge before the diagnostics/jump block updates LastRawMoverModeName.
+	// Traversing -> Falling stays on the normal airborne path; only actual Walking can resume a loop.
+	const bool bJustExitedTraversal = LastRawMoverModeName == TEXT("Traversing") && ModeName == TEXT("Walking");
 	if (ModeName == TEXT("Walking"))
 	{
 		ChooserContext.MovementMode = EAZ_MovementMode::OnGround;
@@ -955,6 +976,8 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// identically on simulated proxies and the authority — there is no jump-press edge to read and no
 		// proxy-only mirror branch (that was the old one-shot-edge RM jump, which proxies routinely missed).
 		SMIn.MovementMode         = ChooserContext.MovementMode;
+		SMIn.bJustExitedTraversal = bJustExitedTraversal;
+		SMIn.PlanarSpeed          = ChooserContext.Speed2D;
 		// Vehicle/driver-pose pin — set by gameplay code on vehicle enter/exit; SM holds IdleLoop while true.
 		SMIn.bSuppressLocomotion  = bSuppressLocomotion;
 		// HYBRID JUMP: hold TransitionToInAir while the RM rise (RMAction) owns the capsule, so the
@@ -1161,6 +1184,79 @@ void UAZ_MoverAnimInstance::UpdateDebug()
 						*GetNameSafe(ActiveMontage), Montage_GetPosition(ActiveMontage),
 						ActiveMontage->GetPlayLength())
 					: FString::Printf(TEXT("MONTAGE none   (anim above is the rendered clip)")));
+		}
+
+		// ★ MODE + TRANS — the traversal readout. MODE answers "is the traversal movement mode actually
+		// active"; the TRANS rows answer "what did it play to get here", newest first, montages marked M and
+		// chooser/MM clips marked A. Together they make the exit seam legible on screen: an Idle -> Start ->
+		// Loop trail immediately after a traversal montage IS the cold start, and a montage row still on
+		// screen while MODE says Walking means ownership was released early.
+		{
+			const UWorld* HistWorld = GetWorld();
+			const float   HistNow   = HistWorld ? HistWorld->GetTimeSeconds() : 0.f;
+			const FName   HistMode  = Cached_MoverComponent
+				? Cached_MoverComponent->GetMovementModeName() : NAME_None;
+
+			auto PushHistory = [&](const FString& Label, bool bIsMontage)
+			{
+				FAZ_AnimHistoryEntry& Entry = GAnimHistory.AddDefaulted_GetRef();
+				Entry.Name      = Label;
+				Entry.bMontage  = bIsMontage;
+				Entry.WorldTime = HistNow;
+				Entry.Context   = FString::Printf(TEXT("%s/%s"), *HistMode.ToString(),
+					*EnumName(TEXT("/Script/AZ.EAZ_StateMachineState"),
+						static_cast<int64>(ChooserContext.SMState)));
+				while (GAnimHistory.Num() > GAnimHistoryMax)
+				{
+					GAnimHistory.RemoveAt(0);
+				}
+			};
+
+			const UAnimMontage* HistMontage = GetCurrentActiveMontage();
+			if (HistMontage != GHistLastMontage.Get())
+			{
+				// A montage ENDING is as diagnostic as one starting — the exit seam is where the cold start
+				// lives — so mark it explicitly instead of inferring it from the next BlendStack push.
+				if (HistMontage)
+				{
+					PushHistory(GetNameSafe(HistMontage), true);
+				}
+				else if (GHistLastMontage.IsValid())
+				{
+					PushHistory(FString::Printf(TEXT("(end) %s"), *GetNameSafe(GHistLastMontage.Get())), true);
+				}
+				GHistLastMontage = HistMontage;
+			}
+
+			if (CurAnim != GHistLastAnim.Get())
+			{
+				if (CurAnim)
+				{
+					PushHistory(GetNameSafe(CurAnim), false);
+				}
+				GHistLastAnim = CurAnim;
+			}
+
+			GEngine->AddOnScreenDebugMessage(KeyBase + 7, 0.f,
+				(HistMode == TEXT("Traversing") || HistMode == TEXT("RMAction")) ? FColor::Red : FColor::Silver,
+				FString::Printf(TEXT("MODE  %s"), *HistMode.ToString()));
+
+			for (int32 Row = 0; Row < GAnimHistoryMax; ++Row)
+			{
+				const int32 Index = GAnimHistory.Num() - 1 - Row;   // newest first
+				if (Index < 0)
+				{
+					GEngine->RemoveOnScreenDebugMessage(KeyBase + 8 + Row);
+					continue;
+				}
+				const FAZ_AnimHistoryEntry& Entry = GAnimHistory[Index];
+				GEngine->AddOnScreenDebugMessage(KeyBase + 8 + Row, 0.f,
+					Entry.bMontage ? FColor(255, 128, 255)
+						: (Row == 0 ? FColor::White : FColor(150, 150, 150)),
+					FString::Printf(TEXT("TRANS -%05.2fs  %s  %s   [%s]"),
+						HistNow - Entry.WorldTime, Entry.bMontage ? TEXT("M") : TEXT("A"),
+						*Entry.Name, *Entry.Context));
+			}
 		}
 
 		// ★ [v2 CrouchTrace] — per-frame trace while CROUCHED and moving/transitioning, to localise a

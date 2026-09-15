@@ -1,5 +1,6 @@
 #include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
 
+#include "AZ_GameplayTags.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
@@ -21,6 +22,25 @@ namespace
 	{
 		if (Widget) Widget->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
+
+	void ApplyModePresentation(UWidgetTree* Tree, const FAZ_PlayerWeaponView& View, bool bShowFirearm)
+	{
+		if (!Tree) return;
+		const FGameplayTag NoneProfile = FAZ_GameplayTags::Get().Weapon_None;
+		// Same committed profile contract as QuickBar::IsFightMode. The HUD
+		// describes the current state; quick-select slot 0 offers its opposite.
+		const bool bKnownMode = View.Profile.IsValid() && View.Profile.MatchesTag(NoneProfile.RequestDirectParent());
+		const bool bShowMode = bKnownMode && !bShowFirearm;
+		const bool bFightMode = bKnownMode && View.Profile != NoneProfile;
+		ShowElement(Tree->FindWidget(TEXT("ModeContainer")), bShowMode);
+		ShowElement(Tree->FindWidget(TEXT("FightModeIcon")), bShowMode && bFightMode);
+		ShowElement(Tree->FindWidget(TEXT("ExploreModeIcon")), bShowMode && !bFightMode);
+		if (UTextBlock* ModeName = Cast<UTextBlock>(Tree->FindWidget(TEXT("ModeNameText"))))
+		{
+			ModeName->SetText(!bShowMode ? FText::GetEmpty()
+				: bFightMode ? LOCTEXT("CurrentFightMode", "FIGHT") : LOCTEXT("CurrentExploreMode", "EXPLORE"));
+		}
+	}
 }
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
@@ -35,6 +55,7 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 	ShowElement(SpareMagazinesText, false);
 	if (WidgetTree)
 	{
+		ShowElement(WidgetTree->FindWidget(TEXT("ModeContainer")), false);
 		ShowElement(WidgetTree->FindWidget(TEXT("MagazineCountRow")), false);
 		ShowElement(WidgetTree->FindWidget(TEXT("MagazineIcon")), false);
 	}
@@ -112,9 +133,10 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 		ClearHitFeedback();
 		PresentedWeaponId = View.Ammo.WeaponItemId;
 	}
-	// Phase 1 displays supported physical-magazine firearms. Unarmed and other
-	// equipment keep health visible without a misleading ammunition display.
+	// Firearms retain their weapon/ammo row. Other committed equipment modes
+	// show the approved Fight/Explore indicator independently of health.
 	const bool bShow = View.bHasWeapon && View.bUsesMagazines;
+	ApplyModePresentation(WidgetTree, View, bShow);
 	ShowElement(WeaponContainer, bShow);
 	ShowElement(SpareMagazinesText, bShow);
 	if (WidgetTree)

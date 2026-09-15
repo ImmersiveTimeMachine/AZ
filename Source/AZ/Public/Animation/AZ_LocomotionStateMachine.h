@@ -35,6 +35,12 @@ struct FAZ_LocoSMInputs
 	 *  Persistent replicated state, so it drives the air phase identically on proxy + authority. */
 	EAZ_MovementMode MovementMode = EAZ_MovementMode::OnGround;
 
+	/** Observed Traversing -> Walking edge. Captured before the AnimInstance updates its mode history. */
+	bool bJustExitedTraversal = false;
+
+	/** Actual Mover planar speed in cm/s, used only to distinguish a moving traversal exit from rest. */
+	float PlanarSpeed = 0.f;
+
 	/** Vehicle/driver-pose hook: pins the SM to IdleLoop with timers cleared — an external pose system owns
 	 *  the skeleton, and the SM must not derive phases from Mover input it shouldn't trust (audit pre-work). */
 	bool bSuppressLocomotion = false;
