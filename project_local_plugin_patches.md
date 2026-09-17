@@ -270,3 +270,34 @@ class USmoothWalkingMode : public USimpleWalkingMode
 **★ BUILD GOTCHA:** adding a member to a Mover struct (`FMoverDefaultSyncState`) is a **layout change** — it CANNOT be Live-Coded, and the **Mover module must actually recompile** (verify `UnrealEditor-Mover.dll` timestamp updates). A partial/LC build silently runs the old DLL = "no effect." Build with `"C:\UnrealEngine\Engine\Build\BatchFiles\Build.bat" AZEditor Win64 Development -Project="C:\UnrealEngine\Games\AZ\AZ.uproject" -WaitMutex`, editor closed.
 
 **Validated 2026-06-08** (crouch pop gone on the listen-server host's view of a remote client). Portable patch saved at `C:\UnrealEngine\Games\AZ\docs\engine-patches\mover-crouch-skipinterp.patch` (apply with `git -C C:\UnrealEngine apply <patch>`). Symptom on regression: the crouch ±35 pop returns on the listen-server host's view of a remote crouching client (own pawn / clients / SP unaffected either way).
+
+## IKRigEditor — batch retarget crash when OVERWRITING existing assets (diagnosed 2026-09-17)
+
+**NO PATCH IS APPLIED.** The engine source is pristine; the user is handling the fix. This entry is the
+diagnosis and the workaround only — do not go looking for an AZ edit in the IKRig plugin.
+
+**Symptom:** hard crash from the IK Retarget asset browser's **Export** button, stack
+`SIKRetargetAssetBrowser::OnExportButtonClicked -> RunRetarget -> NotifyUserOfResults ->
+FAssetData::FAssetData -> UObject::GetAssetRegistryTags`, on a garbage **non-null** vtable pointer.
+
+★ The editor process SURVIVES but its game thread is dead. `ue_health` still answers (RiderLink's socket
+thread is separate) while `ue_execute_python` times out. A connected `ue_health` is NOT evidence the editor
+is usable — check with an actual script call.
+
+**Cause:** five UObject-pointer containers on `UIKRetargetBatchOperation` (itself a UObject) carry no
+`UPROPERTY()`: `AnimationAssetsToRetarget`, `AnimBlueprintsToRetarget`, `DuplicatedAnimAssets`,
+`DuplicatedBlueprints`, `RemappedAnimAssets`. GC can neither keep those assets alive nor null the pointers.
+`RunRetarget` runs `DuplicateRetargetAssets -> RetargetAssets -> OverwriteExistingAssets ->
+NotifyUserOfResults`, and `OverwriteExistingAssets` calls `ObjectTools::ForceDeleteObjects` — **which runs a
+GC** — plus `AssetTools::RenameAssets`. Anything collected there leaves a dangling pointer that
+`NotifyUserOfResults` dereferences.
+
+The null-filter already in `GetNewAssets` (added for UE-368234) guards a real *null* at 0x0 and cannot catch
+a stale non-null pointer, so it does not help here.
+
+**Trigger:** fires ONLY when the export overwrites names that already exist — that is the only case
+`OverwriteExistingAssets` does work. Log fingerprint: several `LogUObjectHash: Compacting
+FUObjectHashTables` lines immediately before the log ends.
+
+**WORKAROUND (no source change): export to names that do not already exist.** Numbered duplicates like
+`..._SprintLoop2` / `_3` are a sign of a previous run and of re-exporting over existing names.
