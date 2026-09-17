@@ -11,7 +11,9 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "Inventory/AZ_QuickBarComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "Player/AZ_PlayerState.h"
 #include "TimerManager.h"
 #include "UI/AZ_HUDReticleDefinition.h"
@@ -131,6 +133,13 @@ void UAZ_PlayerUIComponent::RefreshBindings()
 			Inventory->OnNoRoomInInventory.AddUniqueDynamic(this, &ThisClass::HandleInventoryFull);
 			Inventory->OnInventoryMenuToggled.AddUniqueDynamic(this, &ThisClass::HandleInventoryVisibilityChanged);
 		}
+	}
+
+	// Readiness is its own signal: selecting a different throwable changes the HUD without the inventory
+	// contents changing at all.
+	if (auto* QuickBar = Player->FindComponentByClass<UAZ_QuickBarComponent>())
+	{
+		QuickBar->OnReadyItemChanged.AddUniqueDynamic(this, &ThisClass::HandleReadyItemChanged);
 	}
 
 	UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Player->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>();
@@ -394,6 +403,40 @@ void UAZ_PlayerUIComponent::HandleInventoryChanged()
 {
 	RefreshWeapon();
 	RefreshReticle();
+	// Throwing the last one empties the HUD entry without readiness itself changing.
+	RefreshThrowable();
+}
+
+void UAZ_PlayerUIComponent::HandleReadyItemChanged()
+{
+	RefreshThrowable();
+}
+
+void UAZ_PlayerUIComponent::RefreshThrowable()
+{
+	FAZ_PlayerThrowableView View;
+	const APlayerController* Player = Cast<APlayerController>(GetOwner());
+	const auto* QuickBar = Player ? Player->FindComponentByClass<UAZ_QuickBarComponent>() : nullptr;
+	const UAZ_Inv_CommonUI_InventoryItem* Item = QuickBar ? QuickBar->GetReadyItem() : nullptr;
+	// Capability, not category: the readied item may be a potion, which is readied the same way and is not
+	// a throwable. Only the fragment can tell them apart.
+	if (Item && Item->IsInitialized() && Item->IsThrowable())
+	{
+		const auto& Manifest = Item->GetItemManifest();
+		const auto& Tags = FAZ_GameplayTags::Get();
+		View.bHasThrowable = true;
+		View.Count = FMath::Max(0, Item->GetTotalStackCount());
+		if (const auto* Image = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_ImageFragment>(Tags.Item_Fragment_Icon))
+		{
+			View.Icon = Image->GetIcon();
+		}
+		if (const auto* Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name))
+		{
+			View.DisplayName = Name->GetText();
+		}
+	}
+	ThrowableView = View;
+	OnThrowableChanged.Broadcast(ThrowableView);
 }
 
 void UAZ_PlayerUIComponent::HandleEquipmentChanged()

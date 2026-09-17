@@ -126,6 +126,21 @@ public:
 	void PrimaryInteract();
 
 private:
+	/**
+	 * Mouse routing for the throw, run BEFORE ordinary ASC dispatch.
+	 *
+	 * Controls (user, 2026-09-16): hold RMB to aim, release RMB to throw, click LMB to cancel. RMB reaches
+	 * this through two input actions (SecondaryAttack and Aim); both are consumed while a throw owns the
+	 * mouse, so aiming a stone can never also raise a firearm's sights.
+	 *
+	 * @return true when the throw consumed the edge and the controller must not dispatch it any further.
+	 */
+	bool RouteThrowInput(const FGameplayTag& InputTag, bool bPressed);
+	/** The live throw instance, or null when nothing is aiming. */
+	class UAZ_GA_Throw* FindActiveThrow() const;
+	/** A quick-slot item that is readied AND actually throwable. Readiness alone is not enough: a potion is
+	 *  readied the same way and must keep its own use action. */
+	bool HasReadyThrowable() const;
 	bool CanApplyFirearmRecoil(const AAZ_Weapon* Weapon, const FGuid& WeaponItemId, uint32 EquipmentGeneration) const;
 	/** Discard pending kick/return debt without moving a camera now owned by another gameplay state. */
 	void ClearFirearmRecoil();
@@ -168,6 +183,11 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category="AZ|QuickSelect")
 	TObjectPtr<UAZ_QuickSelectComponent> QuickSelect;
+
+	/** The readied throwable, in the character's hand. On the PC for the same reason as the quick bar: the
+	 *  object is carried across pawn swaps and long before any throw ability exists. */
+	UPROPERTY(VisibleAnywhere, Category="AZ|Throw")
+	TObjectPtr<class UAZ_ThrowableHandComponent> ThrowableHand;
 
 	TWeakObjectPtr<UAZ_Inv_InventoryComponent> InventoryComponent;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> CommonUI_InventoryComponent;

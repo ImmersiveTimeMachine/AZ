@@ -196,7 +196,12 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Ability_State_Sprinting;
     FGameplayTag Ability_State_MeleeAttacking;
     FGameplayTag Ability_State_Interacting;
+    /** Committed release + recovery. Other systems already treat this as "the body is thrown". */
     FGameplayTag Ability_State_Throwing;
+    /** Aiming a throwable, before any commitment. Deliberately NOT Ability.State.Throwing (nothing is
+     *  committed yet) and deliberately NOT Ability.State.Aiming, which also drives firearm pose, sockets
+     *  and the tight 30cm/FOV50 zoom. */
+    FGameplayTag Ability_State_ThrowPreparing;
     FGameplayTag Ability_State_Dashing;
 
     /** Authored at the first frame of each grab OUTCOME section (Push/Kick). The outcome is QUEUED at
@@ -358,6 +363,9 @@ struct AZ_API FAZ_GameplayTags
                                                     //  the hit; contact timing is physics, not authored data
     FGameplayTag Event_Montage_Melee_WindowEnd;     // strike phase closes: sweep stops; anything not touched
                                                     //  was a legitimate whiff
+    FGameplayTag Event_Throw_Release;       // AUTHORED ON THE MONTAGE at the measured release frame: the frame
+                                            // the object actually leaves the hand. Deliberately the ONLY thing
+                                            // that launches a throw — no timer may invent one if it is missing.
     FGameplayTag Event_Movement_LandComplete; // anim -> GA_PawnJump: the jump animation cycle
                                             //  (takeoff -> air -> land) handed the body back to ordinary
                                             //  locomotion. The ability owns Movement.Jumping for the WHOLE
@@ -611,6 +619,9 @@ struct AZ_API FAZ_GameplayTags
     FGameplayTag Item_Type_Consumable_Health; // Heals health (medkit, bandage).
     FGameplayTag Item_Type_Consumable_Buff; // Temporary stat boost (adrenaline, stimpack).
     FGameplayTag Item_Type_Consumable_Throwable; // Usable item that can be thrown (grenade, molotov).
+    FGameplayTag Item_Type_Equippable_Throwable; // Throwable carried IN HAND: equippable, spent by throwing,
+                                                 // never drunk. Item.Type.Consumable.Throwable is retained so
+                                                 // existing authored data still resolves.
     FGameplayTag Item_Type_Consumable_Antidote; // Cures infection, toxin, or corruption effects.
     FGameplayTag Item_Type_Consumable_Food; // Restores partial health or stamina.
     FGameplayTag Item_Type_Consumable_Psych; // Stabilizes sanity or reduces fear.
@@ -694,6 +705,7 @@ struct AZ_API FAZ_GameplayTags
 	FGameplayTag Item_Fragment_Name;
 	FGameplayTag Item_Fragment_Name_StaticText;
 	FGameplayTag Item_Fragment_Type;
+	FGameplayTag Item_Fragment_Throwable;   // Fragment: this item can be thrown (carries its throwable definition)
 	FGameplayTag Item_Fragment_Text;
 	FGameplayTag Item_Fragment_Value;
 	FGameplayTag Item_Fragment_Level;

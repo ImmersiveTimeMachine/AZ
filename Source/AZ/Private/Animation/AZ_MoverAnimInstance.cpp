@@ -815,7 +815,12 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// the capsule resizes. Runs regardless of AimAlpha: it must already be right when the lock fades in.
 	AimStanceAlpha = FMath::FInterpTo(AimStanceAlpha,
 		ChooserContext.Stance == EAZ_Stance::Crouching ? 1.f : 0.f, DeltaSeconds, AimStanceBlendSpeed);
-	UAnimSequence* RequestedRelaxedPose = WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr;
+	// A readied THROWABLE outranks the lowered-weapon pose on this lane: whatever the weapon would be doing
+	// with the arms, a grenade in the hand is what the arms are actually doing. Same layer above spine_02, so
+	// the legs keep locomoting either way.
+	UAnimSequence* RequestedRelaxedPose = ThrowableCarryPose
+		? ThrowableCarryPose.Get()
+		: (WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr);
 	if (RequestedRelaxedPose)
 	{
 		WeaponRelaxedPose = RequestedRelaxedPose;

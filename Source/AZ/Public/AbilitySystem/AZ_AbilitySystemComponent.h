@@ -127,6 +127,21 @@ public:
 	 *  buffer's own replay, so a second refusal cannot re-latch and hold the press forever. */
 	bool AbilityInputTagHeld(const FGameplayTag& InputTag, bool bBufferIfRefused = true);
 	void AbilityInputTagReleased(const FGameplayTag& InputTag);
+	/**
+	 * Drive one ability's input edge BY CLASS instead of by input tag.
+	 *
+	 * Exists for the throw, which a single physical button reaches through two different input actions
+	 * (SecondaryAttack and Aim, both bound to RMB). Dispatching by tag would press the spec twice on one
+	 * click and release it twice on one lift; the controller instead routes both physical edges here, and
+	 * the InputPressed flag makes a repeated edge a no-op.
+	 *
+	 * Order is deliberate: the pressed flag is set BEFORE activation, because UAbilityTask_WaitInputRelease
+	 * with bTestAlreadyReleased inspects that flag the moment it activates and would otherwise fire its
+	 * release immediately — a throw that launched on the press instead of the release.
+	 *
+	 * @return true when the edge was accepted (or was already in that state), false when nothing took it.
+	 */
+	bool SendAbilityInputEdge(TSubclassOf<UGameplayAbility> AbilityClass, bool bPressed);
 	/** Forget outgoing weapon intent without interrupting a committed action. Held buttons must be
 	 * released/re-pressed before they can activate the next weapon or replay through a menu. */
 	void ClearWeaponInput(const FGameplayTagContainer& InputTags);

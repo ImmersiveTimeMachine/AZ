@@ -1,0 +1,30 @@
+{
+  "01": {
+    "text": 7,
+    "vector": 21,
+    "paint": 0,
+    "image": 1,
+    "groups": 8
+  },
+  "02": {
+    "text": 7,
+    "vector": 60,
+    "paint": 0,
+    "image": 1,
+    "groups": 8
+  },
+  "03": {
+    "text": 7,
+    "vector": 45,
+    "paint": 0,
+    "image": 1,
+    "groups": 8
+  },
+  "comparison": {
+    "text": 42,
+    "vector": 149,
+    "paint": 0,
+    "image": 3,
+    "groups": 22
+  }
+}

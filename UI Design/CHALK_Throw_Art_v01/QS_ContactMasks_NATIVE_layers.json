@@ -1,0 +1,112 @@
+{
+  "canvas": [
+    1024,
+    512
+  ],
+  "counts": {
+    "text": 0,
+    "vector": 8,
+    "paint": 0,
+    "image": 0,
+    "groups": 4
+  },
+  "path_count": 8,
+  "layers": [
+    {
+      "name": "PACKED DATA / R corners / G ring / B center",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "B / center oval / warm white",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "First contact / center",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "First contact / center / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "G / incomplete ellipse / warm white",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Ellipse arc 1",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Ellipse arc 1 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Ellipse arc 0",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Ellipse arc 0 / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "R / four open L corners / sage",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Corner 3 / constant-width L",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Corner 3 / constant-width L / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Corner 2 / constant-width L",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Corner 2 / constant-width L / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Corner 1 / constant-width L",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Corner 1 / constant-width L / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Corner 0 / constant-width L",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Corner 0 / constant-width L / editable path",
+              "strokes": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Black / zero coverage",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "native_vector",
+      "path": "Black / zero coverage / editable path",
+      "strokes": 1
+    }
+  ]
+}

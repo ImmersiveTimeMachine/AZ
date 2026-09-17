@@ -7,6 +7,8 @@
 #include "GameplayTagContainer.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GA_FirearmFire.h"
+#include "AbilitySystem/Abilities/AZ_GA_Throw.h"
+#include "Throwables/AZ_ThrowableHandComponent.h"
 #include "AZ/AZ.h"
 #include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
 #include "UI/AZ_PlayerUIComponent.h"
@@ -67,6 +69,7 @@ AAZ_PlayerController::AAZ_PlayerController()
 	QuickBar = CreateDefaultSubobject<UAZ_QuickBarComponent>(TEXT("QuickBar"));
 	PlayerUI = CreateDefaultSubobject<UAZ_PlayerUIComponent>(TEXT("PlayerUI"));
 	QuickSelect = CreateDefaultSubobject<UAZ_QuickSelectComponent>(TEXT("QuickSelect"));
+	ThrowableHand = CreateDefaultSubobject<UAZ_ThrowableHandComponent>(TEXT("ThrowableHand"));
 }
 
 void AAZ_PlayerController::BeginPlay()
@@ -522,6 +525,90 @@ void AAZ_PlayerController::HandlePickupPromptToggled(bool bVisible)
 	}
 }
 
+UAZ_GA_Throw* AAZ_PlayerController::FindActiveThrow() const
+{
+	const UAbilitySystemComponent* Asc = GetAbilitySystemComponent();
+	if (!Asc)
+	{
+		return nullptr;
+	}
+	for (const FGameplayAbilitySpec& Spec : Asc->GetActivatableAbilities())
+	{
+		if (!Spec.IsActive() || !Spec.Ability || !Spec.Ability->IsA<UAZ_GA_Throw>())
+		{
+			continue;
+		}
+		UAZ_GA_Throw* Throw = Cast<UAZ_GA_Throw>(Spec.GetPrimaryInstance());
+		// Active but not yet in a throw phase (the frame between activation and ActivateAbility on a
+		// replicated instance) is NOT "owning the mouse": the ability must have entered a phase first.
+		if (Throw && Throw->IsThrowContextActive())
+		{
+			return Throw;
+		}
+	}
+	return nullptr;
+}
+
+bool AAZ_PlayerController::HasReadyThrowable() const
+{
+	const UAZ_QuickBarComponent* ThrowableQuickBar = FindComponentByClass<UAZ_QuickBarComponent>();
+	const UAZ_Inv_CommonUI_InventoryItem* Item = ThrowableQuickBar ? ThrowableQuickBar->GetReadyItem() : nullptr;
+	return Item && Item->IsThrowable();
+}
+
+bool AAZ_PlayerController::RouteThrowInput(const FGameplayTag& InputTag, const bool bPressed)
+{
+	const FAZ_GameplayTags& ThrowInputTags = FAZ_GameplayTags::Get();
+	// RMB reaches the controller through two actions bound to the same physical button. Both are handled
+	// here and SendAbilityInputEdge makes the duplicate edge a no-op, so one click is one press.
+	const bool bThrowRoute = InputTag == ThrowInputTags.Input_Action_SecondaryAttack || InputTag == ThrowInputTags.Input_Action_Aim;
+	const bool bCancelRoute = InputTag == ThrowInputTags.Input_Action_PrimaryAttack;
+	if (!bThrowRoute && !bCancelRoute)
+	{
+		return false;
+	}
+	auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent());
+	if (!Asc)
+	{
+		return false;
+	}
+	UAZ_GA_Throw* Throw = FindActiveThrow();
+
+	if (bCancelRoute)
+	{
+		if (!Throw)
+		{
+			return false;   // no throw aiming: LMB is an ordinary attack
+		}
+		if (bPressed)
+		{
+			// Disarm inside the ability FIRST. The player is still holding RMB, and that button will come
+			// up: without this the resulting release would throw the item they just cancelled.
+			Throw->RequestCancel();
+		}
+		// The matching release is swallowed too, so the click that cancelled cannot also reach an attack.
+		return true;
+	}
+
+	if (Throw)
+	{
+		// Aiming. A press on either RMB route while already aiming is swallowed; the release is the throw
+		// and is forwarded to the spec, where a second route's release finds the flag already cleared.
+		if (!bPressed)
+		{
+			Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), false);
+		}
+		return true;
+	}
+	if (!bPressed || !HasReadyThrowable())
+	{
+		// Nothing readied, or a release with no throw in flight. Aim and secondary attack keep their
+		// ordinary behaviour untouched — the throw never takes the mouse away from a firearm.
+		return false;
+	}
+	return Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), true);
+}
+
 void AAZ_PlayerController::PrimaryInteract()
 {
 	if (IsInventoryInputCaptured() || !CanUseInventoryInteraction() || !CommonUI_InventoryComponent.IsValid()) return;
@@ -547,6 +634,12 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 		return;
 	}
 	MenuSuppressedInputTags.Remove(InputTag); // a fresh press also clears a release consumed by CommonUI
+	// The throw owns the mouse while it is aiming, so this runs before every other interpretation of a
+	// click: an LMB cancel must not also swing a fist, and an RMB aim must not also raise iron sights.
+	if (RouteThrowInput(InputTag, /*bPressed*/ true))
+	{
+		return;
+	}
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		if (InputTag == FAZ_GameplayTags::Get().Input_Action_PrimaryAttack)
@@ -624,6 +717,12 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 {
 	MenuSuppressedInputTags.Remove(InputTag);
+	// The release IS the throw. Routed first and consumed, so lifting RMB cannot also drop a firearm out
+	// of aim on the same edge.
+	if (RouteThrowInput(InputTag, /*bPressed*/ false))
+	{
+		return;
+	}
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagReleased(InputTag);

@@ -1,0 +1,574 @@
+{
+  "canvas": [
+    3000,
+    1700
+  ],
+  "counts": {
+    "groups": 18,
+    "native_text": 17,
+    "native_vector": 9,
+    "source_image": 3,
+    "other": 0
+  },
+  "path_count": 9,
+  "layers": [
+    {
+      "name": "90 / FOOTER / editable typography and vector rule",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        2830,
+        40
+      ],
+      "children": [
+        {
+          "name": "Version / editable",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            101,
+            23
+          ],
+          "text": "CHALK / 01",
+          "font": "Roboto Regular",
+          "type": "native_text"
+        },
+        {
+          "name": "Footer / editable",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            552,
+            23
+          ],
+          "text": "CONCEPT ONLY / EXISTING PISTOL HOLSTER SOCKET: THIGH_R",
+          "font": "Roboto Regular",
+          "type": "native_text"
+        },
+        {
+          "name": "Footer / native vector rule",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            2830,
+            2
+          ],
+          "path": "Footer / native vector rule / editable path",
+          "strokes": 1,
+          "type": "native_vector"
+        }
+      ],
+      "type": "groups"
+    },
+    {
+      "name": "22 / 03 / SATCHEL THIGH / toggle portrait and labels",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        898,
+        1392
+      ],
+      "children": [
+        {
+          "name": "03 / CAPTIONS / native text #2",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            846,
+            62
+          ],
+          "children": [
+            {
+              "name": "Caption line 2 / editable #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                684,
+                28
+              ],
+              "text": "Needs simplification before modelling: two thigh straps, not three.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            },
+            {
+              "name": "Caption line 1 / editable #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                846,
+                28
+              ],
+              "text": "Most closely linked to the salvaged backpack language and Montreal weathering.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "02 / LABELS / native text #2",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            391,
+            69
+          ],
+          "children": [
+            {
+              "name": "Portrait title / editable #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                335,
+                69
+              ],
+              "text": "03 / SATCHEL THIGH",
+              "font": "Oswald Light",
+              "type": "native_text"
+            },
+            {
+              "name": "Index / editable #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                26,
+                27
+              ],
+              "text": "03",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "01 / PORTRAIT / imported image #2",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            599
+          ],
+          "children": [
+            {
+              "name": "SOURCE IMAGE / 03 / SATCHEL THIGH / 03_Thigh_Satchel_Holster.png",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                599
+              ],
+              "type": "source_image"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "00 / FRAME / native vectors #2",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            1227
+          ],
+          "children": [
+            {
+              "name": "Portrait / upper hairline #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                2
+              ],
+              "path": "Portrait / upper hairline / editable path #2",
+              "strokes": 1,
+              "type": "native_vector"
+            },
+            {
+              "name": "Portrait / neutral mounting field #2",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                1227
+              ],
+              "path": "Portrait / neutral mounting field / editable path #2",
+              "strokes": 1,
+              "type": "native_vector"
+            }
+          ],
+          "type": "groups"
+        }
+      ],
+      "type": "groups"
+    },
+    {
+      "name": "21 / 02 / LEATHER HIP / toggle portrait and labels",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        898,
+        1392
+      ],
+      "children": [
+        {
+          "name": "03 / CAPTIONS / native text #1",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            896,
+            62
+          ],
+          "children": [
+            {
+              "name": "Caption line 2 / editable #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                696,
+                28
+              ],
+              "text": "Leather, canvas and brass feel practical without becoming tactical.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            },
+            {
+              "name": "Caption line 1 / editable #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                896,
+                28
+              ],
+              "text": "Fast access and a strong civilian silhouette, but less compatible with the thigh socket.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "02 / LABELS / native text #1",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            342,
+            69
+          ],
+          "children": [
+            {
+              "name": "Portrait title / editable #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                286,
+                69
+              ],
+              "text": "02 / LEATHER HIP",
+              "font": "Oswald Light",
+              "type": "native_text"
+            },
+            {
+              "name": "Index / editable #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                26,
+                27
+              ],
+              "text": "02",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "01 / PORTRAIT / imported image #1",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            599
+          ],
+          "children": [
+            {
+              "name": "SOURCE IMAGE / 02 / LEATHER HIP / 02_Hip_Leather_Holster.png",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                599
+              ],
+              "type": "source_image"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "00 / FRAME / native vectors #1",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            1227
+          ],
+          "children": [
+            {
+              "name": "Portrait / upper hairline #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                2
+              ],
+              "path": "Portrait / upper hairline / editable path #1",
+              "strokes": 1,
+              "type": "native_vector"
+            },
+            {
+              "name": "Portrait / neutral mounting field #1",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                1227
+              ],
+              "path": "Portrait / neutral mounting field / editable path #1",
+              "strokes": 1,
+              "type": "native_vector"
+            }
+          ],
+          "type": "groups"
+        }
+      ],
+      "type": "groups"
+    },
+    {
+      "name": "20 / 01 / CANVAS THIGH / RECOMMENDED / toggle portrait and labels",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        898,
+        1392
+      ],
+      "children": [
+        {
+          "name": "03 / CAPTIONS / native text",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            801,
+            62
+          ],
+          "children": [
+            {
+              "name": "Caption line 2 / editable",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                795,
+                28
+              ],
+              "text": "Canvas, olive webbing and a restrained blue repair patch echo the backpack.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            },
+            {
+              "name": "Caption line 1 / editable",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                801,
+                28
+              ],
+              "text": "Low profile and directly compatible with the existing right-thigh carry socket.",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "02 / LABELS / native text",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            662,
+            69
+          ],
+          "children": [
+            {
+              "name": "Portrait title / editable",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                606,
+                69
+              ],
+              "text": "01 / CANVAS THIGH / RECOMMENDED",
+              "font": "Oswald Light",
+              "type": "native_text"
+            },
+            {
+              "name": "Index / editable",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                26,
+                27
+              ],
+              "text": "01",
+              "font": "Roboto Regular",
+              "type": "native_text"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "01 / PORTRAIT / imported image",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            821
+          ],
+          "children": [
+            {
+              "name": "SOURCE IMAGE / 01 / CANVAS THIGH / RECOMMENDED / 01_Thigh_Canvas_Holster.png",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                821
+              ],
+              "type": "source_image"
+            }
+          ],
+          "type": "groups"
+        },
+        {
+          "name": "00 / FRAME / native vectors",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            898,
+            1227
+          ],
+          "children": [
+            {
+              "name": "Portrait / upper hairline",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                2
+              ],
+              "path": "Portrait / upper hairline / editable path",
+              "strokes": 1,
+              "type": "native_vector"
+            },
+            {
+              "name": "Portrait / neutral mounting field",
+              "visible": true,
+              "opacity": 100.0,
+              "size": [
+                898,
+                1227
+              ],
+              "path": "Portrait / neutral mounting field / editable path",
+              "strokes": 1,
+              "type": "native_vector"
+            }
+          ],
+          "type": "groups"
+        }
+      ],
+      "type": "groups"
+    },
+    {
+      "name": "10 / HEADER / editable typography",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        2830,
+        134
+      ],
+      "children": [
+        {
+          "name": "Header / native vector rule",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            2830,
+            2
+          ],
+          "path": "Header / native vector rule / editable path",
+          "strokes": 1,
+          "type": "native_vector"
+        },
+        {
+          "name": "Discipline / editable",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            347,
+            24
+          ],
+          "text": "HERO EQUIPMENT / CONCEPT STUDY",
+          "font": "Roboto Regular",
+          "type": "native_text"
+        },
+        {
+          "name": "Study / editable",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            557,
+            28
+          ],
+          "text": "RIGHT THIGH CARRY / VIEUX-SAINT-LAURENT, 2024",
+          "font": "Roboto Regular",
+          "type": "native_text"
+        },
+        {
+          "name": "Title / editable",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            1089,
+            121
+          ],
+          "text": "CHALK / PISTOL HOLSTER DIRECTIONS",
+          "font": "Oswald Light",
+          "type": "native_text"
+        }
+      ],
+      "type": "groups"
+    },
+    {
+      "name": "00 / BOARD / native vector background",
+      "visible": true,
+      "opacity": 100.0,
+      "size": [
+        3000,
+        1700
+      ],
+      "children": [
+        {
+          "name": "Background / charcoal",
+          "visible": true,
+          "opacity": 100.0,
+          "size": [
+            3000,
+            1700
+          ],
+          "path": "Background / charcoal / editable path",
+          "strokes": 1,
+          "type": "native_vector"
+        }
+      ],
+      "type": "groups"
+    }
+  ]
+}

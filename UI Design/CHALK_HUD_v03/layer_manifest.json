@@ -1,0 +1,1328 @@
+{
+  "canvas": [
+    1920,
+    1080
+  ],
+  "counts": {
+    "text": 28,
+    "vector": 101,
+    "paint": 3,
+    "image": 1,
+    "groups": 32
+  },
+  "path_count": 101,
+  "layers": [
+    {
+      "name": "30 / COMPASS - toggle whole compass",
+      "visible": true,
+      "opacity": 45.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "04 / PLAYER WAYPOINT - optional second target",
+          "visible": false,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "38 m",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "38 m",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "Waypoint / small diamond",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Diamond / edge 4 #1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 4 / editable path #1",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 3 #1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 3 / editable path #1",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 2 #1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 2 / editable path #1",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 1 #1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 1 / editable path #1",
+                  "strokes": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "03 / TRACKED TARGET - icon and distance",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Optional / objective name - hidden",
+              "visible": false,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "TRACKED OBJECTIVE",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "126 m",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "126 m",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "Objective / center dot",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Objective / center dot / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Objective / diamond",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Diamond / edge 4",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 4 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 3",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 3 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 2",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 2 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Diamond / edge 1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Diamond / edge 1 / editable path",
+                  "strokes": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "02 / HEADING POINTER - camera forward",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Pointer / fixed triangle",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Pointer / fixed triangle / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "01 / SCALE - ticks and directions",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Direction labels / native text",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "E #1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_text",
+                  "text": "E",
+                  "font": "Oswald Light"
+                },
+                {
+                  "name": "NE",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_text",
+                  "text": "NE",
+                  "font": "Oswald Light"
+                },
+                {
+                  "name": "N",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_text",
+                  "text": "N",
+                  "font": "Oswald Light"
+                }
+              ]
+            },
+            {
+              "name": "Minor ticks",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Tick / 120 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 120 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 115 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 115 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 110 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 110 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 105 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 105 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 100 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 100 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 095 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 095 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 085 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 085 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 080 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 080 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 075 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 075 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 070 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 070 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 065 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 065 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 060 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 060 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 055 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 055 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 050 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 050 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 040 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 040 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 035 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 035 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 030 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 030 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 025 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 025 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 020 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 020 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 015 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 015 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 010 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 010 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 005 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 005 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 355 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 355 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 350 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 350 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 345 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 345 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 340 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 340 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 335 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 335 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 330 deg",
+                  "visible": true,
+                  "opacity": 48.0,
+                  "type": "native_vector",
+                  "path": "Tick / 330 deg / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Major ticks",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Tick / 090 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 090 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 045 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 045 deg / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Tick / 000 deg",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Tick / 000 deg / editable path",
+                  "strokes": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Contrast / optional compass scrim",
+          "visible": true,
+          "opacity": 48.0,
+          "type": "gimp_feathered_fill"
+        }
+      ]
+    },
+    {
+      "name": "20 / QUICK SELECT - toggle open or closed",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Release to equip  /  Cancel to...",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "Release to equip  /  Cancel to close",
+          "font": "Roboto Regular"
+        },
+        {
+          "name": "Recover health over time",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "Recover health over time",
+          "font": "Roboto Regular"
+        },
+        {
+          "name": "MED KIT",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "MED KIT",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Navigation / four direction marks",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Shape 047 / fill",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Shape 047 / fill / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Shape 046 / fill",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Shape 046 / fill / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Shape 045 / fill",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Shape 045 / fill / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Shape 044 / fill",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Shape 044 / fill / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "DOWN / UTILITY - carried crafted item",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "1",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "1",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Utility / smoke canister placeholder",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Shape 043 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 043 / fill / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 042",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 042 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 041",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 041 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Shape 040 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 040 / fill / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Category / two stable slots #1",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Ellipse 039",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Ellipse 039 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Ellipse 038",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Ellipse 038 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "UTILITY",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "UTILITY",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Card / fine border #3",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 037",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 037 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 036",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 036 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 035",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 035 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 034",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 034 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Card / charcoal #3",
+              "visible": true,
+              "opacity": 84.0,
+              "type": "native_vector",
+              "path": "Card / charcoal / editable path #3",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "RIGHT / SIDEARM - illustrative item",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "6 / 12",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "6 / 12",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Sidearm / placeholder silhouette",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 033",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 033 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Shape 032 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 032 / fill / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Shape 031 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 031 / fill / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "SIDEARM",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "SIDEARM",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Card / fine border #2",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 030",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 030 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 029",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 029 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 028",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 028 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 027",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 027 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Card / charcoal #2",
+              "visible": true,
+              "opacity": 84.0,
+              "type": "native_vector",
+              "path": "Card / charcoal / editable path #2",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "LEFT / LONG GUN",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "17 / 30",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "17 / 30",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "M16 / existing inventory icon / GIMP native trace",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "M16 / existing inventory icon / GIMP native trace / editable path",
+              "strokes": 2
+            },
+            {
+              "name": "LONG GUN",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "LONG GUN",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Card / fine border #1",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 026",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 026 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 025",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 025 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 024",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 024 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 023",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 023 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Card / charcoal #1",
+              "visible": true,
+              "opacity": 84.0,
+              "type": "native_vector",
+              "path": "Card / charcoal / editable path #1",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "UP / CARE - selected med kit",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "2",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "2",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Care / med kit silhouette",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Shape 022 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 022 / fill / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 021",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 021 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 020",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 020 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 019",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 019 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Shape 018 / fill",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Shape 018 / fill / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Category / two stable slots",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Ellipse 017",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Ellipse 017 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Ellipse 016",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Ellipse 016 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "CARE",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "CARE",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "Focus / peach leading edge",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Focus / peach leading edge / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Card / fine border",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 015",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 015 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 014",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 014 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 013",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 013 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 012",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 012 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Card / charcoal",
+              "visible": true,
+              "opacity": 93.0,
+              "type": "native_vector",
+              "path": "Card / charcoal / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "QUICK SELECT",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "QUICK SELECT",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Modal / subtle scene dim",
+          "visible": true,
+          "opacity": 24.0,
+          "type": "native_vector",
+          "path": "Modal / subtle scene dim / editable path",
+          "strokes": 1
+        }
+      ]
+    },
+    {
+      "name": "10 / CORE HUD - health and equipped weapon",
+      "visible": true,
+      "opacity": 60.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Context / nearby pickup - toggle off in exploration",
+          "visible": false,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "30 / 30",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "30 / 30",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "M16 MAGAZINE",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "M16 MAGAZINE",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "E",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "E",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "Input / keycap outline #1",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 011",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 011 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 010",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 010 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 009",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 009 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 008",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 008 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Input / E keycap",
+              "visible": true,
+              "opacity": 80.0,
+              "type": "native_vector",
+              "path": "Input / E keycap / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Contrast / GIMP feathered fill #1",
+              "visible": true,
+              "opacity": 64.0,
+              "type": "gimp_feathered_fill"
+            }
+          ]
+        },
+        {
+          "name": "Context / inventory hint - fades after onboarding",
+          "visible": false,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "INVENTORY",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "INVENTORY",
+              "font": "Oswald Light"
+            },
+            {
+              "name": "I",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "I",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "Input / keycap outline",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Line 007",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 007 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 006",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 006 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 005",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 005 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Line 004",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Line 004 / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Input / I keycap",
+              "visible": true,
+              "opacity": 80.0,
+              "type": "native_vector",
+              "path": "Input / I keycap / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "Health / editable vector meter",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Fill / 72 percent",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Fill / 72 percent / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Track / full health",
+              "visible": true,
+              "opacity": 52.0,
+              "type": "native_vector",
+              "path": "Track / full health / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "Health / heart symbol",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_vector",
+          "path": "Health / heart symbol / editable path",
+          "strokes": 1
+        },
+        {
+          "name": "MAGS",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "MAGS",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Ammo / two spare magazines",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "2",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Magazine / silhouette",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Line 003",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Line 003 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Line 002",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Line 002 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Shape 001 / fill",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Shape 001 / fill / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "Ammo / magazine capacity",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "/ 30",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Ammo / inserted magazine rounds",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "17",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "M16",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "M16",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Weapon / actual inventory M16 icon / GIMP native trace",
+          "visible": true,
+          "opacity": 91.0,
+          "type": "native_vector",
+          "path": "Weapon / actual inventory M16 icon / GIMP native trace / editable path",
+          "strokes": 2
+        },
+        {
+          "name": "Contrast / GIMP feathered fill",
+          "visible": true,
+          "opacity": 48.0,
+          "type": "gimp_feathered_fill"
+        }
+      ]
+    },
+    {
+      "name": "00 / GENERATED SCENE - image only",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "source_image"
+    }
+  ]
+}

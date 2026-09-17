@@ -1,0 +1,41 @@
+{
+  "canvas": [
+    1920,
+    1080
+  ],
+  "font_primary": "Oswald Light",
+  "font_secondary": "Roboto Regular",
+  "images": [
+    {
+      "name": "[Untitled]",
+      "id": 1
+    },
+    {
+      "name": "[Untitled]",
+      "id": 18
+    }
+  ],
+  "hud_groups": [
+    {
+      "name": "A / QUIET SURVIVAL - recommended",
+      "visible": true,
+      "children": 13
+    },
+    {
+      "name": "A2 / QUIET SURVIVAL - critical health",
+      "visible": false,
+      "children": 12
+    },
+    {
+      "name": "B / FIELD KIT - inventory family",
+      "visible": false,
+      "children": 17
+    },
+    {
+      "name": "C / RAW CHALK - stronger material texture",
+      "visible": false,
+      "children": 10
+    }
+  ],
+  "native_text_layers": 22
+}

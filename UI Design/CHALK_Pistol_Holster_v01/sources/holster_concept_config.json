@@ -1,0 +1,41 @@
+{
+  "original": {
+    "path": "../concepts/01_Thigh_Canvas_Holster.png",
+    "label": "01 / CANVAS THIGH / RECOMMENDED",
+    "caption": [
+      "Low profile and directly compatible with the existing right-thigh carry socket.",
+      "Canvas, olive webbing and a restrained blue repair patch echo the backpack."
+    ]
+  },
+  "variants": [
+    {
+      "path": "../concepts/02_Hip_Leather_Holster.png",
+      "label": "02 / LEATHER HIP",
+      "caption": [
+        "Fast access and a strong civilian silhouette, but less compatible with the thigh socket.",
+        "Leather, canvas and brass feel practical without becoming tactical."
+      ]
+    },
+    {
+      "path": "../concepts/03_Thigh_Satchel_Holster.png",
+      "label": "03 / SATCHEL THIGH",
+      "caption": [
+        "Most closely linked to the salvaged backpack language and Montreal weathering.",
+        "Needs simplification before modelling: two thigh straps, not three."
+      ]
+    }
+  ],
+  "title": "CHALK / PISTOL HOLSTER DIRECTIONS",
+  "subtitle": "RIGHT THIGH CARRY / VIEUX-SAINT-LAURENT, 2024",
+  "discipline": "HERO EQUIPMENT / CONCEPT STUDY",
+  "footer": "CONCEPT ONLY / EXISTING PISTOL HOLSTER SOCKET: THIGH_R",
+  "version": "CHALK / 01",
+  "canvas": [
+    3000,
+    1700
+  ],
+  "output_dir": "C:/UnrealEngine/Games/AZ/UI Design/CHALK_Pistol_Holster_v01",
+  "stem": "CHALK_Pistol_Holster_v01",
+  "full_resolution_document": false,
+  "active_portrait": 0
+}

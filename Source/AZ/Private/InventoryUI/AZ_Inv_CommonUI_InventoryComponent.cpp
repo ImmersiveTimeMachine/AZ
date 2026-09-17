@@ -418,6 +418,125 @@ bool UAZ_Inv_CommonUI_InventoryComponent::IsWeaponReloading(const FGuid& WeaponI
     return WeaponItemId.IsValid() && MagazineReload.ReloadId.IsValid() && MagazineReload.WeaponItemId == WeaponItemId;
 }
 
+// ---- Throw release transaction --------------------------------------------------------------------
+// Mirrors the magazine reload above rather than inventing a second pattern: reserve exact identity, revalidate
+// everything at commit, perform every write before any delegate, and set the committed receipt BEFORE
+// broadcasting. Server_ConsumeItem is unusable here — it spends at once, with no action token, no projectile
+// preparation and no rollback, so a cancelled or obstructed throw would already have eaten the item.
+
+bool UAZ_Inv_CommonUI_InventoryComponent::BuildThrowReservation(const UObject* Source, const FGuid& ItemId,
+    FThrowReservation& OutReservation) const
+{
+    const auto* Item = FindItemById(ItemId);
+    if (!Item || !Item->IsInitialized() || Item->GetLocation() != EAZ_InventoryItemLocation::Backpack) return false;
+    if (Item->GetTotalStackCount() < 1 || IsItemReloadReserved(ItemId)) return false;
+    // The unit must exist in the grid, not merely in the stack counter: those two can disagree while another
+    // mutation is mid-flight, and spending against a counter with no placement would corrupt the grid.
+    int32 Available = 0;
+    for (const auto& Placement : GridPlacements) if (Placement.ItemId == ItemId) Available += Placement.StackCount;
+    if (Available < 1) return false;
+    OutReservation.Source = Source;
+    OutReservation.ItemId = ItemId;
+    OutReservation.ExpectedStackCount = Item->GetTotalStackCount();
+    return true;
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::CanBeginThrow(const FGuid& ItemId) const
+{
+    FThrowReservation Unused;
+    return BuildThrowReservation(nullptr, ItemId, Unused);
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::TryBeginThrow(const UObject* Source, const FGuid& ItemId,
+    const FGuid& ThrowActionId)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || !ThrowActionId.IsValid()) return false;
+    // One reservation at a time. A live uncommitted action must be ended before another begins, so a second
+    // press cannot quietly re-reserve while the first throw is still aiming.
+    if (ThrowReservation.ThrowActionId.IsValid() && ThrowReservation.ThrowActionId != ThrowActionId) return false;
+    FThrowReservation Reservation;
+    if (!BuildThrowReservation(Source, ItemId, Reservation)) return false;
+    Reservation.ThrowActionId = ThrowActionId;
+    ThrowReservation = Reservation;
+    UE_LOG(LogAZInventory, Log, TEXT("[Inventory] Throw reserved action=%s item=%s stack=%d"),
+        *ThrowActionId.ToString(), *ItemId.ToString(), Reservation.ExpectedStackCount);
+    // Deliberately no inventory-change event: nothing has moved. The player has only started aiming.
+    return true;
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::TryCommitThrowRelease(const FGuid& ThrowActionId,
+    FAZ_InventoryPickupRecord& OutPayload)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || !ThrowActionId.IsValid() ||
+        ThrowReservation.ThrowActionId != ThrowActionId) return false;
+    // Idempotent: a duplicated release cue or a late RPC returns the standing receipt and spends nothing.
+    // The caller keeps the payload from the first call; it is not re-emitted, because emitting a second
+    // payload is exactly how one thrown item becomes two.
+    if (ThrowReservation.bCommitted) return true;
+
+    auto* Item = FindItemById(ThrowReservation.ItemId);
+    if (!Item || !Item->IsInitialized() || Item->GetLocation() != EAZ_InventoryItemLocation::Backpack ||
+        Item->GetTotalStackCount() != ThrowReservation.ExpectedStackCount ||
+        Item->GetTotalStackCount() < 1) return false;
+
+    const int32 RemainingAfter = Item->GetTotalStackCount() - 1;
+    const bool bRemoveItem = RemainingAfter <= 0;
+
+    // Payload identity follows the existing drop rule exactly: a whole item keeps its GUID and state (so a
+    // unique knife is the same knife when recovered), while one unit split out of a larger stack gets a
+    // fresh world identity. Never leave the same GUID owned in both the backpack and the world.
+    FAZ_InventoryPickupRecord Payload = MakePickupRecord(Item);
+    Payload.StackCount = 1;
+    Payload.State.Location = EAZ_InventoryItemLocation::World;
+    Payload.State.ParentItemId.Invalidate();
+    if (!bRemoveItem) Payload.State.InstanceId = FGuid::NewGuid();
+    if (auto* Stack = Payload.Manifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
+    {
+        Stack->SetStackCount(1);
+    }
+
+    // All checks precede writes.
+    if (!RemoveStackPlacements(ThrowReservation.ItemId, 1)) return false;
+    if (bRemoveItem) RemoveOwnedItem(Item);
+    else Item->SetTotalStackCount(RemainingAfter);
+
+    // ★ The receipt is written BEFORE any delegate fires. Broadcasting first would let a reentrant listener
+    // — readiness pruning when the last unit disappears is the obvious one — end this action while it still
+    // looked uncommitted, cancelling the throw that has already been paid for.
+    ThrowReservation.bCommitted = true;
+    OutPayload = Payload;
+    UE_LOG(LogAZInventory, Log, TEXT("[Inventory] Throw committed action=%s item=%s payload=%s remaining=%d"),
+        *ThrowActionId.ToString(), *ThrowReservation.ItemId.ToString(),
+        *Payload.State.InstanceId.ToString(), RemainingAfter);
+
+    if (bRemoveItem) OnItemRemoved.Broadcast(Item);
+    NotifyInventoryChanged();
+    return true;
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::IsThrowCommitted(const FGuid& ThrowActionId) const
+{
+    return ThrowActionId.IsValid() && ThrowReservation.ThrowActionId == ThrowActionId && ThrowReservation.bCommitted;
+}
+
+void UAZ_Inv_CommonUI_InventoryComponent::EndThrow(const FGuid& ThrowActionId)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || !ThrowActionId.IsValid() ||
+        ThrowReservation.ThrowActionId != ThrowActionId) return;
+    const bool bCommitted = ThrowReservation.bCommitted;
+    const FGuid ItemId = ThrowReservation.ItemId;
+    // Releasing the reservation is all that happens. An uncommitted action spent nothing, so there is nothing
+    // to give back; a committed one is never refunded and the projectile it paid for is already the world's.
+    ThrowReservation = FThrowReservation();
+    UE_LOG(LogAZInventory, Log, TEXT("[Inventory] Throw ended action=%s item=%s committed=%d"),
+        *ThrowActionId.ToString(), *ItemId.ToString(), bCommitted);
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::IsItemThrowReserved(const FGuid& ItemId) const
+{
+    return ItemId.IsValid() && ThrowReservation.ThrowActionId.IsValid() && ThrowReservation.ItemId == ItemId;
+}
+
 bool UAZ_Inv_CommonUI_InventoryComponent::CanLoadMagazine(const UAZ_Inv_CommonUI_InventoryItem* Item) const
 {
     if (!GetOwner() || !IsValid(Item) || !Item->IsInitialized() || !Item->IsMagazine() || !ContainsItem(Item)) return false;
@@ -710,7 +829,8 @@ void UAZ_Inv_CommonUI_InventoryComponent::RemoveOwnedItem(UAZ_Inv_CommonUI_Inven
 void UAZ_Inv_CommonUI_InventoryComponent::Server_DropItem_Implementation(UAZ_Inv_CommonUI_InventoryItem* Item, int32 StackCount)
 {
     if (bMagazineReloadMutation || !ContainsItem(Item) || Item->GetLocation() != EAZ_InventoryItemLocation::Backpack ||
-        (IsItemReloadReserved(Item->GetInstanceId()) && !IsWeaponReloading(Item->GetInstanceId()))) return;
+        (IsItemReloadReserved(Item->GetInstanceId()) && !IsWeaponReloading(Item->GetInstanceId())) ||
+        IsItemThrowReserved(Item->GetInstanceId())) return;
     const int32 Count = Item->IsStackable() ? StackCount : 1;
     if (Count <= 0 || Count > Item->GetTotalStackCount()) return;
     auto* Equipment = GetOwner()->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>();
@@ -837,7 +957,11 @@ AActor* UAZ_Inv_CommonUI_InventoryComponent::SpawnDroppedItem(UAZ_Inv_CommonUI_I
 void UAZ_Inv_CommonUI_InventoryComponent::Server_ConsumeItem_Implementation(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
     if (bMagazineReloadMutation || !ContainsItem(Item) || IsItemReloadReserved(Item->GetInstanceId()) ||
-        Item->GetLocation() != EAZ_InventoryItemLocation::Backpack || !Item->IsConsumable()) return;
+        IsItemThrowReserved(Item->GetInstanceId()) ||
+        Item->GetLocation() != EAZ_InventoryItemLocation::Backpack || !Item->IsConsumable() ||
+        // A throwable is spent by being THROWN. Without this the authoritative consume path would happily
+        // destroy a grenade from any caller that still thinks category means edible.
+        Item->IsThrowable()) return;
     auto* Consumable = Item->GetItemManifestMutable().GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_ConsumableFragment>();
     if (!Consumable || !RemoveStackPlacements(Item->GetInstanceId(), 1)) return;
     const bool bRemoveItem = Item->GetTotalStackCount() <= 1;
@@ -852,6 +976,7 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_MoveItem_Implementation(UAZ_Inv
     int32 SourceGridIndex, int32 TargetGridIndex, int32 StackCount)
 {
     if (bMagazineReloadMutation || !ContainsItem(Item) || IsItemReloadReserved(Item->GetInstanceId()) ||
+        IsItemThrowReserved(Item->GetInstanceId()) ||
         Item->GetLocation() != EAZ_InventoryItemLocation::Backpack || StackCount <= 0) return;
     auto Working = GridPlacements;
     const int32 Source = Working.IndexOfByPredicate([&](const auto& P) { return P.ItemId == Item->GetInstanceId() && P.GridIndex == SourceGridIndex; });
@@ -864,7 +989,8 @@ void UAZ_Inv_CommonUI_InventoryComponent::Server_MoveItem_Implementation(UAZ_Inv
         auto* Other = FindItemById(P.ItemId);
         return Other && Other->GetItemManifest().GetItemCategory() == Item->GetItemManifest().GetItemCategory() && P.GridIndex == TargetGridIndex;
     });
-    if (Target != INDEX_NONE && IsItemReloadReserved(Working[Target].ItemId)) return;
+    if (Target != INDEX_NONE && (IsItemReloadReserved(Working[Target].ItemId) ||
+        IsItemThrowReserved(Working[Target].ItemId))) return;
     if (Target != INDEX_NONE && Working[Target].ItemId == Item->GetInstanceId() && Item->IsStackable())
     {
         const auto* Stack = Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();

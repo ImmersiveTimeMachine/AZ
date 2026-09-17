@@ -1,0 +1,36 @@
+{
+  "fonts": [
+    "Bahnschrift Bold",
+    "Bahnschrift Bold Condensed",
+    "Bahnschrift Bold SemiCondensed",
+    "Bahnschrift Condensed",
+    "Bahnschrift Light",
+    "Bahnschrift Light Condensed",
+    "Bahnschrift Light SemiCondensed",
+    "Bahnschrift Regular",
+    "Bahnschrift SemiBold",
+    "Bahnschrift SemiBold Condensed",
+    "Bahnschrift SemiBold SemiCondensed",
+    "Bahnschrift SemiCondensed",
+    "Bahnschrift SemiLight",
+    "Bahnschrift SemiLight Condensed",
+    "Bahnschrift SemiLight SemiCondensed",
+    "Oswald Bold",
+    "Oswald ExtraLight",
+    "Oswald Light",
+    "Oswald Medium",
+    "Oswald Regular",
+    "Oswald SemiBold",
+    "Roboto Bold",
+    "Roboto Light",
+    "Roboto Regular"
+  ],
+  "images": [],
+  "methods": {
+    "select_polygon": "select_polygon(self, operation:Gimp.ChannelOps, segs:list) -> bool",
+    "select_rectangle": "select_rectangle(self, operation:Gimp.ChannelOps, x:float, y:float, width:float, height:float) -> bool",
+    "select_ellipse": "select_ellipse(self, operation:Gimp.ChannelOps, x:float, y:float, width:float, height:float) -> bool"
+  },
+  "group": "new(image:Gimp.Image, name:str=None) -> Gimp.GroupLayer",
+  "xcf": "file_save(run_mode:Gimp.RunMode, image:Gimp.Image, file:Gio.File, options:Gimp.ExportOptions=None) -> bool"
+}

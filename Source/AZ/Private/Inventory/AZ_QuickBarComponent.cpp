@@ -46,7 +46,9 @@ UAZ_Inv_CommonUI_InventoryItem* UAZ_QuickBarComponent::GetReadyItem() const
 	{
 		if (Bindings.Slots[Index].ItemId != ReadyItemId) continue;
 		UAZ_Inv_CommonUI_InventoryItem* Item = GetBoundItem(Index);
-		return Item && Item->IsConsumable() ? Item : nullptr;
+		// Readiness is for items USED from the hand without being equipped. Gating it on the Consumable
+		// CATEGORY would prune a readied stone every time this ran, because a stone is not a potion.
+		return Item && IsReadyable(Item) ? Item : nullptr;
 	}
 	return nullptr;
 }
@@ -141,6 +143,14 @@ UAZ_Inv_CommonUI_InventoryItem* UAZ_QuickBarComponent::GetRememberedFightWeapon(
 	return IsOwnedPhysicalWeapon(Item) ? Item : nullptr;
 }
 
+bool UAZ_QuickBarComponent::IsReadyable(const UAZ_Inv_CommonUI_InventoryItem* Item)
+{
+	// A throwable WEAPON (the knife) is equipped like any other weapon and thrown from that context; only an
+	// item with no equipped form is readied. Otherwise selecting the knife would hand it to readiness instead
+	// of to equipment, and it would never be drawn.
+	return IsValid(Item) && (Item->IsConsumable() || (Item->IsThrowable() && !Item->IsWeapon()));
+}
+
 bool UAZ_QuickBarComponent::CanBindItem(int32 SlotIndex, const UAZ_Inv_CommonUI_InventoryItem* Item) const
 {
 	const FAZ_QuickSlot* Slot = GetSlotDefinition(SlotIndex);
@@ -150,7 +160,7 @@ bool UAZ_QuickBarComponent::CanBindItem(int32 SlotIndex, const UAZ_Inv_CommonUI_
 		&& Item->GetLocation() == EAZ_InventoryItemLocation::Backpack
 		&& !Item->GetParentItemId().IsValid()
 		&& Item->GetTotalStackCount() > 0
-		&& (Item->IsConsumable() || (Item->IsWeapon()
+		&& (Item->IsConsumable() || Item->IsThrowable() || (Item->IsWeapon()
 			&& Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>()));
 }
 
@@ -470,7 +480,7 @@ void UAZ_QuickBarComponent::ActivateSlotInternal(int32 SlotIndex, const FGuid& E
 			NSLOCTEXT("AZQuickBar", "AssignmentUnavailable", "No available item is assigned to this slot."));
 		return;
 	}
-	if (Item && Item->IsConsumable())
+	if (Item && IsReadyable(Item))
 	{
 		if (!CanReadyConsumable())
 		{
@@ -511,7 +521,10 @@ void UAZ_QuickBarComponent::SelectInternal(int32 SlotIndex)
 	const FAZ_QuickSlot* Slot = GetSlotDefinition(SlotIndex);
 	UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GetEquipment();
 	if (!Slot || !Slot->bEnabled || !Equipment) return;
-	if (UAZ_Inv_CommonUI_InventoryItem* Item = GetBoundItem(SlotIndex); Item && Item->IsConsumable())
+	// Readiness, not equipment, for anything used straight from the hand. Branching on the Consumable
+	// CATEGORY alone left an Equippable throwable falling through to the weapon path, where it would try to
+	// equip a grenade as a weapon instead of putting it in the hand.
+	if (UAZ_Inv_CommonUI_InventoryItem* Item = GetBoundItem(SlotIndex); IsReadyable(Item))
 	{
 		ActivateSlotInternal(SlotIndex, Item->GetInstanceId(), Bindings.Revision, FGuid::NewGuid());
 		return;

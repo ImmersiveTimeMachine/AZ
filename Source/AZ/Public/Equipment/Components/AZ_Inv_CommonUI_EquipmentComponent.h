@@ -241,7 +241,7 @@ private:
 	AAZ_Weapon* PrepareWeaponActor(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void MarkWeaponCarried(UAZ_Inv_CommonUI_InventoryItem* Item);
 	void RefreshCarryPresentation(bool bRestoreSockets = false, float BlendDuration = 0.f);
-	/** Reconcile the selected weapon's hand mode or the selected rifle's temporary sprint carry. */
+	/** Reconcile the selected weapon's hand mode, including rifle-in-hand sprinting. */
 	void ReconcilePresentation();
 	void DestroyPresentation(const FGuid& ItemId);
 	void DestroyAllPresentations();

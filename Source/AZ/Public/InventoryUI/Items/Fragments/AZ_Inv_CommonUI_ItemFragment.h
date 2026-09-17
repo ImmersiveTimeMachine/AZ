@@ -11,6 +11,8 @@
 
 #include "AZ_Inv_CommonUI_ItemFragment.generated.h"
 
+class UAZ_ThrowableDefinition;
+
 /**
  * 
  */
@@ -217,6 +219,23 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta = (ExcludeBaseStruct))
 	TArray<TInstancedStruct<FAZ_Inv_CommonUI_ConsumeModifier>> ConsumeModifiers;
+};
+
+/**
+ * Marks an item as throwable and points at how it behaves when thrown.
+ *
+ * Capability, NOT category. Readiness must key on this rather than on the exact Consumable category, because
+ * a unique throwing knife is a weapon and a stone is neither a potion nor a firearm — classifying either by
+ * category would misfile it. Presence of this fragment is the whole test.
+ */
+USTRUCT(BlueprintType)
+struct FAZ_Inv_CommonUI_ThrowableFragment : public FAZ_Inv_CommonUI_InventoryItem_Fragment
+{
+	GENERATED_BODY()
+
+	/** Flight, impact, hearing and recovery behaviour, plus the presentation profiles. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Inventory")
+	TObjectPtr<UAZ_ThrowableDefinition> ThrowableDefinition;
 };
 
 USTRUCT(BlueprintType)

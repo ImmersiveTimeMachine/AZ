@@ -124,6 +124,19 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float WeaponRelaxedAlpha = 0.f;
 
+	/**
+	 * Pose for a readied throwable, pushed from the game thread by UAZ_ThrowableHandComponent.
+	 *
+	 * It feeds the SAME upper-body lane as the lowered-weapon pose above, so carrying a grenade layers over
+	 * ordinary locomotion and the player keeps walking. It takes precedence when set: whatever the weapon
+	 * would be doing with the arms, a grenade in the hand is what the arms are actually doing.
+	 */
+	void SetThrowableCarryPose(UAnimSequence* Pose) { ThrowableCarryPose = Pose; }
+
+	/** Set only from the game thread; read during the thread-safe update like any other cached input. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> ThrowableCarryPose = nullptr;
+
 	/** True while an impact-reaction flinch (Brace/Stumble/HeadHit) is playing — i.e. the reaction latch is held
 	 *  (for the clip's full length). The pawn reads this in ProduceInput to LOCK movement during the flinch so it
 	 *  plays as a transition, not something you slide / run through. */

@@ -1,0 +1,502 @@
+{
+  "canvas": [
+    1920,
+    1080
+  ],
+  "counts": {
+    "text": 7,
+    "vector": 45,
+    "paint": 0,
+    "image": 1,
+    "groups": 8
+  },
+  "path_count": 45,
+  "layers": [
+    {
+      "name": "90 / REVIEW NOTES / hidden, not gameplay UI",
+      "visible": false,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Text / Stone example. Trajectory ends at first contact. Counts and distance are illustrative.",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "Stone example. Trajectory ends at first contact. Counts and distance are illustrative.",
+          "font": "Roboto Regular"
+        },
+        {
+          "name": "Text / 03 / QUIET SAGE",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "03 / QUIET SAGE",
+          "font": "Oswald Light"
+        }
+      ]
+    },
+    {
+      "name": "80 / BLOCKED example / hidden / alternate state",
+      "visible": false,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Blocked / text cue, not color alone",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "OBSTRUCTED",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Blocked / crossing mark B",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_vector",
+          "path": "Blocked / crossing mark B / editable path",
+          "strokes": 1
+        },
+        {
+          "name": "Blocked / crossing mark A",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_vector",
+          "path": "Blocked / crossing mark A / editable path",
+          "strokes": 1
+        },
+        {
+          "name": "Blocked / truncated path",
+          "visible": true,
+          "opacity": 93.99999976158142,
+          "type": "native_vector",
+          "path": "Blocked / truncated path / editable path",
+          "strokes": 1
+        }
+      ]
+    },
+    {
+      "name": "HUD / selected throwable / illustrative inventory count",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Health / editable vector meter",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Fill / 72 percent",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Fill / 72 percent / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Track / full health",
+              "visible": true,
+              "opacity": 51.99999809265137,
+              "type": "native_vector",
+              "path": "Track / full health / editable path",
+              "strokes": 1
+            }
+          ]
+        },
+        {
+          "name": "Health / heart symbol",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_vector",
+          "path": "Health / heart symbol / editable path",
+          "strokes": 1
+        },
+        {
+          "name": "Controls / contextual aim-only hint / proposed cancel binding",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "RMB  THROW     LMB  CANCEL",
+          "font": "Roboto Regular"
+        },
+        {
+          "name": "Item / available count, example only",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "x3",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Item / actual display name",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "native_text",
+          "text": "STONE",
+          "font": "Oswald Light"
+        },
+        {
+          "name": "Stone / native silhouette",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Stone / lower fracture",
+              "visible": true,
+              "opacity": 80.0000011920929,
+              "type": "native_vector",
+              "path": "Stone / lower fracture / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Stone / fractured face",
+              "visible": true,
+              "opacity": 80.0000011920929,
+              "type": "native_vector",
+              "path": "Stone / fractured face / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Stone / rough outer silhouette",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_vector",
+              "path": "Stone / rough outer silhouette / editable path",
+              "strokes": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "20 / AIMING / show this state",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "group",
+      "children": [
+        {
+          "name": "Trajectory / QUIET SAGE / native editable paths",
+          "visible": true,
+          "opacity": 100.0,
+          "type": "group",
+          "children": [
+            {
+              "name": "Impact / illustrative distance",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "native_text",
+              "text": "9.4 m",
+              "font": "Roboto Regular"
+            },
+            {
+              "name": "Impact / QUIET SAGE / first contact, not blast radius",
+              "visible": true,
+              "opacity": 100.0,
+              "type": "group",
+              "children": [
+                {
+                  "name": "Impact / soft incomplete ellipse 2",
+                  "visible": true,
+                  "opacity": 69.9999988079071,
+                  "type": "native_vector",
+                  "path": "Impact / soft incomplete ellipse 2 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / soft incomplete ellipse",
+                  "visible": true,
+                  "opacity": 69.9999988079071,
+                  "type": "native_vector",
+                  "path": "Impact / soft incomplete ellipse / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / open ground corner 3",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Impact / open ground corner 3 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / open ground corner 2",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Impact / open ground corner 2 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / open ground corner 1",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Impact / open ground corner 1 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / open ground corner 0",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Impact / open ground corner 0 / editable path",
+                  "strokes": 1
+                },
+                {
+                  "name": "Impact / chalk center",
+                  "visible": true,
+                  "opacity": 100.0,
+                  "type": "native_vector",
+                  "path": "Impact / chalk center / editable path",
+                  "strokes": 1
+                }
+              ]
+            },
+            {
+              "name": "Arc / sage pulse 27",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 27 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 26",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 26 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 25",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 25 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 24",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 24 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 23",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 23 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 22",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 22 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 21",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 21 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 20",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 20 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 19",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 19 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 18",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 18 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 17",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 17 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 16",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 16 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 15",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 15 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 14",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 14 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 13",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 13 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 12",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 12 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 11",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 11 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 10",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 10 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 9",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 9 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 8",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 8 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 7",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 7 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 6",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 6 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 5",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 5 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 4",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 4 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 3",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 3 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 2",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 2 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 1",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 1 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / sage pulse 0",
+              "visible": true,
+              "opacity": 93.99999976158142,
+              "type": "native_vector",
+              "path": "Arc / sage pulse 0 / editable path",
+              "strokes": 1
+            },
+            {
+              "name": "Arc / faint connecting filament",
+              "visible": true,
+              "opacity": 31.00000023841858,
+              "type": "native_vector",
+              "path": "Arc / faint connecting filament / editable path",
+              "strokes": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GENERATED SCENE / illustrative stone preparation pose",
+      "visible": true,
+      "opacity": 100.0,
+      "type": "source_image"
+    }
+  ]
+}

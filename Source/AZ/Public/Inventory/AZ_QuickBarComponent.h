@@ -149,6 +149,8 @@ private:
 	TArray<FGuid> ReceiptOrder;
 	UAZ_Inv_CommonUI_InventoryComponent* GetInventory() const;
 	UAZ_Inv_CommonUI_EquipmentComponent* GetEquipment() const;
+	/** True for items used straight from the hand (consumables, and throwables that are not weapons). */
+	static bool IsReadyable(const UAZ_Inv_CommonUI_InventoryItem* Item);
 	bool CanBindItem(int32 SlotIndex, const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	bool IsOwnedPhysicalWeapon(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	UAZ_Inv_CommonUI_InventoryItem* GetRememberedFightWeapon() const;

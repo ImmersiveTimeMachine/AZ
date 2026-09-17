@@ -101,14 +101,13 @@ void FAZ_WeaponPoseDebug::OnEndFrame()
 			const AController* Controller = Pawn->GetController();
 			const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = Controller ? Controller->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
 			const bool bSelected = Equipment && Equipment->GetActiveWeapon() == Weapon;
-			const bool bSelectedRifle = bSelected && Equipment->GetActiveProfile().MatchesTag(FAZ_GameplayTags::Get().Weapon_Rifle);
 			const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn);
 			const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 			const bool bSprint = ASC && ASC->HasMatchingGameplayTag(Tags.Movement_Sprinting);
 			const bool bAim = ASC && ASC->HasMatchingGameplayTag(Tags.Ability_State_Aiming);
 			const FName ActualSocket = Root->GetAttachSocketName();
 			// Remote roles may have no owning controller/selection: report unknown, not a false mismatch.
-			const FName ExpectedSocket = !Equipment ? NAME_None : ((!bSelected || (bSelectedRifle && bSprint))
+			const FName ExpectedSocket = !Equipment ? NAME_None : ((!bSelected)
 				? Weapon->CarrySocketName : (bAim ? Weapon->AimSocketName : Weapon->RelaxedSocketName));
 			const FAZ_v2_ChooserContext& Context = Anim->ChooserContext;
 			const FString Mode = FString::Printf(TEXT("selectionKnown=%d selected=%d sprint=%d aim=%d contextAim=%d stance=%s gait=%s state=%s socket=%s expected=%s"),

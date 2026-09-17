@@ -1,0 +1,16 @@
+[
+  {
+    "file": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_HUD_v03\\unreal-art\\T_HUD_Heart.png",
+    "width": 128,
+    "height": 128,
+    "source": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_HUD_v03\\sources\\build_native_hud.py",
+    "native_vector_render": true
+  },
+  {
+    "file": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_HUD_v03\\unreal-art\\T_HUD_HealthMask.png",
+    "width": 1024,
+    "height": 48,
+    "source": "C:\\UnrealEngine\\Games\\AZ\\UI Design\\CHALK_HUD_v03\\sources\\build_native_hud.py",
+    "native_vector_render": true
+  }
+]

@@ -1,0 +1,104 @@
+# CHALK throwables — decisions and corrections for Claude
+
+**Reviewed September17,2026 against current source, loaded assets and earlier measurements.** This answers `C:/UnrealEngine/Games/AZ/docs/design-briefs/throwable-open-questions-for-review.md`. No gameplay code/assets changed, no build, and no PIE/tests started by this review. Supporting audits: `C:/UnrealEngine/Games/AZ/Saved/ThrowOpenQuestionsReview/`.
+
+Use the new document's reported user decisions as the current specification: **standing aim/release is exclusive and FullBody; crouch keeps the upper-body mix; Run cancels aim; equipped carry remains movable; grenade is Equippable.** This supersedes the earlier movable-standing-aim recommendation. Recommendations below fill the remaining gaps; they are not claims that every behavior is already implemented.
+
+## Corrections to the starting facts
+
+- The graph order in the question is not an execution trace. The inspected active path ends **ordinary weapon aim blend → FullBody → DeadBlending → OffsetRootBone → Feet → PairedHands → PoseHistory → Output**. RifleFireBase is **before** RifleFire. Use the [recorded splice decision](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-slot-splice-decision.md), updated for the newer stance policy.
+- The inspected RifleFire mask was spine_01/**depth1**, while the new disconnected Throwable mask was depth4. The alpha-driven aim mask is connected and is not unused merely because its literal/default weight is0. The negative finding about **WeaponRelaxedPose** having no active MHC graph consumer is separate and valid in that snapshot; CarryMontage is now the relevant presentation path.
+- A single wrist-to-finger bone measurement does **not** establish a uniform1.65× character scale. Do not enlarge all props/collision or shrink the hero from that inference.
+- If “spread” means Euclidean hand separation, the coordinates in §5.1 imply approximately **84.54,44.71,52.94cm**, not85,32,37. Clarify the measurement before using it to diagnose retargeting.
+- Marker tilt is already superseded by a compiled fix: keep the marker on the surface and compensate projected height, capped4×. Tilting around a center1.5cm above ground was measured to bury part of the marker. [Current renderer fix](C:/UnrealEngine/Games/AZ/docs/design-briefs/throw-preview-live-readability-fix.md).
+- Live grenade data currently reads radius4.5, speeds900/1600, distance thresholds300/900, **CloseOriginLift50/FarOriginLift−10**, HeldMeshSize0. Native defaults are not authoritative over those asset values.
+
+## 2. Crouch
+
+**Q2.1 — Per-stance policy:** yes. Select a presentation profile from the **settled, actual Mover stance at activation**, then keep that profile for the action: standing FullBody, crouched Throwable upper-body mask. Use separate montage assets/slot tracks for each route even if they reference some shared sequences; do not change a shared montage's slot while it is playing. Reject or briefly defer activation during an unresolved stance transition without spending. Architecture can be sound while a particular masked clip still looks wrong.
+
+**Q2.2 — Mid-aim stance changes:** recommend **lock the entry stance through the action**. Ignore new crouch/stand toggles without buffering them. A fresh toggle works after cancellation/recovery. Preserve the already-active crouch ability/tag: do not cancel crouch when beginning a crouched throw. Its active WaitInputPress can toggle it off, so blocking only new crouch ability activation is insufficient; consume the toggle before it reaches active ability input tasks. Forced death/grab/fall transitions retain priority and invalidate the throw as appropriate.
+
+The current document says movement is blocked during aim. Interpret “live crouch locomotion below” as preserving the crouched base pose/state machine/feet, **not an implicit exception allowing crouch-walking while aiming**. Equipped carry may move normally. If crouched aiming should later allow translation, make that an explicit stance-specific exception rather than inferring it from the animation mask.
+
+**Q2.3 — Can standing clips be adapted?** Sometimes, but there is no universal pelvis correction. Mesh-space rotation blending already composes rotations through the source hierarchy; subtracting176° blindly can double-correct. A mask cannot invent missing crouched torso translations, balance, hand clearance or a suitable release pose. An additive/rebased upper-body clip can be an authoring technique, provided its reference pose and space are defined and the result is inspected, not an automatic fix.
+
+Keep the requested crouched mix as the first presentation prototype. Use suitable upper-body motion, then judge hands, shoulders, elbow clearance and grip at Start/Loop/release/cancel. If it remains visibly wrong, author/adapt a crouched family; do not secretly force standing, move the capsule to fit the clip, or compensate by teleporting the projectile. Measure a **crouch-specific release anchor from the final composed body**, not the standing anchor minus an estimated capsule-height difference. Keep1× playback.
+
+The85cm Loop span establishes that it is unsuitable as a relaxed carry pose; it does not prove it is not an authored wound-up hold. Earlier endpoint measurements support Start→Loop→release continuity. Keep relaxed carry and held aim as distinct presentations.
+
+**Q2.4 — Crouched range:** recommend the same item speed/gravity policy initially. A lower origin naturally changes reachable contact/range; equal launch capability does not imply identical landing distance. A deliberate lower crouched speed cap is a valid later design choice, but do not use an undisclosed penalty to conceal animation trouble. Any constraint must be part of the shared preview/launch definition.
+
+## 3. Movement lock on Mover
+
+**Q3.1 — Correct lock:** sample authoritative/predicted GAS action state on the game thread in ProduceInput and zero voluntary WorldMove. For a strictly planted action, also carry a generic **action locomotion-lock bit in FAZ_MoverCustomInputs** and consume it read-only in the simulation when generating base locomotion velocity. Use the existing grabbed-input behavior as a structural example, not the bGrabbed flag itself. No mutable latch inside GenerateWalkMove or its predictor-shared mode.
+
+Zero input alone brakes existing velocity; it does not guarantee an immediate stop. Suppress existing voluntary/base planar velocity as part of the locked move, while preserving supported moving-base motion, gravity and explicitly allowed action movement. Do not freeze the Actor transform or globally disable Mover. The current hero code only zeroes WorldMove for melee/grab; ThrowPreparing currently affects aim-facing, **not** this lock. Keep camera aiming available during preparation; freeze the accepted body/launch intent consistently when Windup commits.
+
+**Q3.2 — Root motion:** input locking and authored root motion are different channels. On this APawn, extracted animation root motion does not automatically become capsule motion as it would through an ACharacter movement pipeline. AZ already has a Mover root-motion attribute/layered-move bridge. **GA_Throw currently does not queue it.** A root-motion checkbox or visible pelvis/foot movement is not evidence that the capsule is being driven.
+
+Static reads of these five sequences found enable_root_motion/force_root_lock true but identity root transforms at start/mid/end under the evaluated settings. That is a reason to inspect raw root-track/extracted deltas, not to conclude from footwork alone; root lock and evaluation settings affect what is observed. If there is genuine desired standing translation/rotation, drive it once through the existing Mover bridge with action-owned identity and collision, while suppressing conflicting locomotion RM. Do not also move the Actor manually or double-consume root motion. Crouched masked presentation must not inherit the standing clip's full-body trajectory. If footwork is only pelvis/limb animation, adding a capsule RM driver will not repair it.
+
+**Q3.3 — Cleanup:** one idempotent cleanup path, keyed by action/avatar identity, called for normal end, cancellation, montage failure, death/grab/stagger, avatar loss and EndPlay. Release only this action's owned tag/lock, queued input, timers/delegates, exact montage, preview/prop lease and Mover feature. Never use a global movement-unlock/reset that clears another action's lock. A late callback from actionA must not unlock or cancel actionB. Deriving the input lock from remaining action ownership prevents a separate forgotten mode latch.
+
+Before physical release, cancel reservation and spend nothing. After release, leave the projectile/payload/fuse alive and do not refund. A watchdog can abort/clean up a missing cue; it must not invent a throw. Cleanup must work even if Cancel montage fails to play or a higher-priority GAS montage already took the ASC's montage ownership.
+
+## 4. Exclusivity and Run cancellation
+
+**Q4.1 — Central blocking:** use a throw-owned state tag plus BlockAbilitiesWithTag targeting the appropriate **ability asset tags**. A shared voluntary-action tag family is maintainable, but every affected ability must actually carry matching tags. Owning a state tag alone does not automatically block unrelated abilities. Blocking prevents new activations, not already-active abilities, raw input paths or their ongoing WaitInput tasks. Cancel/yield existing conflicting actions explicitly and gate their continuing input.
+
+Do not block death, damage reactions, grabs or other mandatory system actions under “everything.” They preempt the throw. Likewise, do not cancel the existing crouch owner merely because new stance changes are blocked. Separate normal user actions from forced/system actions and preserve exact montage ownership; slot groups are not a replacement for GAS arbitration.
+
+**Q4.2 — Run dispatch:** yes, observe the fresh Run/Sprint edge **before** ordinary GAS dispatch/eligibility. First invalidate the pending throw and release its gameplay lock, then attempt Sprint normally. Mirror the ordering on authority so a predicted local cancel cannot race a server release. The existing server Sprint pre-gate for firearm readiness is a useful integration precedent. Do not require Sprint to activate successfully before it can cancel the ability that blocks it. Do not replay a held input every frame.
+
+**Q4.3 — Instant or Cancel clip:** recommend **immediate gameplay cancellation plus a short cosmetic blend** for Run. Do not make the player wait through the full authored Cancel clip before Sprint becomes eligible. The existing soft RequestCancel path retains action ownership until its montage ends, so it is not the appropriate Run path unchanged.
+
+Recommended boundary: Run cancels Preparing/Aiming and a queued early-release intent; before the physical cue it may also abort Windup, consistently with the existing pre-release cancel contract. After physical release it may end eligible character recovery, but never recall/refund the thrown item. If design later chooses a committed Windup interval, define that interval explicitly and consume the Run request predictably—do not call it instant cancellation while silently delaying it for a full montage.
+
+## 5. Unresolved defects
+
+**§5.1 Wrong masked arms:** separate inappropriate carry pose from retarget/masking errors. Keep the relaxed carry derived from suitable Start content; validate aiming and crouched release separately as above. Fix the hand-span arithmetic/space labels. Do not add a universal runtime counter-yaw from those three samples.
+
+**§5.2 Origin disagreement:** the reported points differ by **~37.3cm**, and that live comparison is not directly comparable to the earlier14.89/29.11cm offline measurements. Record both points in the same frame/space using the same actual body, stance, montage instance/time, grip socket, offset, layer blend and root-processing settings.
+
+At the actual cue log these distinct transforms: calibrated base anchor; finalized live grip/item base; declared world-up lift; final launch origin. Convert both base origins through the same MeshToWorld/ActorToWorld chain before subtracting. Record camera/body facing and any pose-buffer age. Earlier offline skeleton-default sampling differed by only~1.17cm while actual-hero sampling differed much more, so body choice matters. Calibrate the unlifted base first, then apply approved lift separately. A35–37cm difference is worth fixing; calling preview an estimate does not excuse systematic error. Do not force the real projectile onto the displayed path.
+
+**§5.3 Floating grenade:** classify the visible object before fixing it: held component, active projectile, stopped projectile, or recovered pickup. Log owner/attachment, action/item GUID, movement-active/settled state, transform and component scale. Current hand code already destroys old-pawn components and reattaches on Refresh; the claimed missing reattachment is not established.
+
+A concrete alternative is recovery: current code spawns a pickup at surface+12cm, while native pickup visuals have no physical simulation by default. A safely spawned pickup can remain visibly suspended, especially after the supporting body moves. Inspect actual Blueprint overrides/support before assigning that cause. Preserve the working safe spawn and one-owner payload handoff; resolve the final pickup/visual placement from its bounds and support rather than blindly reverting to surfaceZ0 or creating a second prop. Do not delete a mysterious object until its identity and payload ownership are known.
+
+**§5.4 Stale categories:** this concern is **closed for the seven currently loaded grenade pickups in L_001**. Direct component-manifest readback found all seven Equippable with `Item.Type.Equippable.Throwable`; the pickup default is also updated. Evidence: `placed-and-root-readback.json` and `live-items.json`. No migration was performed or needed for those instances. Other maps, stored inventories or savegames were not audited.
+
+If stale copies are found elsewhere, change only semantic category/type fields and revalidate grid placement while preserving GUID/count/state/children/bindings. Do not use a generic initialization path that resets item state, and do not delete/recreate stacks. Equippable classification still needs capability-aware inventory Equip/QuickSelect/direct-slot routes.
+
+**Q5.1 / §5.5 Prop scale:** do not adopt15cm grenades or7.5cm collision radii from the asserted1.65 ratio. Compare like-for-like wrist/finger landmarks, full hand geometry, body crown/sole geometry and a known1m world reference. A head-bone height is not total character height; a finger joint is not necessarily the anatomical endpoint used by the comparison. Check import/reference-pose translation scales and the actual visible mesh, not just Actor scale1.
+
+Keep current physical size/collision until that audit distinguishes a systemic proportion defect from an artistic readability preference. A modest intentional visual exaggeration is possible afterward, but must keep held/thrown art coherent and collision a deliberate physical contract. Do not expand the collider merely to make the icon-like silhouette easier to see. The live grenade radius remains4.5 even though the current native default is6—read the asset, not only the header.
+
+**Q5.2 / §5.6 Marker:** keep the current surface-aligned plane with bounded4× projected-height compensation and the Sunlight art. The old55-degree center tilt was not safe: the measured lower edge was21.28cm below ground. A decal is useful if surface conformity on uneven geometry becomes the next problem; a depth-tested projected widget is another deliberate presentation choice. Neither substitutes for contrast, correct placement or first-contact semantics. Do not reintroduce tilt or disable depth testing. This is already implemented, not an unanswered architecture choice.
+
+## 6. Smaller questions
+
+**Q6.1 Dedicated slot:** keep Throwable in its own group. The [exact splice decision](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-slot-splice-decision.md) is resolved: final ordinary aim result → shared pre-throw base + masked Throwable → existing FullBody → existing rig tail. Apply it to **carry and the crouched variants** under the newer policy; standing aim/release uses FullBody. Preserve one slot node/shared cache and base locomotion curves. Change actual montage SlotAnimTracks, not the record-only profile label.
+
+Different groups may evaluate poses for the same bones; the graph defines visible precedence. In this local UE version normal Montage_Play replacement is group-scoped even when bStopAllMontages is true. Explicit stops, root-motion ownership and the ASC's single montage ledger still require action arbitration. Do not introduce parallel gameplay actions just because the animation groups can coexist.
+
+**Q6.2 Carry during Sprint:** preserve the selected grenade/readiness and its correctly attached prop. Prefer a sprint-compatible/lowered carry or allow normal sprint arm motion instead of holding the fixed relaxed idle rigidly. Restore relaxed carry afterward without re-aiming or spending. The old unused WeaponRelaxedAlpha sprint gate does not control the current CarryMontage; apply the policy to that real path. Do not silently unequip/holster the grenade to solve a pose problem.
+
+**Q6.3 Continuous strength mapping:** yes, keep a bounded, declared **aim-distance→launch-speed** mapping if this is the intended aiming model. It is assisted strength selection, not hold-time charging and not a guarantee of hitting the camera target. “Range scales as v²” is a fixed-angle/equal-height idealization; it does not prove an absolute unreachable band across every angle/height.
+
+Use one function for preview and authority; keep parameters stable while aiming and freeze accepted rotation/distance, blend factor, clip/profile, speed and lift when Windup commits. Recompute only the agreed live origin/inheritance/clearance at the release cue. Bound values, handle no camera hit and threshold degeneracy explicitly, and avoid circular feedback from predicted landing back into aim distance. Do not exceed declared limits, snap to targets or silently re-solve power at release. Interpolating two speeds reduces a selection jump but does not by itself prove every desired landing distance is reachable.
+
+**Q6.4 Origin lift:** both the user preference and the technical warning can be respected. **Keep the explicitly requested tunable and current prototype values.** It is a world-space spawn-height offset, not arc curvature; label and document it accurately. Do not silently remove it or bake it into the calibration error.
+
+Apply the same declared lift in preview and release, frozen with the accepted strength. Check actual hand/item clearance **and the swept path from the real grip to the offset spawn**, in addition to capsule-to-launch safety; testing only the raised endpoint can bypass a barrier the hand did not clear. Never spawn beyond an obstruction or jump over a collision along that offset. The held-item/release visual may need authored alignment if the user wants a physically seamless50cm lift. If the intended control is instead “higher arc,” propose a separate launch-elevation/velocity control from the real grip; that is a different effect, not a reason to rename or silently reinterpret the approved offset.
+
+## Implementation order
+
+1. Update the current policy in the handoff: standing exclusive FullBody, crouched masked, stance captured/locked, carry movable. Keep the resolved slot placement and marker fix.
+2. Implement owner-scoped movement/exclusivity and Run cancellation ordering, including active crouch input and abnormal cleanup.
+3. Complete/validate carry and crouch content/slot routes, then measure stance-specific physical release from the finalized composed pose.
+4. Preserve continuous strength and explicit lift with full clearance and same-frame calibration receipts. Diagnose the floating object by class/GUID; no blanket scale change or unnecessary L_001 migration.
+5. User-run checks after a successful build: standing/crouched activation, stance-toggle suppression, run-before-cue versus after-cue, forced interruption, moving base, duplicate/late events, preview/live origin, pickup support and identity. No new automated tests or agent-started PIE without explicit permission.
+
+Keep the proven local4→0 inventory path and no-spend cancellation, but describe GUID recovery precisely: the launched unit retains **its transferred payload identity**; splitting a stack legitimately creates a new unit GUID, while the last unit may retain the original stack GUID. Those happy-path receipts do not establish every race/network/failure case or a finished explosive-grenade system.

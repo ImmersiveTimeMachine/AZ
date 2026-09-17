@@ -1,5 +1,7 @@
 # P01 pose diagnostics and sprint carry
 
+**Sprint policy superseded September16,2026:** the new MH rifle sprint loop keeps the rifle in hand. See `C:/UnrealEngine/Games/AZ/docs/design-briefs/rifle-sprint-loop-status.md`. The back-carry discussion below records the earlier shared-animation setup.
+
 User requested finer grip measurements, run start/stop and jump/land checks, and back carry during sprint (2026-09-07).
 
 ## Presentation

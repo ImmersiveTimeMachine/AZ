@@ -27,6 +27,11 @@ public:
 	bool IsMagazine() const;
 	bool IsInitialized() const { return ItemManifest.IsValid() && InstanceState.InstanceId.IsValid(); }
 	bool IsWeapon() const;
+	/**
+	 * Throwing is a CAPABILITY, not a category. A stone is neither potion nor firearm and a combat knife is a
+	 * weapon, so no item category can answer this — only the fragment's presence can.
+	 */
+	bool IsThrowable() const;
 	FGameplayTag GetWeaponProfileTag() const;
 	FGuid GetInstanceId() const { return InstanceState.InstanceId; }
 	FGuid GetItemInstanceId() const { return GetInstanceId(); }

@@ -71,6 +71,32 @@ public:
 	void EndMagazineReload(const FGuid& ReloadId);
 	bool IsItemReloadReserved(const FGuid& ItemId) const;
 	bool IsWeaponReloading(const FGuid& WeaponItemId) const;
+
+	// ---- Throw release transaction ---------------------------------------------------------------
+	// Same shape as the magazine reload above, and deliberately so: reserve exact identity, revalidate at
+	// commit, write every change before any delegate, and set the committed receipt before broadcasting.
+	// Server_ConsumeItem is NOT usable for a throw — it spends immediately, has no action token, no
+	// projectile preparation and no rollback, so a cancelled or blocked throw would already have eaten the item.
+
+	/** Is one unit of this item currently spendable by a throw? Read-only; grants nothing. */
+	bool CanBeginThrow(const FGuid& ItemId) const;
+	/** Reserve exactly one unit. Count, ownership and placements are UNCHANGED and no event fires — the
+	 *  player has only begun aiming, and a cancelled aim must be invisible to the inventory. */
+	bool TryBeginThrow(const UObject* Source, const FGuid& ItemId, const FGuid& ThrowActionId);
+	/**
+	 * Spend the one reserved unit and produce the world payload for the projectile.
+	 *
+	 * Call this AFTER the inert projectile exists and BEFORE it is activated: a failure here must leave the
+	 * inventory untouched, and activation is the point of no return. Calling it twice returns the existing
+	 * receipt without spending or emitting again, so a duplicated release cue or RPC cannot double-spend.
+	 */
+	bool TryCommitThrowRelease(const FGuid& ThrowActionId, FAZ_InventoryPickupRecord& OutPayload);
+	/** Read before ending the action, including from inside a reentrant inventory-changed callback — that is
+	 *  how "the last unit disappeared" is stopped from destroying the projectile it just paid for. */
+	bool IsThrowCommitted(const FGuid& ThrowActionId) const;
+	/** End/cancel only this action. A committed release is never rolled back or refunded. */
+	void EndThrow(const FGuid& ThrowActionId);
+	bool IsItemThrowReserved(const FGuid& ItemId) const;
 	/** Inventory-menu preview for loading this exact magazine into the active rifle. */
 	bool CanLoadMagazine(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	/** Submit an exact-magazine reload after releasing inventory input capture. Never swaps ammunition directly. */
@@ -174,6 +200,20 @@ private:
 	};
 	FMagazineReloadReservation MagazineReload;
 	bool bMagazineReloadMutation = false;
+
+	/** One in-flight throw reservation. One action at a time: the ability is single-instance per avatar and
+	 *  a second throw cannot begin until this one ends. */
+	struct FThrowReservation
+	{
+		FGuid ThrowActionId;
+		TWeakObjectPtr<const UObject> Source;
+		FGuid ItemId;
+		/** Stack size observed at reservation. A mismatch at commit means something else moved the stack. */
+		int32 ExpectedStackCount = 0;
+		bool bCommitted = false;
+	};
+	FThrowReservation ThrowReservation;
+	bool BuildThrowReservation(const UObject* Source, const FGuid& ItemId, FThrowReservation& OutReservation) const;
 	bool BuildMagazineReloadReservation(const UObject* WeaponSource, const FGuid& WeaponItemId,
 		uint32 ExpectedEquipmentGeneration, const FGuid& RequestedMagazineId, bool bSkipEmpty,
 		FMagazineReloadReservation& OutReservation) const;

@@ -247,6 +247,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Ability_State_MeleeAttacking, FName("Ability.State.MeleeAttacking"), TEXT("Currently performing melee attack"));
     AddTag(GameplayTags.Ability_State_Interacting,    FName("Ability.State.Interacting"),    TEXT("Currently interacting with object"));
     AddTag(GameplayTags.Ability_State_Throwing,       FName("Ability.State.Throwing"),       TEXT("Currently throwing grenade/item"));
+    AddTag(GameplayTags.Ability_State_ThrowPreparing, FName("Ability.State.ThrowPreparing"), TEXT("Aiming a throwable; nothing committed or spent yet"));
     AddTag(GameplayTags.Ability_State_Dashing,        FName("Ability.State.Dashing"),        TEXT("Currently performing dash/dodge"));
 
     // =========================================================
@@ -337,6 +338,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Event_Montage_Melee_Hit, FName("Event.Montage.Melee.Hit"), TEXT("RETIRED single-frame contact event (socket-sweep windows replaced it); registered so old data still resolves"));
     AddTag(GameplayTags.Event_Montage_Melee_WindowBegin, FName("Event.Montage.Melee.WindowBegin"), TEXT("Strike window opens — melee ability starts the fist socket sweep"));
     AddTag(GameplayTags.Event_Montage_Melee_WindowEnd, FName("Event.Montage.Melee.WindowEnd"), TEXT("Strike window closes — socket sweep stops; untouched targets = whiff"));
+    AddTag(GameplayTags.Event_Throw_Release, FName("Event.Throw.Release"), TEXT("Authored on a throw release montage at the measured frame the object leaves the hand — GA_Throw spends the unit and launches the projectile on this, and on nothing else"));
     AddTag(GameplayTags.Event_Movement_LandComplete, FName("Event.Movement.LandComplete"), TEXT("Anim -> jump ability: the jump animation cycle (takeoff/air/land) handed the body back to locomotion — the landing has finished"));
     AddTag(GameplayTags.Event_Death,             FName("Event.Death"),             TEXT("Sent to an actor's ASC when its Vitals Health reaches 0 — death abilities trigger on this"));
     AddTag(GameplayTags.Event_Grabbed,           FName("Event.Grabbed"),           TEXT("Sent to the player's ASC by a Chalkie's grab — triggers GA_PlayerGrabbed (mirrors Event.Death -> GA_Death)"));
@@ -539,6 +541,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Item_Type_Consumable_Health,     FName("Item.Type.Consumable.Health"),     TEXT("Heals health (medkit, bandage)."));
     AddTag(GameplayTags.Item_Type_Consumable_Buff,       FName("Item.Type.Consumable.Buff"),       TEXT("Temporary stat boost."));
     AddTag(GameplayTags.Item_Type_Consumable_Throwable,  FName("Item.Type.Consumable.Throwable"),  TEXT("Usable item that can be thrown."));
+    AddTag(GameplayTags.Item_Type_Equippable_Throwable, FName("Item.Type.Equippable.Throwable"), TEXT("Throwable carried in hand - equippable, spent by throwing rather than consumed"));
     AddTag(GameplayTags.Item_Type_Consumable_Antidote,   FName("Item.Type.Consumable.Antidote"),   TEXT("Cures infection, toxin, etc."));
     AddTag(GameplayTags.Item_Type_Consumable_Food,       FName("Item.Type.Consumable.Food"),       TEXT("Restores partial health or stamina."));
     AddTag(GameplayTags.Item_Type_Consumable_Psych,      FName("Item.Type.Consumable.Psych"),      TEXT("Stabilizes sanity or reduces fear."));
@@ -659,6 +662,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Item_Fragment_Name,             FName("Item.Fragment.Name"),             TEXT("Fragment: Name"));
 	AddTag(GameplayTags.Item_Fragment_Name_StaticText,  FName("Item.Fragment.Name.StaticText"),  TEXT("Fragment: Name StaticText"));
     AddTag(GameplayTags.Item_Fragment_Type,             FName("Item.Fragment.Type"),             TEXT("Fragment: Type"));
+    AddTag(GameplayTags.Item_Fragment_Throwable,        FName("Item.Fragment.Throwable"),        TEXT("Fragment: Throwable - carries the item's UAZ_ThrowableDefinition. Presence of the FRAGMENT is what makes an item throwable; no item category can answer that, since a stone is neither potion nor firearm and a knife is a weapon"));
     AddTag(GameplayTags.Item_Fragment_Text,             FName("Item.Fragment.Text"),             TEXT("Fragment: Text"));
     AddTag(GameplayTags.Item_Fragment_Value,            FName("Item.Fragment.Value"),            TEXT("Fragment: Value"));
     AddTag(GameplayTags.Item_Fragment_Level,            FName("Item.Fragment.Level"),            TEXT("Fragment: Level"));

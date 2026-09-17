@@ -32,6 +32,12 @@ bool UAZ_Inv_CommonUI_InventoryItem::IsMagazine() const
 	return GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>() != nullptr;
 }
 
+bool UAZ_Inv_CommonUI_InventoryItem::IsThrowable() const
+{
+	const auto* Throwable = GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>();
+	return Throwable && Throwable->ThrowableDefinition != nullptr;
+}
+
 bool UAZ_Inv_CommonUI_InventoryItem::IsWeapon() const
 {
 	const auto* Weapon = GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();

@@ -1,0 +1,6 @@
+INFO: argument 'gradient' (value "Incandescent") of procedure 'script-fu-lava' ignored because resources of type GimpGradient are not loaded.
+INFO: argument 'gradient' (value "Coffee") of procedure 'script-fu-coffee-stain' ignored because resources of type GimpGradient are not loaded.
+INFO: argument 'palette' (value "Default") of procedure 'script-fu-set-cmap' ignored because resources of type GimpPalette are not loaded.
+GIMP-Warning: Welcome to GIMP 3.2.4!
+
+batch command executed successfully

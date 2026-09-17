@@ -18,6 +18,7 @@ struct FOnAttributeChangeData;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_PlayerUIVitalsChanged, const FAZ_PlayerVitalsView&, Vitals);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_PlayerUIWeaponChanged, const FAZ_PlayerWeaponView&, Weapon);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_PlayerUIReticleChanged, const FAZ_PlayerReticleView&, Reticle);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_PlayerUIThrowableChanged, const FAZ_PlayerThrowableView&, Throwable);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAZ_PlayerUIHitConfirmed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAZ_PlayerUIInventoryFull);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZ_PlayerUIInventoryVisibilityChanged, bool, bOpen);
@@ -49,6 +50,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="AZ|UI")
 	FAZ_PlayerReticleView GetReticleView() const { return ReticleView; }
 
+	/** The readied throwable, for the HUD. Empty bHasThrowable when nothing throwable is selected. */
+	UFUNCTION(BlueprintPure, Category="AZ|UI")
+	FAZ_PlayerThrowableView GetThrowableView() const { return ThrowableView; }
+
 	UFUNCTION(BlueprintPure, Category="AZ|UI")
 	bool IsInventoryOpen() const { return bInventoryOpen; }
 
@@ -60,6 +65,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="AZ|UI")
 	FAZ_PlayerUIReticleChanged OnReticleChanged;
+
+	UPROPERTY(BlueprintAssignable, Category="AZ|UI")
+	FAZ_PlayerUIThrowableChanged OnThrowableChanged;
 
 	UPROPERTY(BlueprintAssignable, Category="AZ|UI")
 	FAZ_PlayerUIHitConfirmed OnHitConfirmed;
@@ -101,6 +109,9 @@ private:
 	UPROPERTY(Transient)
 	FAZ_PlayerReticleView ReticleView;
 
+	UPROPERTY(Transient)
+	FAZ_PlayerThrowableView ThrowableView;
+
 	void UnbindController();
 	void UnbindVitals();
 	void UnbindInventory();
@@ -109,6 +120,10 @@ private:
 	void RefreshVitals();
 	void RefreshWeapon();
 	void RefreshReticle();
+	void RefreshThrowable();
+
+	UFUNCTION()
+	void HandleReadyItemChanged();
 	void HandleVitalsChanged(const FOnAttributeChangeData& Change);
 	void HandleReticleTagChanged(FGameplayTag Tag, int32 Count);
 	void HandleWeaponOwnershipChanged();

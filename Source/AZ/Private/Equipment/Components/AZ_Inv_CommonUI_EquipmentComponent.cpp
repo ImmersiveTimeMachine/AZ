@@ -854,11 +854,9 @@ void UAZ_Inv_CommonUI_EquipmentComponent::RefreshCarryPresentation(bool bRestore
 		if (bRestoreSockets)
 		{
 			const bool bSelected = Weapon == Selection.Weapon;
-			const bool bSprintCarry = bSelected && Selection.Profile.MatchesTag(Tags.Weapon_Rifle)
-				&& ASC && ASC->HasMatchingGameplayTag(Tags.Movement_Sprinting);
 			const bool bAiming = bSelected && ASC && (ASC->HasMatchingGameplayTag(Tags.Ability_State_Aiming)
 				|| ASC->HasMatchingGameplayTag(Tags.Ability_State_FirearmReady));
-			const FName Socket = !bSelected || bSprintCarry ? Weapon->CarrySocketName
+			const FName Socket = !bSelected ? Weapon->CarrySocketName
 				: (bAiming ? Weapon->AimSocketName : Weapon->RelaxedSocketName);
 			Weapon->BlendToEquipmentSocket(Socket, BlendDuration);
 		}
@@ -1018,32 +1016,30 @@ void UAZ_Inv_CommonUI_EquipmentComponent::ReconcilePresentation()
 	if (!ASC || !WeaponRoot || Weapon->GetOwner() != OwningPlayerController->GetPawn()
 		|| !Weapon->ActorHasTag(Tags.Weapon_Slot_Primary.GetTagName())) return;
 	const bool bSelectedRifle = Selection.Profile.MatchesTag(Tags.Weapon_Rifle);
-	// Sprint carry keeps the same selected item, representation and primary marker.
-	// Ordinary holster clears that marker/selection, so a later sprint/aim event
-	// cannot draw a normally carried secondary weapon. Detached actors stay untouched.
+	// The dedicated rifle sprint loop carries the selected weapon in hand. Accept
+	// its old carry socket here so an existing sprint presentation can reconcile;
+	// the selection/owner guards above still exclude normally holstered weapons.
 	const FName CurrentSocket = WeaponRoot->GetAttachSocketName();
 	if (WeaponRoot->GetAttachParent() != BodyMesh
 		|| (CurrentSocket != Weapon->RelaxedSocketName && CurrentSocket != Weapon->AimSocketName
 			&& !(bSelectedRifle && CurrentSocket == Weapon->CarrySocketName))) return;
 	const bool bAiming = ASC->HasMatchingGameplayTag(Tags.Ability_State_Aiming)
 		|| ASC->HasMatchingGameplayTag(Tags.Ability_State_FirearmReady);
-	const bool bSprintCarry = bSelectedRifle && ASC->HasMatchingGameplayTag(Tags.Movement_Sprinting);
-	const FName DesiredSocket = bSprintCarry ? Weapon->CarrySocketName
-		: (bAiming ? Weapon->AimSocketName : Weapon->RelaxedSocketName);
+	const FName DesiredSocket = bAiming ? Weapon->AimSocketName : Weapon->RelaxedSocketName;
 	if (CurrentSocket == DesiredSocket) return;
 	if (DesiredSocket.IsNone() || !BodyMesh->DoesSocketExist(DesiredSocket))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Equipment] presentation socket missing item=%s mesh=%s socket=%s aiming=%d sprintCarry=%d"),
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] presentation socket missing item=%s mesh=%s socket=%s aiming=%d"),
 			*Selection.Item->GetInstanceId().ToString(), *GetNameSafe(BodyMesh->GetSkeletalMeshAsset()),
-			*DesiredSocket.ToString(), bAiming, bSprintCarry);
+			*DesiredSocket.ToString(), bAiming);
 		return;
 	}
 	if (Weapon->AttachToComponent(BodyMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, DesiredSocket))
 	{
 		Weapon->ForceNetUpdate();
 		RefreshCarryPresentation();
-		UE_LOG(LogTemp, Display, TEXT("[Equipment] presentation socket item=%s socket=%s aiming=%d sprintCarry=%d"),
-			*Selection.Item->GetInstanceId().ToString(), *DesiredSocket.ToString(), bAiming, bSprintCarry);
+		UE_LOG(LogTemp, Display, TEXT("[Equipment] presentation socket item=%s socket=%s aiming=%d"),
+			*Selection.Item->GetInstanceId().ToString(), *DesiredSocket.ToString(), bAiming);
 	}
 }
 

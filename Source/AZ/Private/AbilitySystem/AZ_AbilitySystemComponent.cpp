@@ -289,6 +289,73 @@ void UAZ_AbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inp
 	}
 }
 
+bool UAZ_AbilitySystemComponent::SendAbilityInputEdge(const TSubclassOf<UGameplayAbility> AbilityClass, const bool bPressed)
+{
+	if (!AbilityClass)
+	{
+		return false;
+	}
+	FGameplayAbilitySpecHandle Handle;
+	{
+		FScopedAbilityListLock ActiveScopeLock(*this);
+		for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+		{
+			if (Spec.Ability && Spec.Ability->IsA(AbilityClass))
+			{
+				Handle = Spec.Handle;
+				break;
+			}
+		}
+	}
+	FGameplayAbilitySpec* Spec = Handle.IsValid() ? FindAbilitySpecFromHandle(Handle) : nullptr;
+	if (!Spec)
+	{
+		return false;
+	}
+	if (bPressed)
+	{
+		if (Spec->InputPressed)
+		{
+			return true;   // the button's other route already pressed this; one click is one press
+		}
+		AbilitySpecInputPressed(*Spec);
+		if (!Spec->IsActive() && !TryActivateAbility(Handle))
+		{
+			// Refused. Leave nothing latched: a press that did not start the action must not be waiting to
+			// be "released" into one later.
+			if (FGameplayAbilitySpec* Refused = FindAbilitySpecFromHandle(Handle))
+			{
+				Refused->InputPressed = false;
+			}
+			return false;
+		}
+		// Re-find: activation can reallocate the spec array.
+		Spec = FindAbilitySpecFromHandle(Handle);
+	}
+	else
+	{
+		if (!Spec->InputPressed)
+		{
+			return false;
+		}
+		AbilitySpecInputReleased(*Spec);
+		Spec = FindAbilitySpecFromHandle(Handle);
+	}
+	// Same replication as the tag paths above: under LocalPredicted the server instance only ever learns
+	// about the edge through this event, and WaitInputRelease listens for exactly it.
+	if (Spec && Spec->IsActive())
+	{
+		TArray<UGameplayAbility*> Instances = Spec->GetAbilityInstances();
+		if (Instances.Num() > 0)
+		{
+			const FGameplayAbilityActivationInfo& ActivationInfo = Instances.Last()->GetCurrentActivationInfoRef();
+			InvokeReplicatedEvent(bPressed ? EAbilityGenericReplicatedEvent::InputPressed
+				: EAbilityGenericReplicatedEvent::InputReleased, Handle, ActivationInfo.GetActivationPredictionKey());
+		}
+	}
+	return true;
+}
+
 void UAZ_AbilitySystemComponent::ClearWeaponInput(const FGameplayTagContainer& InputTags)
 {
 	for (const FGameplayTag& Tag : InputTags)

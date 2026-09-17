@@ -1020,7 +1020,12 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		// This local flag selects raised-weapon facing and movement, not camera zoom.
 		// UpdateCameraForMode continues to require the explicit precision-aim tag.
 		bAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming)
-			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_FirearmReady);
+			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_FirearmReady)
+			// A THROW aims with the camera too. Without this the body keeps whatever facing it had, so the
+			// character visibly throws along its own forward while the object flies along the camera's —
+			// aim right, watch him throw straight ahead (reported 2026-09-16). The camera framing is NOT
+			// affected: UpdateCameraForMode keys the zoom off Ability.State.Aiming, which this is not.
+			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_ThrowPreparing);
 		bStrafe |= bAiming;
 	}
 
