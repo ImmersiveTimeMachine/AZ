@@ -19,7 +19,11 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [feedback_mover_spine_search_continuity.md](feedback_mover_spine_search_continuity.md) — ★★★ MUST READ before touching the Mover spine MotionMatch call or any loop DB (loop-restart chain, PreCancelled/FLT_MAX, frame-0 trap).
 
 ## Workflow rules (feedback files)
+- [user_language_russian.md](user_language_russian.md) — ★★★ Artur пишет и говорит ПО-РУССКИ; отвечать всегда по-русски, не угадывать язык по искажённому распознаванию речи.
+- [feedback_deliver_result_not_analysis.md](feedback_deliver_result_not_analysis.md) — ★★★ давать готовый результат, а не разбор: значения подбирать самому, не предлагать варианты A/B/C, цифры не выкладывать.
+- [feedback_open_the_file_i_must_edit.md](feedback_open_the_file_i_must_edit.md) — ★★★ просишь Artur'а что-то поменять руками — СНАЧАЛА открой это: ассет в редакторе UE, C++ в Rider.
 - [feedback_parallel_build_header_edit_corruption.md](feedback_parallel_build_header_edit_corruption.md) — ★★ a build that SUCCEEDS can still crash the editor at startup if another agent edited a header mid-build (mixed class layouts); wipe the module objs + rebuild with a source-mtime snapshot.
+- [feedback_livecoding_header_reinstances_animbp.md](feedback_livecoding_header_reinstances_animbp.md) — ★★ a Live Coding patch that touches a HEADER (even a comment) re-instances the class and can leave AnimBPs failing to compile with NO [Compiler] error in the log; keep LC patches to .cpp only.
 - [feedback_mover_mode_state_not_rollback_safe.md](feedback_mover_mode_state_not_rollback_safe.md) — ★★★ sim decisions (latches, pacing, rate limits) MUST ride FAZ_MoverCustomInputs, never movement-mode members: the MM trajectory predictor runs GenerateWalkMove ~60x per frame and overwrites mode state → end-of-turn sway. Also: rate CLAMP beats T=angle/rate pacing; an aim turn must finish after release.
 - [feedback_parallel_editor_edits.md](feedback_parallel_editor_edits.md) — ★★★ USER RULE: other agents edit in parallel — re-check files before reading/proposing/editing; anchor on content; stage only your hunks (HEAD+transformation).
 - [feedback_inform_before_proposing.md](feedback_inform_before_proposing.md) — ★★★ USER RULE: grep memory + inventory AZ_*Utils before the first proposal; find the discriminator before deleting; a tuned value has a reason.
