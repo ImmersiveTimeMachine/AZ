@@ -291,6 +291,21 @@ void UAZ_PawnMovementMode_Walking::GenerateWalkMove_Implementation(FMoverTickSta
 		InOutAngularVelocityDegrees.Z = FMath::Clamp(InOutAngularVelocityDegrees.Z, -Limit, Limit);
 	}
 
+	// PLANTED ACTION = ROOTED, for exactly the reason spelled out for GRABBED below: zeroing the intent in
+	// ProduceInput only starts the brake, and at run speed the body coasts a visible step out from under an
+	// action that is supposed to hold it still. The exclusive throw aim (user, 2026-09-17: "block everything")
+	// needs the capsule planted on the frame the aim begins, not a deceleration curve later.
+	//
+	// Read-only, straight off the InputCmd: no latch on this mode object, because the Motion Matching
+	// trajectory predictor runs this same function ~60x per frame through the same instance.
+	// Planar only — Z stays with the floor snap, and layered moves (action-owned root motion) still mix in
+	// after this, so an authored throw step would survive.
+	if (FacingInputs && FacingInputs->bActionLocomotionLock)
+	{
+		InOutVelocity.X = 0.f;
+		InOutVelocity.Y = 0.f;
+	}
+
 	// GRABBED = ROOTED. The input layer zeroes the move intent at the catch, but a running body keeps its
 	// momentum and brakes at StoppingDeceleration — at sprint that is on the order of the whole PSI catch
 	// spacing (~86cm), so a hero caught mid-run slid INTO the grabber the search had just placed in front

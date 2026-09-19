@@ -1,5 +1,7 @@
 # CHALK throwables — decisions and corrections for Claude
 
+**Implementation entry point:** [September18 consolidated handoff](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-implementation-handoff.md). Read this numbered review as the decision reference. Its historical disconnected-slot/depth4 observations are superseded by today's verified wired52-node graph with depth1; the stance/movement/Run policy remains pending. The handoff provides the current reading order and required execution/validation gates.
+
 **Reviewed September17,2026 against current source, loaded assets and earlier measurements.** This answers `C:/UnrealEngine/Games/AZ/docs/design-briefs/throwable-open-questions-for-review.md`. No gameplay code/assets changed, no build, and no PIE/tests started by this review. Supporting audits: `C:/UnrealEngine/Games/AZ/Saved/ThrowOpenQuestionsReview/`.
 
 Use the new document's reported user decisions as the current specification: **standing aim/release is exclusive and FullBody; crouch keeps the upper-body mix; Run cancels aim; equipped carry remains movable; grenade is Equippable.** This supersedes the earlier movable-standing-aim recommendation. Recommendations below fill the remaining gaps; they are not claims that every behavior is already implemented.

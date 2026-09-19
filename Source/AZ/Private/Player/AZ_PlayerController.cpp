@@ -549,64 +549,40 @@ UAZ_GA_Throw* AAZ_PlayerController::FindActiveThrow() const
 	return nullptr;
 }
 
-bool AAZ_PlayerController::HasReadyThrowable() const
-{
-	const UAZ_QuickBarComponent* ThrowableQuickBar = FindComponentByClass<UAZ_QuickBarComponent>();
-	const UAZ_Inv_CommonUI_InventoryItem* Item = ThrowableQuickBar ? ThrowableQuickBar->GetReadyItem() : nullptr;
-	return Item && Item->IsThrowable();
-}
-
 bool AAZ_PlayerController::RouteThrowInput(const FGameplayTag& InputTag, const bool bPressed)
 {
 	const FAZ_GameplayTags& ThrowInputTags = FAZ_GameplayTags::Get();
-	// RMB reaches the controller through two actions bound to the same physical button. Both are handled
-	// here and SendAbilityInputEdge makes the duplicate edge a no-op, so one click is one press.
-	const bool bThrowRoute = InputTag == ThrowInputTags.Input_Action_SecondaryAttack || InputTag == ThrowInputTags.Input_Action_Aim;
-	const bool bCancelRoute = InputTag == ThrowInputTags.Input_Action_PrimaryAttack;
+	// ★ LMB THROWS, RMB CANCELS (user call 2026-09-18). Once the grenade is readied the player is already in
+	// the ready pose, so there is nothing left to "start" — both buttons are outcomes of a state they are
+	// already in. RMB reaches the controller through two actions bound to the same physical button, so both
+	// count as the cancel route; RequestCancel is idempotent, and the duplicate edge is harmless.
+	const bool bThrowRoute  = InputTag == ThrowInputTags.Input_Action_PrimaryAttack;
+	const bool bCancelRoute = InputTag == ThrowInputTags.Input_Action_SecondaryAttack
+		|| InputTag == ThrowInputTags.Input_Action_Aim;
 	if (!bThrowRoute && !bCancelRoute)
 	{
 		return false;
 	}
-	auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent());
-	if (!Asc)
+	UAZ_GA_Throw* Throw = FindActiveThrow();
+	if (!Throw)
 	{
+		// No grenade in hand: LMB attacks and RMB aims exactly as they always did. Entry into the throw is
+		// readying the item, never a click, so there is no activation to do here.
 		return false;
 	}
-	UAZ_GA_Throw* Throw = FindActiveThrow();
-
-	if (bCancelRoute)
+	if (bPressed)
 	{
-		if (!Throw)
+		if (bThrowRoute)
 		{
-			return false;   // no throw aiming: LMB is an ordinary attack
+			Throw->RequestThrow();
 		}
-		if (bPressed)
+		else
 		{
-			// Disarm inside the ability FIRST. The player is still holding RMB, and that button will come
-			// up: without this the resulting release would throw the item they just cancelled.
 			Throw->RequestCancel();
 		}
-		// The matching release is swallowed too, so the click that cancelled cannot also reach an attack.
-		return true;
 	}
-
-	if (Throw)
-	{
-		// Aiming. A press on either RMB route while already aiming is swallowed; the release is the throw
-		// and is forwarded to the spec, where a second route's release finds the flag already cleared.
-		if (!bPressed)
-		{
-			Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), false);
-		}
-		return true;
-	}
-	if (!bPressed || !HasReadyThrowable())
-	{
-		// Nothing readied, or a release with no throw in flight. Aim and secondary attack keep their
-		// ordinary behaviour untouched — the throw never takes the mouse away from a firearm.
-		return false;
-	}
-	return Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), true);
+	// The matching release is swallowed too, so the click that threw or cancelled cannot also reach a weapon.
+	return true;
 }
 
 void AAZ_PlayerController::PrimaryInteract()
@@ -639,6 +615,39 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 	if (RouteThrowInput(InputTag, /*bPressed*/ true))
 	{
 		return;
+	}
+	// EXCLUSIVE THROW AIM (user, 2026-09-17: "while aiming you should not be able to perform any other
+	// actions", and Run "cancels the aim"). Both rules are enforced HERE, ahead of ordinary GAS dispatch,
+	// because neither can be expressed by ability tags alone:
+	//
+	//   * Run/Sprint must cancel the throw BEFORE the sprint ability's blocked tags are evaluated. The throw
+	//     blocks Movement.Sprinting, so waiting for Sprint to activate and cancel the throw from the other
+	//     side deadlocks — sprint can never activate while the thing blocking it is what it must cancel.
+	//     Same ordering as the existing firearm pre-gate a few lines below.
+	//   * BlockAbilitiesWithTag only stops NEW activations. It does nothing about an ALREADY-ACTIVE
+	//     ability's input, and crouch is exactly that case: its live WaitInputPress would toggle the player
+	//     out of the captured stance mid-aim. The toggle has to be consumed before it reaches the task.
+	if (UAZ_GA_Throw* AimingThrow = FindActiveThrow())
+	{
+		const FAZ_GameplayTags& ThrowTags = FAZ_GameplayTags::Get();
+		if (InputTag == ThrowTags.Input_Action_Sprint || InputTag == ThrowTags.Input_Action_Run)
+		{
+			// Gameplay ownership is released immediately; the authored Cancel clip is cosmetic and must not
+			// gate sprint eligibility (review Q4.3). Spends nothing before the physical release.
+			AimingThrow->RequestCancel();
+			// Fall through: the same press still becomes a normal sprint/run this frame.
+		}
+		else if (InputTag != ThrowTags.Input_Action_Move)
+		{
+			// Every other voluntary action — jump, melee, fire, reload, interact, crouch/stance toggles,
+			// weapon switching — is swallowed while the aim owns the body. Consumed, never buffered, so
+			// nothing fires late when the throw ends.
+			//
+			// This is the VOLUNTARY path only. Death, hit reactions, grabs and other forced system actions
+			// do not come through player input, so they still preempt the throw exactly as before.
+			ThrowSuppressedInputTags.Add(InputTag);
+			return;
+		}
 	}
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
@@ -723,6 +732,13 @@ void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 	{
 		return;
 	}
+	// The press was swallowed by an exclusive aim, so its release is swallowed too — an unpaired release
+	// would otherwise reach the ASC and stop/resume an ability this press never started. Consumed once:
+	// the NEXT press of the same key, after the aim ends, behaves completely normally.
+	if (ThrowSuppressedInputTags.Remove(InputTag) > 0)
+	{
+		return;
+	}
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		Asc->AbilityInputTagReleased(InputTag);
@@ -757,6 +773,19 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Reload
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Jump
 		|| InputTag == FAZ_GameplayTags::Get().Input_Action_Crouch) return;
+	// A key already DOWN when the aim began keeps generating Held frames. Without this, the ASC's held loop
+	// would re-activate the very abilities the press gate is swallowing (the known held-input retry trap),
+	// so exclusivity would hold for fresh presses only. Run/Sprint is exempt: it cancels the aim, and its
+	// cancellation is driven from the press edge above.
+	if (FindActiveThrow())
+	{
+		const FAZ_GameplayTags& HeldTags = FAZ_GameplayTags::Get();
+		if (InputTag != HeldTags.Input_Action_Sprint && InputTag != HeldTags.Input_Action_Run
+			&& InputTag != HeldTags.Input_Action_Move)
+		{
+			return;
+		}
+	}
 	if (auto* Asc = Cast<UAZ_AbilitySystemComponent>(GetAbilitySystemComponent()))
 	{
 		if (IsFreshPressFireInput(Asc, InputTag)) return;

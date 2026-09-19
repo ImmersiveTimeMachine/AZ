@@ -1,6 +1,7 @@
 #include "Animation/AZ_SkeletonUtils.h"
 #include "Animation/Skeleton.h"
 #include "Animation/BlendProfile.h"
+#include "Animation/AnimMontage.h"
 #include "Engine/SkeletalMeshSocket.h"
 
 TArray<FName> UAZ_SkeletonUtils::GetBlendProfileNames(USkeleton* Skeleton)
@@ -152,6 +153,51 @@ bool UAZ_SkeletonUtils::SetAnimationSlotGroup(USkeleton* Skeleton, FName SlotNam
 FName UAZ_SkeletonUtils::GetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName)
 {
 	return Skeleton && !SlotName.IsNone() ? Skeleton->GetSlotGroupName(SlotName) : NAME_None;
+}
+
+bool UAZ_SkeletonUtils::SetMontageSlotName(UAnimMontage* Montage, FName NewSlotName)
+{
+	if (!Montage || NewSlotName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] SetMontageSlotName: null montage or empty slot name."));
+		return false;
+	}
+	// Refuse rather than guess: a multi-track montage has no single "the" slot, and silently renaming
+	// track 0 would move one layer of a composed montage and leave the rest behind.
+	if (Montage->SlotAnimTracks.Num() != 1)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] SetMontageSlotName: %s has %d slot tracks (expected 1) - refused."),
+			*Montage->GetName(), Montage->SlotAnimTracks.Num());
+		return false;
+	}
+	// A slot the skeleton does not know still plays, but through DefaultGroup, quietly defeating any
+	// group-scoped arbitration the caller was re-routing FOR. Warn; do not block (the slot table is
+	// per-skeleton and a montage may legitimately be authored ahead of its target skeleton).
+	if (const USkeleton* Skeleton = Montage->GetSkeleton())
+	{
+		if (!Skeleton->ContainsSlotName(NewSlotName))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[SkeletonUtils] SetMontageSlotName: slot '%s' is not registered on skeleton %s - it will resolve to DefaultGroup."),
+				*NewSlotName.ToString(), *Skeleton->GetName());
+		}
+	}
+
+	const FName OldSlotName = Montage->SlotAnimTracks[0].SlotName;
+	if (OldSlotName == NewSlotName)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[SkeletonUtils] SetMontageSlotName: %s already on '%s'."),
+			*Montage->GetName(), *NewSlotName.ToString());
+		return false;
+	}
+
+	Montage->Modify();
+	Montage->SlotAnimTracks[0].SlotName = NewSlotName;
+	Montage->PostEditChange();
+	Montage->MarkPackageDirty();
+
+	UE_LOG(LogTemp, Log, TEXT("[SkeletonUtils] SetMontageSlotName: %s '%s' -> '%s'."),
+		*Montage->GetName(), *OldSlotName.ToString(), *NewSlotName.ToString());
+	return true;
 }
 
 bool UAZ_SkeletonUtils::AddSocket(USkeleton* Skeleton, FName SocketName, FName BoneName,

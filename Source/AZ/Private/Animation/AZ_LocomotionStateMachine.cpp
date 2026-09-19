@@ -455,6 +455,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		{
 			IdleBreakEndTime  = -1.f;
 			NextIdleBreakTime = -1.f;
+			AimTurnEndTime    = Now + In.AimTurnInPlaceMinSeconds;   // the step now owns the state
 			return In.AimYawDeltaDeg > 0.f
 				? EAZ_StateMachineState::IdleTurnRight
 				: EAZ_StateMachineState::IdleTurnLeft;
@@ -486,14 +487,27 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 	case EAZ_StateMachineState::IdleTurnRight:
 		if (In.Stance != PreviousStance)
 		{
+			AimTurnEndTime = -1.f;
 			TransitionEndTime = Now + 1.0f;
 			return EAZ_StateMachineState::TransitionStance;
 		}
+		// ★ A STEP IS INDIVISIBLE. Until the started step has had its authored time, neither the angle nor a
+		// sign flip may end or redirect it: the body reaches the aim about a third of the way into the clip,
+		// and exiting there leaves the lifted foot in the air (measured 2026-09-18 — entries of 0.21-0.85 s
+		// against a 0.67 s clip, each restarting from frame 0, one flipping L->R mid-step). Losing aim or the
+		// master switch still aborts immediately; those mean the turn has no reason to exist at all.
+		if (In.bAimTurnInPlaceEnabled && In.bIsAiming && Now < AimTurnEndTime)
+		{
+			return PreviousState;   // hold THIS side; a redirect would restart the clip from frame 0
+		}
 		if (!In.bAimTurnInPlaceEnabled || !In.bIsAiming || FMath::Abs(In.AimYawDeltaDeg) <= In.AimTurnInPlaceExitDeg)
 		{
+			AimTurnEndTime = -1.f;
 			NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
 			return EAZ_StateMachineState::IdleLoop;
 		}
+		// Still short of the aim after a whole step: commit to another one rather than dribbling out.
+		AimTurnEndTime = Now + In.AimTurnInPlaceMinSeconds;
 		return In.AimYawDeltaDeg > 0.f
 			? EAZ_StateMachineState::IdleTurnRight
 			: EAZ_StateMachineState::IdleTurnLeft;
@@ -531,6 +545,7 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 		{
 			IdleBreakEndTime  = -1.f;
 			NextIdleBreakTime = -1.f;
+			AimTurnEndTime    = Now + In.AimTurnInPlaceMinSeconds;   // the step now owns the state
 			return In.AimYawDeltaDeg > 0.f
 				? EAZ_StateMachineState::IdleTurnRight
 				: EAZ_StateMachineState::IdleTurnLeft;

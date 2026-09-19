@@ -8,7 +8,6 @@
 #include "AZ_ThrowPresentationProfile.generated.h"
 
 class UAnimMontage;
-class UAnimSequence;
 
 /**
  * UAZ_ThrowPresentationProfile — how a throw LOOKS and where the object leaves the hand.
@@ -69,29 +68,18 @@ public:
 	TObjectPtr<UAnimMontage> FarMontage;
 
 	/**
-	 * Pose held while the item is merely READIED, layered over the legs so the character carries it around
-	 * instead of standing still (user call 2026-09-16).
-	 *
-	 * ★ This is NOT a montage and must not be one. It rides the same upper-body lane the lowered-weapon pose
-	 * uses (UAZ_MoverAnimInstance's WeaponRelaxedPose, layered above spine_02), which is exactly why walking,
-	 * turning and crouching keep working underneath it. A FullBody loop montage would look the same standing
-	 * still and root the player the moment they tried to move.
-	 */
-	/**
 	 * Looping held-item idle, played while the item is READIED and no action owns the body.
 	 *
-	 * ★ A MONTAGE on the upper-body slot, not a pose handed to a variable. The MetaHuman hero's graph has no
-	 * consumer for the relaxed-pose lane at all (verified 2026-09-17: the only upper-body references in
-	 * AZ_ABP_MoverHero_MHC are AimAlpha and AimStanceAlpha), so assigning a sequence there animated nothing.
-	 * A montage on the wired slot plays, advances and loops, and locomotion keeps root/pelvis/legs underneath.
+	 * ★ A MONTAGE on the upper-body slot, not a pose handed to a variable: the MetaHuman hero's graph has no
+	 * consumer for the relaxed-pose lane (verified 2026-09-17), so a sequence assigned there animated nothing.
+	 * A montage on the wired Throwable slot plays, advances and loops while locomotion keeps root/pelvis/legs.
+	 *
+	 * ★ It is only legible in COMBAT-READY locomotion at a walk. Over Explore locomotion — body turning into
+	 * the movement direction, running available — the held torso reads as broken, which is exactly why the
+	 * first version was rejected (2026-09-18). State.Throwable.Ready is what forces the matching stance.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throw|Animation")
 	TObjectPtr<UAnimMontage> CarryMontage;
-
-	/** Legacy pose lane, kept for families whose ABP does consume RelaxedUpperBodyPose. Unused by the MHC
-	 *  hero; CarryMontage is what actually drives its held idle. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throw|Animation")
-	TObjectPtr<UAnimSequence> CarryPose;
 
 	/** Lower out of the ready pose without throwing. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throw|Animation")

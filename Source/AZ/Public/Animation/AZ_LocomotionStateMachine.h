@@ -96,6 +96,9 @@ struct FAZ_LocoSMInputs
 	bool bAimTurnInPlaceEnabled = false;
 	float AimTurnInPlaceEnterDeg = 35.f;
 	float AimTurnInPlaceExitDeg = 6.f;
+	/** Shortest life of a stepping turn, so the foot that lifted gets put down. See the walking mode's
+	 *  AimTurnInPlaceMinSeconds for why the exit angle alone is not enough. */
+	float AimTurnInPlaceMinSeconds = 0.67f;
 
 	/** True while the obstacle sensor reports an active reaction (Brace/Blocked). The SM HOLDS LocomotionLoop and
 	 *  skips start/stop/turn transitions so a wall reaction can't be interrupted by turning / stick-flicker into
@@ -202,6 +205,9 @@ private:
 	float LastIdleEntryTime = -1.f;
 	float IdleBreakEndTime  = -1.f;
 	float TransitionEndTime = -1.f;
+	/** World time the current stepping turn may first be re-evaluated. Until then the angle cannot end it,
+	 *  so the step completes instead of being cut a third of the way in. <0 = no turn running. */
+	float AimTurnEndTime    = -1.f;
 	/** World time the active impact-reaction clip is ~done; holds LocomotionLoop past the sensor's brief trigger
 	 *  window so the flinch plays in full. <0 = no reaction active. Set by NotifyReactionClipPushed. */
 	float ReactionEndTime   = -1.f;

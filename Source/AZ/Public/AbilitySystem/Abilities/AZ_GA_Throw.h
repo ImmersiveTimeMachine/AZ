@@ -12,18 +12,22 @@ class AAZ_ThrowableProjectile;
 class UAZ_ThrowableDefinition;
 class UAZ_ThrowPresentationProfile;
 class UAZ_AT_PlayMontageAndWaitForEvent;
-class UAbilityTask_WaitInputRelease;
 
 /**
  * UAZ_GA_Throw — the ONE throw action. Stone, grenade and knife are data, not subclasses.
  *
- * Controls (user, 2026-09-16): **hold RMB to aim, release RMB to throw, click LMB to cancel.**
+ * Controls (user, 2026-09-18): **readying the grenade enters the action** — Start into Loop, and the player
+ * stays there — **press RMB to throw, press LMB to cancel.** Cancelling un-readies the item; while it stays
+ * readied the hand component would re-enter this action immediately and the cancel would be invisible.
  *
- * ★ Why release-as-trigger is safe here even though throw must never join the Held retry list: the ability
- * activates once on the RMB Started edge and then stays ACTIVE for as long as the button is down, catching
- * the release with UAbilityTask_WaitInputRelease — the same task the jump ability uses for hold-to-jump-
- * higher. The ASC's held loop only re-activates specs that are INACTIVE, so an ability that remains active
- * while held simply cannot be retriggered by held frames.
+ * ★ There is NO hold and NO release trigger. An earlier revision aimed while RMB was held and threw on the
+ * release, which cannot survive entry-by-readying: WaitInputRelease with bTestAlreadyReleased fires at once
+ * for an ability nobody pressed, and the grenade threw itself about a second later. The commit is an
+ * explicit press, routed from the controller into RequestThrow().
+ *
+ * ★ Aiming does NOT plant the body. Start/Loop/Cancel play on the masked upper-body slot and the player
+ * walks in the combat stance throughout; only the committed release raises Ability.State.Throwing, and that
+ * is what stops the legs under the full-body release clip.
  *
  * Phase flow:
  *
@@ -51,6 +55,15 @@ public:
 	 * cancelled. After a cancel, a fresh RMB press is required.
 	 */
 	void RequestCancel();
+
+	/**
+	 * Commit the throw. Routed in from the controller on an explicit press.
+	 *
+	 * ★ A PRESS, not the release of a held button. Readying a grenade enters this action and the player
+	 * stays in it, so there is no hold to release. A press during Start latches one intent and is consumed
+	 * at the ready seam, so an early click still throws instead of being swallowed.
+	 */
+	void RequestThrow();
 
 	/** True while this action owns throw input, so the controller knows to consume LMB/RMB. */
 	bool IsThrowContextActive() const { return Phase != EAZ_ThrowPhase::None; }
@@ -106,9 +119,6 @@ protected:
 
 private:
 	UFUNCTION()
-	void OnInputReleased(float TimeHeld);
-
-	UFUNCTION()
 	void OnReleaseCue(FGameplayTag EventTag, FGameplayEventData EventData);
 
 	UFUNCTION()
@@ -152,6 +162,14 @@ private:
 	/** Tell the hand component the action owns the upper body, so its carry idle yields the shared slot. */
 	void SetHandActionOwnership(bool bOwned) const;
 
+	/**
+	 * Raise or clear Ability.State.Throwing — "the release is committed and the body is planted".
+	 *
+	 * ★ This, not Ability.State.ThrowPreparing, is what locks movement. Aiming is an upper-body presentation
+	 * the player walks around in; only the full-body release clip needs the legs to stop.
+	 */
+	void SetThrowCommittedTag(bool bCommitted) const;
+
 	class UAZ_ThrowableHandComponent* FindHandComponent() const;
 
 	void EnterAiming();
@@ -167,7 +185,6 @@ private:
 	UPROPERTY() TObjectPtr<const UAZ_ThrowableDefinition> Definition;
 	UPROPERTY() TObjectPtr<const UAZ_ThrowPresentationProfile> Profile;
 	UPROPERTY() TObjectPtr<UAZ_AT_PlayMontageAndWaitForEvent> PresentationTask;
-	UPROPERTY() TObjectPtr<UAbilityTask_WaitInputRelease> ReleaseListener;
 	UPROPERTY() TObjectPtr<UAZ_ThrowPreviewComponent> Preview;
 
 	EAZ_ThrowPhase Phase = EAZ_ThrowPhase::None;

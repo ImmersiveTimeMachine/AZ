@@ -125,22 +125,22 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void PrimaryInteract();
 
+	/** The live throw instance, or null when nothing is readied. Public because the throwable hand component
+	 *  — a sibling on this actor — has to end a throw whose item is no longer the readied one. */
+	class UAZ_GA_Throw* FindActiveThrow() const;
+
 private:
 	/**
 	 * Mouse routing for the throw, run BEFORE ordinary ASC dispatch.
 	 *
-	 * Controls (user, 2026-09-16): hold RMB to aim, release RMB to throw, click LMB to cancel. RMB reaches
+	 * Controls (user, 2026-09-18): LMB throws, RMB cancels. Entry is readying the item, not a click, so
+	 * neither button starts anything — both are outcomes of a state the player is already in. RMB reaches
 	 * this through two input actions (SecondaryAttack and Aim); both are consumed while a throw owns the
-	 * mouse, so aiming a stone can never also raise a firearm's sights.
+	 * mouse, so putting a grenade away can never also raise a firearm's sights.
 	 *
 	 * @return true when the throw consumed the edge and the controller must not dispatch it any further.
 	 */
 	bool RouteThrowInput(const FGameplayTag& InputTag, bool bPressed);
-	/** The live throw instance, or null when nothing is aiming. */
-	class UAZ_GA_Throw* FindActiveThrow() const;
-	/** A quick-slot item that is readied AND actually throwable. Readiness alone is not enough: a potion is
-	 *  readied the same way and must keep its own use action. */
-	bool HasReadyThrowable() const;
 	bool CanApplyFirearmRecoil(const AAZ_Weapon* Weapon, const FGuid& WeaponItemId, uint32 EquipmentGeneration) const;
 	/** Discard pending kick/return debt without moving a camera now owned by another gameplay state. */
 	void ClearFirearmRecoil();
@@ -172,6 +172,11 @@ private:
 	bool bQuickSelectInputCaptured = false;
 	bool bQuickSelectMouseReleasePending = false;
 	TSet<FGameplayTag> MenuSuppressedInputTags;
+
+	/** Presses swallowed by an exclusive throw aim. Their RELEASES must be swallowed too: otherwise the
+	 *  ASC sees a release with no matching press and an ability that was never started can be told to stop
+	 *  (or a held-input task resumes) the moment the aim ends. Cleared as each release is consumed. */
+	TSet<FGameplayTag> ThrowSuppressedInputTags;
 
 	/** Cross-pawn quick-bar (equip/loadout). Owned by the PC so it survives pawn swaps. */
 	UPROPERTY(VisibleAnywhere, Category = "AZ|QuickBar")

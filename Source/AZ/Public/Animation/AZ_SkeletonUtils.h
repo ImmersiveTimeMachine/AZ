@@ -57,6 +57,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AZ|Skeleton|Animation")
 	static FName GetAnimationSlotGroup(USkeleton* Skeleton, FName SlotName);
 
+	/** Re-route which animation slot a montage plays on, preserving its segments, notifies and timing.
+	 *
+	 *  ★ Exists because Python CANNOT do this. FSlotAnimationTrack lives in a TArray<FStruct>, and the Python
+	 *  bindings hand back a COPY: setting SlotName on it reports success, and writing the whole array back
+	 *  still leaves the asset unchanged (verified on AM_AZ_Throw_Carry, 2026-09-18). Scripted montage
+	 *  re-routing silently no-ops without this.
+	 *
+	 *  Refuses multi-track montages rather than guessing which track was meant. Marks the package dirty but
+	 *  does NOT save - callers save by path and verify by mtime.
+	 *
+	 *  @param Montage      The montage to re-route.
+	 *  @param NewSlotName  Target slot. Must already exist in the skeleton's slot/group table.
+	 *  @return true if the slot changed; false on a bad asset, a multi-track montage, or if it already matched.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Skeleton|Animation")
+	static bool SetMontageSlotName(UAnimMontage* Montage, FName NewSlotName);
+
 	// --- Sockets ---
 	// Python cannot touch these at all: USkeleton::Sockets is protected to the reflection layer and
 	// USkeletalMeshSocket::SocketName is read-only, so a socket can otherwise only be authored by hand

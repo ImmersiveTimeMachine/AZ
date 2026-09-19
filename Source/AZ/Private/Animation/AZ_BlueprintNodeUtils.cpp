@@ -18,6 +18,10 @@
 #include "K2Node_AnimNodeReference.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Animation/AnimBlueprint.h"
+#include "Editor.h"
+#include "Serialization/ArchiveReplaceObjectRef.h"
+#include "UObject/UObjectHash.h"
 #endif
 
 #if WITH_EDITOR
@@ -1078,5 +1082,158 @@ bool UAZ_BlueprintNodeUtils::CompileBlueprint(const FString& BlueprintPath)
 	return true;
 #else
 	return false;
+#endif
+}
+
+TArray<FString> UAZ_BlueprintNodeUtils::RemapCopiedBlueprintReferences(
+	const TArray<FString>& TargetBlueprintPaths, const TArray<FString>& SourceBlueprintPaths,
+	const TArray<FString>& ReplacementBlueprintPaths)
+{
+#if WITH_EDITOR
+	if (!IsInGameThread() || (GEditor && GEditor->PlayWorld))
+	{
+		return {TEXT("ERROR: Run on the editor game thread outside PIE.")};
+	}
+	if (TargetBlueprintPaths.IsEmpty() || SourceBlueprintPaths.IsEmpty()
+		|| SourceBlueprintPaths.Num() != ReplacementBlueprintPaths.Num())
+	{
+		return {TEXT("ERROR: Supply explicit targets and equally sized nonempty source/replacement arrays.")};
+	}
+	TArray<UBlueprint*> Targets;
+	TMap<UObject*, UObject*> Replacements;
+	TSet<UBlueprint*> Sources;
+	TSet<UObject*> UnmatchedSourceGraphs;
+	for (int32 Index = 0; Index < SourceBlueprintPaths.Num(); ++Index)
+	{
+		UBlueprint* Source = LoadBP(SourceBlueprintPaths[Index]);
+		UBlueprint* Replacement = LoadBP(ReplacementBlueprintPaths[Index]);
+		if (!Source || !Replacement || Source == Replacement || !Source->GeneratedClass
+			|| !Replacement->GeneratedClass || Source->IsA<UAnimBlueprint>()
+			|| Replacement->IsA<UAnimBlueprint>()
+			|| !Replacement->GetOutermost()->GetName().StartsWith(TEXT("/Game/AZ/")))
+		{
+			return {FString::Printf(TEXT("ERROR: Invalid regular Blueprint replacement pair at index %d."), Index)};
+		}
+		if (Replacements.Contains(Source) && Replacements[Source] != Replacement)
+		{
+			return {TEXT("ERROR: One source cannot map to two different copies.")};
+		}
+		Sources.Add(Source);
+		Replacements.Add(Source, Replacement);
+		Replacements.Add(Source->GeneratedClass, Replacement->GeneratedClass);
+		Replacements.Add(Source->GeneratedClass->GetDefaultObject(), Replacement->GeneratedClass->GetDefaultObject());
+		if (Source->SkeletonGeneratedClass && Replacement->SkeletonGeneratedClass)
+		{
+			Replacements.Add(Source->SkeletonGeneratedClass, Replacement->SkeletonGeneratedClass);
+		}
+		// FGraphReference keeps a live MacroGraph pointer as well as Blueprint+GUID.
+		// Updating only the Blueprint leaves that old graph pointer authoritative.
+		TArray<UEdGraph*> SourceGraphs;
+		TArray<UEdGraph*> ReplacementGraphs;
+		Source->GetAllGraphs(SourceGraphs);
+		Replacement->GetAllGraphs(ReplacementGraphs);
+		TMultiMap<FGuid, UEdGraph*> GraphsByGuid;
+		for (UEdGraph* Graph : ReplacementGraphs)
+		{
+			if (Graph) GraphsByGuid.AddUnique(Graph->GraphGuid, Graph);
+		}
+		for (UEdGraph* Graph : SourceGraphs)
+		{
+			if (!Graph) continue;
+			TArray<UEdGraph*> Candidates;
+			GraphsByGuid.MultiFind(Graph->GraphGuid, Candidates);
+			if (Candidates.Num() > 1 || !Graph->GraphGuid.IsValid())
+			{
+				// Some authored nested graphs reuse GUIDs. Asset duplication also
+				// preserves their full relative outer path; require that second key.
+				const FString RelativePath = Graph->GetPathName(Source);
+				Candidates.RemoveAll([&](UEdGraph* Candidate)
+				{
+					return Candidate->GetPathName(Replacement) != RelativePath;
+				});
+			}
+			if (Candidates.Num() == 1)
+			{
+				Replacements.Add(Graph, Candidates[0]);
+			}
+			else if (Candidates.Num() > 1)
+			{
+				return {FString::Printf(TEXT("ERROR: Ambiguous graph GUID and relative path in %s"), *Replacement->GetPathName())};
+			}
+			else
+			{
+				UnmatchedSourceGraphs.Add(Graph);
+			}
+		}
+	}
+	// Validate the complete batch before modifying any target. A source can never
+	// be a search root, and the archive never follows objects outside that root.
+	for (const FString& Path : TargetBlueprintPaths)
+	{
+		UBlueprint* Target = LoadBP(Path);
+		if (!Target || Target->IsA<UAnimBlueprint>() || Sources.Contains(Target)
+			|| !Target->GetOutermost()->GetName().StartsWith(TEXT("/Game/AZ/")))
+		{
+			return {FString::Printf(TEXT("ERROR: Target must be an AZ-owned regular Blueprint copy: %s"), *Path)};
+		}
+		Targets.AddUnique(Target);
+	}
+	TMap<UBlueprint*, TArray<UObject*>> SearchRoots;
+	for (UBlueprint* Target : Targets)
+	{
+		TArray<UObject*>& Roots = SearchRoots.Add(Target);
+		Roots.Add(Target);
+		// CDOs are package siblings, not children of the Blueprint search root.
+		for (UClass* Class : {Target->GeneratedClass.Get(), Target->SkeletonGeneratedClass.Get()})
+		{
+			if (Class) Roots.AddUnique(Class->GetDefaultObject());
+		}
+		if (!UnmatchedSourceGraphs.IsEmpty())
+		{
+			for (UObject* Root : Roots)
+			{
+				TArray<UObject*> Objects{Root};
+				GetObjectsWithOuter(Root, Objects, EGetObjectsFlags::IncludeNestedObjects);
+				for (UObject* Object : Objects)
+				{
+					TArray<UObject*> References;
+					FReferenceFinder Finder(References, nullptr, false, true, false, false);
+					Finder.FindReferences(Object);
+					for (UObject* Referenced : References)
+					{
+						if (UnmatchedSourceGraphs.Contains(Referenced))
+						{
+							return {FString::Printf(TEXT("ERROR: Referenced source graph has no unique copied match: %s"), *Referenced->GetPathName())};
+						}
+					}
+				}
+			}
+		}
+	}
+	TArray<FString> Result;
+	for (UBlueprint* Target : Targets)
+	{
+		int64 Count = 0;
+		for (UObject* Root : SearchRoots[Target])
+		{
+			Root->Modify();
+			TArray<UObject*> Subobjects;
+			GetObjectsWithOuter(Root, Subobjects, EGetObjectsFlags::IncludeNestedObjects);
+			for (UObject* Subobject : Subobjects) Subobject->Modify();
+			FArchiveReplaceObjectRef<UObject> Archive(Root, Replacements,
+				EArchiveReplaceObjectFlags::IgnoreOuterRef | EArchiveReplaceObjectFlags::IgnoreArchetypeRef);
+			Count += Archive.GetCount();
+		}
+		if (Count > 0)
+		{
+			Target->Status = BS_Dirty;
+			Target->MarkPackageDirty();
+		}
+		Result.Add(FString::Printf(TEXT("%s: %lld references replaced; compile and verify before saving"),
+			*Target->GetOutermost()->GetName(), static_cast<long long>(Count)));
+	}
+	return Result;
+#else
+	return {TEXT("ERROR: Blueprint reference remapping is editor-only.")};
 #endif
 }

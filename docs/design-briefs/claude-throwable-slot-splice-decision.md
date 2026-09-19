@@ -2,7 +2,9 @@
 
 Use option1's **intended priority**, with the corrected splice point below: **after the final ordinary weapon aim blend and before FullBody**. This is the implementation decision; do not ask Artur again to choose between the two earlier locations.
 
-Read-only live review on September17 confirmed the two new nodes exist and are disconnected. No graph, skeleton or montage changes were made by this review. Source evidence: `C:/UnrealEngine/Games/AZ/Saved/ThrowSlotReview/`.
+**Newer stance policy:** the submitted open-questions document changes standing aim to exclusive FullBody while crouch keeps the mix. The splice location remains correct. Apply Throwable to carry and compatible crouched variants; standing aim/release stays on FullBody. See [the numbered review](C:/UnrealEngine/Games/AZ/docs/design-briefs/throwable-open-questions-review-response.md); the earlier movable-standing-aim recommendation is superseded.
+
+**September18 verification: the splice below is completed.** The live MHC AnimBP has52 nodes, UpToDate status and a clean package. All49 previous nodes remain; one original edge was replaced and three cache nodes added. Throwable uses spine_01/depth1. Preserve and verify this branch rather than authoring it again. Current montage tracks remain Carry/Start/Loop=RifleFire and Close/Far/Cancel=FullBody; routing and stance policy still need implementation. Follow the [primary handoff](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-implementation-handoff.md). The September17 snapshot under `C:/UnrealEngine/Games/AZ/Saved/ThrowSlotReview/` records the earlier disconnected state for comparison.
 
 ## Actual live graph
 
@@ -17,6 +19,7 @@ Locomotion + standing/crouch weapon pose
   → masked RifleFire
   → AdiativePoses cache
   → final masked AO_Rifle_Aim result [A82E98F4]
+  → PreThrowable cache → masked Throwable [62E42C8E]
   → FullBody [5BF55C28]
   → DeadBlending → OffsetRootBone → procedural feet → paired hands
   → PoseHistory → Output
@@ -24,7 +27,7 @@ Locomotion + standing/crouch weapon pose
 
 Putting Throwable before RifleFireBase or between that cache and its consumers leaves weapon-fire and/or aim layers downstream that can overwrite the throw. Insert at the final normal-pose boundary instead.
 
-## Exact splice
+## Completed splice — preserve these connections
 
 Re-resolve complete GUIDs from the live graph; eight-character prefixes here identify the inspected nodes, not permission to guess a different node.
 
@@ -41,7 +44,7 @@ This puts Throwable above ordinary weapon aim/fire poses, while higher-priority 
 ## Configuration corrections
 
 - Keep `bAlwaysUpdateSourcePose=True`, `CurveBlendOption=UseBasePose`, mesh-space rotation blend and `bBlendRootMotionBasedOnRootBone=True`. Both BasePose and Slot.Source need the same valid pre-throw cache. Blend weight1 is appropriate: the slot already blends to/from its source when its montage weight changes and passes source through when inactive.
-- The new mask is **spine_01/depth4**, but the live RifleFire mask is **spine_01/depth1**. They are not identical. Depth4 is a gradual .25/.5/.75/1 ramp down that bone hierarchy, not a four-bone cutoff. Start with the existing proven **depth1** if the goal is exact RifleFire-lane parity; treat depth4 as an explicit later seam adjustment after looking at these clips. Root/pelvis/legs must remain from locomotion in either case.
+- Both current Throwable and RifleFire masks use **spine_01/depth1**; the earlier disconnected Throwable depth4 setting has been corrected. Depth4 would be a gradual .25/.5/.75/1 ramp, not a four-bone cutoff. Preserve depth1 unless a measured visual seam requires deliberate retuning. Root/pelvis/legs remain from the base for the masked branch.
 - A mask is not a root-motion safety switch. Keep carry/Start/aim Loop in-place with root motion disabled and playback1×. Preserve locomotion contact curves and the existing grounded feet gate.
 - MetaHuman skeleton lookup confirms `Throwable→Throwable`, `RifleFire→WeaponFire`, `FullBody→DefaultGroup`. The ABP itself still targets SKEL_SurvivalMan, whose Throwable lookup is DefaultGroup, explaining the current node caption. Verify effective montage/skeleton group resolution and synchronize only necessary slot metadata; **do not retarget/reparent the working AnimBP or change its target skeleton as part of this splice**. Editor caption alone is not proof of runtime group ownership.
 
@@ -49,7 +52,7 @@ This puts Throwable above ordinary weapon aim/fire poses, while higher-priority 
 
 Current loaded montage tracks are Carry/Start/Loop=`RifleFire`; Close/Far/Cancel=`FullBody`. Connecting an empty Throwable lane changes none of those routes. `Profile.MontageSlot` is record-only, not a runtime router.
 
-Move the verified in-place **Carry, Start and held Loop** montage tracks onto `Throwable`, so equipped idle and movable preparation use the new mask. Treat Cancel according to its verified upper-body pose compatibility. Keep the short pelvis-dependent Close/Far releases on their existing FullBody path until that content is deliberately adapted; do not silently claim an upper-body copy of a176-degree pelvis-turning release is equivalent. This splice must resolve long-lived carry/aim freezing without hiding a separate release-content limitation.
+Move the verified in-place **Carry** and compatible **crouched action variants** onto `Throwable`. Under the newer policy, standing Start/Loop/release uses FullBody and an explicit movement lock. Create separate montage/profile routes per stance; do not change a shared montage's slot while active. Treat crouched Cancel/release according to verified pose compatibility, not an assumed equivalence to the standing176-degree pelvis turn. The splice must resolve frozen carry and enable the crouched mix without concealing content limitations.
 
 Carry must yield once to the active throw and restore only when the same selected item is still valid. Keep the existing hand component's action ownership/suppression lifecycle; prevent idle refresh from restarting over cancellation or a higher-priority body action. Do not simultaneously play carry in RifleFire and preparation in Throwable.
 

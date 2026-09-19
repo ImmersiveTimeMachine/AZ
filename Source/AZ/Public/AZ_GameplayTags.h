@@ -202,6 +202,11 @@ struct AZ_API FAZ_GameplayTags
      *  committed yet) and deliberately NOT Ability.State.Aiming, which also drives firearm pose, sockets
      *  and the tight 30cm/FOV50 zoom. */
     FGameplayTag Ability_State_ThrowPreparing;
+    /** ASC mirror of "a throwable is READIED on the quick bar" — the carry state, not the aim. Same pattern as
+     *  State.Combat.CancelWindow: the throwable hand component owns the fact, and the movement-intent layer and
+     *  the anim chooser both read it without knowing the quick bar exists. It selects combat-ready facing and
+     *  clamps the gait to a walk; the wind-up itself is Ability.State.ThrowPreparing and roots the body. */
+    FGameplayTag State_Throwable_Ready;
     FGameplayTag Ability_State_Dashing;
 
     /** Authored at the first frame of each grab OUTCOME section (Push/Kick). The outcome is QUEUED at

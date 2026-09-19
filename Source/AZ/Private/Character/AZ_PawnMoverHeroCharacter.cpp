@@ -476,7 +476,17 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraForMode(float DeltaTime)
 		{
 			Target = &CameraAiming;
 		}
-		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Movement_Strafe))
+		// ★ A READIED THROWABLE FRAMES AS COMBAT, because it IS combat-ready: the body faces the camera,
+		// the legs strafe, the gait is capped at a walk. Everything else in the chain already resolves that
+		// from State.Throwable.Ready — the anim instance's bStrafe, the pawn's rotation mode, the gait clamp
+		// — but the camera keyed off Movement.Strafe alone and so stayed on the Explore framing while the
+		// character underneath it was in a fight stance (reported 2026-09-19).
+		//
+		// The tag is checked here rather than raised globally on purpose: Movement.Strafe is the PLAYER's
+		// held stance toggle, and other systems read it as that. This is the same split the anim instance
+		// and the facing code already make.
+		else if (AbilityComp->HasMatchingGameplayTag(GPTags.Movement_Strafe)
+			|| AbilityComp->HasMatchingGameplayTag(GPTags.State_Throwable_Ready))
 		{
 			Target = &CameraStrafe;
 		}
@@ -1009,24 +1019,48 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// profile): the body must face the camera/target, NOT the movement direction.
 	bool bStrafe = false;
 	bool bAiming = false;
+	bool bWeaponAiming = false;
 	bool bGrabbed = false;
+	bool bActionPlanted = false;
+	bool bThrowableReady = false;
 	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())   // we implement IAbilitySystemInterface
 	{
 		const FAZ_GameplayTags& AZTags = FAZ_GameplayTags::Get();
 		bGrabbed = ASC->HasMatchingGameplayTag(AZTags.State_Grabbed);   // caught: fully rooted until the mash resolves
-		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking) || bGrabbed)
+		// A THROW is exclusive while it is preparing/aiming (user decision 2026-09-17: "cancel the aim, and block
+		// everything"). Derived from the state tag EVERY frame rather than latched, so when the ability ends for
+		// ANY reason - normal release, LMB cancel, Run cancel, death, grab, avatar loss, a montage that never
+		// fired its cue - the lock disappears with the tag. Nothing has to remember to unlock it, and a late
+		// callback from a finished throw cannot unlock a different action that is still planted (review Q3.3).
+		// ★ Ability.State.Throwing (the COMMITTED release), not ThrowPreparing. Aiming a grenade is an
+		// upper-body presentation the player walks around in; only the full-body release clip — which swings
+		// the pelvis and resets the feet — needs the legs to stop under it (user call 2026-09-18).
+		bActionPlanted = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Throwing);
+		if (ASC->HasMatchingGameplayTag(AZTags.Ability_State_MeleeAttacking) || bGrabbed || bActionPlanted)
 			WorldMove = FVector::ZeroVector;
 		bStrafe = ASC->HasMatchingGameplayTag(AZTags.Movement_Strafe);
 		// This local flag selects raised-weapon facing and movement, not camera zoom.
 		// UpdateCameraForMode continues to require the explicit precision-aim tag.
-		bAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming)
-			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_FirearmReady)
-			// A THROW aims with the camera too. Without this the body keeps whatever facing it had, so the
-			// character visibly throws along its own forward while the object flies along the camera's —
-			// aim right, watch him throw straight ahead (reported 2026-09-16). The camera framing is NOT
-			// affected: UpdateCameraForMode keys the zoom off Ability.State.Aiming, which this is not.
+		bWeaponAiming = ASC->HasMatchingGameplayTag(AZTags.Ability_State_Aiming)
+			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_FirearmReady);
+		bAiming = bWeaponAiming
+			// A THROW aims with the camera, from the moment it is readied: holding a grenade IS an aim, and
+			// the body belongs on the target the whole time, not only at the instant of release (user call
+			// 2026-09-18). Without it the character throws along its own forward while the object flies
+			// along the camera's — aim right, watch him throw straight ahead (reported 2026-09-16).
+			//
+			// ★ This is only survivable because the yaw rate is capped to the turn clip's own rate below.
+			// At the ordinary aim cap the body outruns every stepping animation, the turn-in-place gate can
+			// never open, and the capsule spins under planted feet — the crossed legs of 2026-09-18.
+			//
+			// The camera framing is NOT affected: UpdateCameraForMode keys the zoom off
+			// Ability.State.Aiming, which this is not.
 			|| ASC->HasMatchingGameplayTag(AZTags.Ability_State_ThrowPreparing);
-		bStrafe |= bAiming;
+		// CARRYING a readied throwable is combat-ready, not aiming: the torso already faces the camera, which is
+		// what makes the masked grenade hold sit on strafe legs instead of on an Explore run (user call
+		// 2026-09-18). It deliberately does NOT feed bAiming — no aim cone, no aim turn-in-place, no zoom.
+		bThrowableReady = ASC->HasMatchingGameplayTag(AZTags.State_Throwable_Ready);
+		bStrafe |= bAiming || bThrowableReady;
 	}
 
 	// (Obstacle blocking is now handled upstream by the movement-capability clamp on WorldMove above — a wall ahead
@@ -1080,11 +1114,38 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 			AimHoldYaw = BodyYaw;
 			bAimHoldValid = true;
 		}
-		// Drag: advance the held heading only as far as keeps the camera on the cone edge.
-		const float CamToHold = FRotator::NormalizeAxis(CamYaw - AimHoldYaw);
-		if (FMath::Abs(CamToHold) > AimFacingConeDeg)
+		// ★ A CARRIED THROWABLE AT REST USES A DEAD ZONE, NOT THE CONE. This is the fix for the last
+		// failure left standing (reported 2026-09-19: standing still, rotating the camera SLOWLY, the legs
+		// cross).
+		//
+		// The cone cannot fix it. A cone drags the held heading the instant the camera leaves it, so the body
+		// resumes chasing continuously and the capsule still rotates under a planted idle — the cone only
+		// postpones the crossing by its own width. Nor does the rate cap below help: a SLOW camera never
+		// outruns it, so the body-to-heading error never reaches the enter angle and the stepping turn never
+		// engages. Standing still, the legs need the body to be BINARY — either perfectly still, or stepping.
+		//
+		// So: pin the heading to the body (zero spring error — the body cannot drift), and measure the gate
+		// against the CAMERA instead of the held heading, because the held heading is the very thing being
+		// frozen and would never accumulate an error to trip on. Past the enter angle the step takes over and
+		// the heading snaps to the camera for the step's duration.
+		//
+		// At rest ONLY. Moving, the body must keep facing the camera or the directional strafe clips stop
+		// matching the trajectory, and that half already reads correctly.
+		const bool bThrowableDeadZone = bThrowableReady && CachedMoveInputIntent.IsNearlyZero();
+		if (bThrowableDeadZone)
 		{
-			AimHoldYaw = FRotator::NormalizeAxis(CamYaw - FMath::Sign(CamToHold) * AimFacingConeDeg);
+			// bAimTurningInPlace is last frame's — the gate below updates it. One frame of entry latency,
+			// against a step that runs for hundreds of milliseconds.
+			AimHoldYaw = bAimTurningInPlace ? CamYaw : BodyYaw;
+		}
+		else
+		{
+			// Drag: advance the held heading only as far as keeps the camera on the cone edge.
+			const float CamToHold = FRotator::NormalizeAxis(CamYaw - AimHoldYaw);
+			if (FMath::Abs(CamToHold) > AimFacingConeDeg)
+			{
+				AimHoldYaw = FRotator::NormalizeAxis(CamYaw - FMath::Sign(CamToHold) * AimFacingConeDeg);
+			}
 		}
 		CharacterDefaultInputs.OrientationIntent = FRotator(0.f, AimHoldYaw, 0.f).Vector();
 
@@ -1097,19 +1158,76 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		if (const UAZ_PawnMovementMode_Walking* Walking = MoverComponent ? Cast<UAZ_PawnMovementMode_Walking>(
 			MoverComponent->FindMode_Mutable(UAZ_PawnMovementMode_Walking::StaticClass(), DefaultModeNames::Walking)) : nullptr)
 		{
-			const float AimDeltaAbs = FMath::Abs(FRotator::NormalizeAxis(AimHoldYaw - BodyYaw));
+			// A carried throwable turns on its OWN numbers. The weapon values in the hero Blueprint are
+			// hand-tuned against the rifle's 45 deg step with its slide accepted; the throwable borrows the
+			// PISTOL legs, whose step is twice as wide, so it needs its own rate and its own entry angle
+			// matched to that wider step. Resolved once, here, and the animation side resolves the same pair
+			// from the same tag — the two must never end up comparing different thresholds.
+			const float TurnEnterDeg = bThrowableReady ? Walking->ThrowableTurnEnterDeg : Walking->AimTurnInPlaceEnterDeg;
+			// ★ THE BODY TURNS AT THE SPEED THE FEET STEP, never faster. ThrowableTurnRateDegPerSec is read as
+			// a briskness ceiling, not as a literal rate: it is converted to a multiple of the AUTHORED step and
+			// clamped, then applied to whichever stance's step is actually playing. The anim instance derives the
+			// clip's play rate from the identical call, so the two are the same number by construction.
+			//
+			// Feeding the raw property straight in is what produced the fast-forward look reported 2026-09-19
+			// ("дергано... в быстром режиме проигрывания"): 200 deg/s against a 90 deg/s standing step ran the clip at
+			// 2.2x, and against the 67.5 deg/s crouched step at 3.0x. A turn is made faster by stepping WIDER,
+			// not by spinning the clip.
+			const bool bCrouchTurn = HasMatchingGameplayTag(FAZ_GameplayTags::Get().Movement_Crouching);
+			const float TurnRateDeg  = bThrowableReady
+				? static_cast<float>(AZ_TurnInPlace::AuthoredRate(bCrouchTurn)
+					* AZ_TurnInPlace::Briskness(Walking->ThrowableTurnRateDegPerSec))
+				: Walking->AimTurnInPlaceRateDegPerSec;
+			// The dead zone pins AimHoldYaw to the body, so hold-to-body is identically zero there. The
+			// throwable therefore gates on CAMERA-to-body — the only angle that still grows while the body
+			// is held still. Entry and exit both read this one value, so they cannot disagree.
+			const float AimDeltaAbs = bThrowableDeadZone
+				? FMath::Abs(FRotator::NormalizeAxis(CamYaw - BodyYaw))
+				: FMath::Abs(FRotator::NormalizeAxis(AimHoldYaw - BodyYaw));
 			if (!CachedMoveInputIntent.IsNearlyZero())                            { bAimTurningInPlace = false; }
 			else if (!Walking->bAimTurnInPlaceEnabled)                             { bAimTurningInPlace = false; }
-			else if (bAiming && AimDeltaAbs >= Walking->AimTurnInPlaceEnterDeg)   { bAimTurningInPlace = true; }
+			// A READIED THROWABLE turns in place too. Its turn clip is the PISTOL's, and everything from
+			// spine_01 up is replaced by the grenade slot's mask, so only the clip's LEGS survive — and the
+			// legs are exactly the stepping content this needs.
+			else if ((bWeaponAiming || bThrowableReady) && AimDeltaAbs >= TurnEnterDeg)
+			{
+				if (!bAimTurningInPlace)
+				{
+					// Rising edge only: a step already running keeps its original deadline instead of being
+					// extended every frame the angle stays wide.
+					AimTurnInPlaceHoldUntil = GetWorld() ? GetWorld()->GetTimeSeconds() + Walking->AimTurnInPlaceMinSeconds : 0.f;
+				}
+				bAimTurningInPlace = true;
+			}
+			// ★ The rate clamp must outlive the ANGLE, for the same reason the SM state does: the body reaches
+			// the aim about a third of the way into the step, and dropping the clamp there lets the spring
+			// finish the turn at the fast cap while the clip is still stepping — the body outruns its own feet.
+			// Both sides read AimTurnInPlaceMinSeconds, so they cannot disagree about when the step is over.
+			else if (GetWorld() && GetWorld()->GetTimeSeconds() < AimTurnInPlaceHoldUntil) { /* step still owns the turn */ }
 			else if (AimDeltaAbs <= Walking->AimTurnInPlaceExitDeg)               { bAimTurningInPlace = false; }
 			if (bAimTurningInPlace)
 			{
-				AimTurnYawRateLimitInput = Walking->AimTurnInPlaceRateDegPerSec;
+				AimTurnYawRateLimitInput = TurnRateDeg;
 			}
-			else if (Walking->AimMaxYawRateDegPerSec > KINDA_SMALL_NUMBER)
+			else
 			{
-				// Plain aim tracking: cap the spring so an aim entry from far off is a fast turn, not a one-frame spin.
-				AimTurnYawRateLimitInput = Walking->AimMaxYawRateDegPerSec;
+				// ★ A carried throwable tracks at the TURN CLIP'S OWN RATE, not the ordinary aim cap.
+				//
+				// The ordinary cap is 540 deg/s — fast enough that the body is on the camera almost at once,
+				// so the body-to-aim error never reaches AimTurnInPlaceEnterDeg and the stepping turn above
+				// can never engage. The capsule then rotates under a planted idle and the legs cross
+				// (reported 2026-09-18, standing still and only moving the camera). Capping the plain track
+				// at the clip's authored rate lets the camera outrun the body, the error accumulate, and the
+				// stepping turn take over — which is the only way this reads correctly on current content.
+				//
+				// Deliberately the SAME number the stepping turn uses, so the two can never disagree about
+				// how fast a turn may be: tune AimTurnInPlaceRateDegPerSec and both follow. Weapon aiming is
+				// untouched and keeps its own cap.
+				const float Cap = bThrowableReady ? TurnRateDeg : Walking->AimMaxYawRateDegPerSec;
+				if (Cap > KINDA_SMALL_NUMBER)
+				{
+					AimTurnYawRateLimitInput = Cap;
+				}
 			}
 		}
 		else
@@ -1185,7 +1303,10 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		{
 			CustomInputs.Gait = EAZ_Gait::Sprint;
 		}
-		else if (HasMatchingGameplayTag(AZTags.Movement_Running))
+		// A readied throwable walks. Sprint is already excluded by the !bStrafe above (carrying raises bStrafe);
+		// this is the run half. Clamped rather than refused so a held run key simply walks and resumes running
+		// the moment the grenade is put away, instead of dropping the input.
+		else if (HasMatchingGameplayTag(AZTags.Movement_Running) && !bThrowableReady)
 		{
 			CustomInputs.Gait = EAZ_Gait::Run;
 		}
@@ -1205,6 +1326,11 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 		// Held: the walking mode swaps its facing spring for GrabbedFacingTime so the body squares up to the
 		// grabber before the paired catch clips' first frame (OrientationIntent already points at it above).
 		CustomInputs.bGrabbed = bGrabbed;
+		// A planted voluntary action owns the body. Zeroing WorldMove above only removes the INTENT, which
+		// brakes over the mode's deceleration curve - the capsule would still coast a step out from under an
+		// exclusive aim. The sim reads this bit and kills residual voluntary planar velocity outright, while
+		// leaving gravity, supported moving-base motion and action-owned root motion alone.
+		CustomInputs.bActionLocomotionLock = bActionPlanted;
 	}
 
 	// Jump is EXPLORE-ONLY for now — suppress jump input while strafing (combat-ready). The one-shot 0->1

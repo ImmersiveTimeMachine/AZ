@@ -83,8 +83,34 @@ private:
 	 */
 	void UpdateCarryMontage(USkeletalMeshComponent* Mesh, const UAZ_ThrowPresentationProfile* Profile);
 
+	/**
+	 * Mirror "a throwable is readied" onto the ASC as State.Throwable.Ready.
+	 *
+	 * The movement-intent layer reads it for combat-ready facing and the walk clamp, and the anim chooser
+	 * sees it in its owned-tag snapshot — neither has to know the quick bar exists.
+	 */
+	void PublishReadyTag(bool bReadied) const;
+
+	/**
+	 * Enter the throw action because a throwable is readied.
+	 *
+	 * ★ Readying IS the entry: the player goes Start -> Loop and stays there until they throw or cancel.
+	 * Safe to call on every refresh — the ability blocks itself on its own state tag, so an already-running
+	 * one is never restarted.
+	 */
+	void EnterThrowAction() const;
+
+	/**
+	 * Release the input edge the entry latched.
+	 *
+	 * ★ Mandatory, not tidiness. A spec already marked InputPressed silently swallows the next press, so
+	 * without this the grenade can be armed exactly once per session.
+	 */
+	void LeaveThrowAction() const;
+
 	/** The carry montage currently playing, so it can be stopped exactly once and never left orphaned. */
 	UPROPERTY() TObjectPtr<UAnimMontage> ActiveCarryMontage;
+
 	void HideProps();
 
 	UPROPERTY() TObjectPtr<UStaticMeshComponent> StaticProp;

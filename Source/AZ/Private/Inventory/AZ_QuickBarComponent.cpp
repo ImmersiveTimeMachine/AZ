@@ -223,6 +223,11 @@ void UAZ_QuickBarComponent::OnRep_ReadyItemId()
 	OnReadyItemChanged.Broadcast();
 }
 
+void UAZ_QuickBarComponent::ClearReadyItem()
+{
+	SetReadyItemId(FGuid());
+}
+
 void UAZ_QuickBarComponent::PruneReadyItem()
 {
 	if (ReadyItemId.IsValid() && !GetReadyItem()) SetReadyItemId(FGuid());

@@ -14,6 +14,50 @@ struct FMoverTimeStep;
 struct FProposedMove;
 enum class EAZ_Gait : uint8;
 
+/**
+ * The stepping turn-in-place content, as AUTHORED. Shared by the pawn (which decides how fast the BODY
+ * turns) and the anim instance (which decides how fast the CLIP plays), because those two numbers are the
+ * same physical thing seen from two sides: disagree by any margin and the feet slide by exactly that
+ * margin. They lived as private constants in the anim instance and the pawn had to be tuned against them
+ * by hand, which is how the body ended up running at more than twice the step it was standing on.
+ *
+ * These describe CONTENT, not taste. If the clips are re-authored, these move with them.
+ */
+namespace AZ_TurnInPlace
+{
+	/** Standing step: the pistol turn loop a carried throwable borrows — 90 deg over a 1.0 s loop,
+	 *  measured 2026-09-19 from AS_Pistol_Turn{L,R}_90Loop. */
+	inline constexpr double StandRateDegPerSec = 90.0;
+	inline constexpr double StandStepSeconds   = 1.0;
+
+	/** Crouched step: the rifle's crouch aim turn, the only authored crouched step in the project and the
+	 *  one CHT_v2 rows 399/400 were repointed at — 45 deg over 0.6666667 s, measured the same day from
+	 *  AZ_RTG_MH_W2_Crouch_Aim_Turn_In_Place_{L,R}_Loop_IPC. Narrower AND shorter than the standing step. */
+	inline constexpr double CrouchRateDegPerSec = 67.5;
+	inline constexpr double CrouchStepSeconds   = 0.6666667;
+
+	/** Hard ceiling on how far above authored speed a turn step may be driven.
+	 *
+	 *  ★ 1.0 means "the clip plays at the speed it was animated". Past roughly this ceiling the step stops
+	 *  reading as a step and starts reading as fast-forward — reported 2026-09-19 at 2.2x standing / 3.0x
+	 *  crouched: "дергано, как будто в быстром режиме проигрывания". Speed the TURN up by widening the step
+	 *  (the pistol's 90 deg covers twice the ground per step), not by spinning the clip faster. */
+	inline constexpr double MaxStepPlayRate = 1.25;
+
+	/** How brisk a commanded body rate is, relative to the authored STANDING step — one figure that then
+	 *  applies to whichever stance's step is actually playing, so both stances stay foot-locked off a single
+	 *  tuning knob. Clamped: never slower than authored (that reads as sluggish, not natural), never past
+	 *  the ceiling above. */
+	inline double Briskness(double CommandedDegPerSec)
+	{
+		return FMath::Clamp(CommandedDegPerSec / StandRateDegPerSec, 1.0, MaxStepPlayRate);
+	}
+
+	/** The authored step for a stance: its yaw rate and its length in clip time. */
+	inline double AuthoredRate(bool bCrouching)   { return bCrouching ? CrouchRateDegPerSec : StandRateDegPerSec; }
+	inline double AuthoredStep(bool bCrouching)   { return bCrouching ? CrouchStepSeconds   : StandStepSeconds;   }
+}
+
 UCLASS(BlueprintType, Blueprintable, meta = (DisplayName = "AZ Pawn Movement Mode - Walking"))
 class AZ_API UAZ_PawnMovementMode_Walking : public USmoothWalkingMode
 {
@@ -158,6 +202,39 @@ public:
 	float AimTurnInPlaceEnterDeg = 35.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "degrees"))
 	float AimTurnInPlaceExitDeg = 6.f;
+
+	/** Shortest time a stepping turn is allowed to last, once started.
+	 *
+	 *  ★ A step is indivisible: lift a foot and you must put it down. The exit angle alone cannot know that —
+	 *  it fires the moment the body reaches the aim, which at the authored turn rate happens about 0.43 s
+	 *  after a 35 deg entry, a third of the way into a 0.67 s clip. Measured 2026-09-18: entries lasting
+	 *  0.21-0.85 s, every one restarting the clip from frame 0, and one flipping L->R mid-step. The result
+	 *  reads as a foot shuffle rather than a turn.
+	 *
+	 *  Default is the authored clip length, so one entry is one complete step. Raising the enter angle makes
+	 *  turns rarer; this makes each one whole. 0 restores the angle-only exit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim", meta = (ClampMin = "0", ForceUnits = "s"))
+	float AimTurnInPlaceMinSeconds = 0.67f;
+
+	/** Body yaw rate while a THROWABLE is readied, replacing both the stepping-turn rate and the plain aim
+	 *  cap for that state only.
+	 *
+	 *  ★ Separate from the weapon numbers ON PURPOSE. The hero Blueprint runs the weapon aim at 360 deg/s,
+	 *  a value tuned by hand against the rifle with its foot slide knowingly accepted. The stepping clips are
+	 *  authored at 45 deg over 0.6667 s — about 67.5 deg/s (measured 2026-09-18 from the non-IPC turn
+	 *  sequences; the _IPC variants the chooser actually selects carry ZERO root yaw, so Mover supplies the
+	 *  whole rotation). Turning the body five times faster than the feet can step it out is what crosses the
+	 *  legs. Matching the authored rate here fixes the grenade without re-opening the rifle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim|Throwable", meta = (ClampMin = "1", ForceUnits = "deg/s"))
+	float ThrowableTurnRateDegPerSec = 67.5f;
+
+	/** Body-to-aim error that starts a stepping turn while a THROWABLE is readied.
+	 *
+	 *  Separate from AimTurnInPlaceEnterDeg for the same reason as the rate: the weapon value is 45 deg in
+	 *  the hero Blueprint and is not ours to move. A smaller angle here means frequent short steps rather
+	 *  than rare large ones, which is what a carried grenade wants (user call 2026-09-18). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Walking|Facing|Aim|Throwable", meta = (ClampMin = "0", ForceUnits = "degrees"))
+	float ThrowableTurnEnterDeg = 15.f;
 
 	/** AIM TURN-IN-PLACE master switch. OFF (default): while aiming the body simply tracks the camera with the flat
 	 *  AimFacingTime spring, no stepping clip, no rate limit - the behaviour the user signed off as "the pistol works

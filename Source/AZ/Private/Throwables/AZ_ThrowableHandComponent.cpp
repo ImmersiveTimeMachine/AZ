@@ -2,9 +2,12 @@
 
 #include "Throwables/AZ_ThrowableHandComponent.h"
 
+#include "AbilitySystemComponent.h"
+#include "AbilitySystem/AZ_AbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AZ_GA_Throw.h"
+#include "AZ_GameplayTags.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "Animation/AZ_MoverAnimInstance.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -14,6 +17,7 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
+#include "Player/AZ_PlayerController.h"
 #include "Throwables/AZ_ThrowPresentationProfile.h"
 #include "Throwables/AZ_ThrowableDefinition.h"
 
@@ -61,14 +65,26 @@ void UAZ_ThrowableHandComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 		}
 		Owner->OnPossessedPawnChanged.RemoveDynamic(this, &UAZ_ThrowableHandComponent::HandlePawnChanged);
 	}
+	// The tag lives on the pawn's ASC, which outlives this component on a controller teardown. Left set, the
+	// body would stay locked to combat-ready walking with no grenade in sight.
+	PublishReadyTag(false);
 	Super::EndPlay(EndPlayReason);
 }
 
 void UAZ_ThrowableHandComponent::HandleReadyItemChanged() { Refresh(); }
 void UAZ_ThrowableHandComponent::HandleInventoryChanged() { Refresh(); }
 
-void UAZ_ThrowableHandComponent::HandlePawnChanged(APawn* /*OldPawn*/, APawn* /*NewPawn*/)
+void UAZ_ThrowableHandComponent::HandlePawnChanged(APawn* OldPawn, APawn* /*NewPawn*/)
 {
+	// Refresh below republishes onto the NEW pawn's ASC, which would leave the old body walking in a combat
+	// stance for a grenade it no longer has.
+	if (const auto* Previous = Cast<AAZ_PawnMoverHeroCharacter>(OldPawn))
+	{
+		if (UAbilitySystemComponent* PreviousAsc = Previous->GetAbilitySystemComponent())
+		{
+			PreviousAsc->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Throwable_Ready, 0);
+		}
+	}
 	// The props hang off the OLD pawn's mesh. Drop them rather than re-parent: the new body may not even be
 	// the same skeleton, and Refresh rebuilds them on the mesh that is actually being driven now.
 	if (StaticProp) { StaticProp->DestroyComponent(); StaticProp = nullptr; }
@@ -125,16 +141,39 @@ void UAZ_ThrowableHandComponent::SetActionOwnsBody(const bool bInOwned)
 	Refresh();
 }
 
+void UAZ_ThrowableHandComponent::PublishReadyTag(const bool bReadied) const
+{
+	AAZ_PawnMoverHeroCharacter* Hero = GetHero();
+	UAbilitySystemComponent* Asc = Hero ? Hero->GetAbilitySystemComponent() : nullptr;
+	if (!Asc && !bReadied)
+	{
+		return;   // clearing with no pawn left is just teardown, not a failure worth reporting
+	}
+	if (!Asc)
+	{
+		// The ASC lives on the PlayerState, so an early Refresh can legitimately find none. Only worth saying
+		// when we were trying to SET the state — a clear with no pawn left is just PIE tearing down.
+		UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] no ASC (hero=%s) — State.Throwable.Ready not published"),
+			*GetNameSafe(Hero));
+		return;
+	}
+	// Absolute count, never Add/Remove: Refresh runs on every inventory and readiness event, and a counted
+	// tag driven by unbalanced pairs drifts until the carry state never clears. Same reason GA_HitReact owns
+	// State.Combat.Staggered as an explicit pair.
+	const FGameplayTag& ReadyTag = FAZ_GameplayTags::Get().State_Throwable_Ready;
+	if (Asc->HasMatchingGameplayTag(ReadyTag) == bReadied)
+	{
+		return;   // already right: Refresh runs on every inventory event, and this must not spam the log
+	}
+	Asc->SetLooseGameplayTagCount(ReadyTag, bReadied ? 1 : 0);
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] State.Throwable.Ready -> %d on %s"),
+		bReadied ? 1 : 0, *GetNameSafe(Asc->GetOwner()));
+}
+
 void UAZ_ThrowableHandComponent::UpdateCarryMontage(USkeletalMeshComponent* Mesh,
 	const UAZ_ThrowPresentationProfile* Profile)
 {
 	UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	// The legacy pose lane is still fed for any ABP that consumes it; the MHC hero's does not, which is why
-	// the montage below is what actually produces its held idle.
-	if (auto* Mover = Cast<UAZ_MoverAnimInstance>(Anim))
-	{
-		Mover->SetThrowableCarryPose(Profile ? Profile->CarryPose.Get() : nullptr);
-	}
 	UAnimMontage* Wanted = Profile ? Profile->CarryMontage.Get() : nullptr;
 	if (!Anim)
 	{
@@ -158,8 +197,44 @@ void UAZ_ThrowableHandComponent::UpdateCarryMontage(USkeletalMeshComponent* Mesh
 	ActiveCarryMontage = Wanted;
 	if (Wanted)
 	{
-		Anim->Montage_Play(Wanted, 1.f);
+		// Montage_Play returns the play length, or 0 when it refused — a montage whose slot the graph does not
+		// contain fails exactly this way and is otherwise completely silent. Logged with the slot so a wiring
+		// problem in the AnimBP is told apart from a data problem in the profile.
+		const float Played = Anim->Montage_Play(Wanted, 1.f);
+		const FName Slot = Wanted->SlotAnimTracks.Num() > 0 ? Wanted->SlotAnimTracks[0].SlotName : NAME_None;
+		UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] play %s slot=%s -> %.3f%s"),
+			*Wanted->GetName(), *Slot.ToString(), Played,
+			Played > 0.f ? TEXT("") : TEXT("  <== REFUSED"));
 	}
+}
+
+void UAZ_ThrowableHandComponent::EnterThrowAction() const
+{
+	const AAZ_PawnMoverHeroCharacter* Hero = GetHero();
+	auto* Asc = Hero ? Cast<UAZ_AbilitySystemComponent>(Hero->GetAbilitySystemComponent()) : nullptr;
+	if (!Asc)
+	{
+		return;
+	}
+	// The same pressed edge the controller sends, so the ability sees one consistent entry path whether the
+	// player readied the grenade from the quick bar or the action was re-entered after a throw.
+	Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), true);
+}
+
+void UAZ_ThrowableHandComponent::LeaveThrowAction() const
+{
+	const AAZ_PawnMoverHeroCharacter* Hero = GetHero();
+	auto* Asc = Hero ? Cast<UAZ_AbilitySystemComponent>(Hero->GetAbilitySystemComponent()) : nullptr;
+	if (!Asc)
+	{
+		return;
+	}
+	// ★ The RELEASE half of the pair. SendAbilityInputEdge refuses a press whose spec is already marked
+	// InputPressed — that is what makes one physical click one press — so an entry that only ever sends
+	// the pressed edge latches the flag forever and every later entry is swallowed silently, with no
+	// activation and no refusal to show for it (measured 2026-09-18: the grenade armed once, then never
+	// again after a cancel). Readying is the press; no longer being readied is the release.
+	Asc->SendAbilityInputEdge(UAZ_GA_Throw::StaticClass(), false);
 }
 
 void UAZ_ThrowableHandComponent::HideProps()
@@ -174,12 +249,38 @@ void UAZ_ThrowableHandComponent::Refresh()
 	USkeletalMeshComponent* Mesh = Hero ? Hero->GetMesh() : nullptr;
 	const UAZ_ThrowPresentationProfile* Profile = nullptr;
 	const UAZ_ThrowableDefinition* Definition = ResolveReadyThrowable(Profile);
-	// The carry pose rides the anim instance's upper-body lane, so it is pushed even when the prop itself is
-	// suppressed mid-throw: the FullBody throw montage is overriding that lane anyway, and clearing it here
-	// would make the arms drop for a frame the moment the action ended.
+
+	// The carry STATE, published before anything cosmetic: it is what puts the body into combat-ready facing
+	// at a walk, and the masked hold below is only legible on top of that stance. Published from the readied
+	// item alone, so it survives the wind-up (where ThrowPreparing takes over the body) and clears itself the
+	// moment the last unit is thrown and readiness resolves to nothing.
+	PublishReadyTag(Definition != nullptr);
+
 	// The prop and the carry IDLE are suppressed independently: the grenade stays in the hand while aiming,
 	// but the idle must yield the upper-body slot to the wind-up.
 	UpdateCarryMontage(Mesh, Definition && !bSuppressed && !bActionOwnsBody ? Profile : nullptr);
+
+	// Readying a throwable IS entering the throw action: Start into Loop, held until the player throws or
+	// cancels (user call 2026-09-18). Activation is safe to attempt on every refresh — the ability blocks
+	// itself with Ability.State.ThrowPreparing, so an already-running one is not restarted.
+	if (Definition && !bSuppressed)
+	{
+		EnterThrowAction();
+	}
+	else if (!Definition)
+	{
+		// Readiness moved off the throwable — swapped to another quick-slot item, or the last unit is gone.
+		// The action does not watch the quick bar, so without this it would keep holding the ready pose for
+		// a grenade the player no longer has.
+		if (auto* Owner = Cast<AAZ_PlayerController>(GetOwner()))
+		{
+			if (UAZ_GA_Throw* Active = Owner->FindActiveThrow())
+			{
+				Active->RequestCancel();
+			}
+		}
+		LeaveThrowAction();
+	}
 
 	if (!Mesh || !Definition || bSuppressed)
 	{

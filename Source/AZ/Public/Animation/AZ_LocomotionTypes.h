@@ -345,6 +345,23 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bGrabbed = false;
 
+	/** A voluntary action owns the body and it is PLANTED (currently: exclusive standing/crouched throw aim).
+	 *  Produced from the ASC on the game thread in ProduceInput - the sim cannot query GAS - and consumed
+	 *  READ-ONLY by the walking mode, which additionally suppresses residual voluntary planar velocity so the
+	 *  capsule stops on the spot instead of coasting to a halt (zeroing intent alone only brakes).
+	 *
+	 *  ★ It rides the InputCmd, NOT a movement-mode member, because the Motion Matching trajectory predictor
+	 *  runs GenerateWalkMove ~60x per frame through the same mode object: a latch stored on the mode is
+	 *  mutated by those prediction steps and the live tick then inherits garbage (the end-of-turn sway bug,
+	 *  2026-09-11). Same reason AimTurnYawRateLimit lives here.
+	 *
+	 *  Generic on purpose: it is a "some action has planted the body" bit keyed off action ownership, not a
+	 *  throw flag. Deriving it from remaining ownership each frame means a late callback from one action can
+	 *  never unlock another (review Q3.3). Gravity, supported moving-base motion and explicitly action-owned
+	 *  root motion are unaffected - this suppresses VOLUNTARY locomotion only. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bActionLocomotionLock = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	double ControlRotationRate = 0.0;
 	/** AIM TURN-IN-PLACE: max body yaw rate this tick (deg/s, 0 = no limit). Produced in ProduceInput from the
@@ -371,6 +388,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 			|| !FMath::IsNearlyEqual(Auth.RotationOffset, RotationOffset)
 			|| (Auth.bWantsToCrouch != bWantsToCrouch)
 			|| (Auth.bGrabbed != bGrabbed)
+			|| (Auth.bActionLocomotionLock != bActionLocomotionLock)
 			|| !FMath::IsNearlyEqual(Auth.ControlRotationRate, ControlRotationRate)
 			|| !FMath::IsNearlyEqual(Auth.AimTurnYawRateLimit, AimTurnYawRateLimit);
 	}
@@ -385,6 +403,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		RotationMode        = Source.RotationMode;
 		bWantsToCrouch      = Source.bWantsToCrouch;
 		bGrabbed            = Source.bGrabbed;
+		bActionLocomotionLock = Source.bActionLocomotionLock;
 		RotationOffset      = FMath::Lerp(TypedFrom.RotationOffset, TypedTo.RotationOffset, LerpFactor);
 		ControlRotationRate = FMath::Lerp(TypedFrom.ControlRotationRate, TypedTo.ControlRotationRate, LerpFactor);
 		AimTurnYawRateLimit   = FMath::Lerp(TypedFrom.AimTurnYawRateLimit, TypedTo.AimTurnYawRateLimit, LerpFactor);
@@ -395,6 +414,9 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		const FAZ_MoverCustomInputs& TypedFrom = static_cast<const FAZ_MoverCustomInputs&>(From);
 		bWantsToCrouch |= TypedFrom.bWantsToCrouch;
 		bGrabbed       |= TypedFrom.bGrabbed;
+		// A planted action in EITHER command wins the merge: losing the lock would let a dropped/merged
+		// frame slip one unlocked move through mid-action.
+		bActionLocomotionLock |= TypedFrom.bActionLocomotionLock;
 	}
 
 	virtual FMoverDataStructBase* Clone() const override
@@ -413,6 +435,7 @@ struct AZ_API FAZ_MoverCustomInputs : public FMoverDataStructBase
 		Ar.SerializeBits(&RM, 2);
 		Ar.SerializeBits(&bWantsToCrouch, 1);
 		Ar.SerializeBits(&bGrabbed, 1);
+		Ar.SerializeBits(&bActionLocomotionLock, 1);
 		Ar << RotationOffset;
 		Ar << ControlRotationRate;
 		Ar << AimTurnYawRateLimit;

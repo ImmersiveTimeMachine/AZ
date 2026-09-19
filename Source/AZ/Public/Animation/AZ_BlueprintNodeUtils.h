@@ -141,6 +141,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Blueprint")
 	static TArray<FString> ListFunctionNodes(const FString& BlueprintPath, const FString& FunctionName);
 
+	/** Remap serialized Blueprint/class/CDO references only inside explicitly supplied AZ-owned copies.
+	 *  Covers typed maps, function/tunnel pins and member references as well as ordinary nodes.
+	 *  Does not reconstruct, compile, save, rename, delete or edit the source assets.
+	 *  Returns per-target replacement counts, or a single ERROR entry after preflight fails.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Blueprint|Editor")
+	static TArray<FString> RemapCopiedBlueprintReferences(const TArray<FString>& TargetBlueprintPaths,
+		const TArray<FString>& SourceBlueprintPaths, const TArray<FString>& ReplacementBlueprintPaths);
+
 	/** Fix a function to be compatible with AnimBP SM state bindings.
 	 *  Sets bThreadSafe, bIsEditable, and proper function flags.
 	 *  Call this after creating functions that need to appear in SM state

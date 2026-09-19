@@ -110,6 +110,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") FGuid GetReadyItemId() const { return ReadyItemId; }
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") UAZ_Inv_CommonUI_InventoryItem* GetReadyItem() const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") int32 GetReadySlotIndex() const;
+	/**
+	 * Un-ready whatever is readied. Cancelling a throw uses this: while the item stays readied the throwable
+	 * hand component re-enters the ready loop immediately, so a cancel that did not clear readiness would be
+	 * invisible. Authority only, like every other readiness write — SP-first scope (see project doctrine).
+	 */
+	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") void ClearReadyItem();
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") UAZ_Inv_CommonUI_InventoryItem* GetBoundItem(int32 SlotIndex) const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") FGuid GetBoundItemId(int32 SlotIndex) const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") bool IsBindingExplicit(int32 SlotIndex) const;

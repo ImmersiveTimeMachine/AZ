@@ -17,6 +17,12 @@ static TAutoConsoleVariable<int32> CVarAZLeanDebug(
 	TEXT("az.Lean.Debug"), 0,
 	TEXT("1 = log [v2 Lean] lean-chain diagnostic every moving frame (rel, smoothed accel, budgets, lean). Off by default: ~60 lines/s."),
 	ECVF_Default);
+static TAutoConsoleVariable<int32> CVarAZSlotsDebug(
+	TEXT("az.Slots.Debug"), 0,
+	TEXT("1 = on-screen readout of WHAT IS PLAYING WHERE: the lower body's chooser/BlendStack clip on one line, ")
+	TEXT("and one line per montage holding an upper-body slot (slot, montage, section, weight, position). ")
+	TEXT("2 = also list slots at zero weight (a montage that is blending out, or was never let in)."),
+	ECVF_Default);
 
 #include "Character/Cmc/AZ_CmcCharacterBase.h"          // [SPIKE: spike/cmc-backport] CMC (v3) backend
 #include "GameFramework/CharacterMovementComponent.h"
@@ -115,6 +121,34 @@ static TWeakObjectPtr<const UAnimMontage> GHistLastMontage;
 // pose into a pelvis-65 mid-stride pose over 0.22 s. Keyed by `this` (LC-safe stand-in for a member;
 // promote at the next editor-closed build). Not debug-only: the gate needs it in every build.
 static TMap<const UAZ_MoverAnimInstance*, EAZ_StateMachineState> GLastPushSMStateByInstance;
+
+/** Yaw the stepping turn clips actually author: 45 deg over 0.6666667 s, measured 2026-09-18 from the
+ *  non-IPC turn sequences. A property of the CONTENT, not a tuning knob — if those clips are re-authored,
+ *  this number moves with them. (The _IPC variants the chooser selects carry ZERO root yaw, so it cannot
+ *  be read back off the clip that is actually playing.) Used both to drive the turn clip's play rate and
+ *  to shrink the step's minimum life by the same factor, so the two can never disagree. */
+static constexpr double AuthoredTurnInPlaceRateDegPerSec = 67.5;
+
+/** Turn step timing for a carried throwable. The authored figures and the briskness clamp live in
+ *  AZ_TurnInPlace (AZ_PawnMovementMode_Walking.h) because the PAWN drives the body off the very same
+ *  numbers — two copies is how the body ended up outrunning its own feet. Here they only convert a
+ *  commanded body rate into the clip's play rate. */
+static double ThrowableTurnPlayRate(const UAZ_PawnMovementMode_Walking* Walking, bool /*bCrouching*/)
+{
+	if (!Walking)
+	{
+		return 1.0;
+	}
+	// Briskness is stance-independent by design: it scales BOTH the body rate and the clip, so whichever
+	// stance's step is playing stays foot-locked.
+	return AZ_TurnInPlace::Briskness(Walking->ThrowableTurnRateDegPerSec);
+}
+
+/** Authored length of that step, in clip time, for the stance that is playing. */
+static double ThrowableTurnStepSeconds(bool bCrouching)
+{
+	return AZ_TurnInPlace::AuthoredStep(bCrouching);
+}
 // Committed-push counter per instance ([v2 CrouchTrace] prints it: a rising count while the clip name
 // never changes = a silent same-asset re-push, invisible to [v2 Pick]/[v2 Snap]).
 static TMap<const UAZ_MoverAnimInstance*, uint32> GPushCountByInstance;
@@ -305,8 +339,14 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ChooserContext.bIsAiming = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Aiming)
 		|| Cached_Pawn->IsAimTurningInPlace()   // an aim turn finishes after release: keep the turn clip + aim idle for its tail
 		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_FirearmReady);
+	// ★ State.Throwable.Ready belongs here and NOT in bIsAiming. Carrying a grenade is combat-ready
+	// locomotion — directional strafe legs under a camera-facing torso — which is the only stance the masked
+	// grenade hold reads correctly on. It is not aiming: no aim idle, no aim turn-in-place, no zoom.
+	// The pawn raises its own strafe flag from the same tag; both sides must agree or the body faces the
+	// camera while the chooser keeps handing out Explore clips (measured 2026-09-18).
 	ChooserContext.bStrafe = ChooserContext.bIsAiming
-		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe);
+		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe)
+		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready);
 	UAZ_WeaponAnimationProfile* NewWeaponProfile = nullptr;
 	bool bDrawPresentation = false;
 	if (const AController* Controller = Cached_Pawn->GetController())
@@ -327,6 +367,27 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				ChooserContext.OwnedTags.AddTag(DrawWeaponTag);
 				NewWeaponProfile = DrawProfile;
 				bDrawPresentation = true;
+			}
+			// ★ A readied THROWABLE borrows the PISTOL lower body (user call 2026-09-19): a grenade in the
+			// hand carries like a drawn sidearm, and that set is already authored and tuned. Both halves are
+			// needed — the PROFILE supplies the databases and playback tuning, the TAG is what makes the
+			// chooser return that weapon's rows. Swapping only one leaves the legs on whatever is really
+			// equipped, usually Weapon.None.
+			//
+			// The torso is unaffected: the grenade slot's mask sits downstream of the aim chain and keeps
+			// owning everything above spine_01.
+			//
+			// A weapon being DRAWN still wins — that presentation owns the body for its duration.
+			if (!bDrawPresentation && ThrowableLocomotionProfile
+				&& ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready))
+			{
+				ChooserContext.OwnedTags.RemoveTag(Equipment->GetActiveProfile());
+				ChooserContext.OwnedTags.RemoveTag(FAZ_GameplayTags::Get().Weapon_None);
+				if (ThrowableLocomotionTag.IsValid())
+				{
+					ChooserContext.OwnedTags.AddTag(ThrowableLocomotionTag);
+				}
+				NewWeaponProfile = ThrowableLocomotionProfile;
 			}
 		}
 	}
@@ -650,17 +711,44 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			const int32 Sector = FMath::FloorToInt((Angle + 22.5 + 360.0) / 45.0) % 8;
 			ChooserContext.MovementDirection8 = static_cast<EAZ_EightWayDirection>(Sector);
 		}
-		if (FMath::Abs(Forward) > FMath::Abs(Right))
+		// L/R reported without foot-lead specificity (LL / RR) until we wire the
+		// foot-leading classifier — the GASP-parity 4-way split (LL/LR/RL/RR) needs
+		// a foot-phase signal we don't have yet. Chooser rows for first-pass
+		// locomotion can collapse LL+LR / RL+RR with the MultiEnum column.
+		const EAZ_MovementDirection Candidate = (FMath::Abs(Forward) > FMath::Abs(Right))
+			? (Forward >= 0.f ? EAZ_MovementDirection::F  : EAZ_MovementDirection::B)
+			: (Right   >= 0.f ? EAZ_MovementDirection::RR : EAZ_MovementDirection::LL);
+		// ★ HYSTERESIS on the bucket. The raw comparison above flips on an exact 45 deg boundary, and while
+		// the body turns under a strafe the angle sweeps across those boundaries continuously — every
+		// crossing re-rows the chooser, which hands the strafe loop to a fresh MM search that enters the new
+		// clip at an arbitrary phase. Left and right strafe loops are ANTI-PHASE, so an unmatched swap lands
+		// mid-stride with the legs crossed (measured 2026-09-18: StrafeLeftLoop -> StrafeRightLoop, seam=mm,
+		// entry 0.00 then 0.50, cost +0.29/+0.34). Same treatment the throw arc already gets from
+		// FarArcHysteresis: a candidate must clear the boundary by a margin before it wins.
+		// Zero restores the old hard-boundary behaviour.
+		auto BucketCentreDeg = [](const EAZ_MovementDirection Dir) -> float
 		{
-			ChooserContext.MovementDirection = Forward >= 0.f ? EAZ_MovementDirection::F : EAZ_MovementDirection::B;
+			switch (Dir)
+			{
+			case EAZ_MovementDirection::F:  return 0.f;
+			case EAZ_MovementDirection::RR: return 90.f;
+			case EAZ_MovementDirection::B:  return 180.f;
+			default:                        return -90.f;   // LL
+			}
+		};
+		if (Candidate == ChooserContext.MovementDirection || MovementDirectionHysteresisDeg <= 0.f)
+		{
+			ChooserContext.MovementDirection = Candidate;
 		}
 		else
 		{
-			// L/R reported without foot-lead specificity (LL / RR) until we wire the
-			// foot-leading classifier — the GASP-parity 4-way split (LL/LR/RL/RR) needs
-			// a foot-phase signal we don't have yet. Chooser rows for first-pass
-			// locomotion can collapse LL+LR / RL+RR with the MultiEnum column.
-			ChooserContext.MovementDirection = Right >= 0.f ? EAZ_MovementDirection::RR : EAZ_MovementDirection::LL;
+			const float AngleDeg = FMath::RadiansToDegrees(FMath::Atan2(Right, Forward));
+			const float FromCurrent = FMath::Abs(FMath::FindDeltaAngleDegrees(
+				BucketCentreDeg(ChooserContext.MovementDirection), AngleDeg));
+			if (FromCurrent > 45.f + MovementDirectionHysteresisDeg)
+			{
+				ChooserContext.MovementDirection = Candidate;
+			}
 		}
 	}
 	// When idle, retain both direction projections; chooser rows for IdleLoop use Any.
@@ -710,6 +798,44 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// Rises to 1 on enable, falls to 0 on disable, with separate in/out speeds. Bind CombatReadyAlpha -> BlendWeights[0].
 	CombatReadyAlpha = FMath::FInterpTo(CombatReadyAlpha, bCombatReady ? 1.f : 0.f, DeltaSeconds,
 		bCombatReady ? CombatReadyBlendInSpeed : CombatReadyBlendOutSpeed);
+
+	// Throwable upper-body mask weight: how much a throwable montage is contributing, so the branch is
+	// spliced in exactly that far and no further. The montage's authored blend in/out then doubles as the
+	// mask's, and the pose crossfade cannot disagree with the mask.
+	//
+	// ★ THIS MUST BE THE MONTAGE'S OWN WEIGHT, NOT THE SLOT'S GLOBAL WEIGHT. GetSlotMontageGlobalWeight
+	// returns the montage weight ALREADY MULTIPLIED by how strongly the slot node itself is weighted inside
+	// the graph — which is this very value. Feeding it back is a loop that latches at zero: mask 0 -> slot
+	// contributes 0 -> the query reads 0 -> mask stays 0, and the upper body sits on the locomotion pose
+	// forever. That is precisely what it did (2026-09-19, "I see the pistol anims for full body").
+	// FAnimMontageInstance::GetWeight() is the montage's own blend value and carries no graph term, so it
+	// is safe to gate the graph with.
+	ThrowableSlotAlpha = 0.f;
+	if (!ThrowableSlotName.IsNone())
+	{
+		for (const FAnimMontageInstance* MI : MontageInstances)
+		{
+			if (!MI || !MI->Montage || !MI->IsPlaying())
+			{
+				continue;
+			}
+			bool bOwnsSlot = false;
+			for (const FSlotAnimationTrack& Track : MI->Montage->SlotAnimTracks)
+			{
+				if (Track.SlotName == ThrowableSlotName)
+				{
+					bOwnsSlot = true;
+					break;
+				}
+			}
+			if (bOwnsSlot)
+			{
+				// Several can overlap while one blends out into the next (Start -> Loop, Loop -> Cancel).
+				// The mask must stay open across that seam, so take the strongest rather than the newest.
+				ThrowableSlotAlpha = FMath::Max(ThrowableSlotAlpha, MI->GetWeight());
+			}
+		}
+	}
 
 	// ---- Camera/facing — for rotation-aware chooser rows (TIP, AO chains) ----
 	// RotationOffset is signed delta from actor yaw to camera yaw (radians or degrees?
@@ -815,12 +941,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// the capsule resizes. Runs regardless of AimAlpha: it must already be right when the lock fades in.
 	AimStanceAlpha = FMath::FInterpTo(AimStanceAlpha,
 		ChooserContext.Stance == EAZ_Stance::Crouching ? 1.f : 0.f, DeltaSeconds, AimStanceBlendSpeed);
-	// A readied THROWABLE outranks the lowered-weapon pose on this lane: whatever the weapon would be doing
-	// with the arms, a grenade in the hand is what the arms are actually doing. Same layer above spine_02, so
-	// the legs keep locomoting either way.
-	UAnimSequence* RequestedRelaxedPose = ThrowableCarryPose
-		? ThrowableCarryPose.Get()
-		: (WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr);
+	UAnimSequence* RequestedRelaxedPose = WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr;
 	if (RequestedRelaxedPose)
 	{
 		WeaponRelaxedPose = RequestedRelaxedPose;
@@ -1003,8 +1124,21 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				Cached_MoverComponent ? Cached_MoverComponent->FindMovementModeByName(TEXT("Walking")) : nullptr))
 		{
 			SMIn.bAimTurnInPlaceEnabled = TipMode->bAimTurnInPlaceEnabled;   // one source of truth: the walking mode
-			SMIn.AimTurnInPlaceEnterDeg = TipMode->AimTurnInPlaceEnterDeg;
+			// ★ Same throwable/weapon split the pawn makes, resolved from the same tag and the same two mode
+			// properties. If these two ever compare different thresholds the pawn latches a turn the state
+			// machine will not enter, and the body rotates with no stepping clip under it at all.
+			SMIn.AimTurnInPlaceEnterDeg = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready)
+				? TipMode->ThrowableTurnEnterDeg
+				: TipMode->AimTurnInPlaceEnterDeg;
 			SMIn.AimTurnInPlaceExitDeg  = TipMode->AimTurnInPlaceExitDeg;
+			// The step's minimum life is measured in CLIP time, so it has to shrink by whatever the clip is
+			// sped up by — otherwise a 3x turn holds the state three times longer than the step it is
+			// protecting, and the character keeps shuffling long after the feet have landed.
+			const bool bThrowableCrouchTurn = ChooserContext.Stance == EAZ_Stance::Crouching;
+			SMIn.AimTurnInPlaceMinSeconds = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready)
+				? static_cast<float>(ThrowableTurnStepSeconds(bThrowableCrouchTurn)
+					/ ThrowableTurnPlayRate(TipMode, bThrowableCrouchTurn))
+				: TipMode->AimTurnInPlaceMinSeconds;
 		}
 		SMIn.MovementDirection    = ChooserContext.MovementDirection;   // strafe forward move-start → cosmetic turn-start
 		SMIn.IdleBreakMinTime     = IdleBreakMinTime;
@@ -1096,6 +1230,69 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// apex edge. bUseHybridJump=false: pure physics — gait-scaled impulse, Walking→Falling, no RM move
 	// (the old float-then-drop fix path, kept for A/B).
 	UpdateProceduralAnimation(DeltaSeconds);
+
+	// ---- az.Slots.Debug: WHICH ANIMATION IS ON WHICH HALF OF THE BODY ----
+	// The two halves are driven by completely different systems — the legs by the chooser/BlendStack pick,
+	// the torso by whatever montage holds an upper-body slot — and nothing printed either of them side by
+	// side, so "the legs are wrong" and "the torso is wrong" looked identical from outside. Game thread,
+	// after the pick for this frame is final.
+	if (GEngine && CVarAZSlotsDebug.GetValueOnGameThread() != 0)
+	{
+		const bool bVerbose = CVarAZSlotsDebug.GetValueOnGameThread() > 1;
+		static const TCHAR* StanceNames[] = { TEXT("Stand"), TEXT("Crouch") };
+		const TCHAR* StanceName = (ChooserContext.Stance == EAZ_Stance::Crouching) ? StanceNames[1] : StanceNames[0];
+
+		GEngine->AddOnScreenDebugMessage(0x5107, 0.f, FColor::Green,
+			FString::Printf(TEXT("LOWER  %s   SM=%d %s strafe=%d aim=%d gait=%d dir=%d rate=%.2f"),
+				*GetNameSafe(BlendStackInputs.Anim),
+				static_cast<int32>(ChooserContext.SMState), StanceName,
+				ChooserContext.bStrafe ? 1 : 0, ChooserContext.bIsAiming ? 1 : 0,
+				static_cast<int32>(ChooserContext.Gait),
+				static_cast<int32>(ChooserContext.MovementDirection),
+				GetWeaponLoopPlayRate(FAnimNodeReference())));
+
+		// One line per montage that actually owns a slot. Weight is what decides whether it is VISIBLE:
+		// a montage can be playing and contribute nothing, which is the failure this readout exists to catch.
+		int32 Line = 0;
+		for (const FAnimMontageInstance* MI : MontageInstances)
+		{
+			if (!MI || !MI->Montage)
+			{
+				continue;
+			}
+			const float Weight = MI->GetWeight();
+			if (Weight <= KINDA_SMALL_NUMBER && !bVerbose)
+			{
+				continue;
+			}
+			FString Slots;
+			for (const FSlotAnimationTrack& Track : MI->Montage->SlotAnimTracks)
+			{
+				if (!Slots.IsEmpty()) { Slots += TEXT(","); }
+				Slots += Track.SlotName.ToString();
+			}
+			GEngine->AddOnScreenDebugMessage(0x5108 + Line, 0.f,
+				Weight > 0.5f ? FColor::Cyan : FColor::Silver,
+				FString::Printf(TEXT("UPPER  [%s] %s  sec=%s  w=%.2f  t=%.2f/%.2f"),
+					*Slots, *MI->Montage->GetName(),
+					*MI->GetCurrentSection().ToString(), Weight,
+					MI->GetPosition(), MI->Montage->GetPlayLength()));
+			++Line;
+		}
+		if (Line == 0)
+		{
+			GEngine->AddOnScreenDebugMessage(0x5108, 0.f, FColor::Silver,
+				TEXT("UPPER  (no montage — the torso is whatever the graph blends, not a slot)"));
+		}
+
+		// The mask weight the throwable branch SHOULD be spliced at. If this reads 0 while the character
+		// visibly holds a grenade — or the branch still affects the body while this reads 0 — the
+		// LayeredBoneBlend's BlendWeights[0] is still on its literal instead of wired to ThrowableSlotAlpha.
+		GEngine->AddOnScreenDebugMessage(0x5120, 0.f,
+			ThrowableSlotAlpha > KINDA_SMALL_NUMBER ? FColor::Yellow : FColor::Silver,
+			FString::Printf(TEXT("MASK   throwable=%.2f  (slot '%s')"),
+				ThrowableSlotAlpha, *ThrowableSlotName.ToString()));
+	}
 }
 
 /**
@@ -1401,11 +1598,36 @@ static TAutoConsoleVariable<int32> CVarAZTipRateDebug(
 
 double UAZ_MoverAnimInstance::GetWeaponLoopPlayRate(const FAnimNodeReference& BlendStackInput) const
 {
-	// Player animations run at their authored 1x speed. Body-turn and movement
-	// speed must not speed up or slow down the animation sample.
+	// Player animations run at their authored 1x speed. Body-turn and movement speed must not scrub the
+	// locomotion sample — that policy stands, and the weapon aim turn keeps it (its 360 deg/s and the foot
+	// slide that comes with it are a hand-tuned, knowingly accepted trade).
 	if (ChooserContext.SMState == EAZ_StateMachineState::IdleTurnLeft
 		|| ChooserContext.SMState == EAZ_StateMachineState::IdleTurnRight)
 	{
+		// ★ A CARRIED THROWABLE is the exception, and it is the documented completion of this feature:
+		// AimTurnInPlaceRateDegPerSec's own comment says raising the turn rate slips the feet "until the
+		// clip's play rate is driven from this too". Feet and body then advance together at any commanded
+		// rate, so the turn can be as fast as the design wants with no slide. Scoped to the throwable so
+		// the rifle's tuning is untouched.
+		if (ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready))
+		{
+			double Rate = 1.0;
+			if (const auto* Walking = Cast<UAZ_PawnMovementMode_Walking>(
+					Cached_MoverComponent ? Cached_MoverComponent->FindMovementModeByName(TEXT("Walking")) : nullptr))
+			{
+				Rate = ThrowableTurnPlayRate(Walking, ChooserContext.Stance == EAZ_Stance::Crouching);
+			}
+			if (CVarAZTipRateDebug.GetValueOnAnyThread() != 0)
+			{
+				static int32 Throttle = 0;
+				if ((++Throttle % 6) == 0)
+				{
+					UE_LOG(LogTemp, Display, TEXT("[v2 TipRate] SM=%d THROWABLE bodyYawRate=%+.0f -> playRate=%.2f"),
+						static_cast<int32>(ChooserContext.SMState), BodyYawRateDegPerSec, Rate);
+				}
+			}
+			return Rate;
+		}
 		if (CVarAZTipRateDebug.GetValueOnAnyThread() != 0)
 		{
 			static int32 Throttle = 0;
@@ -1960,7 +2182,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		{
 			UE_LOG(LogTemp, Warning,
 				TEXT("[v2 Pick] %s -> %s | SM=%d useMM=%d cost=%+.2f | entry=%.2f/%.2f loop=%d seam=%s rem=%.2f blend=%.2f ")
-				TEXT("| spd=%.0f moving=%d Lfoot=%d dir=%d gait=%d justLanded=%d"),
+				TEXT("| spd=%.0f moving=%d Lfoot=%d dir=%d gait=%d justLanded=%d strafe=%d aim=%d"),
 				*GetNameSafe(PrevPickAnim), *GetNameSafe(NewAnim),
 				static_cast<int32>(ChooserContext.SMState), ChooserOut.bUseMM ? 1 : 0, PickCost,
 				NewTime, PickLen, BlendStackInputs.bLoop ? 1 : 0,
@@ -1970,7 +2192,12 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 				ChooserContext.bLeftFootDown ? 1 : 0,
 				static_cast<int32>(ChooserContext.MovementDirection),
 				static_cast<int32>(ChooserContext.Gait),
-				ChooserContext.bJustLanded ? 1 : 0);
+				ChooserContext.bJustLanded ? 1 : 0,
+				// Without these the clip NAME is ambiguous: the strafe databases also carry the forward
+				// clips, so AnimPro_WalkFwdLoop at dir=0 is what BOTH a combat walk and an Explore walk
+				// look like in this log. strafe=1 is the only thing that says which set was searched.
+				ChooserContext.bStrafe ? 1 : 0,
+				ChooserContext.bIsAiming ? 1 : 0);
 		}
 		// Same-asset TIME SNAPS are invisible to [v2 Pick] (it only fires on asset change). A re-push that
 		// lands on a different pose inside the SAME clip restarts the blend and reads as a visible hitch —

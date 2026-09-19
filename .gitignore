@@ -75,3 +75,7 @@ Script/
 
 # UnrealClaude MCP Live-Coding scratch TUs (UBT compiles every .cpp under Source — never commit these)
 /Source/AZ/Generated/
+
+# Python bytecode from the Tools/ scripts
+__pycache__/
+*.pyc

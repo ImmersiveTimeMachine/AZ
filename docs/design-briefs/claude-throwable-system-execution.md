@@ -1,14 +1,18 @@
 # Execution brief for Claude — CHALK throwable system
 
+**Start here now:** [September18 implementation handoff](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-implementation-handoff.md). It is the primary execution entry point, with mandatory reading, current live state, milestone order and completion gates. The Throwable graph is already wired/compiled/saved; animation routing and the gameplay policy remain incomplete. The historical briefing below is supporting context and does not override the newer handoff.
+
 Implement CHALK's shared throwable action for **stone, grenade and knife** using the plan below. One action/state machine, data-driven item and weapon-context variants. The user approved **Quiet Sage / mockup03**. This brief is an implementation assignment for the receiving agent; the planning session that produced it did not implement gameplay.
 
 **Final control override confirmed by the user, September16: HOLD RMB to aim, RELEASE RMB to throw, CLICK LMB to cancel.** This replaces every earlier two-click or reversed-button proposal. Mouse release requests the animation; inventory is spent only at the validated physical release cue.
+
+**Latest policy clarification:** the submitted open-questions document specifies standing exclusive FullBody aim/release, crouched upper-body mix, and Run cancellation; equipped carry remains movable. This supersedes earlier movable-standing-aim wording below. Start with the [complete numbered review response](C:/UnrealEngine/Games/AZ/docs/design-briefs/throwable-open-questions-review-response.md) and updated completion work order. Preserve the user-approved origin-lift control with separate calibration and full offset-path clearance.
 
 **Implementation has progressed.** Start with the [current completion work order](C:/UnrealEngine/Games/AZ/docs/design-briefs/claude-throwable-completion-work-order.md) and [completion audit](C:/UnrealEngine/Games/AZ/docs/design-briefs/throwable-completion-audit.md). They supersede historical missing-code findings below; preserve repaired APawn hosting, bilateral collision, full transforms, contact time and the working inventory release path.
 
 **Art is Codex-owned and supplied:** use the [Quiet Sage production kit](<C:/UnrealEngine/Games/AZ/UI Design/CHALK_Throw_Art_v01/README.md>),11 saved Unreal assets and current BP art assignments. Claude handles runtime integration and requests art revisions from Codex, not replacement placeholder art. Main ribbon/contact assets are already assigned; blocked/body states, projection and HUD still need integration.
 
-**September17 user clarification — mandatory:** grenade goes under **Equippables**; equipping/selecting immediately activates the held idle before RMB. Explore carry and held preparation/aim must retain animated lower-body walk/run/crouch through the existing upper/lower-body blend arrangement. Implement section0 of the current work order, including inventory Equip, direct slot and QuickSelect paths; do not retain a FullBody aiming loop or root the player as a substitute for correct blending.
+Grenade goes under **Equippables**; equipping/selecting immediately activates held idle before RMB, with normal walk/run/crouch during carry. Implement inventory Equip, direct-slot and QuickSelect paths. For active aim follow the latest stance policy above: standing exclusive FullBody, crouched masked mix, captured stance and Run cancellation. Do not use a FullBody carry idle that freezes equipped movement.
 
 Use existing grenade HUD texture `/Game/FPS_Controller/UI/Textures/T_FragGrenadeIcon.T_FragGrenadeIcon` through the item's ImageFragment/view. Show grenade icon/name/count immediately while selected in Explore; the equipment row changes presentation, not gameplay mode, and restores the ordinary mode/weapon row afterward. Health stays in place.
 
@@ -48,7 +52,7 @@ Weapon-context grenade animations can retain the gun in the other hand. Use a so
 - Unarmed source: `/Game/MovementAnimsetPro/Animations/InPlace/Throw_*`, `ThrowLoop`, `ThrowEndClose/Far`, `ThrowCancel`. Existing `AnimPro_Throw*` references SurvivalMan; compatible-skeleton metadata is not final visual validation.
 - Knife source candidate: `/Game/FightingAnimsetPro/Animations/InPlace/KB_KnifeThrow`. Suitable MH hold/grip/release continuity remains to be established.
 - Rifle/pistol throw with **left hand**; unarmed with **right hand**. Do not hardcode every prop to one hand. `Hand_LeftSocket` exists but is not a calibrated universal grip. Do not move existing gun sockets.
-- Preserve grounded lower-body locomotion under an in-place upper-body action. Current graph has `RifleFire` in `WeaponFire`; evaluate reuse with mutual exclusion. Avoid an indefinite FullBody loop or RM variant contaminating RootMotionFromEverything. Throw camera/pose context must be separate from firearm `Ability.State.Aiming` and its FOV50/30cm zoom.
+- Preserve lower-body locomotion for equipped carry and a valid crouched base for the crouched action. Use the resolved dedicated Throwable splice; standing aim/release uses exclusive FullBody under the latest policy. Audit actual root deltas and any action-owned Mover drive rather than assuming an RM checkbox moves the capsule. Throw camera/pose context stays separate from firearm `Ability.State.Aiming` and its precision zoom.
 
 Create project-owned data/montage assets; source packs remain unchanged. Measure release, hand-ready/cancel and recovery boundaries per chosen clip on the actual MH body. Single is optional future quick throw, not required for this hold/release mechanic.
 

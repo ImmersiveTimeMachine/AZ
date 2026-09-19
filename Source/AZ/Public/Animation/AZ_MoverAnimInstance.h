@@ -124,19 +124,6 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float WeaponRelaxedAlpha = 0.f;
 
-	/**
-	 * Pose for a readied throwable, pushed from the game thread by UAZ_ThrowableHandComponent.
-	 *
-	 * It feeds the SAME upper-body lane as the lowered-weapon pose above, so carrying a grenade layers over
-	 * ordinary locomotion and the player keeps walking. It takes precedence when set: whatever the weapon
-	 * would be doing with the arms, a grenade in the hand is what the arms are actually doing.
-	 */
-	void SetThrowableCarryPose(UAnimSequence* Pose) { ThrowableCarryPose = Pose; }
-
-	/** Set only from the game thread; read during the thread-safe update like any other cached input. */
-	UPROPERTY(Transient)
-	TObjectPtr<UAnimSequence> ThrowableCarryPose = nullptr;
-
 	/** True while an impact-reaction flinch (Brace/Stumble/HeadHit) is playing — i.e. the reaction latch is held
 	 *  (for the clip's full length). The pawn reads this in ProduceInput to LOCK movement during the flinch so it
 	 *  plays as a transition, not something you slide / run through. */
@@ -542,6 +529,67 @@ protected:
 	 *  velocity is far too noisy to drive a pose - GASP and v1 fed it in unfiltered. */
 	UPROPERTY(Transient)
 	FVector SmoothedVelocityAcceleration = FVector::ZeroVector;
+
+	/**
+	 * Locomotion the hero borrows while a THROWABLE is readied — the PISTOL set.
+	 *
+	 * ★ A grenade in the hand moves like a drawn sidearm: the pistol's lower body is already the right
+	 * carriage for it, and its clips exist and are tuned (user call 2026-09-19). The upper body is not
+	 * affected — the grenade slot's mask sits downstream of the aim chain and keeps owning the torso.
+	 *
+	 * Set in the ABP's Class Defaults rather than referenced by path, so the choice stays data.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Throwable")
+	TObjectPtr<UAZ_WeaponAnimationProfile> ThrowableLocomotionProfile = nullptr;
+
+	/** Weapon tag swapped into the chooser context alongside the profile above. The profile supplies the
+	 *  databases and playback tuning; this is what makes the chooser return that weapon's ROWS. Without it
+	 *  the legs stay on whatever is actually equipped (usually Weapon.None) and the profile does half a job. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Throwable")
+	FGameplayTag ThrowableLocomotionTag;
+
+	/** Montage slot the throwable branch of the AnimGraph plays through. Data, not a literal in C++, so the
+	 *  graph and the code cannot drift apart silently if the slot is ever renamed. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Throwable")
+	FName ThrowableSlotName = FName(TEXT("Throwable"));
+
+	/**
+	 * How far the throwable upper-body branch is masked in: 0 = the branch contributes nothing.
+	 *
+	 * ★ BIND THIS TO THE THROWABLE LayeredBoneBlend's BlendWeights[0]. That pin is a hard literal 1.0
+	 * today, which means the branch is spliced in on EVERY frame of the game, throwable or not. It looks
+	 * harmless only because the slot passes its source through untouched when no montage is playing — but
+	 * the component-space round trip and the spine_01 modify inside that branch still run, and the moment
+	 * anything non-zero goes into them it applies unarmed too. Reported 2026-09-19: "слот есть, но он
+	 * срабатывает в любом случае".
+	 *
+	 * ★ TRAP (cost a day on the rifle aim lock, see project_rifle_aim_upper_body_lock): BlendWeights is an
+	 * ARRAY, and a scripted binding to an array-element pin is REJECTED by the compiler and silently falls
+	 * back to the pin's literal — leaving the mask at 1.0 and looking exactly like no change at all. Wire it
+	 * by hand with a Get node and confirm the pin shows the wire, not a number.
+	 *
+	 * Taken from the throwable montage's OWN blend weight rather than eased separately: its authored blend
+	 * in/out then IS the mask's blend, so the pose crossfade and the mask can never disagree about timing.
+	 * Deliberately NOT GetSlotMontageGlobalWeight — that value already includes the slot node's weight in
+	 * the graph, i.e. this one, and feeding it back latches the mask at zero (see the .cpp).
+	 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "AZ|V2|Anim|Throwable")
+	float ThrowableSlotAlpha = 0.f;
+
+	/**
+	 * Extra angle a NEW movement-direction bucket must clear before it replaces the current one.
+	 *
+	 * ★ The four buckets meet on exact 45 deg boundaries. While the body turns under a strafe the movement
+	 * angle sweeps across them continuously, and every crossing re-rows the chooser: the strafe loop is
+	 * handed to a fresh Motion Matching search that enters the new clip at whatever phase it likes. Left and
+	 * right strafe loops are ANTI-PHASE, so an unmatched swap lands mid-stride with the legs crossed.
+	 *
+	 * Same idea as the throwable's FarArcHysteresis. 0 restores the old hard-boundary behaviour, which is
+	 * also the way to test whether a remaining cross really comes from this and not from capsule yaw turning
+	 * under a strafe loop that carries no yaw of its own.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Locomotion", meta = (ClampMin = "0", ClampMax = "44", ForceUnits = "deg"))
+	float MovementDirectionHysteresisDeg = 12.f;
 
 	// ---- Lean tunables. Names deliberately match UAZ_CmcAnimInstance so the two implementations can be
 	// unified behind one shared helper later (see docs/design-briefs/additive-lean-rework.md). ----

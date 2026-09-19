@@ -3,8 +3,8 @@
 #include "AbilitySystem/Abilities/AZ_GA_Throw.h"
 
 #include "AZ_GameplayTags.h"
+#include "AbilitySystemComponent.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
-#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Animation/AnimMontage.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -78,9 +78,16 @@ void UAZ_GA_Throw::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 	const UAZ_QuickBarComponent* QuickBar = Controller ? Controller->FindComponentByClass<UAZ_QuickBarComponent>() : nullptr;
 	UAZ_Inv_CommonUI_InventoryComponent* Inventory =
 		Controller ? Controller->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>() : nullptr;
-	// Same guard the firearm uses: while the inventory screen owns input, RMB is a UI click, not an aim.
-	if (!Hero || !QuickBar || !Inventory || Controller->IsInventoryInputCaptured())
+	// ★ No IsInventoryInputCaptured() guard. It belonged to the old entry model, where a click on RMB started
+	// the aim and had to be told apart from a click on the inventory UI. Entry is now READYING the item —
+	// which the player does FROM that very UI, while it still owns input — so the guard rejected every
+	// legitimate entry (measured 2026-09-18: uiCaptured=1 on every activation, the ready pose never played).
+	// There is no click left to misread: the throw and cancel presses are routed separately, and the
+	// controller already drops those while the menu is up.
+	if (!Hero || !QuickBar || !Inventory)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Throw] activation refused: hero=%d ctrl=%d quickbar=%d inventory=%d"),
+			Hero ? 1 : 0, Controller ? 1 : 0, QuickBar ? 1 : 0, Inventory ? 1 : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
@@ -95,18 +102,17 @@ void UAZ_GA_Throw::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 	Profile = Definition ? Definition->DefaultProfile.Get() : nullptr;
 	if (!Definition || !Profile || !Profile->IsUsable())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Throw] activation refused: item=%s found=%d fragment=%d definition=%d profile=%d usable=%d"),
+			*SourceItemId.ToString(), Item ? 1 : 0, Fragment ? 1 : 0, Definition ? 1 : 0, Profile ? 1 : 0,
+			Profile && Profile->IsUsable() ? 1 : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
 
-	// Reserve one unit. Nothing is spent and no inventory event fires — the player has only started aiming,
-	// and a cancelled aim must be invisible to the inventory.
+	// Identity only. The RESERVATION now happens at the wind-up, not here: readying a grenade enters this
+	// state and STAYS in it, so reserving on activation would hold a unit for as long as the grenade is
+	// selected rather than for as long as a throw is actually being committed.
 	ThrowActionId = FGuid::NewGuid();
-	if (Hero->HasAuthority() && !Inventory->TryBeginThrow(this, SourceItemId, ThrowActionId))
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
 
 	Phase = EAZ_ThrowPhase::Preparing;
 	// The wind-up owns the upper-body slot from here until the action ends.
@@ -116,12 +122,11 @@ void UAZ_GA_Throw::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 	AcceptedAim = Controller->GetControlRotation();
 	AcceptedAimDistance = Definition->FarArcDistance;   // replaced by the first preview tick
 
-	// ★ The release listener is what makes hold-to-aim safe. The ability stays ACTIVE for as long as the
-	// button is down, and the ASC's held loop only re-activates INACTIVE specs — so held frames cannot
-	// retrigger this, and the button coming up is a single clean edge rather than a retry.
-	ReleaseListener = UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased*/ true);
-	ReleaseListener->OnRelease.AddDynamic(this, &UAZ_GA_Throw::OnInputReleased);
-	ReleaseListener->ReadyForActivation();
+	// ★ NO release listener. Hold-to-aim is gone: readying the grenade enters this state and the player stays
+	// in it, so there is no held button whose release could mean anything. WaitInputRelease would be actively
+	// dangerous here — with bTestAlreadyReleased it fires immediately for an ability nobody pressed, latching
+	// a commit that throws the grenade on its own about a second later. The throw is now an explicit press,
+	// routed in from the controller as RequestThrow().
 
 	// Start: carriage -> ready pose. Entering Loop directly would skip that motion entirely.
 	PresentationTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
@@ -135,8 +140,16 @@ void UAZ_GA_Throw::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 	{
 		// The measured ready seam, where Start's last pose matches every continuation's first to within
 		// 0.009cm. A release before this latches one intent and is consumed here.
+		//
+		// ★ Fired one BLEND EARLY, so the continuation's fade-in lands ON the seam instead of after it.
+		// Starting exactly at ReadySeamTime leaves a hole: Start has finished contributing and the incoming
+		// montage is still ramping from zero, so the slot sags toward the base pose and snaps back — the
+		// visible hitch at the end of the draw (reported 2026-09-18, and NOT fixed by removing Start's own
+		// blend-out, which only moved the hole). Because the two poses match at the seam, a crossfade
+		// straddling it is invisible; a gap never is.
+		const float LoopBlendIn = Profile->LoopMontage ? Profile->LoopMontage->BlendIn.GetBlendTime() : 0.f;
 		World->GetTimerManager().SetTimer(ReadySeamTimer, FTimerDelegate::CreateUObject(this, &UAZ_GA_Throw::OnReadySeam),
-			FMath::Max(0.01f, Profile->ReadySeamTime), false);
+			FMath::Max(0.01f, Profile->ReadySeamTime - LoopBlendIn), false);
 		// The preview is live immediately: the player is aiming from frame one and must not wait out Start
 		// to see where the throw goes.
 		World->GetTimerManager().SetTimer(PreviewTimer, FTimerDelegate::CreateUObject(this, &UAZ_GA_Throw::TickPreview),
@@ -288,6 +301,16 @@ void UAZ_GA_Throw::SuppressHandProp(const bool bSuppressed) const
 	}
 }
 
+void UAZ_GA_Throw::SetThrowCommittedTag(const bool bCommitted) const
+{
+	if (UAbilitySystemComponent* Asc = GetAbilitySystemComponentFromActorInfo())
+	{
+		// Absolute count, never Add/Remove: EndAbility can be reached from several paths and an unbalanced
+		// pair would leave the pawn planted with no throw in sight.
+		Asc->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().Ability_State_Throwing, bCommitted ? 1 : 0);
+	}
+}
+
 void UAZ_GA_Throw::SetHandActionOwnership(const bool bOwned) const
 {
 	if (auto* Hand = FindHandComponent())
@@ -303,10 +326,10 @@ UAZ_ThrowableHandComponent* UAZ_GA_Throw::FindHandComponent() const
 	return Controller ? Controller->FindComponentByClass<UAZ_ThrowableHandComponent>() : nullptr;
 }
 
-void UAZ_GA_Throw::OnInputReleased(float /*TimeHeld*/)
+void UAZ_GA_Throw::RequestThrow()
 {
-	// * A cancel already consumed this action. The player is still holding RMB at that moment and it will
-	// come up eventually - without this guard that release would throw the item they just cancelled.
+	// * A cancel already consumed this action; a press arriving after it must not throw the item the player
+	// just put away.
 	if (bCancelRequested || Phase == EAZ_ThrowPhase::Cancelling || Phase == EAZ_ThrowPhase::None)
 	{
 		return;
@@ -314,15 +337,15 @@ void UAZ_GA_Throw::OnInputReleased(float /*TimeHeld*/)
 	switch (Phase)
 	{
 	case EAZ_ThrowPhase::Preparing:
-		// Start is still playing. Latch exactly ONE intent, consumed at the ready seam. A quick tap therefore
-		// still throws rather than being refused; it simply throws once the wind-up reaches the seam.
+		// Start is still playing. Latch exactly ONE intent, consumed at the ready seam. A press during the
+		// draw therefore still throws rather than being refused; it simply throws once Start reaches the seam.
 		bPendingCommit = true;
 		break;
 	case EAZ_ThrowPhase::Aiming:
 		EnterWindup();
 		break;
 	default:
-		// Windup, Released, Recovering: the throw is already under way and a second release means nothing.
+		// Windup, Released, Recovering: the throw is already under way and a second press means nothing.
 		break;
 	}
 }
@@ -393,8 +416,30 @@ void UAZ_GA_Throw::EnterWindup()
 	{
 		return;
 	}
+	// RESERVE HERE, not on activation. This is the first moment the player has actually committed a throw;
+	// before it the grenade is merely readied and must stay invisible to the inventory however long it is
+	// carried. A refused reservation aborts the throw rather than winding up for a unit that is not there.
+	{
+		const AAZ_PawnMoverHeroCharacter* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetAvatarActorFromActorInfo());
+		const AAZ_PlayerController* Controller = Hero ? Cast<AAZ_PlayerController>(Hero->GetController()) : nullptr;
+		UAZ_Inv_CommonUI_InventoryComponent* Inventory =
+			Controller ? Controller->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>() : nullptr;
+		if (Hero && Hero->HasAuthority() && (!Inventory || !Inventory->TryBeginThrow(this, SourceItemId, ThrowActionId)))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Throw] windup refused: no reservation for item=%s"), *SourceItemId.ToString());
+			FinishAndRelease(true);
+			return;
+		}
+	}
+
 	Phase = EAZ_ThrowPhase::Windup;
 	bPendingCommit = false;
+	// ★ The body is planted from HERE, not from activation. Aiming is now upper-body only and the player keeps
+	// walking in the combat stance (user call 2026-09-18); it is the committed release — a full-body clip that
+	// swings the pelvis and resets the feet — that cannot survive moving legs underneath it.
+	// Ability.State.Throwing already meant exactly "committed release + recovery" and had no other consumer.
+	// A loose explicit pair rather than ActivationOwnedTags, which would raise it for the whole ability.
+	SetThrowCommittedTag(true);
 
 	// * FREEZE. From here the displayed candidate and the accepted aim are the throw: the arc is not
 	// re-selected and the aim does not follow the camera, so the object goes where the player committed
@@ -558,6 +603,7 @@ void UAZ_GA_Throw::RequestCancel()
 	bPendingCommit = false;
 	Phase = EAZ_ThrowPhase::Cancelling;
 
+
 	if (const UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PreviewTimer);
@@ -567,14 +613,16 @@ void UAZ_GA_Throw::RequestCancel()
 	if (Profile && Profile->CancelMontage)
 	{
 		ReleasePresentation();
+		// ★ bStopWhenAbilityEnds = FALSE, unlike every other presentation here, and no completion delegates.
+		// The cancel clip is COSMETIC: gameplay ownership must be released on this frame so the body returns
+		// to combat-ready walking immediately (user call 2026-09-18, "мгновенно"). Waiting out the clip kept
+		// Ability.State.ThrowPreparing raised, and that tag is what zeroes movement intent — the player stood
+		// frozen through an animation that had already given up. The clip is a one-shot and ends itself; a new
+		// wind-up simply blends it out.
 		PresentationTask = UAZ_AT_PlayMontageAndWaitForEvent::PlayMontageAndWaitForEvent(
 			this, FName("ThrowCancel"), Profile->CancelMontage, FGameplayTagContainer(), 1.f, NAME_None,
-			/*bStopWhenAbilityEnds*/ true);
-		PresentationTask->OnCompleted.AddDynamic(this, &UAZ_GA_Throw::OnPresentationEnded);
-		PresentationTask->OnBlendOut.AddDynamic(this, &UAZ_GA_Throw::OnPresentationEnded);
-		PresentationTask->OnInterrupted.AddDynamic(this, &UAZ_GA_Throw::OnPresentationInterrupted);
+			/*bStopWhenAbilityEnds*/ false);
 		PresentationTask->ReadyForActivation();
-		return;
 	}
 	FinishAndRelease(true);
 }
@@ -592,9 +640,13 @@ void UAZ_GA_Throw::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGa
 		World->GetTimerManager().ClearTimer(PreviewTimer);
 		World->GetTimerManager().ClearTimer(ReadySeamTimer);
 	}
+	// Did this activation get past the entry guards at all? Phase is still None when one of them refused,
+	// and a refusal must not be mistaken for a finished action. Captured before the reset at the bottom.
+	const bool bActionRan = (Phase != EAZ_ThrowPhase::None);
 	// Hidden, not destroyed: the pooled segments and materials are wanted again on the next throw.
 	HidePreview();
 	// The action is over: the hand shows whatever is still readied, and the carry idle resumes.
+	SetThrowCommittedTag(false);
 	SetHandActionOwnership(false);
 	SuppressHandProp(false);
 	// Detach but KEEP the task: the ability's own teardown reaches it with AbilityEnded=true, which is what
@@ -610,6 +662,27 @@ void UAZ_GA_Throw::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGa
 			if (auto* Inventory = Controller->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>())
 			{
 				Inventory->EndThrow(ThrowActionId);
+			}
+			// UN-READY, on every exit of an action that actually RAN — thrown, cancelled or interrupted
+			// alike. The action always ends back in Explore (user call 2026-09-18), and readiness is what
+			// would otherwise re-enter it: the hand component treats a readied throwable as the entry
+			// condition, so leaving the item readied would re-arm the loop and the grenade could never be
+			// put away. Re-entrant by design and safe: the refresh this triggers finds no definition.
+			//
+			// ★ NOT on a REFUSED activation. Phase is still None when a guard above rejected the entry, and
+			// clearing there destroys the player's selection for something they never got to do: measured
+			// 2026-09-18, readying a grenade set the state and un-set it in the same millisecond, so neither
+			// the combat stance nor the ready pose ever appeared.
+			//
+			// ★ And only while the readied item is still the one this action was holding. Swapping the quick
+			// bar to a potion mid-throw ends this ability too, and clearing there would un-ready the item the
+			// player just chose.
+			if (auto* QuickBar = Controller->FindComponentByClass<UAZ_QuickBarComponent>())
+			{
+				if (bActionRan && QuickBar->GetReadyItemId() == SourceItemId)
+				{
+					QuickBar->ClearReadyItem();
+				}
 			}
 		}
 	}

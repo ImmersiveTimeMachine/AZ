@@ -452,6 +452,10 @@ protected:
 	float AimHoldYaw = 0.f;
 	/** Aim turn-in-place latch (game-thread producer state, see FAZ_MoverCustomInputs::AimTurnYawRateLimit). */
 	bool bAimTurningInPlace = false;
+	/** World time the running stepping turn may first be released by the exit angle. A step is indivisible:
+	 *  the body reaches the aim a third of the way into the clip, and unlatching there returns the spring to
+	 *  the fast cap while the feet are still mid-step. Mirrors the SM's own AimTurnEndTime. */
+	float AimTurnInPlaceHoldUntil = 0.f;
 	float AimTurnYawRateLimitInput = 0.f;
 	bool bAimHoldValid = false;
 

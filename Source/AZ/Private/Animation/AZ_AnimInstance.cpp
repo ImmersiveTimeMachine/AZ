@@ -122,8 +122,8 @@ void UAZ_AnimInstance::Update_PropertiesFromCharacter()
 		Velocity    = MoverState.Velocity;
 		GroundSpeed = MoverState.GroundSpeed;
 
-		const bool bCurrentlyFalling = MoverState.bIsFalling;
-		if (bWasFalling && !bCurrentlyFalling) bIsJumping = false;
+			const bool bCurrentlyFalling = MoverState.bIsFalling;
+			if (bWasFalling && !bCurrentlyFalling) bIsJumping = false;
 		bIsFalling  = bCurrentlyFalling;
 		bWasFalling = bCurrentlyFalling;
 
