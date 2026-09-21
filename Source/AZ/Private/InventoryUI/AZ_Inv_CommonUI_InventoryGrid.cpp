@@ -3,6 +3,7 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryGrid.h"
 
 #include "AZ_GameplayTags.h"
+#include "CommonInputSubsystem.h"
 #include "InventoryUI/Widgets/ItemPopUp/AZ_Inv_CommonUI_ItemPopUp.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
@@ -64,6 +65,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeDestruct()
 void UAZ_Inv_CommonUI_InventoryGrid::RefreshFromInventory()
 {
 	if (!CommonUI_InventoryComponent.IsValid() || GridSlots.IsEmpty()) return;
+	const int32 FocusIndex = !bSuppressFocusRestore && IsUsingGamepad() ? GetFocusedGridIndex() : INDEX_NONE;
 
 	// Dragging is a presentation preview; committed inventory changes cancel stale previews.
 	DestroyItemPopUp();
@@ -93,6 +95,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::RefreshFromInventory()
 		AddItemAtIndex(Item, Placement.GridIndex, Item->IsStackable(), Item->IsStackable() ? Placement.StackCount : 0);
 		UpdateGridSlots(Item, Placement.GridIndex, Item->IsStackable(), Placement.StackCount);
 	}
+	if (FocusIndex != INDEX_NONE) FocusGridIndex(FocusIndex, false);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::NativePreConstruct()
@@ -139,9 +142,36 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeTick(const FGeometry& MyGeometry, flo
 	}
 
 	if (!IsValid(HoverItem)) return;
+	if (!IsValid(HoverItem->GetInventoryItem()) || !OwningCanvasPanel.IsValid() || HoverItem->GetParent() != OwningCanvasPanel.Get())
+	{
+		PutHoverItemBack();
+		return;
+	}
+
+	const bool bUsingGamepad = IsUsingGamepad();
+	if (bCarryUsingGamepad != bUsingGamepad)
+	{
+		const int32 ResumeIndex = GridSlots.IsValidIndex(ItemDropIndex) ? ItemDropIndex : HoverItem->GetPreviousGridIndex();
+		bCarryUsingGamepad = bUsingGamepad;
+		InvalidateCarryTarget();
+		// A device change keeps the transaction intact; it only changes the target source.
+		if (bUsingGamepad) FocusGridIndex(ResumeIndex, true);
+	}
+	if (bUsingGamepad)
+	{
+		const int32 FocusIndex = GetFocusedGridIndex();
+		if (FocusIndex != INDEX_NONE)
+		{
+			UpdateCarryTarget(UAZ_Inv_WidgetUtils::GetPositionFromIndex(FocusIndex, FMath::TruncToInt(GridSize.X)));
+		}
+		else InvalidateCarryTarget();
+		UpdateHeldPreview();
+		return;
+	}
 
 	const FVector2D GridPosition = UAZ_Inv_WidgetUtils::GetWidgetPosition(InventoryGridPanel);
 	const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+	UpdateHeldPreview();
 
 	if (CursorExitedGrid(GridPosition, UAZ_Inv_WidgetUtils::GetWidgetSize(InventoryGridPanel), MousePosition))
 	{
@@ -149,6 +179,178 @@ void UAZ_Inv_CommonUI_InventoryGrid::NativeTick(const FGeometry& MyGeometry, flo
 	}
 
 	UpdateTileParameters(GridPosition, MousePosition);
+}
+
+bool UAZ_Inv_CommonUI_InventoryGrid::IsUsingGamepad() const
+{
+	const UCommonInputSubsystem* Input = UCommonInputSubsystem::Get(GetOwningLocalPlayer());
+	return Input && Input->GetCurrentInputType() == ECommonInputType::Gamepad;
+}
+
+int32 UAZ_Inv_CommonUI_InventoryGrid::GetButtonGridIndex(const UCommonButtonBase* Button) const
+{
+	if (!IsValid(Button)) return INDEX_NONE;
+	if (const auto* GridSlot = Cast<UAZ_Inv_CommonUI_GridSlot>(Button))
+	{
+		const int32 Index = GridSlot->GetIndex();
+		return GridSlots.IsValidIndex(Index) && GridSlots[Index] == GridSlot ? Index : INDEX_NONE;
+	}
+	if (const auto* Item = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button))
+	{
+		const auto* Current = SlottedItems.Find(Item->GetGridIndex());
+		return Current && *Current == Item ? Item->GetGridIndex() : INDEX_NONE;
+	}
+	return INDEX_NONE;
+}
+
+int32 UAZ_Inv_CommonUI_InventoryGrid::GetFocusedGridIndex() const
+{
+	const UCommonButtonBase* Button = FocusedGridButton.Get();
+	return Button && GetOwningPlayer() && (Button->HasUserFocus(GetOwningPlayer()) || Button->HasUserFocusedDescendants(GetOwningPlayer()))
+		? GetButtonGridIndex(Button) : INDEX_NONE;
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::HandleGridButtonFocused(UCommonButtonBase* Button)
+{
+	const int32 Index = GetButtonGridIndex(Button);
+	if (Index == INDEX_NONE) return;
+	FocusedGridButton = Button;
+	if (IsValid(HoverItem) && IsUsingGamepad())
+	{
+		if (ItemsScrollBox) ItemsScrollBox->ScrollWidgetIntoView(Button, false);
+		UpdateCarryTarget(UAZ_Inv_WidgetUtils::GetPositionFromIndex(Index, FMath::TruncToInt(GridSize.X)));
+		UpdateHeldPreview();
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::FocusGridIndex(const int32 Index, const bool bPreferGridSlot)
+{
+	if (!GridSlots.IsValidIndex(Index) || !IsValid(GridSlots[Index]) || !GetOwningPlayer()) return;
+	UCommonButtonBase* Target = GridSlots[Index];
+	if (!bPreferGridSlot)
+	{
+		if (const auto* Item = SlottedItems.Find(GridSlots[Index]->GetUpperLeftIndex()))
+		{
+			if (IsValid(*Item) && (*Item)->GetIsFocusable()) Target = *Item;
+		}
+	}
+	FocusedGridButton = Target;
+	Target->SetUserFocus(GetOwningPlayer());
+	if (ItemsScrollBox) ItemsScrollBox->ScrollWidgetIntoView(Target, false);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::SetCarryNavigationEnabled(const bool bEnabled)
+{
+	if (!bEnabled)
+	{
+		for (const auto& Pair : SavedCarryNavigation)
+		{
+			if (!GridSlots.IsValidIndex(Pair.Key) || !IsValid(GridSlots[Pair.Key])) continue;
+			UAZ_Inv_CommonUI_GridSlot* Cell = GridSlots[Pair.Key];
+			if (!Cell->Navigation) continue;
+			Cell->Navigation->Up = Pair.Value.Up;
+			Cell->Navigation->Down = Pair.Value.Down;
+			Cell->Navigation->Left = Pair.Value.Left;
+			Cell->Navigation->Right = Pair.Value.Right;
+			Cell->BuildNavigation();
+		}
+		for (const auto& Pair : SavedCarryFocusability)
+		{
+			if (Pair.Key.IsValid()) Pair.Key->SetIsFocusable(Pair.Value);
+		}
+		SavedCarryNavigation.Reset();
+		SavedCarryFocusability.Reset();
+		return;
+	}
+	if (!SavedCarryNavigation.IsEmpty()) return;
+	const int32 Columns = FMath::TruncToInt(GridSize.X);
+	if (Columns <= 0) return;
+	for (int32 Index = 0; Index < GridSlots.Num(); ++Index)
+	{
+		UAZ_Inv_CommonUI_GridSlot* Cell = GridSlots[Index];
+		if (!IsValid(Cell)) continue;
+		FCarryNavigationState& Saved = SavedCarryNavigation.Add(Index);
+		if (Cell->Navigation)
+		{
+			Saved.Up = Cell->Navigation->Up;
+			Saved.Down = Cell->Navigation->Down;
+			Saved.Left = Cell->Navigation->Left;
+			Saved.Right = Cell->Navigation->Right;
+		}
+		SavedCarryFocusability.Add(Cell, Cell->GetIsFocusable());
+		Cell->SetIsFocusable(true);
+		const auto Link = [this, Cell](const EUINavigation Direction, const int32 TargetIndex)
+		{
+			if (GridSlots.IsValidIndex(TargetIndex) && IsValid(GridSlots[TargetIndex]))
+				Cell->SetNavigationRuleExplicit(Direction, GridSlots[TargetIndex]);
+			// Preserve authored/default boundary routes to equipment and other controls.
+		};
+		Link(EUINavigation::Left, Index % Columns > 0 ? Index - 1 : INDEX_NONE);
+		Link(EUINavigation::Right, Index % Columns + 1 < Columns ? Index + 1 : INDEX_NONE);
+		Link(EUINavigation::Up, Index - Columns);
+		Link(EUINavigation::Down, Index + Columns);
+	}
+	for (const auto& Pair : SlottedItems)
+	{
+		if (!IsValid(Pair.Value)) continue;
+		SavedCarryFocusability.Add(Pair.Value.Get(), Pair.Value->GetIsFocusable());
+		Pair.Value->SetIsFocusable(false);
+	}
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::UpdateHeldPreview()
+{
+	if (!IsValid(HoverItem) || !OwningCanvasPanel.IsValid() || !InventoryGridPanel) return;
+	UCanvasPanelSlot* PreviewSlot = Cast<UCanvasPanelSlot>(HoverItem->Slot);
+	if (!PreviewSlot) return;
+	const FGeometry& CanvasGeometry = OwningCanvasPanel->GetCachedGeometry();
+	const FGeometry& GridGeometry = InventoryGridPanel->GetCachedGeometry();
+	const auto* GridFragment = GetFragment<FAZ_Inv_CommonUI_GridFragment>(HoverItem->GetInventoryItem(), FAZ_GameplayTags::Get().Item_Fragment_Grid);
+	const FVector2D DrawSize = GetDrawSize(GridFragment);
+	const FVector2D CanvasDrawSize = CanvasGeometry.AbsoluteToLocal(GridGeometry.LocalToAbsolute(DrawSize))
+		- CanvasGeometry.AbsoluteToLocal(GridGeometry.LocalToAbsolute(FVector2D::ZeroVector));
+	if (!PreviewSlot->GetSize().Equals(CanvasDrawSize, 0.1f))
+	{
+		PreviewSlot->SetSize(CanvasDrawSize);
+		if (const auto* Icon = GetFragment<FAZ_Inv_CommonUI_ImageFragment>(HoverItem->GetInventoryItem(), FAZ_GameplayTags::Get().Item_Fragment_Icon))
+		{
+			FSlateBrush Brush;
+			Brush.SetResourceObject(Icon->GetIcon());
+			Brush.DrawAs = ESlateBrushDrawType::Image;
+			Brush.ImageSize = CanvasDrawSize;
+			HoverItem->SetImageBrush(Brush);
+		}
+	}
+	FVector2D Position;
+	if (IsUsingGamepad())
+	{
+		const int32 FocusIndex = GetFocusedGridIndex();
+		const int32 AnchorIndex = FocusIndex != INDEX_NONE ? FocusIndex : HoverItem->GetPreviousGridIndex();
+		if (!GridSlots.IsValidIndex(AnchorIndex) || !IsValid(GridSlots[AnchorIndex])) return;
+		Position = CanvasGeometry.AbsoluteToLocal(GridSlots[AnchorIndex]->GetCachedGeometry().LocalToAbsolute(FVector2D::ZeroVector));
+	}
+	else
+	{
+		const FGeometry ViewportGeometry = UWidgetLayoutLibrary::GetViewportWidgetGeometry(this);
+		Position = CanvasGeometry.AbsoluteToLocal(ViewportGeometry.LocalToAbsolute(UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer())))
+			- CanvasDrawSize * 0.5f;
+	}
+	const FVector2D CanvasSize = CanvasGeometry.GetLocalSize();
+	if (CanvasSize.X > 0.f && CanvasSize.Y > 0.f)
+	{
+		Position.X = FMath::Clamp(Position.X, 0.f, FMath::Max(0.f, CanvasSize.X - CanvasDrawSize.X));
+		Position.Y = FMath::Clamp(Position.Y, 0.f, FMath::Max(0.f, CanvasSize.Y - CanvasDrawSize.Y));
+	}
+	PreviewSlot->SetPosition(Position);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::InvalidateCarryTarget()
+{
+	UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+	LastHighlightedIndex = INDEX_NONE;
+	LastHighlightedDimensions = FIntPoint::ZeroValue;
+	ItemDropIndex = INDEX_NONE;
+	CurrentQueryResult = FAZ_Inv_CommonUI_SpaceQueryResult();
 }
 
 bool UAZ_Inv_CommonUI_InventoryGrid::MatchesCategory(const UAZ_Inv_CommonUI_InventoryItem* Item) const
@@ -178,7 +380,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 
 void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryItem* InventoryItem)
 {
-	if (!IsValid(InventoryItem) || !HoverItemClass || !IsValid(GetOwningPlayer())) return;
+	// Fail before removing a source widget if there is no visible host for the preview.
+	if (!IsValid(InventoryItem) || !HoverItemClass || !IsValid(GetOwningPlayer()) || !OwningCanvasPanel.IsValid()) return;
 	if (!IsValid(HoverItem))
 	{
 		HoverItem = CreateWidget<UAZ_Inv_CommonUI_HoverItem>(GetOwningPlayer(), HoverItemClass);
@@ -200,14 +403,31 @@ void UAZ_Inv_CommonUI_InventoryGrid::AssignHoverItem(UAZ_Inv_CommonUI_InventoryI
 	FSlateBrush IconBrush;
 	IconBrush.SetResourceObject(ImageFragment->GetIcon());
 	IconBrush.DrawAs = ESlateBrushDrawType::Image;
-	IconBrush.ImageSize = DrawSize * UWidgetLayoutLibrary::GetViewportScale(this);
+	IconBrush.ImageSize = DrawSize; // Canvas geometry already uses DPI-adjusted Slate units.
 
 	HoverItem->SetImageBrush(IconBrush);
 	HoverItem->SetGridDimensions(GridFragment->GetGridSize());
 	HoverItem->SetInventoryItem(InventoryItem);
 	HoverItem->SetIsStackable(InventoryItem->IsStackable());
 
-	GetOwningPlayer()->SetMouseCursorWidget(EMouseCursor::Default, HoverItem);
+	if (HoverItem->GetParent() != OwningCanvasPanel.Get()) HoverItem->RemoveFromParent();
+	UCanvasPanelSlot* PreviewSlot = Cast<UCanvasPanelSlot>(HoverItem->Slot);
+	if (!PreviewSlot) PreviewSlot = OwningCanvasPanel->AddChildToCanvas(HoverItem);
+	if (!PreviewSlot)
+	{
+		ClearHoverItem();
+		return;
+	}
+	PreviewSlot->SetAnchors(FAnchors(0.f, 0.f));
+	PreviewSlot->SetAlignment(FVector2D::ZeroVector);
+	PreviewSlot->SetAutoSize(false);
+	PreviewSlot->SetSize(DrawSize);
+	PreviewSlot->SetZOrder(1000);
+	HoverItem->SetVisibility(ESlateVisibility::HitTestInvisible);
+	HoverItem->SetRenderOpacity(0.85f);
+	bCarryUsingGamepad = IsUsingGamepad();
+	ShowCursor();
+	UpdateHeldPreview();
 }
 
 FVector2D UAZ_Inv_CommonUI_InventoryGrid::GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const
@@ -277,7 +497,7 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
                                                                                 const FAZ_Inv_CommonUI_ImageFragment* ImageFragment,
                                                                                 const int32 Index,
                                                                                 bool bStackable,
-                                                                                const int32 StackAmount) const
+                                                                                const int32 StackAmount)
 {
 	if (!NewItem || !SlottedItemClass)
 	{
@@ -304,6 +524,7 @@ UAZ_Inv_CommonUI_SlottedItem* UAZ_Inv_CommonUI_InventoryGrid::CreateSlottedItem(
 		SlottedItem->OnItemHovered().AddDynamic(this, &ThisClass::OnSlottedItemHovered);
 		SlottedItem->OnItemUnhovered().AddDynamic(this, &ThisClass::OnSlottedItemUnhovered);
 		SlottedItem->OnItemMouseButtonDown().AddDynamic(this, &ThisClass::OnSlottedItemMouseButtonDown);
+		SlottedItem->OnFocusReceived().AddUObject(this, &ThisClass::HandleGridButtonFocused, static_cast<UCommonButtonBase*>(SlottedItem));
 	}
 
 	return SlottedItem;
@@ -473,6 +694,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 				GridSlot->OnSlotHovered().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotHovered);
 				GridSlot->OnSlotUnhovered().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotUnhovered);
 				GridSlot->OnSlotClicked().AddDynamic(this, &UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotClicked);
+				GridSlot->OnFocusReceived().AddUObject(this, &ThisClass::HandleGridButtonFocused, static_cast<UCommonButtonBase*>(GridSlot));
 
 				const FIntPoint TilePosition(Row, Col);
 				const int32 LinearIndex = UAZ_Inv_WidgetUtils::GetIndexFromPosition(TilePosition, ColumnCount);
@@ -501,7 +723,36 @@ void UAZ_Inv_CommonUI_InventoryGrid::ConstructGrid()
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnGridSlotClicked(UCommonButtonBase* Button)
 {
-	if (!IsValid(HoverItem)) return;
+	const int32 ClickedIndex = GetButtonGridIndex(Button);
+	if (ClickedIndex == INDEX_NONE || !Cast<UAZ_Inv_CommonUI_GridSlot>(Button)) return;
+	if (!IsValid(HoverItem))
+	{
+		// Backing cells remain valid focus targets beneath multi-cell item widgets.
+		if (const auto* Item = SlottedItems.Find(GridSlots[ClickedIndex]->GetUpperLeftIndex()))
+		{
+			OnSlottedItemClicked(*Item);
+		}
+		return;
+	}
+
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	const FIntPoint ClickedCoordinate = UAZ_Inv_WidgetUtils::GetPositionFromIndex(ClickedIndex, ColumnCount);
+	if (IsUsingGamepad())
+	{
+		UpdateCarryTarget(ClickedCoordinate);
+	}
+	else
+	{
+		// Use the clicked cell, never the previous tick's mouse target. Preserve mouse centering.
+		const FVector2D GridPosition = UAZ_Inv_WidgetUtils::GetWidgetPosition(InventoryGridPanel);
+		const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
+		FAZ_Inv_TileParameters ClickParameters;
+		ClickParameters.TileCoordinats = ClickedCoordinate;
+		ClickParameters.TileIndex = ClickedIndex;
+		ClickParameters.TileQuadrant = CalculateHoveredCoordinates(GridPosition, MousePosition) == ClickedCoordinate
+			? CalculateTileQuadrant(GridPosition, MousePosition) : EAZ_Inv_TileQuadrant::BottomRight;
+		OnTileParametersUpdated(ClickParameters);
+	}
 	if (!GridSlots.IsValidIndex(ItemDropIndex)) return;
 
 	if (CurrentQueryResult.ValidItem.IsValid() && GridSlots.IsValidIndex(CurrentQueryResult.UpperLeftIndex))
@@ -579,6 +830,7 @@ float UAZ_Inv_CommonUI_InventoryGrid::GetTileSize() const
 
 void UAZ_Inv_CommonUI_InventoryGrid::ClearHoverItem()
 {
+	SetCarryNavigationEnabled(false);
 	if (!IsValid(HoverItem)) return;
 
 	// Force-deselect highlighted slots regardless of availability —
@@ -603,6 +855,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::ClearHoverItem()
 
 	HoverItem->RemoveFromParent();
 	HoverItem = nullptr;
+	ItemDropIndex = INDEX_NONE;
+	CurrentQueryResult = FAZ_Inv_CommonUI_SpaceQueryResult();
 
 	ShowCursor();
 }
@@ -626,8 +880,9 @@ void UAZ_Inv_CommonUI_InventoryGrid::ShowCursor()
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnHide()
 {
+	TGuardValue<bool> SuppressFocusRestore(bSuppressFocusRestore, true);
 	DestroyItemPopUp();
-	PutHoverItemBack();
+	PutHoverItemBack(false);
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
 }
 
@@ -706,7 +961,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnSlottedItemClicked(UCommonButtonBase* But
 {
 	UAZ_Inv_CommonUI_SlottedItem* SlottedItem = Cast<UAZ_Inv_CommonUI_SlottedItem>(Button);
 	if (!SlottedItem) return;
-	const int32 GridIndex = SlottedItem->GetGridIndex();
+	const int32 GridIndex = GetButtonGridIndex(SlottedItem);
 	if (!GridSlots.IsValidIndex(GridIndex)) return;
 	UAZ_Inv_InventoryStatics::CommonUI_ItemUnhovered(GetOwningPlayer());
 	UAZ_Inv_CommonUI_InventoryItem* ClickedItem = GridSlots[GridIndex]->GetInventoryItem().Get();
@@ -802,6 +1057,9 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuSplit(int32 SplitAmount, int32 I
 	UpperLeftGridSlot->SetStackCount(NewStackCount);
 	SlottedItems.FindChecked(UpperLeftIndex)->UpdateStackCount(NewStackCount);
 	HoverItem->UpdateStackCount(SplitAmount);
+	SetCarryNavigationEnabled(true);
+	if (IsUsingGamepad()) FocusGridIndex(UpperLeftIndex, true);
+	UpdateHeldPreview();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuConsume(int32 Index)
@@ -867,12 +1125,13 @@ void UAZ_Inv_CommonUI_InventoryGrid::PutDownOnIndex(const int32 Index)
 	CommonUI_InventoryComponent->Server_MoveItem(Item, SourceIndex, Index, StackCount);
 }
 
-void UAZ_Inv_CommonUI_InventoryGrid::PutHoverItemBack()
+void UAZ_Inv_CommonUI_InventoryGrid::PutHoverItemBack(const bool bRestoreFocus)
 {
 	if (!IsValid(HoverItem)) return;
-
+	const int32 SourceIndex = HoverItem->GetPreviousGridIndex();
 	ClearHoverItem();
 	RefreshFromInventory();
+	if (bRestoreFocus && !bSuppressFocusRestore && IsUsingGamepad()) FocusGridIndex(SourceIndex, false);
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, const int32 GridIndex)
@@ -905,7 +1164,13 @@ void UAZ_Inv_CommonUI_InventoryGrid::PickUp(UAZ_Inv_CommonUI_InventoryItem* Clic
 {
 	if (!IsValid(ClickedInventoryItem) || !GridSlots.IsValidIndex(GridIndex)) return;
 	AssignHoverItem(ClickedInventoryItem, GridIndex, GridIndex);
-	if (IsValid(HoverItem)) RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
+	if (!IsValid(HoverItem)) return;
+	SetCarryNavigationEnabled(true);
+	// Transfer focus before removing the item widget that received Accept.
+	if (IsUsingGamepad()) FocusGridIndex(GridIndex, true);
+	RemoveItemFromGrid(ClickedInventoryItem, GridIndex);
+	if (IsUsingGamepad()) UpdateCarryTarget(UAZ_Inv_WidgetUtils::GetPositionFromIndex(GridIndex, FMath::TruncToInt(GridSize.X)));
+	UpdateHeldPreview();
 }
 
 void UAZ_Inv_CommonUI_InventoryGrid::DropItem()
@@ -1017,8 +1282,6 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 
 void UAZ_Inv_CommonUI_InventoryGrid::HighlightSlots(const int32 Index, const FIntPoint& Dimensions)
 {
-	if (!bMouseWithinGrid) return;
-
 	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 	UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
 	UAZ_Inv_InventoryStatics::ForEach2D(GridSlots, Index, Dimensions, ColumnCount, [&](UAZ_Inv_CommonUI_GridSlot* GridSlot)
@@ -1084,9 +1347,9 @@ bool UAZ_Inv_CommonUI_InventoryGrid::CursorExitedGrid(const FVector2D& BoundaryP
 {
 	bLastMouseWithinGrid = bMouseWithinGrid;
 	bMouseWithinGrid = UAZ_Inv_WidgetUtils::IsWithinBounds(BoundaryPos, BoundarySize, Location);
-	if (!bMouseWithinGrid && bLastMouseWithinGrid)
+	if (!bMouseWithinGrid)
 	{
-		UnHighlightSlots(LastHighlightedIndex, LastHighlightedDimensions);
+		InvalidateCarryTarget();
 		return true;
 	}
 	return false;
@@ -1111,10 +1374,23 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnTileParametersUpdated(const FAZ_Inv_TileP
 {
 	if (!IsValid(HoverItem)) return;
 
-	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
 	const FIntPoint Dimensions = HoverItem->GetGridDimensions();
 
 	const FIntPoint StartingCoordinate = CalculateStartingCoordinate(Parameters.TileCoordinats, Dimensions, Parameters.TileQuadrant);
+	UpdateCarryTarget(StartingCoordinate);
+}
+
+void UAZ_Inv_CommonUI_InventoryGrid::UpdateCarryTarget(const FIntPoint& StartingCoordinate)
+{
+	if (!IsValid(HoverItem)) return;
+	const int32 ColumnCount = FMath::TruncToInt(GridSize.X);
+	const FIntPoint Dimensions = HoverItem->GetGridDimensions();
+	if (StartingCoordinate.X < 0 || StartingCoordinate.Y < 0 || Dimensions.X <= 0 || Dimensions.Y <= 0
+		|| StartingCoordinate.X + Dimensions.X > ColumnCount || StartingCoordinate.Y + Dimensions.Y > FMath::TruncToInt(GridSize.Y))
+	{
+		InvalidateCarryTarget();
+		return;
+	}
 	ItemDropIndex = UAZ_Inv_WidgetUtils::GetIndexFromPosition(StartingCoordinate, ColumnCount);
 
 	CurrentQueryResult = CheckHoverPosition(StartingCoordinate, Dimensions);

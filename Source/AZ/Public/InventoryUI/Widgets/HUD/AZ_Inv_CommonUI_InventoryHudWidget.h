@@ -2,9 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "CommonUserWidget.h"
+#include "CommonInputTypeEnum.h"
 #include "UI/AZ_PlayerUITypes.h"
 #include "AZ_Inv_CommonUI_InventoryHudWidget.generated.h"
 
+class UAZ_ActionPrompt;
+class UCommonInputSubsystem;
+class UEnhancedInputLocalPlayerSubsystem;
 class UAZ_PlayerUIComponent;
 class UAZ_Inv_CommonUI_InfoMessage;
 class UImage;
@@ -24,6 +28,9 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="AZ|Inventory")
 	void ShowPickupMessage(const FString& Message);
 	virtual void ShowPickupMessage_Implementation(const FString& Message);
+	/** Key-free caption plus an untouched legacy E hint for unmigrated authored content. */
+	UFUNCTION(BlueprintCallable, Category="AZ|HUD|Interaction")
+	void ShowInteractionPrompt(const FText& Caption, const FString& LegacyEHint);
 
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="AZ|Inventory")
 	void HidePickupMessage();
@@ -61,6 +68,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> FireModeText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UWidget> PickupContainer;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> PickupText;
+	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UAZ_ActionPrompt> InteractionActionPrompt;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UWidget> InfoContainer;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> InfoText;
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional)) TObjectPtr<UWidget> HitMarker;
@@ -69,6 +77,16 @@ protected:
 
 private:
 	TWeakObjectPtr<UAZ_PlayerUIComponent> PlayerUI;
+	TWeakObjectPtr<UCommonInputSubsystem> InteractionInput;
+	TWeakObjectPtr<UEnhancedInputLocalPlayerSubsystem> InteractionMappings;
+	FDelegateHandle InteractionInputChangedHandle;
+	FText InteractionCaption;
+	FString LegacyInteractionEHint;
+	bool bInteractionPromptRequested = false;
+	void RefreshInteractionPrompt();
+	void HandleInteractionInputChanged(ECommonInputType InputType);
+	UFUNCTION() void HandleInteractionMappingsRebuilt();
+	void UnbindInteractionPresentation();
 	FTimerHandle HitFeedbackTimer;
 	FTimerHandle InfoTimer;
 	bool bPresentedHealth = false;

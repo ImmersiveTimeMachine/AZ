@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
@@ -39,9 +39,24 @@ void UAZ_Inv_CommonUI_ItemComponent::DestroyItem() const
 
 FString UAZ_Inv_CommonUI_ItemComponent::GetPickupMessage() const
 {
-	const auto* Magazine = PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
-	if (!Magazine) return PickupMessage;
+	return PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>()
+		? FormatMagazinePickupPrompt(true).ToString() : PickupMessage;
+}
 
+FText UAZ_Inv_CommonUI_ItemComponent::GetPickupCaption() const
+{
+	if (PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>())
+		return FormatMagazinePickupPrompt(false);
+	if (!PickupCaption.IsEmpty()) return PickupCaption;
+	// Custom full strings need an explicit content migration; never strip a
+	// localized key/verb prefix or silently replace rich authored descriptions.
+	return PickupMessage.IsEmpty() ? NSLOCTEXT("AZInventoryPickup", "DefaultPickupCaption", "Pick up") : FText::GetEmpty();
+}
+
+FText UAZ_Inv_CommonUI_ItemComponent::FormatMagazinePickupPrompt(bool bLegacyKeyHint) const
+{
+	const auto* Magazine = PickupItemManifest.GetFragmentOfType<FAZ_Inv_CommonUI_MagazineFragment>();
+	if (!Magazine) return FText::GetEmpty();
 	FText ItemName = NSLOCTEXT("AZInventoryPickup", "MagazineName", "Magazine");
 	const auto& Tags = FAZ_GameplayTags::Get();
 	for (const FGameplayTag& Tag : {Tags.Item_Fragment_Name_StaticText, Tags.Item_Fragment_Name, Tags.Item_Fragment_Ammo_Primary_Name})
@@ -60,8 +75,10 @@ FString UAZ_Inv_CommonUI_ItemComponent::GetPickupMessage() const
 	const FText Unknown = NSLOCTEXT("AZInventoryPickup", "UnknownRounds", "--");
 	const FText Rounds = bRoundsKnown ? FText::AsNumber(PickupState.CurrentRounds) : Unknown;
 	const FText Capacity = Magazine->Capacity > 0 ? FText::AsNumber(Magazine->Capacity) : Unknown;
-	return FText::Format(NSLOCTEXT("AZInventoryPickup", "MagazinePrompt", "Press E to pick up {0} ({1}/{2})"),
-		ItemName, Rounds, Capacity).ToString();
+	return FText::Format(bLegacyKeyHint
+		? NSLOCTEXT("AZInventoryPickup", "MagazinePrompt", "Press E to pick up {0} ({1}/{2})")
+		: NSLOCTEXT("AZInventoryPickup", "MagazineCaption", "Pick up {0} ({1}/{2})"),
+		ItemName, Rounds, Capacity);
 }
 
 void UAZ_Inv_CommonUI_ItemComponent::PickedUp()

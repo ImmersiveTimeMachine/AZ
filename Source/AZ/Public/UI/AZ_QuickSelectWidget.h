@@ -4,9 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "CommonInputTypeEnum.h"
 #include "UI/AZ_QuickSelectTypes.h"
 #include "AZ_QuickSelectWidget.generated.h"
 
+class UInputAction;
+class UCommonUIActionRouterBase;
+class UCommonInputSubsystem;
 class UAZ_QuickSelectComponent;
 class UAZ_QuickSelectEntryWidget;
 class USizeBox;
@@ -23,9 +27,14 @@ public:
 	void InitializeSelector(UAZ_QuickSelectComponent* Component);
 	void ApplyView(const FAZ_QuickSelectView& View);
 
+	/** A prompt can use this live command handle without registering another command. */
+	UFUNCTION(BlueprintPure, Category="AZ|QuickSelect|Input")
+	FUIActionBindingHandle GetSelectorActionBinding(const UInputAction* Action) const;
+
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 	virtual bool NativeOnHandleBackAction() override;
@@ -35,6 +44,30 @@ protected:
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	/** Presentation hook runs after native text/card updates, including Closed. */
+	UFUNCTION(BlueprintImplementableEvent, Category="AZ|QuickSelect")
+	void OnSelectorViewChanged(const FAZ_QuickSelectView& View);
+
+	/** Plain Boolean, generic CommonUI actions in this widget's inherited InputMapping. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> FocusLeftAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> FocusRightAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> FocusUpAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> FocusDownAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> ActivateAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> AssignmentAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> PreviousCandidateAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> NextCandidateAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|QuickSelect|Input")
+	TObjectPtr<UInputAction> CancelAction;
 
 	UPROPERTY(EditDefaultsOnly, Category="AZ|QuickSelect")
 	TSubclassOf<UAZ_QuickSelectEntryWidget> EntryWidgetClass;
@@ -67,6 +100,25 @@ private:
 	TWeakObjectPtr<UAZ_QuickSelectComponent> Selector;
 	UPROPERTY(Transient) TMap<int32, TObjectPtr<UAZ_QuickSelectEntryWidget>> EntryWidgets;
 
+	TMap<const UInputAction*, FUIActionBindingHandle> SelectorActionBindings;
+	TMap<FKey, TWeakObjectPtr<UCommonUIActionRouterBase>> ForwardedSelectorKeys;
+	TWeakObjectPtr<UCommonInputSubsystem> SelectorPresentationInput;
+	FDelegateHandle SelectorInputChangedHandle;
+	void HandleSelectorInputMethodChanged(ECommonInputType InputType);
+	void RegisterSelectorActions();
+	void UnregisterSelectorActions();
+	void ReleaseForwardedSelectorKeys();
+	bool IsSelectorCommandKey(FKey Key) const;
+	void NavigateFocus(FVector2D Direction);
+	void HandleFocusLeft();
+	void HandleFocusRight();
+	void HandleFocusUp();
+	void HandleFocusDown();
+	void HandleActivate();
+	void HandleAssignment();
+	void HandlePreviousCandidate();
+	void HandleNextCandidate();
+	void HandleCancel();
 	bool CanRouteInput() const;
 	USizeBox* FindHost(EAZ_QuickSlotPosition Position, int32 PositionOrdinal) const;
 	void UpdateFocusDetails(const FAZ_QuickSelectView& View);

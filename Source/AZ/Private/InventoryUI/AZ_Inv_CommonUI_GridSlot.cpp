@@ -8,40 +8,37 @@
 void UAZ_Inv_CommonUI_GridSlot::NativePreConstruct()
 {
 	Super::NativePreConstruct();
-	SetIsSelectable(true);
-	SetIsToggleable(true);
+	// Occupancy and placement feedback own this visual state. CommonUI must not
+	// toggle it again after the inventory's click callback has rebuilt the grid.
+	SetIsSelectable(false);
+	SetIsToggleable(false);
+	SetIsInteractableWhenSelected(true);
+	SetShouldSelectUponReceivingFocus(false);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::NativeOnClicked()
 {
-	// Preserve selection state through clicks — we manage selection programmatically,
-	// so prevent CommonUI's click-to-toggle from interfering
-	const bool bWasSelected = GetSelected();
 	Super::NativeOnClicked();
-	if (GetSelected() != bWasSelected)
-	{
-		SetIsSelected(bWasSelected, false);
-	}
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetOccupiedTexture()
 {
-	SetIsSelected(true);
+	if (!GetSelected()) SetSelectedInternal(true, false);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetUnoccupiedTexture()
 {
-	SetIsSelected(false);
+	if (GetSelected()) SetSelectedInternal(false, false);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetSelectedTexture()
 {
-	SetIsSelected(true);
+	if (!GetSelected()) SetSelectedInternal(true, false);
 }
 
 void UAZ_Inv_CommonUI_GridSlot::SetGrayedOutTexture()
 {
-	SetIsSelected(true);
+	if (!GetSelected()) SetSelectedInternal(true, false);
 }
 
 UAZ_Inv_CommonUI_ItemPopUp* UAZ_Inv_CommonUI_GridSlot::GetItemPopUp() const

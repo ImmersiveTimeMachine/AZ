@@ -40,6 +40,9 @@ public:
 	float GetTileSize() const;
 	UFUNCTION(BlueprintCallable, Category="AZ|Map") void OpenMapPage();
 	UFUNCTION(BlueprintCallable, Category="AZ|Map") void OpenInventoryPage();
+	/** Previous/next in the visible Equippables, Consumables, Craftables, Map sequence. */
+	UFUNCTION(BlueprintCallable, Category="AZ|Inventory|Navigation") bool NavigateInventoryTab(int32 Direction);
+	UFUNCTION(BlueprintPure, Category="AZ|Inventory|Navigation") bool IsInventoryPageActive() const;
 
 protected:
 
@@ -87,8 +90,10 @@ private:
 
 	void HandleTabLeft();
 	void HandleTabRight();
+	void HandleTabNavigationRequested(int32 Direction);
 	void HandleBack();
 	void HandleContextMenu();
 	void HandleMenuPageChanged(UWidget* ActiveWidget, int32 ActiveIndex);
-	bool IsInventoryPageActive() const;
+	/** Engine pending target wins during interrupted/reversed animations; no parallel page state. */
+	UWidget* GetLogicalMenuPage() const;
 };

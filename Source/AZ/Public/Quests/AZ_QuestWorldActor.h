@@ -35,10 +35,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category="Quest") bool bEnabled = true;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Quest", meta=(ClampMin="25.0", ClampMax="1000.0", Units="cm")) float InteractionRadius = 250.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Quest") FText InteractionPrompt;
+	/** Key-free custom description; legacy InteractionPrompt remains for compatibility. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Quest|Presentation") FText InteractionCaption;
 	/** The immediate use's observable state; gameplay progress itself is persisted on PlayerState. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category="Quest") int32 CommittedUseCount = 0;
 
 	UFUNCTION(BlueprintPure, Category="Quest") FText GetInteractionPrompt() const;
+	UFUNCTION(BlueprintPure, Category="Quest") FText GetInteractionCaption() const;
 	UFUNCTION(BlueprintPure, Category="Quest") bool CanInteractForPlayer(APlayerController* Controller, FString& OutError) const;
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Quest")
 	bool TryInteractForPlayer(APlayerController* Controller, FGuid ReceiptId, FString& OutError);

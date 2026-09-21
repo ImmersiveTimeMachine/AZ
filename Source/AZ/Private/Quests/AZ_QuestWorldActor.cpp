@@ -61,6 +61,18 @@ FText AAZ_QuestWorldActor::GetInteractionPrompt() const
 	}
 }
 
+FText AAZ_QuestWorldActor::GetInteractionCaption() const
+{
+	if (!InteractionCaption.IsEmpty()) return InteractionCaption;
+	if (!InteractionPrompt.IsEmpty()) return FText::GetEmpty();
+	switch (Action)
+	{
+	case EAZ_QuestWorldAction::OfferQuest: return NSLOCTEXT("CHALK", "OfferQuestCaption", "Accept task");
+	case EAZ_QuestWorldAction::DeliverItems: return NSLOCTEXT("CHALK", "DeliverQuestCaption", "Deliver items");
+	default: return NSLOCTEXT("CHALK", "UseQuestCaption", "Use");
+	}
+}
+
 bool AAZ_QuestWorldActor::IsAvailableForInteraction_Implementation(UPrimitiveComponent* Component) const
 {
 	return bEnabled && !bCommitting && !IsActorBeingDestroyed() && (!Component || Component == InteractionVolume);

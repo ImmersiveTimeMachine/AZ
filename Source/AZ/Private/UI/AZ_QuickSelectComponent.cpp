@@ -373,11 +373,10 @@ void UAZ_QuickSelectComponent::RebuildView()
 	View.ModeText = QuickBar->IsFightMode() ? LOCTEXT("FightMode", "FIGHT") : LOCTEXT("ExploreMode", "EXPLORE");
 	View.ModeActionText = QuickBar->IsFightMode() ? LOCTEXT("LeaveFight", "Return to exploration") : LOCTEXT("EnterFight", "Enter fight mode");
 	TMap<EAZ_QuickSlotPosition, int32> PositionCounts;
-	const TArray<FKey> ToggleKeys = Controller.IsValid() ? KeysForAction(Controller->QuickSelectToggleAction) : TArray<FKey>();
-	const FText ToggleLabel = ToggleKeys.IsEmpty() ? LOCTEXT("BackKey", "Esc") : ToggleKeys[0].GetDisplayName();
+	// Device/remap-aware glyphs are supplied by the selector's presentation hook.
 	View.HintText = View.State == EAZ_QuickSelectState::EditingAssignment
-		? LOCTEXT("EditHint", "Wheel  Browse     MMB  Assign     Esc  Cancel")
-		: FText::Format(LOCTEXT("BrowseHint", "Click  Select     MMB  Assign     {0}  Close"), ToggleLabel);
+		? LOCTEXT("EditHintActions", "Browse items  |  Assign  |  Cancel")
+		: LOCTEXT("BrowseHintActions", "Select  |  Assign  |  Close");
 	for (int32 Index = 0; Index < QuickBar->GetSlotCount(); ++Index)
 	{
 		const FAZ_QuickSlot* Slot = QuickBar->GetSlotDefinition(Index);
@@ -459,7 +458,7 @@ void UAZ_QuickSelectComponent::RebuildView()
 				View.FocusNameText = LOCTEXT("EmptyFocus", "EMPTY SLOT");
 				View.FocusDescriptionText = Entry.bEditing
 					? LOCTEXT("NoAssignableItemsFocus", "No available inventory items for this slot.")
-					: LOCTEXT("AssignFocus", "Middle-click to assign an inventory item.");
+					: LOCTEXT("AssignFocusAction", "Assign an inventory item to this slot.");
 			}
 		}
 		View.Entries.Add(Entry);

@@ -18,6 +18,8 @@ class UAZ_Inv_CommonUI_ItemDescription;
 class UAZ_Inv_CommonUI_InventoryComponent;
 class UAZ_Inv_CommonUI_EquipmentComponent;
 class UInputAction;
+class UButton;
+class UAZ_ActionPrompt;
 // Forward Declarations
 class UCanvasPanel;
 class UCommonActivatableWidgetSwitcher;
@@ -26,6 +28,8 @@ class UCommonTextBlock;
 class UCommonRichTextBlock;
 class UHorizontalBox;
 class UImage;
+
+DECLARE_MULTICAST_DELEGATE_OneParam(FAZ_InventoryTabNavigationRequested, int32);
 
 /**
  * C++ Base Class for AZ_WBP_GameInventorySwitcher
@@ -40,6 +44,14 @@ class AZ_API UAZ_Inv_CommonUI_InventorySwitcherPanel : public UCommonActivatable
 public:
 	/** The outer menu owns pages; this panel only requests its Map page. */
 	FSimpleMulticastDelegate OnMapRequested;
+	FAZ_InventoryTabNavigationRequested OnTabNavigationRequested;
+	/** Logical presentation order, independent of the authored WidgetSwitcher slot order. */
+	int32 GetActiveInventoryCategoryIndex() const;
+	bool ShowInventoryCategory(int32 CategoryIndex);
+	bool CanChangeInventoryTab() const;
+	void SetMapTabActive(bool bMapActive);
+	void FocusActiveInventoryTab();
+	void SetTabNavigationActions(UInputAction* PreviousAction, UInputAction* NextAction);
 
 	void SetItemName(const FText& InText);
 	void SetItemDescription(const FText& InText);
@@ -104,6 +116,12 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional))
 	TObjectPtr<UCommonButtonBase> WBPMapButton_1;
 
+	/** Optional clickable keycaps flanking the existing four category buttons. */
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UButton> PreviousTabButton;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UButton> NextTabButton;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UAZ_ActionPrompt> PreviousTabPrompt;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UAZ_ActionPrompt> NextTabPrompt;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	UHorizontalBox* HorizontalBoxMenuTabs;
 
@@ -147,15 +165,19 @@ private:
 	void ShowConsumables();
 	void ShowCraftables();
 	void RequestMap();
+	UFUNCTION() void RequestPreviousTab();
+	UFUNCTION() void RequestNextTab();
+	void RefreshTabNavigationPrompts();
+	UPROPERTY(Transient) TObjectPtr<UInputAction> PreviousTabAction;
+	UPROPERTY(Transient) TObjectPtr<UInputAction> NextTabAction;
 
 	/** Select the active tab button and deselect the others. */
 	void SelectTabButton(UCommonButtonBase* Button);
+	/** Reconcile automatic click selection with the real outer logical page and grid identity. */
+	void SynchronizeTabSelection(bool bMapFallback = false);
 
-	/** Maps switcher index to the corresponding grid. */
-	UAZ_Inv_CommonUI_InventoryGrid* GetGridAtIndex(int32 Index) const;
-
-	/** Returns a display label for the given grid index. */
-	FText GetGridLabel(int32 Index) const;
+	/** Derive labels from actual widget identity, never the asset's physical child index. */
+	FText GetGridLabel(const UAZ_Inv_CommonUI_InventoryGrid* Grid) const;
 
 	/** Helper to get all grids mapped to their buttons for iteration. */
 	TMap<UAZ_Inv_CommonUI_InventoryGrid*, UCommonButtonBase*> GetGridButtonMap() const;

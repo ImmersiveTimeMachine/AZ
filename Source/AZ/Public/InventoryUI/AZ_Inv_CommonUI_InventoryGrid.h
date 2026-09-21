@@ -6,6 +6,7 @@
 #include "AZ_Inv_CommonUI_GridSlot.h"
 #include "AZ_Inv_CommonUI_InventoryComponent.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetNavigation.h"
 #include "InventoryUI/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 #include "InventoryUI/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
 #include "Inventory/Types/AZ_Inv_GridTypes.h"
@@ -148,7 +149,7 @@ private:
 
 	UAZ_Inv_CommonUI_SlottedItem* CreateSlottedItem(UAZ_Inv_CommonUI_InventoryItem* NewItem, const FAZ_Inv_CommonUI_GridFragment* GridFragment,
 	                                                const FAZ_Inv_CommonUI_ImageFragment* ImageFragment, int32 Index,
-	                                                bool bStackable, int32 StackAmount) const;
+	                                                bool bStackable, int32 StackAmount);
 
 	FVector2D GetDrawSize(const FAZ_Inv_CommonUI_GridFragment* GridFragment) const;
 	
@@ -232,11 +233,32 @@ private:
 	void OnPopUpMenuLoadMagazine(int32 Index, FGuid MagazineItemId);
 
 	void PutDownOnIndex(int32 Index);
-	void PutHoverItemBack();
+	void PutHoverItemBack(bool bRestoreFocus = true);
 	void RemoveItemFromGrid(UAZ_Inv_CommonUI_InventoryItem* InventoryItem, int32 GridIndex);
 	void PickUp(UAZ_Inv_CommonUI_InventoryItem* ClickedInventoryItem, int32 GridIndex);
 	void CreateItemPopUp(int32 GridIndex);
 	void DestroyItemPopUp();
+
+	// A carry is only a presentation preview. The inventory component retains ownership.
+	bool IsUsingGamepad() const;
+	int32 GetButtonGridIndex(const UCommonButtonBase* Button) const;
+	int32 GetFocusedGridIndex() const;
+	void HandleGridButtonFocused(UCommonButtonBase* Button);
+	void FocusGridIndex(int32 Index, bool bPreferGridSlot);
+	void SetCarryNavigationEnabled(bool bEnabled);
+	void UpdateHeldPreview();
+	void UpdateCarryTarget(const FIntPoint& StartingCoordinate);
+	void InvalidateCarryTarget();
+
+	TWeakObjectPtr<UCommonButtonBase> FocusedGridButton;
+	struct FCarryNavigationState
+	{
+		FWidgetNavigationData Up, Down, Left, Right;
+	};
+	TMap<int32, FCarryNavigationState> SavedCarryNavigation;
+	TMap<TWeakObjectPtr<UCommonButtonBase>, bool> SavedCarryFocusability;
+	bool bCarryUsingGamepad{false};
+	bool bSuppressFocusRestore{false};
 
 	// Highlight system
 	void HighlightSlots(int32 Index, const FIntPoint& Dimensions);

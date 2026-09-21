@@ -5,13 +5,27 @@
 #include "Quests/AZ_QuestDefinition.h"
 #include "Quests/AZ_QuestProgressComponent.h"
 #include "Components/Button.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/TextBlock.h"
 #include "Styling/CoreStyle.h"
+#include "CommonUITypes.h"
+#include "CommonInputSubsystem.h"
+#include "EnhancedInputSubsystems.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerController.h"
+#include "InputMappingContext.h"
+#include "Input/CommonUIInputTypes.h"
+#include "Input/CommonUIActionRouterBase.h"
 
 void UAZ_QuestMapPage::NativeConstruct()
 {
+	// The inventory owner returns from Map before closing the inventory. A second
+	// automatic Back handler here would only deactivate the child page.
+	bIsBackHandler = false;
 	Super::NativeConstruct();
 	if (MapCanvas) MapCanvas->OnObjectiveSelected.AddUniqueDynamic(this, &ThisClass::SelectObjective);
 	if (TrackButton) TrackButton->OnClicked.AddUniqueDynamic(this, &ThisClass::TrackSelection);
@@ -22,6 +36,7 @@ void UAZ_QuestMapPage::NativeConstruct()
 
 void UAZ_QuestMapPage::NativeDestruct()
 {
+	UnbindMapInput();
 	UnbindNavigation();
 	if (MapCanvas) MapCanvas->OnObjectiveSelected.RemoveDynamic(this, &ThisClass::SelectObjective);
 	if (TrackButton) TrackButton->OnClicked.RemoveDynamic(this, &ThisClass::TrackSelection);
@@ -36,10 +51,21 @@ void UAZ_QuestMapPage::NativeOnActivated()
 	Super::NativeOnActivated();
 	BindNavigation();
 	RefreshJournal();
+	UnbindMapInput();
+	if (ULocalPlayer* LocalPlayer = GetOwningLocalPlayer())
+	{
+		BoundMapInput = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+		if (BoundMapInput.IsValid()) BoundMapInput->ControlMappingsRebuiltDelegate.AddUniqueDynamic(this, &ThisClass::RefreshMapActionBindings);
+		MapPresentationInput = UCommonInputSubsystem::Get(LocalPlayer);
+		if (MapPresentationInput.IsValid())
+			MapInputChangedHandle = MapPresentationInput->OnInputMethodChangedNative.AddUObject(this, &ThisClass::HandleMapInputMethodChanged);
+	}
+	RefreshMapActionBindings();
 }
 
 void UAZ_QuestMapPage::NativeOnDeactivated()
 {
+	UnbindMapInput();
 	UnbindNavigation();
 	Super::NativeOnDeactivated();
 }
@@ -114,9 +140,31 @@ void UAZ_QuestMapPage::RefreshJournal()
 			{
 				UTextBlock* Heading = NewObject<UTextBlock>(this);
 				Heading->SetFont(SectionHeadingFont.FontObject ? SectionHeadingFont : FCoreStyle::GetDefaultFontStyle("Regular", 13));
-				Heading->SetColorAndOpacity(SectionHeadingColor);
+				const FLinearColor HeadingColor = !bUseCategorySectionStyle || Group == 2 ? SectionHeadingColor : Group == 0 ? StorySectionColor : SideSectionColor;
+				Heading->SetColorAndOpacity(HeadingColor);
 				Heading->SetText(Group == 0 ? NSLOCTEXT("CHALK", "StoryQuests", "STORY") : Group == 1 ? NSLOCTEXT("CHALK", "SideQuests", "SIDE QUESTS") : NSLOCTEXT("CHALK", "QuestArchive", "ARCHIVE"));
-				QuestList->AddChild(Heading);
+				UWidget* Section = Heading;
+				if (bUseCategorySectionStyle && Group != 2)
+				{
+					UHorizontalBox* HeadingRow = NewObject<UHorizontalBox>(this);
+					const FSlateBrush& Brush = Group == 0 ? StorySectionBrush : SideSectionBrush;
+					if (Brush.GetResourceObject())
+					{
+						UImage* Glyph = NewObject<UImage>(this);
+						Glyph->SetBrush(Brush);
+						Glyph->SetColorAndOpacity(HeadingColor);
+						Glyph->SetVisibility(ESlateVisibility::HitTestInvisible);
+						UHorizontalBoxSlot* GlyphSlot = HeadingRow->AddChildToHorizontalBox(Glyph);
+						GlyphSlot->SetPadding(FMargin(0, 0, 12, 0));
+						GlyphSlot->SetVerticalAlignment(VAlign_Center);
+					}
+					HeadingRow->AddChildToHorizontalBox(Heading)->SetVerticalAlignment(VAlign_Center);
+					Section = HeadingRow;
+				}
+				if (UScrollBoxSlot* HeadingSlot = Cast<UScrollBoxSlot>(QuestList->AddChild(Section)); HeadingSlot && bUseCategorySectionStyle)
+				{
+					HeadingSlot->SetPadding(SectionHeadingPadding);
+				}
 				bHeadingAdded = true;
 			}
 			UAZ_QuestJournalEntry* Entry = CreateWidget<UAZ_QuestJournalEntry>(GetOwningPlayer(), EntryClass);
@@ -126,6 +174,8 @@ void UAZ_QuestMapPage::RefreshJournal()
 				Record.Status == EAZ_QuestStatus::Cancelled ? NSLOCTEXT("CHALK", "QuestCancelled", "Cancelled") :
 				Progress->GetTrackedQuestId() == Record.QuestId ? NSLOCTEXT("CHALK", "QuestTracked", "Tracked") : NSLOCTEXT("CHALK", "QuestActive", "Active");
 			Entry->SetEntry(Record.QuestId, NAME_None, Definition->Title, State, SelectedQuestId == Record.QuestId, bTerminal);
+			Entry->SetPresentation(Definition->Category, Record.Status, EAZ_QuestObjectiveStatus::Locked, false,
+				Progress->GetTrackedQuestId() == Record.QuestId);
 			Entry->OnPicked.AddUniqueDynamic(this, &ThisClass::SelectObjective);
 			QuestList->AddChild(Entry);
 			++Count;
@@ -139,10 +189,12 @@ void UAZ_QuestMapPage::RefreshJournal()
 					if (!Spec) continue;
 					UAZ_QuestJournalEntry* ObjectiveEntry = CreateWidget<UAZ_QuestJournalEntry>(GetOwningPlayer(), EntryClass);
 					if (!ObjectiveEntry) continue;
-					const FText ProgressText = FText::Format(NSLOCTEXT("CHALK", "ObjectiveCount", "{0} / {1}"),
-						FText::AsNumber(Objective.CurrentCount), FText::AsNumber(Spec->RequiredCount));
+					const FText ProgressText = Spec->RequiredCount > 1 || !ObjectiveEntry->bUseObjectivePresentation ? FText::Format(NSLOCTEXT("CHALK", "ObjectiveCount", "{0} / {1}"),
+						FText::AsNumber(Objective.CurrentCount), FText::AsNumber(Spec->RequiredCount)) : FText::GetEmpty();
 					ObjectiveEntry->SetEntry(Record.QuestId, Objective.ObjectiveId, Spec->Description, ProgressText,
 						SelectedObjectiveId == Objective.ObjectiveId, bTerminal || Objective.Status != EAZ_QuestObjectiveStatus::Active);
+					ObjectiveEntry->SetPresentation(Definition->Category, Record.Status, Objective.Status, Spec->bOptional,
+						Progress->GetTrackedQuestId() == Record.QuestId && Progress->GetTrackedObjectiveId() == Objective.ObjectiveId);
 					ObjectiveEntry->OnPicked.AddUniqueDynamic(this, &ThisClass::SelectObjective);
 					if (UScrollBoxSlot* ScrollBoxSlot = Cast<UScrollBoxSlot>(QuestList->AddChild(ObjectiveEntry)))
 					{
@@ -242,3 +294,214 @@ void UAZ_QuestMapPage::TrackSelection()
 void UAZ_QuestMapPage::ClearPersonalWaypoint() { if (QuestNavigation) QuestNavigation->ClearWaypoint(); }
 void UAZ_QuestMapPage::RecenterMap() { if (MapCanvas) MapCanvas->RecenterPlayer(); }
 void UAZ_QuestMapPage::BackToInventory() { OnBackToInventory.Broadcast(); }
+
+FUIActionBindingHandle UAZ_QuestMapPage::GetMapActionBinding(const UInputAction* Action) const
+{
+	if (const FUIActionBindingHandle* Handle = MapActionBindings.Find(Action)) return *Handle;
+	return FUIActionBindingHandle();
+}
+
+UWidget* UAZ_QuestMapPage::NativeGetDesiredFocusTarget() const
+{
+	return MapCanvas ? MapCanvas.Get() : Super::NativeGetDesiredFocusTarget();
+}
+
+bool UAZ_QuestMapPage::CanRouteMapCommand() const
+{
+	const APlayerController* Player = GetOwningPlayer();
+	return IsActivated() && IsVisible() && Player && Player->IsLocalController()
+		&& QuestNavigation && MapCanvas && MapCanvas->IsVisible();
+}
+
+bool UAZ_QuestMapPage::HasParentKeyConflict(const UInputAction* Action, const TArray<FKey>& Keys) const
+{
+	// Asset authoring supplies actual action identities. Never guess Back/Select
+	// from hardcoded controller buttons or a similarly named vendor action.
+	if (ReservedParentActions.IsEmpty()) return true;
+	for (const UInputAction* Reserved : ReservedParentActions)
+	{
+		if (!Reserved || Reserved == Action) return true;
+		TArray<FKey> ParentKeys;
+		CommonUI::GetEnhancedInputActionKeys(GetOwningLocalPlayer(), Reserved, ParentKeys);
+		for (const FKey& Key : Keys)
+			if (ParentKeys.ContainsByPredicate([Key](const FKey& ParentKey) { return ParentKey.IsSameResolvedKey(Key); })) return true;
+	}
+	return false;
+}
+
+bool UAZ_QuestMapPage::HasSafeMapMappingContext() const
+{
+	if (!InputMapping) return false;
+	const TSet<const UInputAction*> Allowed = { MapZoomInAction, MapZoomOutAction, MapRecenterAction,
+		MapPlaceWaypointAction, MapClearWaypointAction, MapTrackSelectionAction };
+	// Validate every default/profile mapping before the base class can install it.
+	// These actions must not mask parent mappings during EnhancedInput's rebuild.
+	TArray<FString> Profiles = InputMapping->GetProfilesWithOverridenMappings();
+	Profiles.AddUnique(TEXT(""));
+	for (const FString& Profile : Profiles)
+	{
+		for (const FEnhancedActionKeyMapping& Mapping : InputMapping->GetMappingsForProfile(Profile))
+		{
+			const UInputAction* Action = Mapping.Action;
+			if (!Action || !Allowed.Contains(Action) || Action->bConsumeInput || Action->bConsumesActionAndAxisMappings
+				|| Action->ValueType != EInputActionValueType::Boolean || !Action->Triggers.IsEmpty()
+				|| !Mapping.Triggers.IsEmpty() || !Action->Modifiers.IsEmpty() || !Mapping.Modifiers.IsEmpty()) return false;
+			const UCommonInputMetadata* Metadata = CommonUI::GetEnhancedInputActionMetadata(Action);
+			if (Metadata && !Metadata->bIsGenericInputAction) return false;
+		}
+	}
+	return true;
+}
+
+void UAZ_QuestMapPage::ActivateMappingContext()
+{
+	if (!HasSafeMapMappingContext())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Map InputMapping must contain only its non-consuming Boolean UI commands; parent mappings are preserved."));
+		return;
+	}
+	Super::ActivateMappingContext();
+	bMapMappingContextActive = true;
+}
+
+void UAZ_QuestMapPage::DeactivateMappingContext()
+{
+	if (bMapMappingContextActive) Super::DeactivateMappingContext();
+	bMapMappingContextActive = false;
+}
+
+void UAZ_QuestMapPage::RefreshMapActionBindings()
+{
+	UnregisterMapActions();
+	if (!HasSafeMapMappingContext())
+	{
+		// A bad context must not stay installed while commands are refused.
+		DeactivateMappingContext();
+		return;
+	}
+	if (!bMapMappingContextActive || !CanRouteMapCommand() || !GetOwningLocalPlayer()) return;
+	TArray<FKey> ClaimedKeys;
+	const auto Bind = [this, &ClaimedKeys](const UInputAction* Action, void (ThisClass::*Callback)())
+	{
+		if (!Action) return;
+		const UCommonInputMetadata* Metadata = CommonUI::GetEnhancedInputActionMetadata(Action);
+		if (!ensureMsgf(Action->ValueType == EInputActionValueType::Boolean
+			&& !Action->bConsumeInput && !Action->bConsumesActionAndAxisMappings
+			&& (!Metadata || Metadata->bIsGenericInputAction) && !MapActionBindings.Contains(Action),
+			TEXT("Map commands require unique non-consuming Boolean generic CommonUI actions: %s"), *GetNameSafe(Action))) return;
+		TArray<FKey> Keys;
+		CommonUI::GetEnhancedInputActionKeys(GetOwningLocalPlayer(), Action, Keys);
+		// Activation can precede the mapping rebuild. Leave an unbound action
+		// unregistered until the engine's existing mappings-rebuilt event arrives.
+		if (Keys.IsEmpty()) return;
+		if (HasParentKeyConflict(Action, Keys))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Map command conflicts with a reserved parent route: %s"), *GetNameSafe(Action));
+			return;
+		}
+		for (const FKey& Key : Keys)
+			if (ClaimedKeys.ContainsByPredicate([Key](const FKey& Existing) { return Existing.IsSameResolvedKey(Key); })) return;
+		FBindUIActionArgs Args(Action, false, FSimpleDelegate::CreateUObject(this, Callback));
+		// Consume at the active CommonUI owner, never at EnhancedInput mapping rebuild.
+		Args.bConsumeInput = true;
+		const FUIActionBindingHandle Handle = RegisterUIActionBinding(Args);
+		if (Handle.IsValid()) { MapActionBindings.Add(Action, Handle); ClaimedKeys.Append(Keys); }
+	};
+	Bind(MapZoomInAction, &ThisClass::HandleMapZoomIn);
+	Bind(MapZoomOutAction, &ThisClass::HandleMapZoomOut);
+	Bind(MapRecenterAction, &ThisClass::HandleMapRecenter);
+	Bind(MapPlaceWaypointAction, &ThisClass::HandleMapPlaceWaypoint);
+	Bind(MapClearWaypointAction, &ThisClass::HandleMapClearWaypoint);
+	Bind(MapTrackSelectionAction, &ThisClass::HandleMapTrackSelection);
+	OnMapActionBindingsChanged();
+}
+
+void UAZ_QuestMapPage::UnregisterMapActions()
+{
+	ReleaseForwardedMapKeys();
+	for (auto& Pair : MapActionBindings)
+	{
+		Pair.Value.Unregister();
+		RemoveActionBinding(Pair.Value);
+	}
+	MapActionBindings.Reset();
+	OnMapActionBindingsChanged();
+}
+
+void UAZ_QuestMapPage::ReleaseForwardedMapKeys()
+{
+	const auto Pressed = MoveTemp(ForwardedMapKeys);
+	ForwardedMapKeys.Reset();
+	for (const auto& Pair : Pressed)
+		if (Pair.Value.IsValid()) Pair.Value->ProcessInput(Pair.Key, IE_Released);
+}
+
+void UAZ_QuestMapPage::UnbindMapInput()
+{
+	if (MapPresentationInput.IsValid()) MapPresentationInput->OnInputMethodChangedNative.Remove(MapInputChangedHandle);
+	MapPresentationInput.Reset();
+	MapInputChangedHandle.Reset();
+	if (BoundMapInput.IsValid()) BoundMapInput->ControlMappingsRebuiltDelegate.RemoveDynamic(this, &ThisClass::RefreshMapActionBindings);
+	BoundMapInput.Reset();
+	UnregisterMapActions();
+}
+
+void UAZ_QuestMapPage::HandleMapInputMethodChanged(ECommonInputType InputType)
+{
+	if (IsActivated()) OnMapActionBindingsChanged();
+}
+
+bool UAZ_QuestMapPage::IsMapCommandKey(FKey Key) const
+{
+	for (const auto& Pair : MapActionBindings)
+	{
+		if (!Pair.Value.IsValid()) continue;
+		TArray<FKey> Keys;
+		CommonUI::GetEnhancedInputActionKeys(GetOwningLocalPlayer(), Pair.Key, Keys);
+		if (Keys.ContainsByPredicate([Key](const FKey& BoundKey) { return BoundKey.IsSameResolvedKey(Key); })) return true;
+	}
+	return false;
+}
+
+FReply UAZ_QuestMapPage::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event)
+{
+	if (CanRouteMapCommand() && IsMapCommandKey(Event.GetKey()))
+	{
+		if (!Event.IsRepeat())
+		{
+			if (UCommonUIActionRouterBase* Router = UCommonUIActionRouterBase::Get(*this))
+			{
+				if (!ForwardedMapKeys.Contains(Event.GetKey()))
+				{
+					ForwardedMapKeys.Add(Event.GetKey(), Router);
+					Router->ProcessInput(Event.GetKey(), IE_Pressed);
+				}
+			}
+		}
+		return FReply::Handled();
+	}
+	// Existing canvas D-pad/keyboard pan, mouse input, journal focus, Select and
+	// parent Back/tab commands keep their existing event paths.
+	return Super::NativeOnPreviewKeyDown(Geometry, Event);
+}
+
+FReply UAZ_QuestMapPage::NativeOnKeyUp(const FGeometry& Geometry, const FKeyEvent& Event)
+{
+	if (TWeakObjectPtr<UCommonUIActionRouterBase>* Router = ForwardedMapKeys.Find(Event.GetKey()))
+	{
+		const TWeakObjectPtr<UCommonUIActionRouterBase> PressRouter = *Router;
+		ForwardedMapKeys.Remove(Event.GetKey());
+		if (PressRouter.IsValid()) PressRouter->ProcessInput(Event.GetKey(), IE_Released);
+		return FReply::Handled();
+	}
+	return Super::NativeOnKeyUp(Geometry, Event);
+}
+
+void UAZ_QuestMapPage::HandleMapZoomIn() { if (CanRouteMapCommand()) MapCanvas->ZoomAtCenter(1.2); }
+void UAZ_QuestMapPage::HandleMapZoomOut() { if (CanRouteMapCommand()) MapCanvas->ZoomAtCenter(1.0 / 1.2); }
+void UAZ_QuestMapPage::HandleMapRecenter() { if (CanRouteMapCommand()) RecenterMap(); }
+// The personal marker lands on the pointer, which is the whole point of having one; with no pointer showing
+// this still resolves to the view centre, so the mouse and keyboard paths are unchanged.
+void UAZ_QuestMapPage::HandleMapPlaceWaypoint() { if (CanRouteMapCommand()) MapCanvas->PlaceWaypointAtPointer(); }
+void UAZ_QuestMapPage::HandleMapClearWaypoint() { if (CanRouteMapCommand()) ClearPersonalWaypoint(); }
+void UAZ_QuestMapPage::HandleMapTrackSelection() { if (CanRouteMapCommand()) TrackSelection(); }

@@ -2,11 +2,13 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Styling/SlateTypes.h"
+#include "Quests/AZ_QuestTypes.h"
 #include "AZ_QuestJournalEntry.generated.h"
 
 class UButton;
 class UTextBlock;
 class UBorder;
+class UImage;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAZ_QuestJournalEntryPicked, FName, QuestId, FName, ObjectiveId);
 
 /** A journal selection row. It contains no gameplay state or completion logic. */
@@ -42,7 +44,24 @@ public:
 	/** Optional authored margin/frame. Selection never changes quest state. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Selection")
 	FLinearColor SelectionIndicatorColor = FLinearColor::FromSRGBColor(FColor(238, 234, 224));
+	/** Opt-in row hierarchy. Cached facts below are presentation only, never progression. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Objectives") bool bUseObjectivePresentation = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Objectives") FSlateFontInfo ObjectiveTitleFont;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Objectives") FButtonStyle ObjectiveButtonStyle;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Objectives") FLinearColor ObjectiveTitleColor = FLinearColor::White;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Objectives") FLinearColor ObjectiveSelectedBackgroundColor = FLinearColor(0, 0, 0, 0);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FSlateBrush StoryGlyphBrush;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FSlateBrush SideGlyphBrush;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FSlateBrush CompleteGlyphBrush;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FSlateBrush FailedGlyphBrush;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FLinearColor StoryGlyphColor = FLinearColor::White;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FLinearColor SideGlyphColor = FLinearColor::White;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FLinearColor CompleteGlyphColor = FLinearColor::White;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Style|Glyphs") FLinearColor FailedGlyphColor = FLinearColor::White;
 	void SetEntry(FName InQuestId, FName InObjectiveId, const FText& InTitle, const FText& InSubtitle, bool bInSelected, bool bInMuted);
+	/** Supply already-resolved facts once, after SetEntry. No quest queries occur in this widget. */
+	void SetPresentation(EAZ_QuestCategory InCategory, EAZ_QuestStatus InQuestStatus,
+		EAZ_QuestObjectiveStatus InObjectiveStatus, bool bInOptional, bool bInTracked);
 	FName GetQuestId() const { return QuestId; }
 	FName GetObjectiveId() const { return ObjectiveId; }
 	void FocusEntry();
@@ -54,6 +73,14 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> TitleText;
 	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> SubtitleText;
 	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UBorder> SelectionIndicator;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UImage> EntryGlyph;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UBorder> TrackingIndicator;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") bool bObjectiveRow = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") EAZ_QuestCategory EntryCategory = EAZ_QuestCategory::Story;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") EAZ_QuestStatus EntryQuestStatus = EAZ_QuestStatus::Active;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") EAZ_QuestObjectiveStatus EntryObjectiveStatus = EAZ_QuestObjectiveStatus::Locked;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") bool bOptionalObjective = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Presentation") bool bTrackedEntry = false;
 private:
 	FName QuestId;
 	FName ObjectiveId;
@@ -61,6 +88,7 @@ private:
 	FText Subtitle;
 	bool bSelected = false;
 	bool bMuted = false;
+	bool bHasPresentation = false;
 	UFUNCTION() void HandlePicked();
 	void ApplyView();
 };

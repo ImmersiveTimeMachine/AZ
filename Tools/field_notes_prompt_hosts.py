@@ -40,6 +40,8 @@ OWNED = HOSTS + tuple(PROMPTS.values()) + (SHARED,)
 OWNER_KEY, OWNER = 'AZ.FieldNotes.PromptHostOwner', 'field_notes_prompt_hosts:v3'
 INVENTORY_FOOTER_PROMPTS = (('Back', 'Back'),)
 MAP_SECTION_PROMPTS = (('TabLeft', 'Previous section'), ('TabRight', 'Next section'), ('Back', 'Inventory'))
+LEGACY_SHORTCUT_STYLE = {'renderOpacity': 0, 'bOverrideAccessibleDefaults': True,
+                         'accessibleBehavior': 'NotAccessible', 'accessibleSummaryBehavior': 'NotAccessible'}
 QUICK_ACTIONS = ('FocusLeft', 'FocusRight', 'FocusUp', 'FocusDown', 'Activate', 'Assignment', 'PreviousCandidate', 'NextCandidate', 'Cancel')
 MAP_ACTIONS = ('ZoomIn', 'ZoomOut', 'Recenter', 'PlaceWaypoint', 'ClearWaypoint', 'TrackSelection')
 DESCRIPTIONS = {'FocusLeft': '', 'FocusRight': 'Focus', 'FocusUp': '', 'FocusDown': '',
@@ -155,7 +157,9 @@ def preserve_objects(before, after, patches=None):
         actual = after['objects'][name]['values']
         if name == '@CDO':
             added = set(actual) - set(desired)
-            require(all(key.lower().startswith('fn_') and actual[key] == 'None' for key in added),
+            footer_variables = {'backhint', 'footerlayout'} if before['asset'] == MAP else set()
+            require(all((key.lower().startswith('fn_') or key.lower() in footer_variables)
+                        and actual[key] == 'None' for key in added),
                     'Unexpected new CDO fields')
             actual = {key: value for key, value in actual.items() if key not in added}
         require(i._exact_value(actual, desired), 'Unexpected preexisting property change: ' + name)
@@ -263,7 +267,8 @@ def prepare_prompt(context):
     asset = PROMPTS[context]; s = gate()
     settings_class = s.ue().load_class(None, '/Script/UMGEditor.UMGEditorProjectSettings')
     require(settings_class is not None, 'Installed UMG editor project settings class is unavailable')
-    require(s.ue().get_default_object(settings_class).get_editor_property('default_root_widget') is None,
+    settings_values = s.read_object(s.ue().get_default_object(settings_class))['values']
+    require('defaultRootWidget' in settings_values and settings_values['defaultRootWidget'] in (None, 'None'),
             'DefaultRootWidget is overridden in the running editor; do not create an unexpected authored root')
     require(not s.ue().EditorAssetLibrary.does_asset_exist(asset) and not s.package_file(asset).exists(),
             'Prompt target already exists; never claim a preexisting asset')
@@ -365,11 +370,21 @@ def host_tree(asset):
         prompt(asset, 'FN_KBMTogglePrompt', 'Overlay', kbm, boxslot(0))
         patch(current['HintText']['widget'], {'visibility': 'Collapsed'})
     elif asset in (ENTRY, FISTS):
+        # Native ApplyEntryView owns KeyText visibility, but never its opacity or
+        # accessibility. Retire that authored label without reading a protected
+        # native member in the presentation graph or changing its binding/name.
+        patch(current['KeyText']['widget'], LEGACY_SHORTCUT_STYLE)
         child = prompt(asset, 'FN_SlotKeyPrompt', 'Overlay', current['EntryCanvas']['widget'], rect(74, 2, 28, 24, 6))
         patch(child, {'renderTransform': {'translation': {'x': 0, 'y': 0}, 'scale': {'x': 0.72, 'y': 0.72},
                                          'shear': {'x': 0, 'y': 0}, 'angle': 0},
                       'renderTransformPivot': {'x': 0, 'y': 0}})
     elif asset == MAP:
+        # Existing footer objects need generated getters for device visibility.
+        # This changes only their variable flags; the tree and layout survive.
+        for name in ('BackHint', 'FooterLayout'):
+            if not current[name]['bIsVariable']:
+                tool('ToggleWidgetAsVariable', widgetBlueprint=support().ref(asset),
+                     widget=current[name]['widget'], bIsVariable=True)
         bar = add(asset, 'FN_MapCommandBar', '/Script/UMG.HorizontalBox', current['MapPageRoot']['widget'],
                   slot=rect(56, -52, 1108, 32, 25, 1))
         for name in MAP_ACTIONS:
@@ -392,7 +407,9 @@ def host_tree(asset):
             prompt(asset, 'FN_' + name + 'Prompt', 'Paper', bar, boxslot(28))
     require(old_names <= set(rows(asset)), 'Preexisting widget removed')
     before = json.loads((folder / 'before.json').read_text())
-    preserve_objects(before, snapshot(asset), {'HintText:widget': {'visibility': 'Collapsed'}} if asset == QUICK else {})
+    expected = {'HintText:widget': {'visibility': 'Collapsed'}} if asset == QUICK else (
+        {'KeyText:widget': LEGACY_SHORTCUT_STYLE} if asset in (ENTRY, FISTS) else {})
+    preserve_objects(before, snapshot(asset), expected)
     result = finish(s, marker, folder, added=sorted(set(rows(asset)) - old_names), next='Native compile/save host, then host_bindings(asset)')
     gc.collect(); return result
 
@@ -423,7 +440,11 @@ class Graph:
         nodes = [n for n in self.g.editor.list_all_nodes() if n.get_path_name() not in before]
         require(len(nodes) == 1 and nodes[0].get_class().get_name() == 'K2Node_DynamicCast', 'Pure cast creation failed')
         node = nodes[0]; self.b.connect(value, self.b.inp(node, 'Object'))
-        return self.b.out(node, 'As' + cls.rsplit('.', 1)[-1])
+        # Cast result names use editor display spacing, which differs by class.
+        outputs = [p for p in self.s.ue().BlueprintEditorLibrary.list_output_pins(node)
+                   if str(p.get_pin_name()).startswith('As')]
+        require(len(outputs) == 1, 'Pure cast result pin is not unique')
+        return outputs[0]
 
     def branch(self, execute, value):
         return self.g.branch(execute, value)[1:]
@@ -504,7 +525,6 @@ def _quick_graph(g, event, execute):
 
 def _entry_graph(g, event, execute):
     b = g.b
-    execute = g.visibility(execute, 'KeyText', 'Collapsed')
     execute, pc, invalid = g.owner(execute)
     g.call(invalid, '/Script/AZ.AZ_ActionPrompt', 'ClearPrompt', {'self': g.get('FN_SlotKeyPrompt')})
     fields = g.g.q.action(g.g.editor, 'Break AZ_QuickSelectEntryView', 'K2Node_BreakStruct')
@@ -536,6 +556,10 @@ def _map_graph(g, execute):
                             {'self': g.get('FN_Map' + name + 'Prompt')},
                             {'Action': ref['refPath'], 'Description': description, 'Context': 'Paper'})
     execute = g.visibility(execute, 'FN_MapSectionNavigation', 'SelfHitTestInvisible')
+    _map_visibility_tail(g, execute, pc)
+
+
+def _map_visibility_tail(g, execute, pc):
     # Replace the static ESC string with the real mapped Back prompt on all devices.
     execute = g.visibility(execute, 'BackHint', 'Collapsed')
     pad, kbm = g.device(execute, pc)

@@ -14,6 +14,8 @@ class UAZ_PlayerUIComponent;
 class UAZ_QuickSelectComponent;
 class UAZ_QuestMapComponent;
 class UAZ_CampaignSaveCoordinator;
+class UAZ_MenuRoutesComponent;
+class UAZ_MenuRouteWidget;
 class AAZ_Weapon;
 class UInputAction;
 class UInputMappingContext;
@@ -36,6 +38,11 @@ public:
 	TObjectPtr<UAZ_QuestMapComponent> QuestMap;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Save")
 	TObjectPtr<UAZ_CampaignSaveCoordinator> CampaignSave;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|UI") TObjectPtr<UAZ_MenuRoutesComponent> MenuRoutes;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|UI") TObjectPtr<UInputAction> PauseMenuAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|UI") TObjectPtr<UInputMappingContext> PauseMenuMappingContext;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|UI") TSubclassOf<UAZ_MenuRouteWidget> MenuRoutesWidgetClass;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|UI") bool bShowTitleMenuOnStartup = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
 	class UInputAction* OpenInventoryAction;
@@ -84,10 +91,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AZ|Character|Input")
 	void ToggleCommonUI_InventoryMenu();
 	/** Compatibility guard used by firearm abilities: all interactive player UI blocks combat. */
-	bool IsInventoryInputCaptured() const { return IsGameplayInputCaptured() || bQuickSelectMouseReleasePending; }
+	bool IsInventoryInputCaptured() const { return IsGameplayInputCaptured() || bQuickSelectMouseReleasePending || bMenuMouseReleasePending; }
 	bool IsGameplayInputCaptured() const;
 	bool IsInventoryMenuOpen() const { return bInventoryInputCaptured; }
 	void SetQuickSelectInputCaptured(bool bOpen);
+	void SetMenuRouteInputCaptured(bool bOpen, bool bProtectHeldInput = true);
+	bool CanOpenInventoryFromMenuRoute() const;
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickSelect") void ToggleQuickSelect();
 
 	// Add setter methods
@@ -125,6 +134,8 @@ protected:
 
 	UPROPERTY()
 	FString PickupMessage{TEXT("Press E to PickUp")};
+	/** Key-free presentation cache; target and transaction ownership are unchanged. */
+	UPROPERTY(Transient) FText PickupCaption;
 
 public:
 
@@ -173,6 +184,8 @@ private:
 	/** Native quick-slot input -> QuickBar->Select(index of the firing action). */
 	void OnQuickSlotInput(const FInputActionInstance& Instance);
 	void OnChangeFireModeInput();
+	void HandlePauseMenuAction();
+	void SuppressHeldButtonsAfterMenu();
 	UFUNCTION()
 	void HandleInventoryMenuToggled(bool bOpen);
 	UFUNCTION(Server, Reliable) void Server_SetInventoryInputCaptured(bool bInventoryOpen, bool bQuickSelectOpen);
@@ -181,6 +194,8 @@ private:
 	bool bInventoryInputCaptured = false;
 	bool bQuickSelectInputCaptured = false;
 	bool bQuickSelectMouseReleasePending = false;
+	bool bMenuRouteInputCaptured = false;
+	bool bMenuMouseReleasePending = false;
 	TSet<FGameplayTag> MenuSuppressedInputTags;
 
 	/** Presses swallowed by an exclusive throw aim. Their RELEASES must be swallowed too: otherwise the

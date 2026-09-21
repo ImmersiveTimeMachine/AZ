@@ -23,6 +23,9 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 		InventorySwitcherPanel->SetContextMenuAction(ContextMenuAction);
 		InventorySwitcherPanel->OnMapRequested.RemoveAll(this);
 		InventorySwitcherPanel->OnMapRequested.AddUObject(this, &ThisClass::OpenMapPage);
+		InventorySwitcherPanel->OnTabNavigationRequested.RemoveAll(this);
+		InventorySwitcherPanel->OnTabNavigationRequested.AddUObject(this, &ThisClass::HandleTabNavigationRequested);
+		InventorySwitcherPanel->SetTabNavigationActions(TabLeftAction, TabRightAction);
 	}
 	if (MenuSwitcher)
 	{
@@ -43,42 +46,84 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeDestruct()
 {
-	if (InventorySwitcherPanel) InventorySwitcherPanel->OnMapRequested.RemoveAll(this);
+	if (InventorySwitcherPanel)
+	{
+		InventorySwitcherPanel->OnMapRequested.RemoveAll(this);
+		InventorySwitcherPanel->OnTabNavigationRequested.RemoveAll(this);
+	}
 	if (MenuSwitcher) MenuSwitcher->OnActiveWidgetIndexChanged.RemoveAll(this);
 	if (MapPage) MapPage->OnBackToInventory.RemoveDynamic(this, &ThisClass::OpenInventoryPage);
 	Super::NativeDestruct();
 }
 
+UWidget* UAZ_Inv_CommonUI_GameInventoryMenu::GetLogicalMenuPage() const
+{
+	if (!MenuSwitcher) return InventoryCanvas;
+	if (UWidget* Pending = MenuSwitcher->GetPendingActiveWidget()) return Pending;
+	return MenuSwitcher->GetActiveWidget();
+}
+
 bool UAZ_Inv_CommonUI_GameInventoryMenu::IsInventoryPageActive() const
 {
-	return !MenuSwitcher || MenuSwitcher->GetActiveWidget() == InventoryCanvas;
+	return GetLogicalMenuPage() == InventoryCanvas;
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OpenMapPage()
 {
-	if (!MenuSwitcher || !MapPage || (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem())) return;
+	if (!IsActivated() || !MenuSwitcher || !MapPage || (InventorySwitcherPanel && !InventorySwitcherPanel->CanChangeInventoryTab())) return;
 	if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
 	MenuSwitcher->SetActiveWidget(MapPage);
-	MapPage->ActivateWidget();
+	if (InventorySwitcherPanel) InventorySwitcherPanel->SetMapTabActive(true);
+	// A fade's pending child is not yet in Slate's visible child tree. Activate
+	// and focus at arrival; the immediate path also handles already-visible Map.
+	if (MenuSwitcher->GetActiveWidget() == MapPage)
+	{
+		MapPage->ActivateWidget();
+		MapPage->RequestRefreshFocus();
+	}
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OpenInventoryPage()
 {
-	if (MapPage) MapPage->DeactivateWidget();
 	if (MenuSwitcher && InventoryCanvas) MenuSwitcher->SetActiveWidget(InventoryCanvas);
-	if (InventorySwitcherPanel) InventorySwitcherPanel->RefreshFromInventory();
+	else if (MapPage) MapPage->DeactivateWidget();
+	if (InventorySwitcherPanel)
+	{
+		InventorySwitcherPanel->RefreshFromInventory();
+		InventorySwitcherPanel->SetMapTabActive(false);
+		if (IsActivated() && (!MenuSwitcher || MenuSwitcher->GetActiveWidget() == InventoryCanvas))
+			InventorySwitcherPanel->FocusActiveInventoryTab();
+	}
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleMenuPageChanged(UWidget* ActiveWidget, int32 ActiveIndex)
 {
-	if (ActiveWidget == MapPage)
+	// The engine broadcasts after the visible Slate index changes. Its pending
+	// target remains the source of logical navigation, but focus follows arrival.
+	if (!IsActivated())
+	{
+		if (MapPage) MapPage->DeactivateWidget();
+		return;
+	}
+	UWidget* Arrived = MenuSwitcher ? MenuSwitcher->GetActiveWidget() : ActiveWidget;
+	if (Arrived == MapPage && GetLogicalMenuPage() == MapPage)
 	{
 		if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
-		if (MapPage) MapPage->ActivateWidget();
+		if (MapPage)
+		{
+			MapPage->ActivateWidget();
+			MapPage->RequestRefreshFocus();
+		}
+		if (InventorySwitcherPanel) InventorySwitcherPanel->SetMapTabActive(true);
 	}
-	else if (MapPage)
+	else
 	{
-		MapPage->DeactivateWidget();
+		if (MapPage) MapPage->DeactivateWidget();
+		if (InventorySwitcherPanel)
+		{
+			InventorySwitcherPanel->SetMapTabActive(GetLogicalMenuPage() == MapPage);
+			if (Arrived == InventoryCanvas && IsInventoryPageActive()) InventorySwitcherPanel->FocusActiveInventoryTab();
+		}
 	}
 }
 
@@ -137,20 +182,36 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnDeactivated()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabLeft()
 {
-	if (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem()) return;
-	if (MenuSwitcher)
-	{
-		MenuSwitcher->ActivatePreviousWidget(true);
-	}
+	NavigateInventoryTab(-1);
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabRight()
 {
-	if (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem()) return;
-	if (MenuSwitcher)
+	NavigateInventoryTab(1);
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabNavigationRequested(int32 Direction)
+{
+	NavigateInventoryTab(Direction);
+}
+
+bool UAZ_Inv_CommonUI_GameInventoryMenu::NavigateInventoryTab(int32 Direction)
+{
+	if (!Direction || !IsActivated() || !GetOwningLocalPlayer() || !InventorySwitcherPanel
+		|| !InventorySwitcherPanel->CanChangeInventoryTab()) return false;
+	const bool bMapActive = MapPage && GetLogicalMenuPage() == MapPage;
+	if (!bMapActive && !IsInventoryPageActive()) return false;
+	const int32 Current = bMapActive ? 3 : InventorySwitcherPanel->GetActiveInventoryCategoryIndex();
+	if (Current == INDEX_NONE) return false;
+	const int32 Next = (Current + (Direction > 0 ? 1 : -1) + 4) % 4;
+	if (Next == 3)
 	{
-		MenuSwitcher->ActivateNextWidget(true);
+		OpenMapPage();
+		return MapPage && GetLogicalMenuPage() == MapPage;
 	}
+	if (!InventorySwitcherPanel->ShowInventoryCategory(Next)) return false;
+	if (bMapActive) OpenInventoryPage();
+	return true;
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleBack()

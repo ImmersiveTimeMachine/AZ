@@ -4,6 +4,8 @@
 #include "Player/AZ_PlayerController.h"
 
 #include "EnhancedInputSubsystems.h"
+#include "EnhancedPlayerInput.h"
+#include "UObject/StrongObjectPtr.h"
 #include "GameplayTagContainer.h"
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AZ_GA_FirearmFire.h"
@@ -14,6 +16,7 @@
 #include "UI/AZ_PlayerUIComponent.h"
 #include "UI/AZ_QuickSelectComponent.h"
 #include "UI/AZ_QuestMapComponent.h"
+#include "UI/AZ_MenuRoutesComponent.h"
 #include "Game/AZ_CampaignSaveCoordinator.h"
 #include "Game/AZ_CampaignCheckpoint.h"
 #include "Quests/AZ_QuestWorldActor.h"
@@ -80,6 +83,7 @@ AAZ_PlayerController::AAZ_PlayerController()
 	QuickBar = CreateDefaultSubobject<UAZ_QuickBarComponent>(TEXT("QuickBar"));
 	PlayerUI = CreateDefaultSubobject<UAZ_PlayerUIComponent>(TEXT("PlayerUI"));
 	QuickSelect = CreateDefaultSubobject<UAZ_QuickSelectComponent>(TEXT("QuickSelect"));
+	MenuRoutes = CreateDefaultSubobject<UAZ_MenuRoutesComponent>(TEXT("MenuRoutes"));
 	ThrowableHand = CreateDefaultSubobject<UAZ_ThrowableHandComponent>(TEXT("ThrowableHand"));
 	QuestMap = CreateDefaultSubobject<UAZ_QuestMapComponent>(TEXT("QuestMap"));
 	CampaignSave = CreateDefaultSubobject<UAZ_CampaignSaveCoordinator>(TEXT("CampaignSave"));
@@ -109,6 +113,13 @@ void AAZ_PlayerController::BeginPlay()
 			     "cross-pawn input (pause, inventory, menu nav, photo mode) won't work."),
 			*GetName());
 		Subsystem->AddMappingContext(SharedInputMappingContext, 0);
+		if (PauseMenuMappingContext) Subsystem->AddMappingContext(PauseMenuMappingContext, 3);
+	}
+	if (MenuRoutes)
+	{
+		MenuRoutes->MenuWidgetClass = MenuRoutesWidgetClass;
+		MenuRoutes->bShowTitleOnStartup = bShowTitleMenuOnStartup;
+		MenuRoutes->InitializeForLocalPlayer();
 	}
 }
 
@@ -166,6 +177,7 @@ void AAZ_PlayerController::SetupInputComponent()
 	{
 		AZ_InputComponent->BindAction(QuickSelectToggleAction, ETriggerEvent::Started, this, &ThisClass::ToggleQuickSelect);
 	}
+	if (PauseMenuAction) AZ_InputComponent->BindAction(PauseMenuAction, ETriggerEvent::Started, this, &ThisClass::HandlePauseMenuAction);
 
 	// Native (non-ability) quick-slot/equip inputs -> QuickBar->Select. Same component,
 	// different lane than BindAbilityActions (which only ACTIVATES GAS abilities).
@@ -201,13 +213,14 @@ void AAZ_PlayerController::Tick(float DeltaSeconds)
 	{
 		ClearFirearmRecoil();
 	}
-	if (bQuickSelectMouseReleasePending && FSlateApplication::IsInitialized())
+	if ((bQuickSelectMouseReleasePending || bMenuMouseReleasePending) && FSlateApplication::IsInitialized())
 	{
 		const TSet<FKey>& Pressed = FSlateApplication::Get().GetPressedMouseButtons();
 		if (!Pressed.Contains(EKeys::RightMouseButton) && !Pressed.Contains(EKeys::LeftMouseButton)
 			&& !Pressed.Contains(EKeys::MiddleMouseButton))
 		{
 			bQuickSelectMouseReleasePending = false;
+			bMenuMouseReleasePending = false;
 			if (PlayerUI) PlayerUI->NotifyInputCaptureChanged();
 		}
 	}
@@ -390,6 +403,10 @@ void AAZ_PlayerController::UpdateRotation(float DeltaTime)
 
 void AAZ_PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (PauseMenuMappingContext)
+	{
+		if (auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer())) Subsystem->RemoveMappingContext(PauseMenuMappingContext);
+	}
 	ClearFirearmRecoil();
 	RecentRecoilShotIds.Reset();
 	Super::EndPlay(EndPlayReason);
@@ -397,11 +414,13 @@ void AAZ_PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void AAZ_PlayerController::ToggleQuickSelect()
 {
+	if (bMenuRouteInputCaptured) return;
 	if (QuickSelect) QuickSelect->Toggle();
 }
 
 void AAZ_PlayerController::ToggleInventoryMenu()
 {
+	if (bMenuRouteInputCaptured) return;
 	if (!InventoryComponent.IsValid())
 		return;
 	
@@ -410,6 +429,7 @@ void AAZ_PlayerController::ToggleInventoryMenu()
 
 void AAZ_PlayerController::ToggleCommonUI_InventoryMenu()
 {
+	if (bMenuRouteInputCaptured) return;
 	if (!CommonUI_InventoryComponent.IsValid())
 		return;
 	if (!bInventoryInputCaptured && !CanUseInventoryInteraction()) return;
@@ -530,7 +550,7 @@ void AAZ_PlayerController::HandlePickupPromptToggled(bool bVisible)
 	if (!IsValid(HUDWidget)) return;
 	if (bVisible && !IsInventoryInputCaptured())
 	{
-		HUDWidget->ShowPickupMessage(PickupMessage);
+		HUDWidget->ShowInteractionPrompt(PickupCaption, PickupMessage);
 	}
 	else
 	{
@@ -600,7 +620,72 @@ bool AAZ_PlayerController::RouteThrowInput(const FGameplayTag& InputTag, const b
 
 bool AAZ_PlayerController::IsGameplayInputCaptured() const
 {
-	return bInventoryInputCaptured || bQuickSelectInputCaptured || (CampaignSave && CampaignSave->IsBusy());
+	return bInventoryInputCaptured || bQuickSelectInputCaptured || bMenuRouteInputCaptured || (CampaignSave && CampaignSave->IsBusy());
+}
+
+void AAZ_PlayerController::HandlePauseMenuAction()
+{
+	if (MenuRoutes) MenuRoutes->HandlePauseAction();
+}
+
+bool AAZ_PlayerController::CanOpenInventoryFromMenuRoute() const
+{
+	return bMenuRouteInputCaptured && CommonUI_InventoryComponent.IsValid() && CommonUI_InventoryComponent->GetInventoryMenu() && CanUseInventoryInteraction();
+}
+
+void AAZ_PlayerController::SuppressHeldButtonsAfterMenu()
+{
+	auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (!Subsystem || !Subsystem->GetPlayerInput()) return;
+	FModifyContextOptions Immediate;
+	Immediate.bForceImmediately = true;
+	Immediate.bIgnoreAllPressedKeysUntilRelease = true;
+	Immediate.bNotifyUserSettings = false;
+	// Deactivation queues context removal. Drain that and any accumulated false
+	// ignore-held option now, while our capture remains owned, before sampling keys.
+	Subsystem->RequestRebuildControlMappings(Immediate, EInputMappingRebuildType::Rebuild);
+	UEnhancedPlayerInput* Input = Subsystem->GetPlayerInput();
+	if (!Input) return;
+	TSet<FKey> HeldKeys;
+	for (const FEnhancedActionKeyMapping& Mapping : Input->GetEnhancedActionMappingsView())
+	{
+		if (!Mapping.Action || Mapping.Action->ValueType != EInputActionValueType::Boolean) continue;
+		const FKeyState* State = Input->GetKeyState(Mapping.Key);
+		if (State && State->bDown && State->EventCounts[IE_Released].IsEmpty() && State->EventAccumulator[IE_Released].IsEmpty()) HeldKeys.Add(Mapping.Key);
+	}
+	if (HeldKeys.IsEmpty()) return;
+	TStrongObjectPtr<UInputAction> BarrierAction(NewObject<UInputAction>(this, NAME_None, RF_Transient));
+	BarrierAction->ValueType = EInputActionValueType::Boolean;
+	BarrierAction->bConsumeInput = true;
+	BarrierAction->bConsumesActionAndAxisMappings = false;
+	TStrongObjectPtr<UAZ_MenuResumeInputContext> Barrier(NewObject<UAZ_MenuResumeInputContext>(this, NAME_None, RF_Transient));
+	for (const FKey& Key : HeldKeys) Barrier->MapKey(BarrierAction.Get(), Key);
+	FModifyContextOptions Deferred = Immediate;
+	Deferred.bForceImmediately = false;
+	// RebuildWithFlush does NOT set ignore-held flags in this engine. The temporary
+	// consuming barrier first removes only these keys' underlying runtime mappings.
+	// Authored contexts/priorities/registration counts stay installed throughout.
+	Subsystem->AddMappingContext(Barrier.Get(), MAX_int32, Deferred);
+	Subsystem->RequestRebuildControlMappings(Immediate, EInputMappingRebuildType::RebuildWithFlush);
+	// The flush drained pending option-AND state. Removing only our barrier now
+	// restores genuinely new Boolean mappings with ignore-held=true. Analog action
+	// mappings are never marked ignored. No frame/input evaluation or key injection
+	// occurs between these synchronous passes, and no transient context is retained.
+	Subsystem->RemoveMappingContext(Barrier.Get(), Immediate);
+}
+
+void AAZ_PlayerController::SetMenuRouteInputCaptured(bool bOpen, bool bProtectHeldInput)
+{
+	if (bMenuRouteInputCaptured == bOpen) return;
+	const bool bWasCaptured = IsGameplayInputCaptured();
+	if (!bOpen && bProtectHeldInput) SuppressHeldButtonsAfterMenu();
+	bMenuRouteInputCaptured = bOpen;
+	if (!bOpen && FSlateApplication::IsInitialized())
+	{
+		const TSet<FKey>& Pressed = FSlateApplication::Get().GetPressedMouseButtons();
+		bMenuMouseReleasePending = Pressed.Contains(EKeys::RightMouseButton) || Pressed.Contains(EKeys::LeftMouseButton) || Pressed.Contains(EKeys::MiddleMouseButton);
+	}
+	ApplyGameplayInputCapture(bWasCaptured);
 }
 
 void AAZ_PlayerController::PrimaryInteract()
@@ -1017,29 +1102,34 @@ void AAZ_PlayerController::Server_SetInventoryInputCaptured_Implementation(bool 
 void AAZ_PlayerController::SetActivePickUpActor(AActor* NewActor)
 {
 	FString NextMessage;
+	FText NextCaption;
 	if (const UAZ_Inv_CommonUI_ItemComponent* Item = NewActor ? NewActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>() : nullptr)
 	{
 		NextMessage = Item->GetPickupMessage();
+		NextCaption = Item->GetPickupCaption();
 		if (NextMessage.IsEmpty()) NextMessage = TEXT("Press E to pick up");
 	}
 	else if (const AAZ_QuestWorldActor* QuestActor = Cast<AAZ_QuestWorldActor>(NewActor))
 	{
 		NextMessage = QuestActor->GetInteractionPrompt().ToString();
+		NextCaption = QuestActor->GetInteractionCaption();
 	}
 	else if (Cast<AAZ_CampaignCheckpoint>(NewActor))
 	{
 		NextMessage = NSLOCTEXT("CHALK", "CheckpointUsePrompt", "Press E to save at checkpoint").ToString();
+		NextCaption = NSLOCTEXT("CHALK", "CheckpointUseCaption", "Save at checkpoint");
 	}
 	const bool bActorChanged = ActivePickupActor.Get() != NewActor;
 	// Replication can finish while the player keeps looking at the same pickup.
 	// Refresh changed ammunition text without toggling an unchanged prompt each tick.
-	if (!bActorChanged && PickupMessage == NextMessage) return;
+	if (!bActorChanged && PickupMessage == NextMessage && PickupCaption.EqualTo(NextCaption)) return;
 	if (bActorChanged)
 	{
 		LastActivePickupActor = ActivePickupActor;
 		ActivePickupActor = NewActor;
 	}
 	PickupMessage = MoveTemp(NextMessage);
+	PickupCaption = MoveTemp(NextCaption);
 	HandlePickupPromptToggled(IsValid(NewActor));
 }
 

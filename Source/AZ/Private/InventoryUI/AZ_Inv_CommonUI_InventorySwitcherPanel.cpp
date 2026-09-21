@@ -11,10 +11,13 @@
 #include "AZ_GameplayTags.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
+#include "Components/Button.h"
+#include "UI/AZ_ActionPrompt.h"
 #include "Components/Image.h"
 #include "Components/HorizontalBox.h"
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "InventoryUI/AZ_Inv_CommonUI_GameInventoryMenu.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryGrid.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
@@ -38,18 +41,34 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeConstruct()
 	if (InventoryComponent.IsValid()) InventoryComponent->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::HandleInventoryChanged);
 	if (EquipmentComponent.IsValid()) EquipmentComponent->OnEquipmentChanged.AddUniqueDynamic(this, &ThisClass::RefreshEquipment);
 
+	// Category identity owns selection. Focus/hover remain independent, and an
+	// already-active tab stays interactive without becoming a toggle-off control.
+	for (UCommonButtonBase* Tab : {Button_Equippable.Get(), Button_Consumable.Get(), Button_Craftable.Get(), WBPMapButton_1.Get()})
+	{
+		if (!Tab) continue;
+		Tab->SetIsSelectable(true);
+		Tab->SetIsToggleable(false);
+		Tab->SetIsInteractableWhenSelected(true);
+		Tab->SetShouldSelectUponReceivingFocus(false);
+	}
+	// bTriggerClickedAfterSelection is authored true on these four instances;
+	// this engine exposes no public setter. The callback must finish selection.
+
 	// Bind tab button click events
 	if (Button_Equippable) Button_Equippable->OnClicked().AddUObject(this, &ThisClass::ShowEquippables);
 	if (Button_Consumable) Button_Consumable->OnClicked().AddUObject(this, &ThisClass::ShowConsumables);
 	if (Button_Craftable) Button_Craftable->OnClicked().AddUObject(this, &ThisClass::ShowCraftables);
 	if (WBPMapButton_1) WBPMapButton_1->OnClicked().AddUObject(this, &ThisClass::RequestMap);
+	if (PreviousTabButton) PreviousTabButton->OnClicked.AddUniqueDynamic(this, &ThisClass::RequestPreviousTab);
+	if (NextTabButton) NextTabButton->OnClicked.AddUniqueDynamic(this, &ThisClass::RequestNextTab);
+	RefreshTabNavigationPrompts();
 
 	if (InventoryGridSwitcher)
 	{
 		InventoryGridSwitcher->OnActiveWidgetIndexChanged.AddUObject(this, &ThisClass::HandleGridSwitcherIndexChanged);
 	}
 
-	// Set initial active grid (Equippables at index 0)
+	// Select Equippables by identity; this Blueprint's physical slot order may differ.
 	ActiveGrid.Reset();
 	ShowEquippables();
 
@@ -85,6 +104,10 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
 	if (Button_Consumable) Button_Consumable->OnClicked().RemoveAll(this);
 	if (Button_Craftable) Button_Craftable->OnClicked().RemoveAll(this);
 	if (WBPMapButton_1) WBPMapButton_1->OnClicked().RemoveAll(this);
+	if (PreviousTabButton) PreviousTabButton->OnClicked.RemoveDynamic(this, &ThisClass::RequestPreviousTab);
+	if (NextTabButton) NextTabButton->OnClicked.RemoveDynamic(this, &ThisClass::RequestNextTab);
+	if (PreviousTabPrompt) PreviousTabPrompt->ClearPrompt();
+	if (NextTabPrompt) NextTabPrompt->ClearPrompt();
 
 	if (InventoryGridSwitcher)
 	{
@@ -105,73 +128,147 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleGridSwitcherIndexChanged(UWidget* ActiveWidget, int32 ActiveIndex)
 {
-	UAZ_Inv_CommonUI_InventoryGrid* Grid = Cast<UAZ_Inv_CommonUI_InventoryGrid>(ActiveWidget);
-	if (!Grid)
+	// A preceding listener can queue/reverse another transition during the
+	// multicast. Its captured argument must never be replayed as a new request.
+	UWidget* LogicalWidget = ActiveWidget;
+	if (InventoryGridSwitcher)
 	{
-		Grid = GetGridAtIndex(ActiveIndex);
+		LogicalWidget = InventoryGridSwitcher->GetPendingActiveWidget();
+		if (!LogicalWidget) LogicalWidget = InventoryGridSwitcher->GetActiveWidget();
 	}
-
-	SetActiveGrid(Grid, GetGridLabel(ActiveIndex));
-
-	// Sync tab button selection (e.g. when switched via TabLeft/TabRight)
-	TMap<UAZ_Inv_CommonUI_InventoryGrid*, UCommonButtonBase*> Map = GetGridButtonMap();
-	if (UCommonButtonBase** FoundButton = Map.Find(Grid))
+	UAZ_Inv_CommonUI_InventoryGrid* Grid = Cast<UAZ_Inv_CommonUI_InventoryGrid>(LogicalWidget);
+	if (!Grid || !GetGridButtonMap().Contains(Grid)) return;
+	if (ActiveGrid.Get() != Grid)
 	{
-		SelectTabButton(*FoundButton);
+		if (ActiveGrid.IsValid()) ActiveGrid->OnHide();
+		ActiveGrid = Grid;
+		Grid->ShowCursor();
+	}
+	if (ActiveSelectionLabelText) ActiveSelectionLabelText->SetText(GetGridLabel(Grid));
+
+	// An inner animation may finish after the outer page already returned to
+	// Map. Keep its category memory, but select from the actual outer owner.
+	SynchronizeTabSelection();
+}
+
+int32 UAZ_Inv_CommonUI_InventorySwitcherPanel::GetActiveInventoryCategoryIndex() const
+{
+	const UAZ_Inv_CommonUI_InventoryGrid* Grid = ActiveGrid.Get();
+	if (Grid && Grid == Grid_Equippables) return 0;
+	if (Grid && Grid == Grid_Consumables) return 1;
+	if (Grid && Grid == Grid_Craftables) return 2;
+	return INDEX_NONE;
+}
+
+FText UAZ_Inv_CommonUI_InventorySwitcherPanel::GetGridLabel(const UAZ_Inv_CommonUI_InventoryGrid* Grid) const
+{
+	if (Grid && Grid == Grid_Equippables) return NSLOCTEXT("AZ_Inventory", "Equippables", "Equippables");
+	if (Grid && Grid == Grid_Consumables) return NSLOCTEXT("AZ_Inventory", "Consumables", "Consumables");
+	if (Grid && Grid == Grid_Craftables) return NSLOCTEXT("AZ_Inventory", "Craftables", "Craftables");
+	return FText::GetEmpty();
+}
+
+bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CanChangeInventoryTab() const
+{
+	return !HasHoverItem() && !HasActivePopUp();
+}
+
+bool UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowInventoryCategory(int32 CategoryIndex)
+{
+	if (!CanChangeInventoryTab()) { SynchronizeTabSelection(); return false; }
+	UAZ_Inv_CommonUI_InventoryGrid* Grid = CategoryIndex == 0 ? Grid_Equippables.Get()
+		: CategoryIndex == 1 ? Grid_Consumables.Get() : CategoryIndex == 2 ? Grid_Craftables.Get() : nullptr;
+	if (!Grid) { SynchronizeTabSelection(); return false; }
+	SetActiveGrid(Grid, GetGridLabel(Grid));
+	SetMapTabActive(false);
+	return ActiveGrid.Get() == Grid;
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetMapTabActive(bool bMapActive)
+{
+	SynchronizeTabSelection(bMapActive);
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::FocusActiveInventoryTab()
+{
+	if (!GetOwningPlayer()) return;
+	const auto Buttons = GetGridButtonMap();
+	if (UCommonButtonBase* const* Button = Buttons.Find(ActiveGrid.Get()); Button && *Button && (*Button)->GetIsEnabled())
+	{
+		(*Button)->SetUserFocus(GetOwningPlayer());
 	}
 }
 
-UAZ_Inv_CommonUI_InventoryGrid* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetGridAtIndex(int32 Index) const
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetTabNavigationActions(UInputAction* PreviousAction, UInputAction* NextAction)
 {
-	switch (Index)
-	{
-		case 0: return Grid_Equippables;
-		case 1: return Grid_Consumables;
-		case 2: return Grid_Craftables;
-		default: return nullptr;
-	}
+	PreviousTabAction = PreviousAction;
+	NextTabAction = NextAction;
+	RefreshTabNavigationPrompts();
 }
 
-FText UAZ_Inv_CommonUI_InventorySwitcherPanel::GetGridLabel(int32 Index) const
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RefreshTabNavigationPrompts()
 {
-	switch (Index)
-	{
-		case 0: return NSLOCTEXT("AZ_Inventory", "Equippables", "Equippables");
-		case 1: return NSLOCTEXT("AZ_Inventory", "Consumables", "Consumables");
-		case 2: return NSLOCTEXT("AZ_Inventory", "Craftables", "Craftables");
-		default: return FText::GetEmpty();
-	}
+	if (PreviousTabPrompt) PreviousTabPrompt->ConfigureAction(PreviousTabAction, FText::GetEmpty(), TEXT("Paper"));
+	if (NextTabPrompt) NextTabPrompt->ConfigureAction(NextTabAction, FText::GetEmpty(), TEXT("Paper"));
+	if (PreviousTabButton) PreviousTabButton->SetToolTipText(NSLOCTEXT("AZ_Inventory", "PreviousSection", "Previous section"));
+	if (NextTabButton) NextTabButton->SetToolTipText(NSLOCTEXT("AZ_Inventory", "NextSection", "Next section"));
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RequestPreviousTab()
+{
+	if (CanChangeInventoryTab()) OnTabNavigationRequested.Broadcast(-1);
+	SynchronizeTabSelection();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RequestNextTab()
+{
+	if (CanChangeInventoryTab()) OnTabNavigationRequested.Broadcast(1);
+	SynchronizeTabSelection();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowEquippables()
 {
-	SetActiveGrid(Grid_Equippables, GetGridLabel(0));
-	SelectTabButton(Button_Equippable);
+	ShowInventoryCategory(0);
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowConsumables()
 {
-	SetActiveGrid(Grid_Consumables, GetGridLabel(1));
-	SelectTabButton(Button_Consumable);
+	ShowInventoryCategory(1);
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowCraftables()
 {
-	SetActiveGrid(Grid_Craftables, GetGridLabel(2));
-	SelectTabButton(Button_Craftable);
+	ShowInventoryCategory(2);
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::RequestMap()
 {
-	if (HasHoverItem()) return;
-	OnMapRequested.Broadcast();
+	if (CanChangeInventoryTab()) OnMapRequested.Broadcast();
+	// CommonUI preselects before this callback. Restore the current category if
+	// a drag/popup guard or the outer owner's page availability rejects the request.
+	SynchronizeTabSelection();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SelectTabButton(UCommonButtonBase* Button)
 {
-	if (Button_Equippable) Button_Equippable->SetIsSelected(Button == Button_Equippable);
-	if (Button_Consumable) Button_Consumable->SetIsSelected(Button == Button_Consumable);
-	if (Button_Craftable) Button_Craftable->SetIsSelected(Button == Button_Craftable);
+	for (UCommonButtonBase* Tab : {Button_Equippable.Get(), Button_Consumable.Get(), Button_Craftable.Get(), WBPMapButton_1.Get()})
+	{
+		if (!Tab) continue;
+		if (Tab == Button) Tab->SetIsSelected(true, false);
+		else if (Tab->GetSelected()) Tab->ClearSelection();
+	}
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::SynchronizeTabSelection(bool bMapFallback)
+{
+	// Use the existing inventory owner's pending-aware page query. No second
+	// page state or hardcoded WidgetSwitcher index can drift from that owner.
+	const UAZ_Inv_CommonUI_GameInventoryMenu* Menu = InventoryComponent.IsValid() ? InventoryComponent->GetInventoryMenu() : nullptr;
+	const bool bMapActive = Menu ? !Menu->IsInventoryPageActive() : bMapFallback;
+	if (bMapActive) { SelectTabButton(WBPMapButton_1); return; }
+	const auto Buttons = GetGridButtonMap();
+	UCommonButtonBase* const* Button = Buttons.Find(ActiveGrid.Get());
+	SelectTabButton(Button ? *Button : nullptr);
 }
 
 TMap<UAZ_Inv_CommonUI_InventoryGrid*, UCommonButtonBase*> UAZ_Inv_CommonUI_InventorySwitcherPanel::GetGridButtonMap() const
@@ -255,6 +352,11 @@ UCommonActivatableWidgetSwitcher* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetWi
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_InventoryGrid* Grid, const FText& GridLabel)
 {
+	const FText IdentityLabel = GetGridLabel(Grid);
+	if (ActiveSelectionLabelText && (!IdentityLabel.IsEmpty() || !GridLabel.IsEmpty()))
+	{
+		ActiveSelectionLabelText->SetText(IdentityLabel.IsEmpty() ? GridLabel : IdentityLabel);
+	}
 	if (ActiveGrid == Grid) return;
 
 	if (ActiveGrid.IsValid())
@@ -278,10 +380,6 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_Inv
 		UE_LOG(LogTemp, Error, TEXT("SetActiveGrid: InventoryGridSwitcher is NULL!"));
 	}
 
-	if (ActiveSelectionLabelText && !GridLabel.IsEmpty())
-	{
-		ActiveSelectionLabelText->SetText(GridLabel);
-	}
 }
 
 UAZ_Inv_CommonUI_InventoryGrid* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetActiveGrid() const

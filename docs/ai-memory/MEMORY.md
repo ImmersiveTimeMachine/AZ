@@ -17,7 +17,7 @@ Migrated from UE 5.7.4 on 2026-05-10. Active work: v2 character system (hero paw
 - `asset-modification-via-python` — Python recipes via `unreal_execute_script`; GC crash rule; PoseSearch/notify bridges.
 
 ## Project Overview
-- [Unified UI mockups](project_unified_ui_design.md) — September19: user requested3coherentvisualfamilies forallmenus/HUD/quick; nativeGIMP12screenspervariant, existingquick8-cellstructure preserved. QuietSignals/FieldNotes/DistrictSigns, selectionpending. No runtime styling changes.
+- [Unified UI / Field Notes](C:/UnrealEngine/Games/AZ/docs/ai-memory/project_unified_ui_design.md) — September21: nativebuildANDassetintegrationcomplete/compiled/saved; [current status](C:/UnrealEngine/Games/AZ/docs/design-briefs/field-notes-current-status.md) supersedesoldhandoffs. User-runacceptancepending. Nextpriorityfullgamepadbindings: userconfirmedrecognition/glyphswitching, DO NOT retesthardware; RTgameplaycontext38mappings/zeroGamepadkeys. Startupmenudesignonly,currentlayout/backgroundlater,L_001/L_002/L_003; noepisodetravelimplementation. Do not replaycompletedstages; noagentPIE/tests.
 - [Quests, Map and next marker task](project_quests_and_map.md) — September19: authorized quest/Map/save integration compiled and saved; initial user Play appears to work. Marker-style plan recorded; broader unified UI mockups now requested (see above), implementation awaits selection. Exhaustive save/load acceptance still open.
 - **Title:** CHALK ([project_lore_chalk.md](project_lore_chalk.md)) — Montreal 2024 modern survival horror; rotting drug-addict infected ("Chalkies"), conspiracy-faction antagonist
 - **Type:** Third-person survival/action-horror with inventory, equipment, combat

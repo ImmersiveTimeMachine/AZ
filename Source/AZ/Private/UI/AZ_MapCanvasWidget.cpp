@@ -82,6 +82,10 @@ void UAZ_MapCanvasWidget::HandleNavigationChanged()
 
 void UAZ_MapCanvasWidget::NativeConstruct()
 {
+	// A reopened map must not inherit the pointer from the last session, nor claim the surface from the mouse
+	// before the stick has actually been touched.
+	bPointerInitialised = false;
+	bPointerActive = false;
 	Super::NativeConstruct();
 	// Only this canvas needs per-frame paint for the local player's arrow. Hidden widgets do not paint.
 	ForceVolatile(true);
@@ -105,6 +109,91 @@ void UAZ_MapCanvasWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 		ViewportSize = NewSize;
 		ClampView();
 	}
+	UpdateControllerPointer(InDeltaTime);
+}
+
+void UAZ_MapCanvasWidget::UpdateControllerPointer(float DeltaTime)
+{
+	if (!CanUseNavigation() || ViewportSize.X <= 0.0 || ViewportSize.Y <= 0.0 || !FMath::IsFinite(DeltaTime))
+	{
+		return;
+	}
+	if (!bPointerInitialised)
+	{
+		// Somewhere visible and neutral to begin with. From here it is the player's, not the view's.
+		PointerLocal = ViewportSize * 0.5;
+		bPointerInitialised = true;
+	}
+	const APlayerController* Player = GetOwningPlayer();
+	if (!Player)
+	{
+		return;
+	}
+	// ★ READ THE AXIS, DO NOT ADD AN ACTION. An Axis2D entry in the Map context would fail
+	// HasSafeMapMappingContext, which accepts exactly six non-consuming Boolean UI actions, and losing that
+	// check disables the whole Map context along with its six working commands. Reading the key here is also
+	// immune to the analog-cursor preprocessor, which can swallow stick events before a widget ever sees them.
+	FVector2D Stick(Player->GetInputAnalogKeyState(EKeys::Gamepad_RightX),
+		Player->GetInputAnalogKeyState(EKeys::Gamepad_RightY));
+	if (Stick.ContainsNaN())
+	{
+		return;
+	}
+	const double Magnitude = Stick.Size();
+	const double Dead = FMath::Clamp(static_cast<double>(PointerDeadZone), 0.0, 0.6);
+	if (Magnitude <= Dead || Magnitude <= UE_SMALL_NUMBER)
+	{
+		// Still re-clamp: a zoom or resize this frame can leave a resting pointer outside the drawn map.
+		PointerLocal = ClampPointer(PointerLocal);
+		return;
+	}
+	// Remapped from zero past the dead zone, so the slowest usable deflection is genuinely slow.
+	const double Response = FMath::Min((Magnitude - Dead) / FMath::Max(1.0 - Dead, UE_SMALL_NUMBER), 1.0);
+	FVector2D Direction = Stick / Magnitude;
+	Direction.Y = -Direction.Y;   // stick up is +Y; widget-local Y grows downward
+	const double Speed = FMath::Clamp(static_cast<double>(PointerSpeed), 100.0, 4000.0);
+	PointerLocal = ClampPointer(PointerLocal + Direction * (Response * Speed * DeltaTime));
+	bPointerActive = true;
+}
+
+FVector2D UAZ_MapCanvasWidget::ClampPointer(FVector2D Local) const
+{
+	// Bounded by the DRAWN MAP intersected with the widget, not by the widget alone. At fit zoom the image is
+	// letterboxed inside the widget, and a pointer let into the letterbox maps to no place at all; zoomed in,
+	// the image overflows and the widget is the tighter bound. The intersection is right in both cases, and
+	// it is what lets the pointer sit exactly on an edge or a corner.
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = ViewportSize;
+	const FVector2D DrawSize = ImageSizeForViewport(ViewportSize);
+	if (DrawSize.X > UE_SMALL_NUMBER && DrawSize.Y > UE_SMALL_NUMBER)
+	{
+		const FVector2D TopLeft = MapToLocal(FVector2D::ZeroVector, ViewportSize);
+		const FVector2D BottomRight = MapToLocal(FVector2D(1.0, 1.0), ViewportSize);
+		Min = FVector2D(FMath::Max(Min.X, TopLeft.X), FMath::Max(Min.Y, TopLeft.Y));
+		Max = FVector2D(FMath::Min(Max.X, BottomRight.X), FMath::Min(Max.Y, BottomRight.Y));
+	}
+	// A degenerate intersection would clamp Max below Min and fling the pointer to a corner.
+	if (Max.X < Min.X) { Min.X = Max.X = ViewportSize.X * 0.5; }
+	if (Max.Y < Min.Y) { Min.Y = Max.Y = ViewportSize.Y * 0.5; }
+	if (Local.ContainsNaN()) { Local = (Min + Max) * 0.5; }
+	return FVector2D(FMath::Clamp(Local.X, Min.X, Max.X), FMath::Clamp(Local.Y, Min.Y, Max.Y));
+}
+
+FVector2D UAZ_MapCanvasWidget::PointerOrCentre() const
+{
+	return bPointerActive ? PointerLocal : ViewportSize * 0.5;
+}
+
+bool UAZ_MapCanvasWidget::PlaceWaypointAtPointer()
+{
+	// PlaceWaypointAt still owns the conversion and the commit, so an invalid point is refused there and the
+	// previous marker survives untouched.
+	return PlaceWaypointAt(PointerOrCentre());
+}
+
+bool UAZ_MapCanvasWidget::SelectMarkerAtPointer()
+{
+	return SelectAt(PointerOrCentre());
 }
 
 FVector2D UAZ_MapCanvasWidget::ImageSizeForViewport(FVector2D Size) const
@@ -336,6 +425,9 @@ FReply UAZ_MapCanvasWidget::NativeOnMouseButtonDown(const FGeometry& Geometry, c
 
 FReply UAZ_MapCanvasWidget::NativeOnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event)
 {
+	// Deliberate handoff, and it must happen before the drag early-out: a real mouse move means the mouse is
+	// driving again, so placement must stop using a stale stick pointer the player can no longer see moving.
+	bPointerActive = false;
 	if (!bPointerDown || !CanUseNavigation()) { return Super::NativeOnMouseMove(Geometry, Event); }
 	ViewportSize = Geometry.GetLocalSize();
 	const FVector2D Position = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
@@ -395,7 +487,7 @@ FReply UAZ_MapCanvasWidget::NativeOnKeyDown(const FGeometry& Geometry, const FKe
 	else if (Key == EKeys::Home) { RecenterPlayer(); }
 	else if (Key == EKeys::Add || Key == EKeys::Equals) { ZoomAtCenter(1.2); }
 	else if (Key == EKeys::Subtract || Key == EKeys::Hyphen) { ZoomAtCenter(1.0 / 1.2); }
-	else if (Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom) { SelectMarkerAtCenter(); }
+	else if (Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom) { SelectMarkerAtPointer(); }
 	else { return Super::NativeOnKeyDown(Geometry, Event); }
 	return FReply::Handled();
 }
@@ -557,10 +649,35 @@ int32 UAZ_MapCanvasWidget::NativePaint(const FPaintArgs& Args, const FGeometry& 
 	}
 	if (HasAnyUserFocus())
 	{
-		FLinearColor ReticleColor = bUseCategoryMarkerStyle ? SelectionColor : ChalkColor; ReticleColor.A *= 0.45f;
-		const FVector2D P = Size * 0.5;
-		DrawLines({P - FVector2D(4.0, 0.0), P + FVector2D(4.0, 0.0)}, ReticleColor, 1.0f);
-		DrawLines({P - FVector2D(0.0, 4.0), P + FVector2D(0.0, 4.0)}, ReticleColor, 1.0f);
+		// Two different things share this spot. The faint centre tick is a passive hint about where a
+		// centre-targeted command would land. The pointer is an object the player is actively aiming, so it
+		// is drawn brighter, larger and with a ring — it has to be findable on a busy map at a glance.
+		FLinearColor ReticleColor = bUseCategoryMarkerStyle ? SelectionColor : ChalkColor;
+		if (bPointerActive)
+		{
+			const FVector2D P = PointerLocal;
+			const double Arm = 10.0;
+			const double Gap = 3.0;
+			DrawLines({P - FVector2D(Arm, 0.0), P - FVector2D(Gap, 0.0)}, ReticleColor, 2.0f);
+			DrawLines({P + FVector2D(Gap, 0.0), P + FVector2D(Arm, 0.0)}, ReticleColor, 2.0f);
+			DrawLines({P - FVector2D(0.0, Arm), P - FVector2D(0.0, Gap)}, ReticleColor, 2.0f);
+			DrawLines({P + FVector2D(0.0, Gap), P + FVector2D(0.0, Arm)}, ReticleColor, 2.0f);
+			TArray<FVector2D> Ring;
+			Ring.Reserve(13);
+			for (int32 Step = 0; Step <= 12; ++Step)
+			{
+				const double Angle = (static_cast<double>(Step) / 12.0) * 2.0 * UE_DOUBLE_PI;
+				Ring.Add(P + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * 5.0);
+			}
+			DrawLines(Ring, ReticleColor, 1.5f);
+		}
+		else
+		{
+			ReticleColor.A *= 0.45f;
+			const FVector2D P = Size * 0.5;
+			DrawLines({P - FVector2D(4.0, 0.0), P + FVector2D(4.0, 0.0)}, ReticleColor, 1.0f);
+			DrawLines({P - FVector2D(0.0, 4.0), P + FVector2D(0.0, 4.0)}, ReticleColor, 1.0f);
+		}
 	}
 	Elements.PopClip();
 	return Base + 4;

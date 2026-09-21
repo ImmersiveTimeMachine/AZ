@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -32,6 +32,8 @@ public:
 	
 	float GetPickupRadius() const { return PickupRadius; }
 	FString GetPickupMessage() const;
+	UFUNCTION(BlueprintPure, Category="AZ|Inventory|Presentation")
+	FText GetPickupCaption() const;
 	FAZ_Inv_CommonUI_ItemManifest GetItemManifest() const { return PickupItemManifest; }
 	FAZ_Inv_CommonUI_ItemManifest& GetItemManifestMutable() { return PickupItemManifest; }
 
@@ -84,4 +86,11 @@ protected:
 	
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	FString PickupMessage;
+	/** Key-free caption for authored non-magazine pickups. Legacy PickupMessage stays untouched.
+	 *  Magazines always derive their live name/rounds/capacity caption from the payload. */
+	UPROPERTY(EditAnywhere, Category="AZ|Inventory|Presentation", meta=(MultiLine="true"))
+	FText PickupCaption;
+
+private:
+	FText FormatMagazinePickupPrompt(bool bLegacyKeyHint) const;
 };

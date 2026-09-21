@@ -183,7 +183,7 @@ void AAZ_Item::HandleBeginOverlap(UPrimitiveComponent* OverlappedComp,
 			if (const AAZ_PlayerController* PlayerCtrl = Cast<AAZ_PlayerController>(Hero->GetController());
 				PlayerCtrl && PlayerCtrl->HUDWidget)
 			{
-				PlayerCtrl->HUDWidget->ShowPickupMessage(FString("Press 'E' to add item."));
+				PlayerCtrl->HUDWidget->ShowInteractionPrompt(NSLOCTEXT("AZInventoryPickup", "LegacyItemCaption", "Add item"), FString());
 			}
 
 			//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString("Press 'E' to add item."));

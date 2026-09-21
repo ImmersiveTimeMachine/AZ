@@ -47,6 +47,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Map")
 	bool SelectMarkerAtCenter();
 
+	/**
+	 * Place or replace the personal marker where the CONTROLLER POINTER is, falling back to the view centre
+	 * when no pointer is showing (mouse session, or the stick has not been touched yet).
+	 *
+	 * ★ Centre-only targeting cannot reach an arbitrary place. ClampView pins the view centre to 0.5 at fit
+	 * zoom and to an interior interval at any finite zoom, so panning alone can never put the centre over a
+	 * map edge or corner — those points were simply unreachable with a controller. The pointer moves
+	 * independently of the view, which is what makes them reachable.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Map")
+	bool PlaceWaypointAtPointer();
+
+	/** Quest selection aimed at the same indicated point, so both commands agree about what is targeted. */
+	UFUNCTION(BlueprintCallable, Category="Map")
+	bool SelectMarkerAtPointer();
+
+	/** True while the stick owns the on-screen pointer; false once the mouse takes the surface back. */
+	UFUNCTION(BlueprintPure, Category="Map")
+	bool IsControllerPointerActive() const { return bPointerActive; }
+
 	UFUNCTION(BlueprintCallable, Category="Map")
 	bool SelectNextMarker(bool bForward = true);
 
@@ -97,6 +117,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Map|Input", meta=(ClampMin="1.0", ClampMax="32.0"))
 	float DragThreshold = 6.0f;
 
+	/** Pointer travel at full stick deflection, in slate units per second. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Map|Input", meta=(ClampMin="100.0", ClampMax="4000.0"))
+	float PointerSpeed = 900.0f;
+
+	/** Radial dead zone for the pointer stick. Deflection past it is remapped from zero, so the slowest
+	 *  usable nudge stays slow instead of jumping to the dead-zone speed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Map|Input", meta=(ClampMin="0.0", ClampMax="0.6"))
+	float PointerDeadZone = 0.15f;
+
 	UFUNCTION(BlueprintPure, Category="Map")
 	double GetZoom() const { return Zoom; }
 	UFUNCTION(BlueprintPure, Category="Map")
@@ -129,6 +158,17 @@ private:
 	double Zoom = 1.0;
 	bool bPointerDown = false;
 	bool bDragging = false;
+
+	/**
+	 * The controller pointer, in WIDGET-LOCAL space rather than map UV.
+	 *
+	 * Local space is the honest home for it: it is a thing on screen, it has to stay on screen through zoom,
+	 * pan and resize, and every placement path already starts from a local position. Holding it in UV would
+	 * make it drift under the view instead of staying where the player put it.
+	 */
+	FVector2D PointerLocal = FVector2D::ZeroVector;
+	bool bPointerActive = false;
+	bool bPointerInitialised = false;
 	FName SelectedQuestId;
 	FName SelectedObjectiveId;
 
@@ -142,4 +182,7 @@ private:
 	void ZoomAt(FVector2D LocalPosition, double Factor);
 	bool PlaceWaypointAt(FVector2D LocalPosition);
 	bool SelectAt(FVector2D LocalPosition);
+	void UpdateControllerPointer(float DeltaTime);
+	FVector2D ClampPointer(FVector2D Local) const;
+	FVector2D PointerOrCentre() const;
 };

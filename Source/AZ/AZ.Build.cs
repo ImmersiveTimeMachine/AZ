@@ -9,6 +9,8 @@ public class AZ : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "GameplayTags", "AIModule", "NavigationSystem", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory", "Mover", "NetworkPrediction", "Chooser", "StructUtils", "AssetRegistry", "BlendStack", "AnimationWarpingRuntime", "AnimGraphRuntime", "MotionWarping" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
+			"ApplicationCore", // Local input-device pairing and connection notifications.
+			"DeveloperSettings", // Runtime platform settings used by CommonInput glyph selection.
 			"Slate",
 			"SlateCore",
 			"GameplayAbilities",

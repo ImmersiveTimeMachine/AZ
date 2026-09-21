@@ -1,6 +1,13 @@
 #include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
 
 #include "AZ_GameplayTags.h"
+#include "CommonInputSubsystem.h"
+#include "CommonUITypes.h"
+#include "EnhancedInputSubsystems.h"
+#include "Engine/LocalPlayer.h"
+#include "Input/AZ_InputConfig.h"
+#include "Player/AZ_PlayerController.h"
+#include "UI/AZ_ActionPrompt.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
@@ -61,6 +68,16 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 	}
 	ShowElement(LowHealthText, false);
 	HidePickupMessage();
+	UnbindInteractionPresentation();
+	if (ULocalPlayer* LocalPlayer = GetOwningLocalPlayer())
+	{
+		InteractionInput = UCommonInputSubsystem::Get(LocalPlayer);
+		InteractionMappings = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+		if (InteractionInput.IsValid())
+			InteractionInputChangedHandle = InteractionInput->OnInputMethodChangedNative.AddUObject(this, &ThisClass::HandleInteractionInputChanged);
+		if (InteractionMappings.IsValid())
+			InteractionMappings->ControlMappingsRebuiltDelegate.AddUniqueDynamic(this, &ThisClass::HandleInteractionMappingsRebuilt);
+	}
 	ClearHitFeedback();
 	ClearInfoMessage();
 	ClearReticle();
@@ -88,6 +105,9 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::NativeDestruct()
 {
+	UnbindInteractionPresentation();
+	bInteractionPromptRequested = false;
+	if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
 	if (GetWorld())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(HitFeedbackTimer);
@@ -248,15 +268,100 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::ShowPickupMessage_Implementation(const FString& Message)
 {
-	if (PickupText) PickupText->SetText(FText::FromString(Message));
-	// The outer HUD owns inventory visibility. Do not gate this update on our
-	// cached menu flag: controller and UI delegate callbacks can arrive in either order.
-	ShowElement(PickupContainer, !Message.IsEmpty());
+	// Compatibility for existing Blueprint callers. Do not parse localized text.
+	ShowInteractionPrompt(FText::GetEmpty(), Message);
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::ShowInteractionPrompt(const FText& Caption, const FString& LegacyEHint)
+{
+	InteractionCaption = Caption;
+	LegacyInteractionEHint = LegacyEHint;
+	bInteractionPromptRequested = !Caption.IsEmpty() || !LegacyEHint.IsEmpty();
+	RefreshInteractionPrompt();
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::RefreshInteractionPrompt()
+{
+	const AAZ_PlayerController* Player = Cast<AAZ_PlayerController>(GetOwningPlayer());
+	const UInputAction* Action = Player && Player->InputConfig
+		? Player->InputConfig->FindAbilityInputActionForTag(FAZ_GameplayTags::Get().Input_Action_Interact)
+		: nullptr;
+	if (!bInteractionPromptRequested || !Player || !Player->IsLocalController())
+	{
+		if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
+		ShowElement(PickupContainer, false);
+		return;
+	}
+	const UCommonInputSubsystem* Input = UCommonInputSubsystem::Get(GetOwningLocalPlayer());
+	if (Input && !Input->ShouldShowInputKeys())
+	{
+		if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
+		ShowElement(PickupContainer, false);
+		return;
+	}
+	const ECommonInputType Type = Input ? Input->GetCurrentInputType() : ECommonInputType::MouseAndKeyboard;
+	const FKey CurrentKey = Action && Input ? CommonUI::GetFirstKeyForInputType(GetOwningLocalPlayer(), Type, Action) : FKey();
+	TArray<FKey> Keys;
+	if (Action) CommonUI::GetEnhancedInputActionKeys(GetOwningLocalPlayer(), Action, Keys);
+	// Legacy full strings are explicit E hints, never captions to be parsed.
+	// Preserve their complete item details only while E is a real current KBM
+	// binding. A remap or gamepad must never display the old hardcoded key.
+	const bool bSafeLegacyEHint = InteractionCaption.IsEmpty() && !LegacyInteractionEHint.IsEmpty()
+		&& Input && Input->ShouldShowInputKeys() && Type == ECommonInputType::MouseAndKeyboard && Keys.Contains(EKeys::E);
+	if (bSafeLegacyEHint)
+	{
+		if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
+		if (PickupText) PickupText->SetText(FText::FromString(LegacyInteractionEHint));
+		ShowElement(PickupText, true);
+	}
+	else
+	{
+		const FText Caption = InteractionCaption.IsEmpty() ? LOCTEXT("InteractCaption", "Interact") : InteractionCaption;
+		if (InteractionActionPrompt && Action && CurrentKey.IsValid() && CommonUI::IsEnhancedInputSupportEnabled())
+		{
+			// Display only. Do not register CommonUI or EnhancedInput commands for
+			// this gameplay ability; its existing InputConfig/GAS route remains owner.
+			InteractionActionPrompt->ConfigureAction(const_cast<UInputAction*>(Action), Caption, TEXT("Overlay"));
+			ShowElement(PickupText, false);
+		}
+		else
+		{
+			if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
+			if (PickupText) PickupText->SetText(FText::Format(LOCTEXT("InteractionTextFallback", "{0}  {1}"),
+				CurrentKey.IsValid() ? CurrentKey.GetDisplayName() : LOCTEXT("InteractionUnbound", "Unbound"), Caption));
+			ShowElement(PickupText, true);
+		}
+	}
+	// Keep the existing outer-HUD visibility owner; callback order is unchanged.
+	ShowElement(PickupContainer, true);
 }
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::HidePickupMessage_Implementation()
 {
+	bInteractionPromptRequested = false;
+	InteractionCaption = FText::GetEmpty();
+	LegacyInteractionEHint.Reset();
+	if (InteractionActionPrompt) InteractionActionPrompt->ClearPrompt();
 	ShowElement(PickupContainer, false);
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::HandleInteractionInputChanged(ECommonInputType InputType)
+{
+	RefreshInteractionPrompt();
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::HandleInteractionMappingsRebuilt()
+{
+	RefreshInteractionPrompt();
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::UnbindInteractionPresentation()
+{
+	if (InteractionInput.IsValid()) InteractionInput->OnInputMethodChangedNative.Remove(InteractionInputChangedHandle);
+	if (InteractionMappings.IsValid()) InteractionMappings->ControlMappingsRebuiltDelegate.RemoveDynamic(this, &ThisClass::HandleInteractionMappingsRebuilt);
+	InteractionInputChangedHandle.Reset();
+	InteractionInput.Reset();
+	InteractionMappings.Reset();
 }
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::HandleHitConfirmed()
