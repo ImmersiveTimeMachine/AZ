@@ -9,6 +9,7 @@
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
 #include "Inventory/AZ_InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Quests/AZ_QuestProgressComponent.h"
 
 
 AAZ_PlayerState::AAZ_PlayerState()
@@ -25,6 +26,7 @@ AAZ_PlayerState::AAZ_PlayerState()
 	VitalsAttributeSet = CreateDefaultSubobject<UAZ_VitalsAttributeSet>("VitalsAttributeSet");
 
 	InventoryComponent = CreateDefaultSubobject<UAZ_InventoryComponent>(TEXT("Inventory"));
+	QuestProgress = CreateDefaultSubobject<UAZ_QuestProgressComponent>(TEXT("QuestProgress"));
 
 	SetNetUpdateFrequency(100.f);
 }

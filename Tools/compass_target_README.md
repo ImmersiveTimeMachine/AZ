@@ -37,6 +37,16 @@ The anchor tracks its actual Actor transform. Place/move it explicitly later whe
 
 ## User-run checks after integration
 
+### Ready-to-play demonstration in L_001
+
+On September 19 Artur authorized three temporary demonstration targets in the current test level. `BP_AZ_NavigationPreviewTarget` is a child of the production target. Its single BeginPlay chain calls the parent, enumerates existing PlayerControllers once, and uses inherited `RegisterForPlayer` (which requires a valid local controller). The existing bridge queues these requests until HUD readiness. Inherited EndPlay removes the registrations. The production target still requires explicit registration.
+
+The level contains `CompassPreview_A`, `CompassPreview_B`, and `CompassPreview_C`, grouped under **Navigation/CompassPreview** in the World Outliner. Both display channels are enabled and the world labels are **TEST A**, **TEST B**, **TEST C**. Relative to the default PlayerStart facing +X: A is about18m ahead, B about20m to the right, C about16m behind on a raised platform. Marker anchors are120cm above the traced support surface. They have no physical collision or gameplay objective logic.
+
+Start Play yourself, rotate through a full turn and approach the targets. Look for compass diamonds/distances and world markers/edge indicators. The positions are fixed in the level; starting from the editor camera changes their initial directions. To remove this demonstration later, delete exactly those three actors from its Outliner folder and save the level. No HUD/production-target rollback is needed. The demo is intended for the existing local player at normal PIE startup; late-joining players are outside its scope.
+
+Receipts: [placed targets](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/preview-targets-placed.json) and [saved targets](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/preview-targets-saved.json). Native Blueprint compilation and map save passed; Codex has not launched Play or verified the markers visually.
+
 Check registration before/after HUD readiness, duplicate registration, updated text/icons, toggling either channel and re-registering, per-player unregistration, HUD removal/reattachment, remove/re-add during fade, and destroying the target. Confirm there are no ghost markers and that another local player's markers survive one player's unregistration.
 
 Authoring, native Blueprint compilation and saving have now been completed. See [the integration ledger](C:/UnrealEngine/Games/AZ/docs/design-briefs/compass-integration-progress.md) for receipts and the remaining manual acceptance gates. No automated tests were added and no PIE session was started by Codex.

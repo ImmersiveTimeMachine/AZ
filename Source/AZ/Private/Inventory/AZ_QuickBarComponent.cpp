@@ -212,6 +212,7 @@ void UAZ_QuickBarComponent::OnRep_Bindings()
 
 void UAZ_QuickBarComponent::SetReadyItemId(const FGuid& ItemId)
 {
+	if (bCampaignRestoring) return;
 	if (!GetOwner() || !GetOwner()->HasAuthority() || ReadyItemId == ItemId) return;
 	ReadyItemId = ItemId;
 	OnReadyItemChanged.Broadcast();
@@ -250,6 +251,7 @@ bool UAZ_QuickBarComponent::CanReadyConsumable() const
 
 void UAZ_QuickBarComponent::HandleEquipmentChanged()
 {
+	if (bCampaignRestoring) return;
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GetEquipment();
@@ -258,6 +260,21 @@ void UAZ_QuickBarComponent::HandleEquipmentChanged()
 	}
 	// A successfully committed equipment change wins over the separately readied
 	// consumable. Merely previewing, assigning, or queueing a weapon does not.
+	//
+	// ★ EXCEPT WHEN THE CHANGE LANDED ON EMPTY HANDS. "Wins over" means the player CHOSE a weapon
+	// instead of the consumable — and choosing nothing is not choosing a weapon. Holstering has no claim
+	// on the readied item.
+	//
+	// Without this the throwable cancels itself. Readying one now holsters whatever is in the hands first
+	// (a grenade is a weapon switch, user call 2026-09-19), the holster commits to Weapon.None, and this
+	// line then un-readies the very grenade that asked for it. Measured the same day: the throw never
+	// armed, and the holstered weapon could not be drawn back either because the transition owning it was
+	// still finishing — the player ended up empty-handed with nothing to show for the input.
+	const UAZ_Inv_CommonUI_EquipmentComponent* CommittedEquipment = GetEquipment();
+	if (CommittedEquipment && CommittedEquipment->GetActiveItem() == nullptr)
+	{
+		return;
+	}
 	SetReadyItemId(FGuid());
 }
 
@@ -287,6 +304,7 @@ void UAZ_QuickBarComponent::BindEquipmentEvents()
 
 bool UAZ_QuickBarComponent::BeginRequest(int32 SlotIndex, const FGuid& ItemId, const FGuid& RequestId)
 {
+	if (bCampaignRestoring) return false;
 	if (!RequestId.IsValid())
 	{
 		FAZ_QuickBarRequestResult Result;
@@ -570,6 +588,7 @@ void UAZ_QuickBarComponent::CyclePrev() { Cycle(-1); }
 
 void UAZ_QuickBarComponent::OnInventoryChanged()
 {
+	if (bCampaignRestoring) return;
 	UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
 	if (!GetOwner() || !GetOwner()->HasAuthority() || !Inventory) return;
 	if (LastFightWeaponId.IsValid() && !GetRememberedFightWeapon()) LastFightWeaponId.Invalidate();

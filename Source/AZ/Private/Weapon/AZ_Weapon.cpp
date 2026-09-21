@@ -729,7 +729,8 @@ void AAZ_Weapon::ClearEquipmentSocketBlend()
 }
 
 void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit, bool bHitConfirmed,
-	UParticleSystem* WorldImpactEffect, float WorldImpactScale)
+	UParticleSystem* WorldImpactEffect, float WorldImpactScale,
+	UMaterialInterface* WorldImpactDecal, float WorldImpactDecalSize, float WorldImpactDecalLifetime)
 {
 	if (GetNetMode() == NM_DedicatedServer) return;
 	// This is the authority's accepted scenery hit, independent of damage feedback
@@ -746,6 +747,40 @@ void AAZ_Weapon::Multicast_PlayFirearmShot_Implementation(const FHitResult& Hit,
 			UGameplayStatics::SpawnEmitterAtLocation(this, WorldImpactEffect,
 				Hit.ImpactPoint + SurfaceNormal, SurfaceNormal.Rotation(), FVector(WorldImpactScale),
 				true, EPSCPoolMethod::AutoRelease, true);
+		}
+	}
+
+	// Says out loud when a world hit produced no mark, because "the decal is not set on the weapon" and
+	// "the decal code never ran" look identical in game. Throttled: this is per bullet.
+	if (!IsValid(WorldImpactDecal) && Hit.IsValidBlockingHit())
+	{
+		static double LastDecalComplaint = -1000.0;
+		const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		if (Now - LastDecalComplaint > 3.0)
+		{
+			LastDecalComplaint = Now;
+			UE_LOG(LogTemp, Warning,
+				TEXT("[Fire] world hit with NO impact decal — WorldImpactDecal is empty in this weapon's fragment"));
+		}
+	}
+
+	// The hole the puff leaves behind. Gated on the same accepted hit, but on its own validity checks: a
+	// weapon may want a mark and no puff, or the reverse.
+	if (IsValid(WorldImpactDecal) && Hit.IsValidBlockingHit()
+		&& WorldImpactDecalSize > 0.f && FMath::IsFinite(WorldImpactDecalSize)
+		&& !Hit.ImpactPoint.ContainsNaN() && !Hit.ImpactNormal.ContainsNaN())
+	{
+		const FVector DecalNormal = Hit.ImpactNormal.GetSafeNormal();
+		if (!DecalNormal.IsNearlyZero())
+		{
+			// A decal projects along its own -X, so the rotation is built from the INWARD direction: facing
+			// it outward would project the hole away from the wall and render nothing. Rolled at random so
+			// a burst into one spot does not stamp the same picture N times.
+			FRotator DecalRotation = (-DecalNormal).Rotation();
+			DecalRotation.Roll += FMath::FRandRange(0.f, 360.f);
+			UGameplayStatics::SpawnDecalAtLocation(this, WorldImpactDecal,
+				FVector(WorldImpactDecalSize), Hit.ImpactPoint, DecalRotation,
+				FMath::Max(0.f, WorldImpactDecalLifetime));
 		}
 	}
 	const APawn* OwningPawn = Cast<APawn>(GetOwner());

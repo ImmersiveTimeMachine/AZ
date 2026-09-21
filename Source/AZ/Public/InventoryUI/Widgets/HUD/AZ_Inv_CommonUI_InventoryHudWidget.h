@@ -75,12 +75,23 @@ private:
 	bool bInventoryOpen = false;
 	FGuid PresentedWeaponId;
 	int32 DefaultAmmoFontSize = 0;
+
+	/**
+	 * The two things that can be in the player's hands, each arriving on its own delegate.
+	 *
+	 * Kept side by side because the HUD shows ONE row for both and either can change without the other: a
+	 * throwable is readied through the quick bar while equipment stays committed to nothing, so whichever
+	 * update lands has to be able to re-run the row against the latest of the other.
+	 */
+	FAZ_PlayerWeaponView PresentedWeapon;
+	FAZ_PlayerThrowableView PresentedThrowable;
 	UPROPERTY(Transient) TObjectPtr<UAZ_HUDReticleWidget> ReticleWidget;
 	UPROPERTY(Transient) TObjectPtr<UAZ_HUDReticleDefinition> ActiveReticleDefinition;
 	UPROPERTY(Transient) TObjectPtr<UScaleBox> ReticleScaleBox;
 
 	UFUNCTION() void HandleVitalsChanged(const FAZ_PlayerVitalsView& View);
 	UFUNCTION() void HandleWeaponChanged(const FAZ_PlayerWeaponView& View);
+	UFUNCTION() void HandleThrowableChanged(const FAZ_PlayerThrowableView& View);
 	UFUNCTION() void HandleHitConfirmed();
 	UFUNCTION() void HandleInventoryFull();
 	UFUNCTION() void HandleInventoryVisibilityChanged(bool bOpen);

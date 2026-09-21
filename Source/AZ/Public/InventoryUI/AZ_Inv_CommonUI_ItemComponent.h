@@ -46,11 +46,18 @@ public:
 	const TArray<FAZ_InventoryPickupRecord>& GetContainedItems() const { return ContainedItems; }
 	void SetPickupPayload(const FAZ_InventoryPickupRecord& RootRecord, const TArray<FAZ_InventoryPickupRecord>& Children);
 	void SetRemainingStackCount(int32 Count);
+	/** Unique on each placed pickup, authored in the level. Never generated at BeginPlay. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category="AZ|Campaign") FGuid CampaignPickupId;
+	static const FName CampaignRuntimeSpawnTag;
+	bool IsRuntimeCampaignPickup() const { return bRuntimeCampaignPickup; }
+	void RestoreCampaignPayload(FGuid WorldId, bool bRuntime, const FAZ_InventoryPickupRecord& Root,
+		const TArray<FAZ_InventoryPickupRecord>& Children);
 	/** Authorable initial contents, materialized once with fresh identities on spawn. */
 	void SetInitialContainedItemManifests(const TArray<FAZ_Inv_CommonUI_ItemManifest>& Manifests) { InitialContainedItemManifests = Manifests; }
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "AZ|Inventory")
 	void OnPickedUp();
@@ -66,6 +73,7 @@ protected:
 	UPROPERTY(Transient, Replicated)
 	int32 PickupStackCount = 1;
 	bool bPickupCommitted = false;
+	bool bRuntimeCampaignPickup = false;
 	
 	// Radius for overlap volume (editable)
 	UPROPERTY(EditAnywhere, Category = "AZ|Inventory", meta=(ClampMin="10.0"))

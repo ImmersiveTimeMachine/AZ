@@ -9,6 +9,10 @@ being re-proposed.
 
 | brief | question |
 |---|---|
+| `quest-marker-presentation-next-task.md` | Next session: verified identical marker presets, ProHUD icon/font inventory, shared role/state styles across compass/world/Map/journal; review only, implementation deferred. |
+| `quest-map-implementation-progress.md` | Quest/Map/save integration compiled and saved; first user feedback and remaining gameplay acceptance. |
+| `quest-map-implementation-plan.md` | Authorized module plan: campaign+sidequests, full inventory Map, personal waypoint, ProHUD reuse, committed progress and save/load gates. |
+| `quest-map-audit-and-design.md` | Live ProHUD mission/minimap and AZ inventory audit, concrete reuse boundaries and combined Map+journal design with official game references. |
 | `weapon-switch-status.md` | Animated rifle/pistol holster/draw and persistent carry actors; built, both profiles saved, user visual check pending. |
 | `rifle-circular-magazines-status.md` | Current circular R, exact inventory Load into rifle, and inserted-only ammo HUD; full build/restart passed, user gameplay check next. |
 | `rifle-reload-status.md` | Earlier reload transactions and runtime conservation evidence; fullest-spare and MAGS HUD policy superseded by circular magazines. |

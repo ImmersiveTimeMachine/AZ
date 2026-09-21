@@ -13,6 +13,7 @@ class UAZ_LevelUpInfo;
 class UAttributeSet;
 class UAbilitySystemComponent;
 class UAZ_WeaponAttributeSet;
+class UAZ_QuestProgressComponent;
 
 // Multicast delegates for stat changes
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlayerStatChanged, int32 /*StatValue*/)
@@ -29,6 +30,12 @@ public:
 	// ========================================
 
 	AAZ_PlayerState();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AZ|Quests")
+	TObjectPtr<UAZ_QuestProgressComponent> QuestProgress;
+
+	UFUNCTION(BlueprintPure, Category = "AZ|Quests")
+	UAZ_QuestProgressComponent* GetQuestProgress() const { return QuestProgress; }
 
 	// ========================================
 	// CORE OVERRIDES

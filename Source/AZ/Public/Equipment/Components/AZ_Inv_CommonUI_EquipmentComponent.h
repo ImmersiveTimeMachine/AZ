@@ -17,6 +17,7 @@ class AAZ_Weapon;
 class USkeletalMeshComponent;
 class UAnimSequence;
 struct FAbilityEndedData;
+struct FAZ_CampaignEquipmentState;
 
 /** One committed selection, replicated together so UI never guesses ahead of authority. */
 USTRUCT()
@@ -115,12 +116,24 @@ public:
 	/** Called by inventory only after it prepared a valid world representation. */
 	void PrepareItemForDrop(UAZ_Inv_CommonUI_InventoryItem* Item);
 	UPROPERTY(BlueprintAssignable, Category="AZ|Equipment") FAZ_EquipmentChanged OnEquipmentChanged;
+	bool CanCaptureCampaignState(FString& OutError) const;
+	bool CaptureCampaignState(FAZ_CampaignEquipmentState& OutState, FString& OutError) const;
+	bool PrepareCampaignRestore(const FAZ_CampaignEquipmentState& State, FString& OutError);
+	void CancelCampaignRestore();
+	bool CommitCampaignRestore(FString& OutError);
+	void PublishCampaignRestore(bool bNotify = true);
+	bool RecoverCampaignSelection(const FAZ_CampaignEquipmentState& State);
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
+	bool bCampaignRestoring = false;
+	bool bCampaignSelectionCommitted = false;
+	int32 CampaignIntrinsicSlot = INDEX_NONE;
+	UPROPERTY(Transient) TObjectPtr<UAZ_Inv_CommonUI_InventoryItem> CampaignPreparedItem;
+	UPROPERTY(Transient) TObjectPtr<AAZ_Weapon> CampaignPreparedWeapon;
 	UPROPERTY(ReplicatedUsing=OnRep_Selection) FAZ_EquipmentSelection Selection;
 	UPROPERTY() TArray<FGameplayAbilitySpecHandle> GrantedHandles;
 	TWeakObjectPtr<UAZ_Inv_CommonUI_InventoryComponent> InventoryComponent;

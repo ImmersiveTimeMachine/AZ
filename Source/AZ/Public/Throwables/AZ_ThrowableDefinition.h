@@ -9,6 +9,10 @@
 #include "AZ_ThrowableDefinition.generated.h"
 
 class AAZ_ThrowableProjectile;
+class UNiagaraSystem;
+class USoundBase;
+class UCameraShakeBase;
+class UMaterialInterface;
 class UAZ_ThrowPresentationProfile;
 class USkeletalMesh;
 class UStaticMesh;
@@ -185,6 +189,119 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Recovery")
 	bool bRecoverable = true;
+
+	// ---- Detonation (ImpactBehavior == FuseAndDetonate) -------------------------------------------
+	//
+	// Everything below is inert for the other behaviours. A grenade is this data on the same asset class a
+	// stone uses — the doctrine at the top of this file, kept.
+
+	/**
+	 * Seconds from RELEASE to the blast. From release, not from first contact: the grenade goes off wherever
+	 * it happens to be when the fuse runs out, which is what makes cooking and bouncing it round a corner
+	 * mean anything (user call 2026-09-19, four seconds).
+	 *
+	 * Because the clock starts as it leaves the hand it can never expire in the hand, so there is no
+	 * in-hand detonation case to defend against.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation",
+		meta = (ClampMin = "0", ForceUnits = "s"))
+	float FuseSeconds = 4.f;
+
+	/** Damage at the centre, before falloff. Fed to the same SetByCaller the firearm uses, so armour and
+	 *  resistances in AZ_DamageExecCalc apply exactly as they do to a bullet. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation", meta = (ClampMin = "0"))
+	float DetonationDamage = 120.f;
+
+	/** Inside this radius the full DetonationDamage lands — no falloff at all. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation",
+		meta = (ClampMin = "0", ForceUnits = "cm"))
+	float DamageInnerRadius = 200.f;
+
+	/** At and beyond this radius the blast does nothing. Also the radius the overlap query uses, so it
+	 *  bounds the cost of the whole detonation. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation",
+		meta = (ClampMin = "0", ForceUnits = "cm"))
+	float DamageOuterRadius = 600.f;
+
+	/** Shape of the drop between the two radii. 1 = linear; above 1 concentrates the lethality near the
+	 *  centre, which is what makes cover and distance worth playing for. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation", meta = (ClampMin = "0.1"))
+	float DamageFalloffExponent = 2.f;
+
+	/**
+	 * Impulse applied to a body the blast KILLS, scaled by the same falloff.
+	 *
+	 * Only to corpses. A living infected is driven by Mover, which owns its capsule; pushing it from outside
+	 * fights the simulation instead of moving it. Survivors are thrown by their REACTION animation, not by
+	 * physics — see the hit-react event the detonation sends.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation", meta = (ClampMin = "0"))
+	float CorpseImpulse = 60000.f;
+
+	/** Does the blast hurt whoever threw it. On by default: a grenade with no back-blast is a free button. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation")
+	bool bDamagesThrower = true;
+
+	/**
+	 * Whether a wall between the blast and a target protects it.
+	 *
+	 * On by default and the reason the detonation traces at all. Off turns the blast into a pure radius,
+	 * which is cheaper and sometimes what a designer wants for a small charge.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation")
+	bool bRequireLineOfSight = true;
+
+	/** How loud the blast is to AI hearing, and how far it carries — separate from the impact noise above,
+	 *  because a detonation must pull in everything that did not see it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation", meta = (ClampMin = "0"))
+	float DetonationLoudness = 4.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation",
+		meta = (ClampMin = "0", ForceUnits = "cm"))
+	float DetonationHearingRange = 9000.f;
+
+	// ---- Detonation cosmetics ---------------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX")
+	TObjectPtr<UNiagaraSystem> DetonationEffect;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX")
+	TObjectPtr<USoundBase> DetonationSound;
+
+	/** Played on every viewer inside DamageOuterRadius, falling off to nothing at that edge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX")
+	TSubclassOf<UCameraShakeBase> DetonationShake;
+
+	/** Scorch left on the ground under the blast. Null simply leaves none. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX")
+	TObjectPtr<UMaterialInterface> DetonationDecal;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX",
+		meta = (ClampMin = "0", ForceUnits = "cm"))
+	float DetonationDecalSize = 220.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Throwable|Detonation|FX",
+		meta = (ClampMin = "0", ForceUnits = "s"))
+	float DetonationDecalLifetime = 60.f;
+
+	/**
+	 * Damage multiplier for a target at Distance from the blast: 1 inside the inner radius, 0 at the outer.
+	 * One place, so the damage, the corpse impulse and the camera shake cannot disagree about how far the
+	 * blast reaches.
+	 */
+	float DetonationFalloff(const float Distance) const
+	{
+		if (Distance <= DamageInnerRadius)
+		{
+			return 1.f;
+		}
+		if (Distance >= DamageOuterRadius || DamageOuterRadius <= DamageInnerRadius)
+		{
+			return 0.f;
+		}
+		const float T = (Distance - DamageInnerRadius) / (DamageOuterRadius - DamageInnerRadius);
+		return FMath::Pow(1.f - T, FMath::Max(0.1f, DamageFalloffExponent));
+	}
 
 	/** Arc choice for an aim distance, with hysteresis against the arc already displayed. */
 	EAZ_ThrowArc SelectArc(float AimDistance, EAZ_ThrowArc Current) const

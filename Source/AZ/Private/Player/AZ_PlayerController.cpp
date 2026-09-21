@@ -13,6 +13,12 @@
 #include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InventoryHudWidget.h"
 #include "UI/AZ_PlayerUIComponent.h"
 #include "UI/AZ_QuickSelectComponent.h"
+#include "UI/AZ_QuestMapComponent.h"
+#include "Game/AZ_CampaignSaveCoordinator.h"
+#include "Game/AZ_CampaignCheckpoint.h"
+#include "Quests/AZ_QuestWorldActor.h"
+#include "Components/SphereComponent.h"
+#include "CoreGlobals.h"
 #include "Framework/Application/SlateApplication.h"
 #include "AbilitySystemInterface.h"
 #include "Camera/PlayerCameraManager.h"
@@ -37,6 +43,11 @@
 
 namespace
 {
+	bool IsImmediateQuestWorldTarget(const AActor* Target)
+	{
+		return IsValid(Target) && (Target->IsA<AAZ_QuestWorldActor>() || Target->IsA<AAZ_CampaignCheckpoint>());
+	}
+
 	bool IsFreshPressFireInput(const UAZ_AbilitySystemComponent* ASC, const FGameplayTag InputTag)
 	{
 		if (!ASC) return false;
@@ -70,6 +81,8 @@ AAZ_PlayerController::AAZ_PlayerController()
 	PlayerUI = CreateDefaultSubobject<UAZ_PlayerUIComponent>(TEXT("PlayerUI"));
 	QuickSelect = CreateDefaultSubobject<UAZ_QuickSelectComponent>(TEXT("QuickSelect"));
 	ThrowableHand = CreateDefaultSubobject<UAZ_ThrowableHandComponent>(TEXT("ThrowableHand"));
+	QuestMap = CreateDefaultSubobject<UAZ_QuestMapComponent>(TEXT("QuestMap"));
+	CampaignSave = CreateDefaultSubobject<UAZ_CampaignSaveCoordinator>(TEXT("CampaignSave"));
 }
 
 void AAZ_PlayerController::BeginPlay()
@@ -585,15 +598,98 @@ bool AAZ_PlayerController::RouteThrowInput(const FGameplayTag& InputTag, const b
 	return true;
 }
 
+bool AAZ_PlayerController::IsGameplayInputCaptured() const
+{
+	return bInventoryInputCaptured || bQuickSelectInputCaptured || (CampaignSave && CampaignSave->IsBusy());
+}
+
 void AAZ_PlayerController::PrimaryInteract()
 {
-	if (IsInventoryInputCaptured() || !CanUseInventoryInteraction() || !CommonUI_InventoryComponent.IsValid()) return;
+	if (IsInventoryInputCaptured() || !CanUseInventoryInteraction()) return;
 	RefreshPickupTarget();
 	if (!ActivePickupActor.IsValid()) return;
 	if (UAZ_Inv_CommonUI_ItemComponent* ItemComponent = ActivePickupActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>())
 	{
-		CommonUI_InventoryComponent->TryAddItem(ItemComponent);
+		if (CommonUI_InventoryComponent.IsValid()) CommonUI_InventoryComponent->TryAddItem(ItemComponent);
 	}
+	else if (IsImmediateQuestWorldTarget(ActivePickupActor.Get()))
+	{
+		RequestImmediateWorldInteraction(ActivePickupActor.Get());
+	}
+}
+
+bool AAZ_PlayerController::CanUseImmediateWorldInteraction() const
+{
+	if (IsInventoryInputCaptured() || !CanUseInventoryInteraction() || !IsValid(GetPawn())
+		|| GetPawn()->GetController() != this || !IsValid(PlayerState) || PlayerState->GetPawn() != GetPawn()) return false;
+	if (FindActiveThrow()) return false;
+	if (const UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		const FAZ_GameplayTags& WorldInteractionTags = FAZ_GameplayTags::Get();
+		if (ASC->HasMatchingGameplayTag(WorldInteractionTags.State_Traversing) || ASC->HasMatchingGameplayTag(WorldInteractionTags.Ability_State_Throwing)
+			|| ASC->HasMatchingGameplayTag(WorldInteractionTags.Ability_State_ThrowPreparing) || ASC->HasMatchingGameplayTag(WorldInteractionTags.Ability_State_Reloading)) return false;
+	}
+	return true;
+}
+
+bool AAZ_PlayerController::ValidateImmediateWorldTarget(AActor* Target) const
+{
+	if (!CanUseImmediateWorldInteraction() || !IsImmediateQuestWorldTarget(Target) || Target->IsActorBeingDestroyed()
+		|| Target->GetWorld() != GetWorld()) return false;
+	// Only zero-duration uses on these two owned actor classes take this route. Other interfaces retain their hold/ability path.
+	UPrimitiveComponent* UseComponent = nullptr;
+	if (const AAZ_QuestWorldActor* QuestActor = Cast<AAZ_QuestWorldActor>(Target)) UseComponent = QuestActor->InteractionVolume;
+	else UseComponent = Target->FindComponentByClass<USphereComponent>();
+	const float Duration = IAZ_Interactable::Execute_GetInteractionDuration(Target, UseComponent);
+	if (!FMath::IsFinite(Duration) || Duration != 0.0f) return false;
+	if (const AAZ_QuestWorldActor* QuestActor = Cast<AAZ_QuestWorldActor>(Target))
+	{
+		FString Error;
+		return QuestActor->CanInteractForPlayer(const_cast<AAZ_PlayerController*>(this), Error);
+	}
+	const AAZ_CampaignCheckpoint* Checkpoint = Cast<AAZ_CampaignCheckpoint>(Target);
+	const APawn* ControlledPawn = GetPawn();
+	if (!Checkpoint || !Checkpoint->bEnabled || Checkpoint->CheckpointId.IsNone()
+		|| !FMath::IsFinite(Checkpoint->SaveRadius) || Checkpoint->SaveRadius <= 0.0f
+		|| ControlledPawn->GetActorLocation().ContainsNaN() || Target->GetActorLocation().ContainsNaN()
+		|| FVector::DistSquared(ControlledPawn->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(Checkpoint->SaveRadius)) return false;
+	const FVector EyeLocation = ControlledPawn->GetPawnViewLocation();
+	if (EyeLocation.ContainsNaN()) return false;
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(ImmediateCheckpointUse), false, ControlledPawn);
+	FHitResult Hit;
+	return !GetWorld()->LineTraceSingleByChannel(Hit, EyeLocation, Target->GetActorLocation(), ECC_Visibility, Query) || Hit.GetActor() == Target;
+}
+
+void AAZ_PlayerController::RequestImmediateWorldInteraction(AActor* Target)
+{
+	if ((!IsLocalController() && !HasAuthority()) || !ValidateImmediateWorldTarget(Target)
+		|| LastImmediateWorldRequestFrame == GFrameCounter) return;
+	LastImmediateWorldRequestFrame = GFrameCounter;
+	Server_ImmediateWorldInteract(Target, FGuid::NewGuid());
+}
+
+void AAZ_PlayerController::Server_ImmediateWorldInteract_Implementation(AActor* Target, FGuid RequestId)
+{
+	if (!HasAuthority() || !RequestId.IsValid() || RecentWorldInteractionRequests.Contains(RequestId)) return;
+	RecentWorldInteractionRequests.Add(RequestId);
+	if (RecentWorldInteractionRequests.Num() > 128) RecentWorldInteractionRequests.RemoveAt(0);
+	if (!ValidateImmediateWorldTarget(Target)) return;
+	const double Now = GetWorld()->GetTimeSeconds();
+	// Also coalesce a legacy interface callback paired with this native input request across prediction frames.
+	if (Now - LastImmediateWorldServerTime < 0.15) return;
+	LastImmediateWorldServerTime = Now;
+	FString Error;
+	bool bCommitted = false;
+	if (AAZ_QuestWorldActor* QuestActor = Cast<AAZ_QuestWorldActor>(Target))
+	{
+		bCommitted = QuestActor->TryInteractForPlayer(this, RequestId, Error);
+	}
+	else if (AAZ_CampaignCheckpoint* Checkpoint = Cast<AAZ_CampaignCheckpoint>(Target))
+	{
+		// Do not invoke PostInteract here: its compatibility implementation routes back through this controller.
+		bCommitted = Checkpoint->SaveForPlayer(this, Error);
+	}
+	if (!bCommitted && !Error.IsEmpty()) UE_LOG(Log_AZ, Warning, TEXT("World interaction refused for %s: %s"), *GetNameSafe(Target), *Error);
 }
 
 void AAZ_PlayerController::OnChangeFireModeInput()
@@ -610,6 +706,7 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 		return;
 	}
 	MenuSuppressedInputTags.Remove(InputTag); // a fresh press also clears a release consumed by CommonUI
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact) bImmediateInteractPressConsumed = false;
 	// The throw owns the mouse while it is aiming, so this runs before every other interpretation of a
 	// click: an LMB cancel must not also swing a fist, and an RMB aim must not also raise iron sights.
 	if (RouteThrowInput(InputTag, /*bPressed*/ true))
@@ -646,6 +743,17 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 			// This is the VOLUNTARY path only. Death, hit reactions, grabs and other forced system actions
 			// do not come through player input, so they still preempt the throw exactly as before.
 			ThrowSuppressedInputTags.Add(InputTag);
+			return;
+		}
+	}
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact)
+	{
+		RefreshPickupTarget();
+		if (IsImmediateQuestWorldTarget(ActivePickupActor.Get())
+			&& !ActivePickupActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>())
+		{
+			bImmediateInteractPressConsumed = true;
+			PrimaryInteract();
 			return;
 		}
 	}
@@ -726,6 +834,11 @@ void AAZ_PlayerController::AbilityInputTagPressed(const FGameplayTag InputTag)
 void AAZ_PlayerController::AbilityInputTagReleased(const FGameplayTag InputTag)
 {
 	MenuSuppressedInputTags.Remove(InputTag);
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact && bImmediateInteractPressConsumed)
+	{
+		bImmediateInteractPressConsumed = false;
+		return;
+	}
 	// The release IS the throw. Routed first and consumed, so lifting RMB cannot also drop a firearm out
 	// of aim on the same edge.
 	if (RouteThrowInput(InputTag, /*bPressed*/ false))
@@ -759,6 +872,9 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 		return;
 	}
 	if (MenuSuppressedInputTags.Contains(InputTag)) return;
+	if (InputTag == FAZ_GameplayTags::Get().Input_Action_Interact
+		&& (bImmediateInteractPressConsumed || (IsImmediateQuestWorldTarget(ActivePickupActor.Get())
+			&& !ActivePickupActor->FindComponentByClass<UAZ_Inv_CommonUI_ItemComponent>()))) return;
 	// Jump is a FRESH-PRESS action, and until 2026-09-15 it was not. Held frames reached the ASC, whose
 	// loop re-activates any INACTIVE matching spec — and Jump ends immediately after Started or BodyBusy,
 	// so its spec was inactive again the very next frame. Holding Space therefore re-asked the traversal
@@ -906,6 +1022,14 @@ void AAZ_PlayerController::SetActivePickUpActor(AActor* NewActor)
 		NextMessage = Item->GetPickupMessage();
 		if (NextMessage.IsEmpty()) NextMessage = TEXT("Press E to pick up");
 	}
+	else if (const AAZ_QuestWorldActor* QuestActor = Cast<AAZ_QuestWorldActor>(NewActor))
+	{
+		NextMessage = QuestActor->GetInteractionPrompt().ToString();
+	}
+	else if (Cast<AAZ_CampaignCheckpoint>(NewActor))
+	{
+		NextMessage = NSLOCTEXT("CHALK", "CheckpointUsePrompt", "Press E to save at checkpoint").ToString();
+	}
 	const bool bActorChanged = ActivePickupActor.Get() != NewActor;
 	// Replication can finish while the player keeps looking at the same pickup.
 	// Refresh changed ammunition text without toggling an unchanged prompt each tick.
@@ -937,6 +1061,16 @@ void AAZ_PlayerController::RefreshPickupTarget()
 		{
 			Closest = Candidate;
 			ClosestDistance = Distance;
+		}
+	}
+	// Item pickups retain their previous nearest-overlap priority. Only when none exist consider our immediate world uses.
+	if (!Closest)
+	{
+		for (AActor* Candidate : Overlapping)
+		{
+			if (!ValidateImmediateWorldTarget(Candidate)) continue;
+			const double Distance = FVector::DistSquared(ControlledPawn->GetActorLocation(), Candidate->GetActorLocation());
+			if (Distance < ClosestDistance) { Closest = Candidate; ClosestDistance = Distance; }
 		}
 	}
 	SetActivePickUpActor(Closest);

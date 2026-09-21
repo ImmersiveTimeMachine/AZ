@@ -38,6 +38,8 @@ class AZ_API UAZ_Inv_CommonUI_InventorySwitcherPanel : public UCommonActivatable
 	GENERATED_BODY()
 
 public:
+	/** The outer menu owns pages; this panel only requests its Map page. */
+	FSimpleMulticastDelegate OnMapRequested;
 
 	void SetItemName(const FText& InText);
 	void SetItemDescription(const FText& InText);
@@ -99,6 +101,8 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UCommonButtonBase> Button_Craftable;
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UCommonButtonBase> WBPMapButton_1;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	UHorizontalBox* HorizontalBoxMenuTabs;
@@ -142,6 +146,7 @@ private:
 	void ShowEquippables();
 	void ShowConsumables();
 	void ShowCraftables();
+	void RequestMap();
 
 	/** Select the active tab button and deselect the others. */
 	void SelectTabButton(UCommonButtonBase* Button);

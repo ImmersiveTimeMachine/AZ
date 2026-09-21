@@ -426,11 +426,17 @@ void UAZ_PlayerUIComponent::RefreshThrowable()
 		const auto& Tags = FAZ_GameplayTags::Get();
 		View.bHasThrowable = true;
 		View.Count = FMath::Max(0, Item->GetTotalStackCount());
-		if (const auto* Image = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_ImageFragment>(Tags.Item_Fragment_Icon))
+		// Same fallbacks as the firearm row, because this feeds the same HUD element: an item that names or
+		// illustrates itself through the untagged fragment must not come out blank next to a pistol that does.
+		const auto* Image = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_ImageFragment>(Tags.Item_Fragment_Icon);
+		if (!Image) Image = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_ImageFragment>();
+		if (Image)
 		{
 			View.Icon = Image->GetIcon();
 		}
-		if (const auto* Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name))
+		const auto* Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name_StaticText);
+		if (!Name) Name = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Name);
+		if (Name)
 		{
 			View.DisplayName = Name->GetText();
 		}

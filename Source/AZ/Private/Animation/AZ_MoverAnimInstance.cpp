@@ -799,23 +799,35 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	CombatReadyAlpha = FMath::FInterpTo(CombatReadyAlpha, bCombatReady ? 1.f : 0.f, DeltaSeconds,
 		bCombatReady ? CombatReadyBlendInSpeed : CombatReadyBlendOutSpeed);
 
-	// Throwable upper-body mask weight: how much a throwable montage is contributing, so the branch is
-	// spliced in exactly that far and no further. The montage's authored blend in/out then doubles as the
-	// mask's, and the pose crossfade cannot disagree with the mask.
+	// Throwable upper-body mask: OPEN while the throwable slot holds anything at all, shut otherwise.
 	//
-	// ★ THIS MUST BE THE MONTAGE'S OWN WEIGHT, NOT THE SLOT'S GLOBAL WEIGHT. GetSlotMontageGlobalWeight
-	// returns the montage weight ALREADY MULTIPLIED by how strongly the slot node itself is weighted inside
-	// the graph — which is this very value. Feeding it back is a loop that latches at zero: mask 0 -> slot
-	// contributes 0 -> the query reads 0 -> mask stays 0, and the upper body sits on the locomotion pose
-	// forever. That is precisely what it did (2026-09-19, "I see the pistol anims for full body").
-	// FAnimMontageInstance::GetWeight() is the montage's own blend value and carries no graph term, so it
-	// is safe to gate the graph with.
+	// ★ A GATE, NOT A WEIGHT — and the graph is the reason. This mask's base pose and the throwable Slot
+	// node's source are the SAME cached pose (PreThrowable), so the slot has ALREADY blended the montage in
+	// by its own weight w. Passing w to the mask on top of that renders lerp(Base, Clip, w*w): the pose
+	// barely moves through most of the blend and then rushes home at the end of it. That tail is the twitch
+	// on taking a grenade out and on putting it away (reported 2026-09-20) — every authored blend curve in
+	// this slot was being squared.
+	//
+	// At 1 the mask is exact, because lerp(Base, lerp(Base, Clip, w), 1) IS lerp(Base, Clip, w): the slot
+	// keeps owning the crossfade, which is where the authored timing belongs. With no montage the slot
+	// passes its source through untouched, so blending it over an identical base changes nothing — which is
+	// what makes opening and shutting the gate free of any pop of its own, at either end.
+	//
+	// ★ NOT IsPlaying(). FAnimMontageInstance::Stop() clears bPlaying IMMEDIATELY and leaves the instance
+	// fading out for the rest of its blend — so testing it slammed the mask shut on the frame a throwable
+	// montage was stopped, cutting the clip off mid-fade instead of letting it blend. Instance lifetime is
+	// the honest test: the array drops it once the blend is over, and by then its weight is zero anyway.
+	//
+	// ★ STILL NOT GetSlotMontageGlobalWeight. That returns the montage weight ALREADY MULTIPLIED by how
+	// strongly the slot node is weighted in the graph — which is this very value. Feeding it back is a loop
+	// that latches at zero: mask 0 -> slot contributes 0 -> the query reads 0 -> mask stays 0, and the upper
+	// body sits on the locomotion pose forever (2026-09-19, "I see the pistol anims for full body").
 	ThrowableSlotAlpha = 0.f;
 	if (!ThrowableSlotName.IsNone())
 	{
 		for (const FAnimMontageInstance* MI : MontageInstances)
 		{
-			if (!MI || !MI->Montage || !MI->IsPlaying())
+			if (!MI || !MI->Montage || !MI->IsValid())
 			{
 				continue;
 			}
@@ -830,9 +842,11 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			}
 			if (bOwnsSlot)
 			{
-				// Several can overlap while one blends out into the next (Start -> Loop, Loop -> Cancel).
-				// The mask must stay open across that seam, so take the strongest rather than the newest.
-				ThrowableSlotAlpha = FMath::Max(ThrowableSlotAlpha, MI->GetWeight());
+				// One is enough. Several overlap while one blends out into the next (Start -> Loop,
+				// Loop -> Cancel) and the slot resolves that seam by itself; the gate only has to stay open
+				// across it.
+				ThrowableSlotAlpha = 1.f;
+				break;
 			}
 		}
 	}

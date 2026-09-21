@@ -19,6 +19,7 @@
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
 #include "Inventory/AZ_QuickBarComponent.h"
+#include "Throwables/AZ_ThrowableHandComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "Net/UnrealNetwork.h"
@@ -296,6 +297,19 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::IsActionCommitted() const
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
 	if (ASC->HasMatchingGameplayTag(Tags.Ability_State_MeleeAttacking)
 		&& !ASC->HasMatchingGameplayTag(Tags.State_Combat_CancelWindow)) return true;
+	// ★ A THROWABLE BEING PUT AWAY IS A COMMITTED ACTION, exactly like a melee beat. Its put-away montage
+	// owns the upper body, and a draw started underneath it is invisible — which is precisely how "the
+	// switch animation does not work" looked from outside (2026-09-19): the rifle's draw ran for its full
+	// length while the grenade's mask covered it.
+	//
+	// Deferring here is what makes grenade-to-weapon read like weapon-to-weapon: put away, THEN draw. The
+	// pending selection is retried when these tags clear, through the gate registration below.
+	if (ASC->HasMatchingGameplayTag(Tags.Ability_State_ThrowPreparing)
+		|| ASC->HasMatchingGameplayTag(Tags.Ability_State_Throwing)
+		// ★ AND THE PUT-AWAY CLIP ITSELF, which outlives the ability by design. Those two tags drop on the
+		// same frame the cancel is requested, so on their own they defer nothing at all - the draw began
+		// 1 ms later and spent its whole length hidden under the grenade's mask (measured 2026-09-20).
+		|| ASC->HasMatchingGameplayTag(Tags.State_Throwable_Stowing)) return true;
 	// Future weapon actions may expose an engine cancellation lock as well as the melee beat tag.
 	for (const FGameplayAbilitySpecHandle& Handle : GrantedHandles)
 	{
@@ -448,6 +462,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::FinishTrackedRequest(const FGuid& Requ
 bool UAZ_Inv_CommonUI_EquipmentComponent::RequestSelection(UAZ_Inv_CommonUI_InventoryItem* Item, int32 IntrinsicSlot,
 	const FGuid& RequestId)
 {
+	if (bCampaignRestoring) return false;
 	BindAbilityEvents();
 	if (bCommitting || IsHardBlocked() || !ValidateSelection(Item, IntrinsicSlot))
 	{
@@ -472,6 +487,33 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::RequestSelection(UAZ_Inv_CommonUI_Inve
 		TGuardValue<bool> CommitGuard(bCommitting, true);
 		ClearOutgoingInput();
 	}
+	// ★ ASK THE THROWABLE TO PUT ITSELF AWAY before taking a weapon. Clearing readiness is what starts its
+	// cancel animation; the IsActionCommitted test below then sees the throw still running and defers this
+	// selection until it is finished, so the two never play on top of each other.
+	//
+	// ONLY when a real weapon was asked for. A selection of NOTHING is the holster the throwable itself
+	// requests to free the hands — cancelling the throwable there would make readying a grenade undo
+	// itself, which is the deadlock this feature already had once.
+	if (Item)
+	{
+		if (auto* QuickBar = OwningPlayerController.IsValid()
+			? OwningPlayerController->FindComponentByClass<UAZ_QuickBarComponent>() : nullptr)
+		{
+			if (QuickBar->GetReadyItemId().IsValid())
+			{
+				UE_LOG(LogTemp, Display,
+					TEXT("[Equipment] weapon requested while a throwable is readied - putting the throwable away first"));
+				// Drop the throwable's claim on the holstered weapon BEFORE clearing readiness: clearing it
+				// re-enters the hand component, and a claim still standing there would make it draw the
+				// weapon itself, in parallel with the deferred selection below instead of after it.
+				if (auto* Hand = OwningPlayerController->FindComponentByClass<UAZ_ThrowableHandComponent>())
+				{
+					Hand->AbandonStowedWeapon();
+				}
+				QuickBar->ClearReadyItem();
+			}
+		}
+	}
 	if (IsActionCommitted())
 	{
 		PendingItem = Item;
@@ -494,7 +536,13 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::BuildSwitchPhase(UAZ_Inv_CommonUI_Inve
 	if (!IsValid(Item) || !Item->IsWeapon()) return true;
 	const auto* Definition = Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
 	const UAZ_WeaponAnimationProfile* Profile = Definition ? Definition->AnimationProfile.Get() : nullptr;
-	if (!Profile || !OwningSkeletalMesh.IsValid()) return false;
+	if (!Profile || !OwningSkeletalMesh.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Switch] %s %s REFUSED: %s"), *GetNameSafe(Item),
+			bDraw ? TEXT("draw") : TEXT("holster"),
+			!Profile ? TEXT("no animation profile on the weapon fragment") : TEXT("no owning skeletal mesh"));
+		return false;
+	}
 	const FAZ_WeaponSwitchAnimation& Standing = bDraw ? Profile->StandingDraw : Profile->StandingHolster;
 	const FAZ_WeaponSwitchAnimation& Crouching = bDraw ? Profile->CrouchingDraw : Profile->CrouchingHolster;
 	// A missing crouch clip deliberately uses the profile's authored standing action.
@@ -504,19 +552,45 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::BuildSwitchPhase(UAZ_Inv_CommonUI_Inve
 	const USkeleton* MeshSkeleton = Mesh ? Mesh->GetSkeleton() : nullptr;
 	const USkeleton* SequenceSkeleton = Sequence ? Sequence->GetSkeleton() : nullptr;
 	const double Rate = Sequence ? static_cast<double>(Sequence->RateScale) * Profile->SwitchAnimationPlayRate : 0.;
-	if (!IsValid(Sequence) || Sequence->GetAdditiveAnimType() != AAT_None || Sequence->HasRootMotion()
-		|| !MeshSkeleton || !SequenceSkeleton || !SequenceSkeleton->IsCompatibleMesh(Mesh)
-		|| Profile->SwitchAnimationSlot.IsNone()
-		|| SequenceSkeleton->GetSlotGroupName(Profile->SwitchAnimationSlot) != FName(TEXT("WeaponFire"))
-		|| MeshSkeleton->GetSlotGroupName(Profile->SwitchAnimationSlot) != FName(TEXT("WeaponFire"))
-		|| !FMath::IsFinite(Sequence->GetPlayLength()) || Sequence->GetPlayLength() <= 0.
-		|| !FMath::IsFinite(Sequence->RateScale) || Sequence->RateScale <= 0.f
-		|| !FMath::IsFinite(Profile->SwitchAnimationPlayRate) || Profile->SwitchAnimationPlayRate <= 0.f
-		|| !FMath::IsFinite(Rate) || Rate <= 0.
-		|| !FMath::IsFinite(Action.AttachTime) || Action.AttachTime < 0.f || Action.AttachTime > Sequence->GetPlayLength()
-		|| !FMath::IsFinite(Profile->SwitchAnimationBlendIn) || Profile->SwitchAnimationBlendIn < 0.f
-		|| !FMath::IsFinite(Profile->SwitchAnimationBlendOut) || Profile->SwitchAnimationBlendOut < 0.f
-		|| !FMath::IsFinite(Profile->SwitchSocketBlendDuration) || Profile->SwitchSocketBlendDuration < 0.f) return false;
+	// ★ ONE REASON PER LINE, AND IT SAYS WHICH. These are fifteen independent requirements that were a
+	// single `if` returning a bare false: the holster and draw animations simply never played and the log
+	// held not one word about it (reported 2026-09-19, "почему не проигрывается анимация переключения").
+	// A silent all-or-nothing gate over content that lives in a data asset is unfixable from outside: the
+	// author cannot tell a missing clip from an incompatible skeleton from a mis-named slot.
+	const TCHAR* Refusal = nullptr;
+	if (!IsValid(Sequence))                                    Refusal = TEXT("no animation assigned for this action in the profile");
+	else if (Sequence->GetAdditiveAnimType() != AAT_None)      Refusal = TEXT("the clip is ADDITIVE; a switch animation must be a full pose");
+	else if (Sequence->HasRootMotion())                        Refusal = TEXT("the clip has ROOT MOTION, which would move the character");
+	else if (!MeshSkeleton)                                    Refusal = TEXT("the character mesh has no skeleton");
+	else if (!SequenceSkeleton)                                Refusal = TEXT("the clip has no skeleton");
+	else if (!SequenceSkeleton->IsCompatibleMesh(Mesh))        Refusal = TEXT("the clip's SKELETON IS NOT COMPATIBLE with the character mesh");
+	else if (Profile->SwitchAnimationSlot.IsNone())            Refusal = TEXT("SwitchAnimationSlot is empty on the profile");
+	else if (SequenceSkeleton->GetSlotGroupName(Profile->SwitchAnimationSlot) != FName(TEXT("WeaponFire")))
+		Refusal = TEXT("the slot is not in the WeaponFire group on the CLIP's skeleton");
+	else if (MeshSkeleton->GetSlotGroupName(Profile->SwitchAnimationSlot) != FName(TEXT("WeaponFire")))
+		Refusal = TEXT("the slot is not in the WeaponFire group on the MESH's skeleton");
+	else if (!FMath::IsFinite(Sequence->GetPlayLength()) || Sequence->GetPlayLength() <= 0.)
+		Refusal = TEXT("the clip has no length");
+	else if (!FMath::IsFinite(Sequence->RateScale) || Sequence->RateScale <= 0.f)
+		Refusal = TEXT("the clip's RateScale is zero or negative");
+	else if (!FMath::IsFinite(Profile->SwitchAnimationPlayRate) || Profile->SwitchAnimationPlayRate <= 0.f)
+		Refusal = TEXT("SwitchAnimationPlayRate on the profile is zero or negative");
+	else if (!FMath::IsFinite(Rate) || Rate <= 0.)             Refusal = TEXT("the combined play rate is zero or negative");
+	else if (!FMath::IsFinite(Action.AttachTime) || Action.AttachTime < 0.f || Action.AttachTime > Sequence->GetPlayLength())
+		Refusal = TEXT("AttachTime is outside the clip (the frame the weapon changes hands)");
+	else if (!FMath::IsFinite(Profile->SwitchAnimationBlendIn) || Profile->SwitchAnimationBlendIn < 0.f)
+		Refusal = TEXT("SwitchAnimationBlendIn is negative");
+	else if (!FMath::IsFinite(Profile->SwitchAnimationBlendOut) || Profile->SwitchAnimationBlendOut < 0.f)
+		Refusal = TEXT("SwitchAnimationBlendOut is negative");
+	else if (!FMath::IsFinite(Profile->SwitchSocketBlendDuration) || Profile->SwitchSocketBlendDuration < 0.f)
+		Refusal = TEXT("SwitchSocketBlendDuration is negative");
+	if (Refusal)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Switch] %s %s REFUSED: %s  (profile=%s clip=%s slot=%s)"),
+			*GetNameSafe(Item), bDraw ? TEXT("draw") : TEXT("holster"), Refusal,
+			*GetNameSafe(Profile), *GetNameSafe(Sequence), *Profile->SwitchAnimationSlot.ToString());
+		return false;
+	}
 	Out.Animation = Sequence;
 	Out.Slot = Profile->SwitchAnimationSlot;
 	Out.PlayRate = Profile->SwitchAnimationPlayRate;
@@ -1087,6 +1161,7 @@ void UAZ_Inv_CommonUI_EquipmentComponent::PrepareItemForDrop(UAZ_Inv_CommonUI_In
 
 void UAZ_Inv_CommonUI_EquipmentComponent::PublishSelection(UAZ_Inv_CommonUI_InventoryItem* PreviousItem)
 {
+	if (bCampaignRestoring) return;
 	if (InventoryComponent.IsValid() && PreviousItem != Selection.Item)
 	{
 		if (PreviousItem) InventoryComponent->OnItemUnequipped.Broadcast(PreviousItem);
@@ -1207,6 +1282,12 @@ void UAZ_Inv_CommonUI_EquipmentComponent::BindAbilityEvents()
 	Tags.AddTag(FAZ_GameplayTags::Get().Ability_State_MeleeAttacking);
 	Tags.AddTag(FAZ_GameplayTags::Get().Ability_State_WeaponSwitching);
 	Tags.AddTag(FAZ_GameplayTags::Get().Movement_Sprinting);
+	// Without these the selection deferred above would sit pending forever: nothing else tells this
+	// component that the throwable finished putting itself away.
+	Tags.AddTag(FAZ_GameplayTags::Get().Ability_State_ThrowPreparing);
+	Tags.AddTag(FAZ_GameplayTags::Get().Ability_State_Throwing);
+	Tags.AddTag(FAZ_GameplayTags::Get().State_Throwable_Ready);
+	Tags.AddTag(FAZ_GameplayTags::Get().State_Throwable_Stowing);
 	for (const FGameplayTag& Tag : Tags)
 	{
 		GateDelegateHandles.Add(Tag, ASC->RegisterGameplayTagEvent(Tag, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &ThisClass::OnGateTagChanged));

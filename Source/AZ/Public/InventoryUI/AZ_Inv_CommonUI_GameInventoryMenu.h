@@ -16,6 +16,7 @@ class UCanvasPanel;
 class UHorizontalBox;
 class UInputAction;
 class UCommonActivatableWidgetSwitcher;
+class UAZ_QuestMapPage;
 
 DECLARE_DELEGATE(FOnInventoryMenuBackAction);
 
@@ -37,10 +38,13 @@ public:
 	bool HasHoverItem() const;
 	UAZ_Inv_CommonUI_HoverItem* GetHoverItem() const;
 	float GetTileSize() const;
+	UFUNCTION(BlueprintCallable, Category="AZ|Map") void OpenMapPage();
+	UFUNCTION(BlueprintCallable, Category="AZ|Map") void OpenInventoryPage();
 
 protected:
 
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
 
@@ -57,6 +61,8 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Input")
 	TObjectPtr<UInputAction> ContextMenuAction;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Map")
+	TSubclassOf<UAZ_QuestMapPage> MapPageClass;
 
 	// -- Bound Widgets --
 
@@ -74,6 +80,7 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UAZ_Inv_CommonUI_InventorySwitcherPanel> InventorySwitcherPanel;
+	UPROPERTY(Transient) TObjectPtr<UAZ_QuestMapPage> MapPage;
 
 private:
 	TArray<FUIActionBindingHandle> MenuActionBindings;
@@ -82,4 +89,6 @@ private:
 	void HandleTabRight();
 	void HandleBack();
 	void HandleContextMenu();
+	void HandleMenuPageChanged(UWidget* ActiveWidget, int32 ActiveIndex);
+	bool IsInventoryPageActive() const;
 };

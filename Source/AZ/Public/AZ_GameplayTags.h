@@ -207,6 +207,18 @@ struct AZ_API FAZ_GameplayTags
      *  the anim chooser both read it without knowing the quick bar exists. It selects combat-ready facing and
      *  clamps the gait to a walk; the wind-up itself is Ability.State.ThrowPreparing and roots the body. */
     FGameplayTag State_Throwable_Ready;
+
+    /** The throwable's PUT-AWAY clip is still on screen, although nothing throwable is readied any more.
+     *
+     *  ★ A separate fact from Ready, and it must outlive the throw ability. The cancel clip is deliberately
+     *  cosmetic — it keeps playing after the ability ends so the player is not frozen through it (user call
+     *  2026-09-18) — and it occupies the Throwable slot, whose mask owns everything above spine_01. Anything
+     *  drawn underneath it is therefore invisible: measured 2026-09-20, the rifle's 1.5 s draw ran in full
+     *  under a 2.0 s grenade put-away and the weapon simply appeared in the hand.
+     *
+     *  Equipment treats it as a committed action, so a weapon switch waits it out and then draws — which is
+     *  what makes grenade-to-weapon read like weapon-to-weapon. */
+    FGameplayTag State_Throwable_Stowing;
     FGameplayTag Ability_State_Dashing;
 
     /** Authored at the first frame of each grab OUTCOME section (Push/Kick). The outcome is QUEUED at

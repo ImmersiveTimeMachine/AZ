@@ -23,6 +23,7 @@ class UAZ_AbilitySystemComponent;
 class UAZ_Inv_CommonUI_EquipmentComponent;
 class UNiagaraSystem;
 class UParticleSystem;
+class UMaterialInterface;
 class USoundBase;
 class UAnimInstance;
 class UAnimMontage;
@@ -162,7 +163,8 @@ public:
 	/** Called once by the authority after a shot is accepted; never mutates ammunition or applies damage. */
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_PlayFirearmShot(const FHitResult& Hit, bool bHitConfirmed,
-		UParticleSystem* WorldImpactEffect, float WorldImpactScale);
+		UParticleSystem* WorldImpactEffect, float WorldImpactScale,
+		UMaterialInterface* WorldImpactDecal, float WorldImpactDecalSize, float WorldImpactDecalLifetime);
 
 	/** One reliable start per accepted trigger action; never restarts a running automatic loop per bullet. */
 	UFUNCTION(NetMulticast, Reliable)

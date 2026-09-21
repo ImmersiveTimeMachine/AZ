@@ -5,10 +5,12 @@
 
 #include "Input/CommonUIInputTypes.h"
 #include "CommonActivatableWidgetSwitcher.h"
+#include "Components/CanvasPanel.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventorySwitcherPanel.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "InventoryUI/Items/HoverItem/AZ_Inv_CommonUI_HoverItem.h"
 #include "Player/AZ_PlayerController.h"
+#include "UI/AZ_QuestMapPage.h"
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 {
@@ -19,12 +21,71 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeConstruct()
 	{
 		InventorySwitcherPanel->SetOwningCanvas(MainCanvas);
 		InventorySwitcherPanel->SetContextMenuAction(ContextMenuAction);
+		InventorySwitcherPanel->OnMapRequested.RemoveAll(this);
+		InventorySwitcherPanel->OnMapRequested.AddUObject(this, &ThisClass::OpenMapPage);
+	}
+	if (MenuSwitcher)
+	{
+		MenuSwitcher->OnActiveWidgetIndexChanged.RemoveAll(this);
+		MenuSwitcher->OnActiveWidgetIndexChanged.AddUObject(this, &ThisClass::HandleMenuPageChanged);
+		if (!MapPage && MapPageClass)
+		{
+			MapPage = CreateWidget<UAZ_QuestMapPage>(GetOwningPlayer(), MapPageClass);
+		}
+		if (MapPage && MapPage->GetParent() != MenuSwitcher)
+		{
+			MapPage->RemoveFromParent();
+			MenuSwitcher->AddChild(MapPage);
+		}
+		if (MapPage) MapPage->OnBackToInventory.AddUniqueDynamic(this, &ThisClass::OpenInventoryPage);
+	}
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::NativeDestruct()
+{
+	if (InventorySwitcherPanel) InventorySwitcherPanel->OnMapRequested.RemoveAll(this);
+	if (MenuSwitcher) MenuSwitcher->OnActiveWidgetIndexChanged.RemoveAll(this);
+	if (MapPage) MapPage->OnBackToInventory.RemoveDynamic(this, &ThisClass::OpenInventoryPage);
+	Super::NativeDestruct();
+}
+
+bool UAZ_Inv_CommonUI_GameInventoryMenu::IsInventoryPageActive() const
+{
+	return !MenuSwitcher || MenuSwitcher->GetActiveWidget() == InventoryCanvas;
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::OpenMapPage()
+{
+	if (!MenuSwitcher || !MapPage || (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem())) return;
+	if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
+	MenuSwitcher->SetActiveWidget(MapPage);
+	MapPage->ActivateWidget();
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::OpenInventoryPage()
+{
+	if (MapPage) MapPage->DeactivateWidget();
+	if (MenuSwitcher && InventoryCanvas) MenuSwitcher->SetActiveWidget(InventoryCanvas);
+	if (InventorySwitcherPanel) InventorySwitcherPanel->RefreshFromInventory();
+}
+
+void UAZ_Inv_CommonUI_GameInventoryMenu::HandleMenuPageChanged(UWidget* ActiveWidget, int32 ActiveIndex)
+{
+	if (ActiveWidget == MapPage)
+	{
+		if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
+		if (MapPage) MapPage->ActivateWidget();
+	}
+	else if (MapPage)
+	{
+		MapPage->DeactivateWidget();
 	}
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 {
 	Super::NativeOnActivated();
+	OpenInventoryPage();
 	if (InventorySwitcherPanel) InventorySwitcherPanel->RefreshFromInventory();
 	if (const AAZ_PlayerController* PC = Cast<AAZ_PlayerController>(GetOwningPlayer()); PC && PC->OpenInventoryAction && PC->OpenInventoryAction != BackAction)
 	{
@@ -63,6 +124,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnActivated()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnDeactivated()
 {
+	if (MapPage) MapPage->DeactivateWidget();
 	if (InventorySwitcherPanel) InventorySwitcherPanel->OnHide();
 	for (FUIActionBindingHandle& Binding : MenuActionBindings)
 	{
@@ -75,6 +137,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::NativeOnDeactivated()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabLeft()
 {
+	if (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem()) return;
 	if (MenuSwitcher)
 	{
 		MenuSwitcher->ActivatePreviousWidget(true);
@@ -83,6 +146,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabLeft()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabRight()
 {
+	if (InventorySwitcherPanel && InventorySwitcherPanel->HasHoverItem()) return;
 	if (MenuSwitcher)
 	{
 		MenuSwitcher->ActivateNextWidget(true);
@@ -91,6 +155,7 @@ void UAZ_Inv_CommonUI_GameInventoryMenu::HandleTabRight()
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleBack()
 {
+	if (!IsInventoryPageActive()) { OpenInventoryPage(); return; }
 	if (InventorySwitcherPanel && InventorySwitcherPanel->CancelInteraction())
 	{
 		return;
@@ -106,7 +171,7 @@ FAZ_Inv_CommonUI_SlotAvailabilityResult UAZ_Inv_CommonUI_GameInventoryMenu::HasR
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OnItemHovered(UAZ_Inv_CommonUI_InventoryItem* Item)
 {
-	if (InventorySwitcherPanel) InventorySwitcherPanel->OnItemHovered(Item);
+	if (IsInventoryPageActive() && InventorySwitcherPanel) InventorySwitcherPanel->OnItemHovered(Item);
 }
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::OnItemUnHovered()
@@ -128,7 +193,7 @@ UAZ_Inv_CommonUI_HoverItem* UAZ_Inv_CommonUI_GameInventoryMenu::GetHoverItem() c
 
 void UAZ_Inv_CommonUI_GameInventoryMenu::HandleContextMenu()
 {
-	if (InventorySwitcherPanel) InventorySwitcherPanel->TryShowContextMenu();
+	if (IsInventoryPageActive() && InventorySwitcherPanel) InventorySwitcherPanel->TryShowContextMenu();
 }
 
 float UAZ_Inv_CommonUI_GameInventoryMenu::GetTileSize() const

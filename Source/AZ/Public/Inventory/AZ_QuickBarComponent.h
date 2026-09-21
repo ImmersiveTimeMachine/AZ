@@ -13,6 +13,8 @@ class UAZ_Inv_CommonUI_EquipmentComponent;
 class UTexture2D;
 class APawn;
 enum class EAZ_EquipmentRequestOutcome : uint8;
+struct FAZ_CampaignQuickBarState;
+struct FAZ_InventorySnapshot;
 
 UENUM(BlueprintType)
 enum class EAZ_QuickSlotPosition : uint8
@@ -135,6 +137,13 @@ public:
 	const FAZ_QuickSlot* GetSlotDefinition(int32 SlotIndex) const;
 	/** Compatibility callback; equipment changes never assign quick slots. */
 	void BindSelectedItem(UAZ_Inv_CommonUI_InventoryItem* Item);
+	bool CanCaptureCampaignState(FString& OutError) const;
+	bool CaptureCampaignState(FAZ_CampaignQuickBarState& OutState, FString& OutError) const;
+	bool ValidateCampaignState(const FAZ_CampaignQuickBarState& State, const FAZ_InventorySnapshot& Inventory, FString& OutError) const;
+	void BeginCampaignRestore();
+	void RestoreCampaignState(const FAZ_CampaignQuickBarState& State);
+	void PublishCampaignRestore(bool bNotify = true);
+	void CancelCampaignRestore();
 
 protected:
 	virtual void BeginPlay() override;
@@ -145,6 +154,7 @@ protected:
 	bool bRestoreLastWeaponOnFight = false;
 
 private:
+	bool bCampaignRestoring = false;
 	UPROPERTY(ReplicatedUsing=OnRep_Bindings) FAZ_QuickBarBindingState Bindings;
 	UPROPERTY(ReplicatedUsing=OnRep_ReadyItemId) FGuid ReadyItemId;
 	/** Authority-only recollection, never a binding and never carried across possession. */

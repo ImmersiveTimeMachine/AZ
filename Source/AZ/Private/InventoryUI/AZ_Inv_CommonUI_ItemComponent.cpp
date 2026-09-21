@@ -4,8 +4,12 @@
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "AZ_GameplayTags.h"
 #include "GameFramework/Actor.h"
+#include "Game/AZ_CampaignWorldSubsystem.h"
+#include "Engine/World.h"
 
 #include "Net/UnrealNetwork.h"
+
+const FName UAZ_Inv_CommonUI_ItemComponent::CampaignRuntimeSpawnTag(TEXT("AZ.Internal.RuntimePickup"));
 
 
 // Sets default values for this component's properties
@@ -64,6 +68,7 @@ void UAZ_Inv_CommonUI_ItemComponent::PickedUp()
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority() || bPickupCommitted) return;
 	bPickupCommitted = true;
+	if (auto* Campaign = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>()) Campaign->PickupRemoved(this);
 	OnPickedUp();
 	GetOwner()->Destroy();
 }
@@ -74,12 +79,32 @@ void UAZ_Inv_CommonUI_ItemComponent::InitItemManifest(FAZ_Inv_CommonUI_ItemManif
 	PickupState = FAZ_InventoryItemState();
 	ContainedItems.Reset();
 	InitializePickupPayload();
+	if (bRuntimeCampaignPickup)
+	{
+		CampaignPickupId = PickupState.InstanceId;
+		if (auto* Campaign = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>()) Campaign->RegisterPickup(this);
+	}
 }
 
 void UAZ_Inv_CommonUI_ItemComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	if (GetOwner()->HasAuthority()) InitializePickupPayload();
+	if (GetOwner()->HasAuthority())
+	{
+		// Set before BeginPlay registration, even if the runtime actor later
+		// fails construction/collision and is destroyed without a payload handoff.
+		bRuntimeCampaignPickup = GetOwner()->ActorHasTag(CampaignRuntimeSpawnTag);
+		InitializePickupPayload();
+		if (bRuntimeCampaignPickup) CampaignPickupId = PickupState.InstanceId;
+		if (auto* Campaign = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>()) Campaign->RegisterPickup(this);
+	}
+}
+
+void UAZ_Inv_CommonUI_ItemComponent::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (GetOwner() && GetOwner()->HasAuthority() && Reason == EEndPlayReason::Destroyed)
+		if (auto* Campaign = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>()) Campaign->PickupRemoved(this);
+	Super::EndPlay(Reason);
 }
 
 bool UAZ_Inv_CommonUI_ItemComponent::InitializePickupPayload()
@@ -138,7 +163,27 @@ void UAZ_Inv_CommonUI_ItemComponent::SetPickupPayload(const FAZ_InventoryPickupR
 	PickupStackCount = RootRecord.StackCount;
 	ContainedItems = Children;
 	bPickupCommitted = false;
+	if (!CampaignPickupId.IsValid() || bRuntimeCampaignPickup)
+	{
+		// Runtime drops/recovery already have an item identity. Authored pickups
+		// must instead receive a distinct persistent level GUID from authoring.
+		CampaignPickupId = RootRecord.State.InstanceId;
+		bRuntimeCampaignPickup = true;
+	}
 	GetOwner()->ForceNetUpdate();
+	if (auto* Campaign = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>()) Campaign->RegisterPickup(this);
+}
+
+void UAZ_Inv_CommonUI_ItemComponent::RestoreCampaignPayload(FGuid WorldId, bool bRuntime,
+	const FAZ_InventoryPickupRecord& Root, const TArray<FAZ_InventoryPickupRecord>& Children)
+{
+	CampaignPickupId = WorldId;
+	bRuntimeCampaignPickup = bRuntime;
+	SetPickupPayload(Root, Children);
+	// Restoration retains the saved world identity, including earlier records
+	// whose runtime world ID differs from the transferred item ID.
+	CampaignPickupId = WorldId;
+	bRuntimeCampaignPickup = bRuntime;
 }
 
 void UAZ_Inv_CommonUI_ItemComponent::SetRemainingStackCount(int32 Count)

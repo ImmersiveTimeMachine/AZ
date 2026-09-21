@@ -42,6 +42,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeConstruct()
 	if (Button_Equippable) Button_Equippable->OnClicked().AddUObject(this, &ThisClass::ShowEquippables);
 	if (Button_Consumable) Button_Consumable->OnClicked().AddUObject(this, &ThisClass::ShowConsumables);
 	if (Button_Craftable) Button_Craftable->OnClicked().AddUObject(this, &ThisClass::ShowCraftables);
+	if (WBPMapButton_1) WBPMapButton_1->OnClicked().AddUObject(this, &ThisClass::RequestMap);
 
 	if (InventoryGridSwitcher)
 	{
@@ -83,6 +84,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
 	if (Button_Equippable) Button_Equippable->OnClicked().RemoveAll(this);
 	if (Button_Consumable) Button_Consumable->OnClicked().RemoveAll(this);
 	if (Button_Craftable) Button_Craftable->OnClicked().RemoveAll(this);
+	if (WBPMapButton_1) WBPMapButton_1->OnClicked().RemoveAll(this);
 
 	if (InventoryGridSwitcher)
 	{
@@ -157,6 +159,12 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowCraftables()
 {
 	SetActiveGrid(Grid_Craftables, GetGridLabel(2));
 	SelectTabButton(Button_Craftable);
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::RequestMap()
+{
+	if (HasHoverItem()) return;
+	OnMapRequested.Broadcast();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SelectTabButton(UCommonButtonBase* Button)

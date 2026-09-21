@@ -78,6 +78,30 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "AZ|Throwable")
 	TObjectPtr<UProjectileMovementComponent> Movement;
 
+protected:
+	/**
+	 * Blow up here, now. Authority only and exactly once.
+	 *
+	 * Lives on the PROJECTILE and not on UAZ_GA_Throw because the ability is already over: it ends as the
+	 * grenade leaves the hand, seconds before the fuse runs out. Anything that has to outlive the throw has
+	 * to belong to the thing that is still in the world.
+	 */
+	void Detonate();
+
+	/** Damage, reaction and corpse impulse in ONE pass over the blast's targets — they share the overlap,
+	 *  the line-of-sight trace and the falloff, and splitting them would triple all three. */
+	void ApplyBlast(const FVector& Origin);
+
+	/** Niagara, sound, camera shake and scorch decal. Cosmetic only: never decides anything. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastDetonationFX(const FVector& Origin, const FVector& SurfaceNormal);
+
+	/** Second, deferred half of the blast: push the bodies it killed. Separate because the ragdoll it needs
+	 *  does not exist yet at the moment the damage lands — the death ability hands it over afterwards, and one
+	 *  infected class delays even that on a timer. */
+	UFUNCTION()
+	void ApplyCorpseImpulses();
+
 private:
 	/** Reports a bounce to AI hearing, rate-limited and speed-gated. */
 	void ReportImpactNoise(const FVector& Location, float ImpactSpeed);
@@ -97,7 +121,13 @@ private:
 
 	bool bHasRecoveryPayload = false;
 
-	UPROPERTY()
+	/**
+	 * ★ REPLICATED, because the detonation's cosmetics are read off it on every machine. The multicast
+	 * that spawns the Niagara, the sound, the shake and the decal runs on clients too, and a client that
+	 * never received this would early-out and show an explosion that makes no noise and leaves no mark.
+	 * A data asset is stable-named, so the reference costs a path and nothing else.
+	 */
+	UPROPERTY(Replicated)
 	TObjectPtr<const UAZ_ThrowableDefinition> Definition;
 
 	/**
@@ -115,6 +145,19 @@ private:
 	 *  placement, which lifts by the same amount so the spawn is not refused for intersecting the floor. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|Throwable", meta = (ClampMin = "0", ForceUnits = "cm"))
 	float PickupSurfaceClearance = 12.f;
+
+	/** Counts down from release for a FuseAndDetonate throwable. Cleared in EndPlay so a projectile removed
+	 *  early (level teardown, MaxFlightTime, a destroyed thrower) cannot fire a blast from a dead actor. */
+	FTimerHandle FuseTimer;
+
+	/** Targets the blast damaged, revisited a moment later so the ones it killed can be thrown. Weak: a
+	 *  corpse may be cleaned up between the blast and the push. */
+	TArray<TWeakObjectPtr<AActor>> PendingImpulseTargets;
+	FVector PendingImpulseOrigin = FVector::ZeroVector;
+	FTimerHandle ImpulseTimer;
+
+	/** One detonation per object, whatever route reaches it — fuse, or a future impact trigger. */
+	bool bDetonated = false;
 
 	double LastNoiseTime = -1000.0;
 	int32 BounceCount = 0;

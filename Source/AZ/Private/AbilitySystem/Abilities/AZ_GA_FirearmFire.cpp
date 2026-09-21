@@ -360,6 +360,11 @@ bool UAZ_GA_FirearmFire::FireAuthoritativeShot()
 		&& !Hit.ImpactNormal.ContainsNaN() && !Hit.ImpactNormal.IsNearlyZero();
 	UParticleSystem* WorldImpactEffect = bWorldImpact ? Source.Definition->WorldImpactEffect.Get() : nullptr;
 	const float WorldImpactScale = Source.Definition->WorldImpactScale;
+	// Resolved HERE, on authority, alongside the impact effect and for the same reason: the multicast must
+	// not have to look anything up on the client, where the weapon may already be gone by the time it lands.
+	UMaterialInterface* WorldImpactDecal = bWorldImpact ? Source.Definition->WorldImpactDecal.Get() : nullptr;
+	const float WorldImpactDecalSize = Source.Definition->WorldImpactDecalSize;
+	const float WorldImpactDecalLifetime = Source.Definition->WorldImpactDecalLifetime;
 	UAbilitySystemComponent* SourceASC = CurrentActorInfo->AbilitySystemComponent.Get();
 	FAZ_WeaponAmmoSnapshot Committed;
 	if (!Source.Inventory->TryConsumeWeaponRound(Source.Weapon, AcceptedItemId, Expected.MagazineItemId,
@@ -413,7 +418,8 @@ bool UAZ_GA_FirearmFire::FireAuthoritativeShot()
 	}
 	if (IsValid(Source.Weapon))
 	{
-		Source.Weapon->Multicast_PlayFirearmShot(Hit, bHitConfirmed, WorldImpactEffect, WorldImpactScale);
+		Source.Weapon->Multicast_PlayFirearmShot(Hit, bHitConfirmed, WorldImpactEffect, WorldImpactScale,
+			WorldImpactDecal, WorldImpactDecalSize, WorldImpactDecalLifetime);
 	}
 	UE_LOG(LogTemp, Display, TEXT("[Fire] shot=%s item=%s magazine=%s generation=%u rounds=%d hit=%s confirmed=%d mode=%s action=%s spreadFullDeg=%.3f"),
 		*AcceptedShotId.ToString(), *AcceptedItemId.ToString(), *Committed.MagazineItemId.ToString(), AcceptedGeneration,

@@ -9,6 +9,8 @@
 #include "StructUtils/InstancedStruct.h"
 #include "Weapon/AZ_WeaponTypes.h"
 
+class UMaterialInterface;
+
 #include "AZ_Inv_CommonUI_ItemFragment.generated.h"
 
 class UAZ_ThrowableDefinition;
@@ -403,6 +405,30 @@ struct FAZ_Inv_CommonUI_WeaponStateFragment : public FAZ_Inv_CommonUI_ItemFragme
 	/** Uniform cosmetic scale. Zero disables the scenery impact without affecting the shot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0"))
 	float WorldImpactScale = 1.f;
+
+	/**
+	 * Mark left on the surface a bullet struck — the hole that stays after the impact puff has gone.
+	 *
+	 * Must be a material whose domain is DEFERRED DECAL. A Surface material is silently refused by the
+	 * decal component, which then draws the engine default: a plain white patch. That exact mistake cost a
+	 * round of debugging on the grenade's scorch (2026-09-19); M_Decal_BulletHole in the FPS pack is a real
+	 * decal and is the intended value here.
+	 *
+	 * Per weapon, like the impact effect above: a pistol and a rifle can leave different holes, and null
+	 * simply leaves none.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire")
+	TObjectPtr<UMaterialInterface> WorldImpactDecal = nullptr;
+
+	/** Edge length of the decal box, in cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire",
+		meta=(ClampMin="0", ForceUnits="cm"))
+	float WorldImpactDecalSize = 8.f;
+
+	/** How long the hole stays before fading. Bullet holes accumulate fast, so this is deliberately finite. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire",
+		meta=(ClampMin="0", ForceUnits="s"))
+	float WorldImpactDecalLifetime = 20.f;
 
 	/** Hearing is emitted by the authoritative accepted-shot operation, independently of audio playback. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AZ|Inventory|Weapon|Fire", meta=(ClampMin="0"))

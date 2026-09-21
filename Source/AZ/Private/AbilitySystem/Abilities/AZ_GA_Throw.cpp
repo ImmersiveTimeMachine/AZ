@@ -547,7 +547,20 @@ void UAZ_GA_Throw::PerformRelease()
 	// The hand empties on the SAME frame the projectile is armed, so it is never in two places.
 	// The hand empties on the SAME frame the projectile is armed, so the object is never in two places.
 	Phase = EAZ_ThrowPhase::Released;
-	SuppressHandProp(true);
+	// ★ ONLY IF THIS ABILITY IS STILL ALIVE. TryCommitThrowRelease above publishes the inventory change
+	// SYNCHRONOUSLY, and its listeners can end this ability before it returns: the last grenade leaves the
+	// stack, the quick bar clears, the hand component's Refresh calls LeaveThrowAction, and EndAbility runs
+	// — including the SuppressHandProp(false) that is supposed to pair with this line. Execution then comes
+	// back here and re-suppresses a hand nobody will ever un-suppress, so every later grenade is readied
+	// with no carry montage and no hold pose.
+	//
+	// Measured 2026-09-19: "[Throw] end" printed BEFORE "[Throw] release", which is the fingerprint of the
+	// ability having died inside the commit. EndAbility invalidates ThrowActionId, so that is the cheapest
+	// honest test of whether we are still the live action.
+	if (ThrowActionId.IsValid())
+	{
+		SuppressHandProp(true);
+	}
 	// The three yaws that have to agree, plus the origin in ACTOR space. If the body yaw does not track the
 	// aim yaw, the character throws one way while the object goes another - which is exactly how it looked
 	// before the throw started driving the pawn's facing.
@@ -623,6 +636,15 @@ void UAZ_GA_Throw::RequestCancel()
 			this, FName("ThrowCancel"), Profile->CancelMontage, FGameplayTagContainer(), 1.f, NAME_None,
 			/*bStopWhenAbilityEnds*/ false);
 		PresentationTask->ReadyForActivation();
+		// ★ THE PUT-AWAY IS A PHASE, AND SOMETHING HAS TO OWN ITS LENGTH. This clip plays in the throwable
+		// slot, whose mask owns everything above spine_01, and it outlives this ability on purpose — so a
+		// weapon draw issued the moment the ability ends spends its entire length invisible underneath it
+		// and the weapon just appears in the hand (measured 2026-09-20). Told here, at the one point that
+		// knows the clip actually started, so every cancel route is covered.
+		if (auto* Hand = FindHandComponent())
+		{
+			Hand->BeginPutAway(Profile->CancelMontage);
+		}
 	}
 	FinishAndRelease(true);
 }

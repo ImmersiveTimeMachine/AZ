@@ -48,6 +48,10 @@ AActor* FAZ_Inv_CommonUI_ItemManifest::SpawnPickupActor(const UObject* WorldCont
 	if (!IsValid(PickupActorClass) || !IsValid(WorldContextObject) || !WorldContextObject->GetWorld()) return nullptr;
 
 	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.CustomPreSpawnInitialization = [](AActor* Actor)
+	{
+		Actor->Tags.AddUnique(UAZ_Inv_CommonUI_ItemComponent::CampaignRuntimeSpawnTag);
+	};
 	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
 	AActor* SpawnedActor = WorldContextObject->GetWorld()->SpawnActor<AActor>(PickupActorClass, SpawnLocation, SpawnRotation, SpawnParameters);
 	if (!IsValid(SpawnedActor)) return nullptr;

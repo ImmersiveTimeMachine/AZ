@@ -12,6 +12,8 @@ class UAZ_Inv_InventoryComponent;
 class UAZ_Inv_CommonUI_InventoryHudWidget;
 class UAZ_PlayerUIComponent;
 class UAZ_QuickSelectComponent;
+class UAZ_QuestMapComponent;
+class UAZ_CampaignSaveCoordinator;
 class AAZ_Weapon;
 class UInputAction;
 class UInputMappingContext;
@@ -30,6 +32,10 @@ class AZ_API AAZ_PlayerController : public APlayerController
 public:
 
 	AAZ_PlayerController();
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Navigation")
+	TObjectPtr<UAZ_QuestMapComponent> QuestMap;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Save")
+	TObjectPtr<UAZ_CampaignSaveCoordinator> CampaignSave;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="AZ|Character|Input")
 	class UInputAction* OpenInventoryAction;
@@ -79,7 +85,7 @@ public:
 	void ToggleCommonUI_InventoryMenu();
 	/** Compatibility guard used by firearm abilities: all interactive player UI blocks combat. */
 	bool IsInventoryInputCaptured() const { return IsGameplayInputCaptured() || bQuickSelectMouseReleasePending; }
-	bool IsGameplayInputCaptured() const { return bInventoryInputCaptured || bQuickSelectInputCaptured; }
+	bool IsGameplayInputCaptured() const;
 	bool IsInventoryMenuOpen() const { return bInventoryInputCaptured; }
 	void SetQuickSelectInputCaptured(bool bOpen);
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickSelect") void ToggleQuickSelect();
@@ -124,6 +130,10 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	void PrimaryInteract();
+	/** Restricted to authored immediate quest actors/checkpoints; arbitrary interactables retain their ability/hold path. */
+	UFUNCTION(BlueprintCallable, Category="AZ|Interaction")
+	void RequestImmediateWorldInteraction(AActor* Target);
+	bool CanUseImmediateWorldInteraction() const;
 
 	/** The live throw instance, or null when nothing is readied. Public because the throwable hand component
 	 *  — a sibling on this actor — has to end a throw whose item is no longer the readied one. */
@@ -199,5 +209,11 @@ private:
 
 	TWeakObjectPtr<AActor> ActivePickupActor;
 	TWeakObjectPtr<AActor> LastActivePickupActor;
+	UFUNCTION(Server, Reliable) void Server_ImmediateWorldInteract(AActor* Target, FGuid RequestId);
+	bool ValidateImmediateWorldTarget(AActor* Target) const;
+	bool bImmediateInteractPressConsumed = false;
+	uint64 LastImmediateWorldRequestFrame = MAX_uint64;
+	double LastImmediateWorldServerTime = -1.0e30;
+	TArray<FGuid> RecentWorldInteractionRequests;
 	
 };

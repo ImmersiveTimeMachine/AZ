@@ -10,6 +10,8 @@ Read [ledger](C:/UnrealEngine/Games/AZ/docs/design-briefs/compass-integration-pr
 
 ## Installed and saved
 
+Latest September19 follow-up: Artur says the compass works well and authorized demonstration markers. Added/saved child `BP_AZ_NavigationPreviewTarget` and exactly three actors in L_001, Outliner `Navigation/CompassPreview`: CompassPreview_A/B/C, both channels, world labels TEST A/B/C. Single BeginPlay→parent→one-time existing-controller enumeration→inherited RegisterForPlayer; parent enforces valid/local controller and handles EndPlay. No Tick search, PlayerController0 lookup, automated tests or Codex-started PIE. Initial PIE player is spawned before World.BeginPlay in engine GameInstance.cpp. This demo does not promise late-player support. Receipt: Saved/CompassIntegration/preview-targets-saved.json; marker visuals/behavior pending user Play. Remove only those three actors to remove the demo; production target stays explicit.
+
 Ten BPs compiled successfully. [final-save-readback.json](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/final-save-readback.json) lists thirteen explicitly saved assets with dirty[]: nine navigation BPs, existing GameHUD, three textures. Later [registry-fix-saved.json](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/registry-fix-saved.json) records both corrected containers saved with hashes and zero dirty content after successful native compilation.
 
 Navigation folder contains four copied leaves, CompassModule, NavigationSettings/NavigationWidgets helper libraries, CompassBridge, Examples/BP_AZ_NavigationTarget and CHALK compass strip/pointer/target textures. Typed source-class remap applied to all four leaves using editor-only support. No new runtime compass solver.

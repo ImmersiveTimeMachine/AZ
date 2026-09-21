@@ -1173,7 +1173,13 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 			// ("дергано... в быстром режиме проигрывания"): 200 deg/s against a 90 deg/s standing step ran the clip at
 			// 2.2x, and against the 67.5 deg/s crouched step at 3.0x. A turn is made faster by stepping WIDER,
 			// not by spinning the clip.
-			const bool bCrouchTurn = HasMatchingGameplayTag(FAZ_GameplayTags::Get().Movement_Crouching);
+			// ★ THE MOVER'S ACTUAL STANCE, not the crouch INTENT tag. The tag flips the instant the key is
+			// pressed; the stance flips when the lower/rise clip has done its work, and between the two the
+			// animation side (which reads UCharacterMoverComponent::IsCrouching) would be sizing the step for
+			// one stance while this sized the body's yaw rate for the other — a foot slide of exactly that
+			// difference, in the one place the shared AZ_TurnInPlace figures exist to prevent it. Same call,
+			// same object, both sides.
+			const bool bCrouchTurn = MoverComponent && MoverComponent->IsCrouching();
 			const float TurnRateDeg  = bThrowableReady
 				? static_cast<float>(AZ_TurnInPlace::AuthoredRate(bCrouchTurn)
 					* AZ_TurnInPlace::Briskness(Walking->ThrowableTurnRateDegPerSec))

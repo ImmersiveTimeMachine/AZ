@@ -1,7 +1,0 @@
-gimp_font_factory_recursive_add_fontdir: adding font file 'C:\UnrealEngine\Games\AZ\UI Design\CHALK_HUD_v01\sources\fonts\OFL-Oswald.txt' failed.
-GIMP-Message: Some fonts failed to load:
-- C:\UnrealEngine\Games\AZ\UI Design\CHALK_HUD_v01\sources\fonts\OFL-Oswald.txt
-
-GIMP-Warning: Welcome to GIMP 3.2.4!
-
-batch command executed successfully

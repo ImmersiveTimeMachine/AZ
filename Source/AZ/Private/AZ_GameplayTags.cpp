@@ -249,6 +249,7 @@ void FAZ_GameplayTags::InitializeNativeGameplayTags()
     AddTag(GameplayTags.Ability_State_Throwing,       FName("Ability.State.Throwing"),       TEXT("Currently throwing grenade/item"));
     AddTag(GameplayTags.Ability_State_ThrowPreparing, FName("Ability.State.ThrowPreparing"), TEXT("Aiming a throwable; nothing committed or spent yet"));
     AddTag(GameplayTags.State_Throwable_Ready,        FName("State.Throwable.Ready"),        TEXT("A throwable is readied and carried in hand — combat-ready facing, walk only; not the wind-up"));
+    AddTag(GameplayTags.State_Throwable_Stowing,      FName("State.Throwable.Stowing"),      TEXT("The throwable's put-away clip is still playing; a weapon draw started under it would be invisible"));
     AddTag(GameplayTags.Ability_State_Dashing,        FName("Ability.State.Dashing"),        TEXT("Currently performing dash/dodge"));
 
     // =========================================================

@@ -71,12 +71,16 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 	{
 		UI->OnVitalsChanged.AddUniqueDynamic(this, &ThisClass::HandleVitalsChanged);
 		UI->OnWeaponChanged.AddUniqueDynamic(this, &ThisClass::HandleWeaponChanged);
+		UI->OnThrowableChanged.AddUniqueDynamic(this, &ThisClass::HandleThrowableChanged);
 		UI->OnHitConfirmed.AddUniqueDynamic(this, &ThisClass::HandleHitConfirmed);
 		UI->OnInventoryFull.AddUniqueDynamic(this, &ThisClass::HandleInventoryFull);
 		UI->OnInventoryVisibilityChanged.AddUniqueDynamic(this, &ThisClass::HandleInventoryVisibilityChanged);
 		UI->OnReticleChanged.AddUniqueDynamic(this, &ThisClass::HandleReticleChanged);
 		HandleVitalsChanged(UI->GetVitalsView());
 		HandleWeaponChanged(UI->GetWeaponView());
+		// After the weapon view, so the row is built once against both and settles on the throwable when one
+		// is already readied at the moment the HUD is constructed.
+		HandleThrowableChanged(UI->GetThrowableView());
 		HandleReticleChanged(UI->GetReticleView());
 		HandleInventoryVisibilityChanged(UI->IsInventoryOpen());
 	}
@@ -93,6 +97,7 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeDestruct()
 	{
 		UI->OnVitalsChanged.RemoveDynamic(this, &ThisClass::HandleVitalsChanged);
 		UI->OnWeaponChanged.RemoveDynamic(this, &ThisClass::HandleWeaponChanged);
+		UI->OnThrowableChanged.RemoveDynamic(this, &ThisClass::HandleThrowableChanged);
 		UI->OnHitConfirmed.RemoveDynamic(this, &ThisClass::HandleHitConfirmed);
 		UI->OnInventoryFull.RemoveDynamic(this, &ThisClass::HandleInventoryFull);
 		UI->OnInventoryVisibilityChanged.RemoveDynamic(this, &ThisClass::HandleInventoryVisibilityChanged);
@@ -126,13 +131,61 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleVitalsChanged(const FAZ_PlayerVi
 	ShowElement(LowHealthText, View.bCritical);
 }
 
+void UAZ_Inv_CommonUI_InventoryHudWidget::HandleThrowableChanged(const FAZ_PlayerThrowableView& View)
+{
+	PresentedThrowable = View;
+	// One row, two sources. Re-run it against the equipment view we already have rather than duplicating the
+	// presentation here, so the two can never disagree about what is being shown.
+	HandleWeaponChanged(PresentedWeapon);
+}
+
 void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWeaponView& View)
 {
+	PresentedWeapon = View;
 	if (PresentedWeaponId != View.Ammo.WeaponItemId)
 	{
 		ClearHitFeedback();
 		PresentedWeaponId = View.Ammo.WeaponItemId;
 	}
+
+	// ★ A READIED THROWABLE IS WHAT IS IN THE HANDS, and the row has to say so — same row, same place, same
+	// reading as a pistol or a rifle (user call 2026-09-21). Equipment is committed to NOTHING while a
+	// grenade is out, which the mode indicator resolved to EXPLORE: the HUD claimed the player was carrying
+	// nothing while they were holding a live grenade. It takes priority over the mode indicator for exactly
+	// that reason, and over a firearm row because a readied throwable means the firearm is already stowed.
+	if (PresentedThrowable.bHasThrowable)
+	{
+		ApplyModePresentation(WidgetTree, View, /*bShowFirearm*/ true);
+		ShowElement(WeaponContainer, true);
+		ShowElement(SpareMagazinesText, false);
+		ShowElement(FireModeText, false);
+		if (WidgetTree)
+		{
+			ShowElement(WidgetTree->FindWidget(TEXT("MagazineCountRow")), false);
+			ShowElement(WidgetTree->FindWidget(TEXT("MagazineIcon")), false);
+		}
+		if (WeaponIcon)
+		{
+			WeaponIcon->SetBrushFromTexture(PresentedThrowable.Icon, true);
+			ShowElement(WeaponIcon, IsValid(PresentedThrowable.Icon));
+		}
+		if (WeaponNameText) WeaponNameText->SetText(PresentedThrowable.DisplayName);
+		// The stack count IS the ammunition here, and there is no magazine behind it to give a capacity for
+		// — so the capacity half of the row is cleared rather than showing a misleading "/ --".
+		if (AmmoRoundsText)
+		{
+			if (DefaultAmmoFontSize > 0)
+			{
+				FSlateFontInfo Font = AmmoRoundsText->GetFont();
+				Font.Size = DefaultAmmoFontSize;
+				AmmoRoundsText->SetFont(Font);
+			}
+			AmmoRoundsText->SetText(FText::AsNumber(FMath::Max(0, PresentedThrowable.Count)));
+		}
+		if (AmmoCapacityText) AmmoCapacityText->SetText(FText::GetEmpty());
+		return;
+	}
+
 	// Firearms retain their weapon/ammo row. Other committed equipment modes
 	// show the approved Fight/Explore indicator independently of health.
 	const bool bShow = View.bHasWeapon && View.bUsesMagazines;

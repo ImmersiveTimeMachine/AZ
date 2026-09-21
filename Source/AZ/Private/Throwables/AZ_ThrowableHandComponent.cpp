@@ -17,6 +17,7 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
+#include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "Player/AZ_PlayerController.h"
 #include "Throwables/AZ_ThrowPresentationProfile.h"
 #include "Throwables/AZ_ThrowableDefinition.h"
@@ -43,6 +44,18 @@ void UAZ_ThrowableHandComponent::BeginPlay()
 			// changing — so contents have to be watched as well as selection.
 			Inventory->OnInventoryChanged.AddUniqueDynamic(this, &UAZ_ThrowableHandComponent::HandleInventoryChanged);
 		}
+		// ★ THE FRAME THE HOLSTER COMMITS, not up to a tenth of a second later. Readying a throwable puts the
+		// weapon away first, and the grenade can only come out once the hands are free — which used to be
+		// noticed by a slow poll. Measured 2026-09-20: six frames passed between the holster committing and
+		// the grenade being taken out, and for those six frames the upper body showed the bare unarmed idle.
+		// That gap is the jerk between the two animations; the poll stays only as a safety net.
+		//
+		// HandleInventoryChanged is the shared "something changed, re-resolve everything" handler — the same
+		// one the quick bar and the inventory use. Refresh is idempotent, so a spare broadcast costs nothing.
+		if (auto* Equipment = Owner->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>())
+		{
+			Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &UAZ_ThrowableHandComponent::HandleInventoryChanged);
+		}
 	}
 	if (APlayerController* Owner = Cast<APlayerController>(GetOwner()))
 	{
@@ -63,11 +76,18 @@ void UAZ_ThrowableHandComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 		{
 			Inventory->OnInventoryChanged.RemoveDynamic(this, &UAZ_ThrowableHandComponent::HandleInventoryChanged);
 		}
+		if (auto* Equipment = Owner->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>())
+		{
+			Equipment->OnEquipmentChanged.RemoveDynamic(this, &UAZ_ThrowableHandComponent::HandleInventoryChanged);
+		}
 		Owner->OnPossessedPawnChanged.RemoveDynamic(this, &UAZ_ThrowableHandComponent::HandlePawnChanged);
 	}
 	// The tag lives on the pawn's ASC, which outlives this component on a controller teardown. Left set, the
 	// body would stay locked to combat-ready walking with no grenade in sight.
 	PublishReadyTag(false);
+	// Same reasoning, worse consequences: a stuck Stowing tag makes every future weapon switch defer for
+	// good, because equipment reads it as a committed action.
+	EndPutAway();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -175,6 +195,17 @@ void UAZ_ThrowableHandComponent::UpdateCarryMontage(USkeletalMeshComponent* Mesh
 {
 	UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr;
 	UAnimMontage* Wanted = Profile ? Profile->CarryMontage.Get() : nullptr;
+
+	// ENTRY TRACE. Three of the paths below return without playing anything and without a word in the log,
+	// so "no [ThrowCarry] play line" could mean a null profile, a suppressed carry, or an early-out that
+	// silently re-played — indistinguishable after the fact. That ambiguity is what made "the pistol pose
+	// stays on the upper body after re-taking a grenade" (2026-09-19) unreadable from a log alone.
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ThrowCarry] update profile=%s wanted=%s active=%s suppressed=%d actionOwnsBody=%d anim=%d playing=%d"),
+		*GetNameSafe(Profile), *GetNameSafe(Wanted), *GetNameSafe(ActiveCarryMontage),
+		bSuppressed ? 1 : 0, bActionOwnsBody ? 1 : 0, Anim ? 1 : 0,
+		(Anim && Wanted) ? (Anim->Montage_IsPlaying(Wanted) ? 1 : 0) : -1);
+
 	if (!Anim)
 	{
 		ActiveCarryMontage = nullptr;
@@ -184,9 +215,16 @@ void UAZ_ThrowableHandComponent::UpdateCarryMontage(USkeletalMeshComponent* Mesh
 	{
 		// Already showing the right thing. Re-playing every refresh would restart the loop on every
 		// inventory event and make the idle stutter.
-		if (Wanted && !Anim->Montage_IsPlaying(Wanted))
+		//
+		// ★ Montage_IsPlaying stays TRUE for the whole of a montage's blend-OUT, so "playing" is not the
+		// same as "will still be contributing next frame". A carry left mid-fade would be treated as present
+		// and never restarted, and the upper-body mask — which is driven by the montage's weight — would
+		// close onto the locomotion pose. Treat a stopping montage as absent.
+		if (Wanted && (!Anim->Montage_IsPlaying(Wanted) || Anim->Montage_GetIsStopped(Wanted)))
 		{
-			Anim->Montage_Play(Wanted, 1.f);   // something else stopped it; bring it back
+			const float Replayed = Anim->Montage_Play(Wanted, 1.f);
+			UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] re-play %s -> %.3f%s"),
+				*Wanted->GetName(), Replayed, Replayed > 0.f ? TEXT("") : TEXT("  <== REFUSED"));
 		}
 		return;
 	}
@@ -206,6 +244,170 @@ void UAZ_ThrowableHandComponent::UpdateCarryMontage(USkeletalMeshComponent* Mesh
 			*Wanted->GetName(), *Slot.ToString(), Played,
 			Played > 0.f ? TEXT("") : TEXT("  <== REFUSED"));
 	}
+}
+
+bool UAZ_ThrowableHandComponent::EnsureHandsFreeForThrow()
+{
+	AAZ_PlayerController* Owner = Cast<AAZ_PlayerController>(GetOwner());
+	auto* Equipment = Owner ? Owner->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+	if (!Equipment)
+	{
+		return true;   // nothing can be held, so nothing is in the way
+	}
+
+	// Mid-switch: something is already moving. Wait for it rather than issuing a second request into a
+	// transition that owns the hands.
+	if (Equipment->IsSwitchingWeapon())
+	{
+		ArmStowWait();
+		return false;
+	}
+
+	UAZ_Inv_CommonUI_InventoryItem* Active = Equipment->GetActiveItem();
+	if (!Active)
+	{
+		if (GetWorld())
+		{
+			GetWorld()->GetTimerManager().ClearTimer(StowWaitTimer);
+		}
+		return true;   // hands already free
+	}
+
+	// Remember BEFORE asking, so the draw-back still knows what to restore even if the unequip completes
+	// synchronously and re-enters this component.
+	StowedForThrow = Active;
+	if (!Equipment->RequestUnequipItem(Active))
+	{
+		// Refused — the weapon is busy (firing, reloading, its own switch). Do not strand the throw: forget
+		// the claim and try again shortly, rather than holding a grenade that never arms.
+		StowedForThrow = nullptr;
+		ArmStowWait();
+		return false;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] stowing %s to free the hands for a throwable"),
+		*GetNameSafe(Active));
+	ArmStowWait();
+	return false;
+}
+
+void UAZ_ThrowableHandComponent::ArmStowWait()
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetTimerManager().IsTimerActive(StowWaitTimer))
+	{
+		return;
+	}
+	// Slow on purpose. This only has to notice that an animation finished; polling faster would buy nothing
+	// and run Refresh dozens of times through a holster.
+	World->GetTimerManager().SetTimer(StowWaitTimer,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			Refresh();
+		}), 0.1f, true);
+}
+
+void UAZ_ThrowableHandComponent::AbandonStowedWeapon()
+{
+	if (!StowedForThrow.IsValid())
+	{
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] dropping the claim on %s - the player chose a weapon themselves"),
+		*GetNameSafe(StowedForThrow.Get()));
+	StowedForThrow = nullptr;
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(StowWaitTimer);
+	}
+}
+
+void UAZ_ThrowableHandComponent::RestoreStowedWeapon()
+{
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(StowWaitTimer);
+	}
+	UAZ_Inv_CommonUI_InventoryItem* Restore = StowedForThrow.Get();
+	StowedForThrow = nullptr;   // cleared FIRST: the request can re-enter this component synchronously
+	if (!Restore)
+	{
+		return;
+	}
+	AAZ_PlayerController* Owner = Cast<AAZ_PlayerController>(GetOwner());
+	auto* Equipment = Owner ? Owner->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+	if (!Equipment)
+	{
+		return;
+	}
+	// ★ A REFUSAL HERE MUST NOT LOSE THE WEAPON. The draw-back often arrives while the holster that put it
+	// away is still committing, and the equipment component rightly refuses a request during its own
+	// transition. Dropping it there left the player permanently empty-handed after a grenade (measured
+	// 2026-09-19: "request refused" immediately followed by "committed Weapon.None"). Keep the claim and
+	// come back for it.
+	if (!Equipment->RequestEquipItem(Restore))
+	{
+		StowedForThrow = Restore;
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(StowWaitTimer,
+				FTimerDelegate::CreateWeakLambda(this, [this]() { RestoreStowedWeapon(); }), 0.15f, false);
+		}
+		UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] draw-back of %s refused, retrying"), *GetNameSafe(Restore));
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] drawing %s back after the throwable"), *GetNameSafe(Restore));
+}
+
+bool UAZ_ThrowableHandComponent::IsPuttingAway() const
+{
+	const UWorld* World = GetWorld();
+	return World && World->GetTimerManager().IsTimerActive(PutAwayTimer);
+}
+
+void UAZ_ThrowableHandComponent::BeginPutAway(const UAnimMontage* PutAwayClip)
+{
+	UWorld* World = GetWorld();
+	AAZ_PawnMoverHeroCharacter* Hero = GetHero();
+	UAbilitySystemComponent* Asc = Hero ? Hero->GetAbilitySystemComponent() : nullptr;
+	// To the start of the clip's blend-out, not to its end: the draw should begin as the hand comes down.
+	const float Seconds = PutAwayClip
+		? FMath::Max(0.f, PutAwayClip->GetPlayLength() - PutAwayClip->GetDefaultBlendOutTime())
+		: 0.f;
+	if (!World || !Asc || Seconds <= 0.f)
+	{
+		// No clip, no window. Deferring a switch behind an animation that does not exist would only stall the
+		// draw, which is worse than the overlap this is here to prevent.
+		return;
+	}
+	Asc->SetLooseGameplayTagCount(FAZ_GameplayTags::Get().State_Throwable_Stowing, 1);
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] putting %s away - holding the weapon switch for %.2fs"),
+		*GetNameSafe(PutAwayClip), Seconds);
+	World->GetTimerManager().SetTimer(PutAwayTimer,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			EndPutAway();
+			// The refresh is what takes the prop out of the hand and lets the deferred draw through on the
+			// same beat. Called here rather than from EndPutAway, which also runs during teardown.
+			Refresh();
+		}), Seconds, false);
+}
+
+void UAZ_ThrowableHandComponent::EndPutAway()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(PutAwayTimer);
+	}
+	AAZ_PawnMoverHeroCharacter* Hero = GetHero();
+	UAbilitySystemComponent* Asc = Hero ? Hero->GetAbilitySystemComponent() : nullptr;
+	const FGameplayTag& StowingTag = FAZ_GameplayTags::Get().State_Throwable_Stowing;
+	if (!Asc || !Asc->HasMatchingGameplayTag(StowingTag))
+	{
+		return;
+	}
+	// Clearing this is what releases the deferred weapon selection: equipment watches the tag and retries.
+	Asc->SetLooseGameplayTagCount(StowingTag, 0);
+	UE_LOG(LogTemp, Warning, TEXT("[ThrowCarry] the throwable is away - the weapon may be drawn now"));
 }
 
 void UAZ_ThrowableHandComponent::EnterThrowAction() const
@@ -250,22 +452,66 @@ void UAZ_ThrowableHandComponent::Refresh()
 	const UAZ_ThrowPresentationProfile* Profile = nullptr;
 	const UAZ_ThrowableDefinition* Definition = ResolveReadyThrowable(Profile);
 
+	// ★ SUPPRESSION CANNOT OUTLIVE THE ACTION THAT ASKED FOR IT. Both suppression flags exist only for the
+	// duration of a throw: one hides the prop while the projectile carries it, the other yields the slot to
+	// the wind-up. With no throw running they mean nothing, and a stale one is invisible — it does not
+	// disable the feature loudly, it just silently withholds the carry montage from every grenade after it.
+	//
+	// That is not hypothetical: the throw commit ends the ability re-entrantly, and the release path that
+	// follows used to re-suppress afterwards (see UAZ_GA_Throw::PerformRelease). That leak is fixed at its
+	// source; this makes the whole class of it self-correcting, because the cost is one pointer compare and
+	// the failure mode is a feature that quietly stops working.
+	if (bSuppressed || bActionOwnsBody)
+	{
+		AAZ_PlayerController* SuppressionOwner = Cast<AAZ_PlayerController>(GetOwner());
+		if (!SuppressionOwner || !SuppressionOwner->FindActiveThrow())
+		{
+			bSuppressed = false;
+			bActionOwnsBody = false;
+		}
+	}
+
 	// The carry STATE, published before anything cosmetic: it is what puts the body into combat-ready facing
 	// at a walk, and the masked hold below is only legible on top of that stance. Published from the readied
 	// item alone, so it survives the wind-up (where ThrowPreparing takes over the body) and clears itself the
 	// moment the last unit is thrown and readiness resolves to nothing.
 	PublishReadyTag(Definition != nullptr);
 
-	// The prop and the carry IDLE are suppressed independently: the grenade stays in the hand while aiming,
-	// but the idle must yield the upper-body slot to the wind-up.
-	UpdateCarryMontage(Mesh, Definition && !bSuppressed && !bActionOwnsBody ? Profile : nullptr);
+	// ★ HANDS FIRST — AND THAT INCLUDES THE POSE, NOT JUST THE ACTION. Resolved once here because it has
+	// side effects (it issues the holster and arms the wait), and because the carry montage and the throw
+	// action must agree about when the hands became free.
+	//
+	// The carry montage used to start on the same frame the holster was requested, and its mask owns
+	// everything from spine_01 up — so the holster animation played underneath it, completely hidden. From
+	// outside that is indistinguishable from "the switch animation does not work", which is exactly how it
+	// was reported (2026-09-19), while rifle-to-pistol looked perfect because no grenade pose covers it.
+	const bool bHandsFree = (Definition && !bSuppressed) ? EnsureHandsFreeForThrow() : true;
+
+	if (Definition)
+	{
+		// Something throwable is in hand again, so whatever was being put away is over. Left running, its tag
+		// would defer the player's next weapon switch behind an animation nobody is watching — and the prop
+		// hold below would fight the one that has just been taken out.
+		EndPutAway();
+	}
 
 	// Readying a throwable IS entering the throw action: Start into Loop, held until the player throws or
 	// cancels (user call 2026-09-18). Activation is safe to attempt on every refresh — the ability blocks
 	// itself with Ability.State.ThrowPreparing, so an already-running one is not restarted.
+	//
+	// ★ BEFORE THE CARRY IDLE, NOT AFTER. Entering takes the body: it re-enters this function with
+	// bActionOwnsBody raised, and the carry idle is then never started at all. The other way round, the idle
+	// was played and stopped inside the same frame — its mask rose off zero and fell straight back while the
+	// wind-up was blending in, which is the twitch on taking a grenade out (reported 2026-09-20).
 	if (Definition && !bSuppressed)
 	{
-		EnterThrowAction();
+		// ★ HANDS FIRST, GRENADE SECOND. Holstering is animated and takes time, so the throw is not started
+		// on this pass when a weapon is still out — the wait below brings us back here when the hands are
+		// free. Entering anyway is what produced a grenade thrown with a rifle still in hand.
+		if (bHandsFree)
+		{
+			EnterThrowAction();
+		}
 	}
 	else if (!Definition)
 	{
@@ -276,12 +522,34 @@ void UAZ_ThrowableHandComponent::Refresh()
 		{
 			if (UAZ_GA_Throw* Active = Owner->FindActiveThrow())
 			{
+				// Starting the cancel clip is what opens the put-away window — the ability calls back into
+				// BeginPutAway from there, so every cancel route gets it, not just this one.
 				Active->RequestCancel();
 			}
 		}
 		LeaveThrowAction();
+		// The throwable is gone from the hand — thrown, cancelled or swapped away. Whatever was holstered to
+		// make room comes back out, or the player is left empty-handed after every grenade.
+		RestoreStowedWeapon();
 	}
 
+	// The prop and the carry IDLE are suppressed independently: the grenade stays in the hand while aiming,
+	// but the idle must yield the upper-body slot to the wind-up. Read AFTER the action block, so its
+	// decision is made against what the action just did rather than against the state before it.
+	UpdateCarryMontage(Mesh,
+		Definition && !bSuppressed && !bActionOwnsBody && bHandsFree ? Profile : nullptr);
+
+	// ★ THE HAND CANNOT BE EMPTY DURING A PUT-AWAY. The clip shows the character lowering a grenade and
+	// stowing it; deleting the prop on the frame the clip starts plays that whole two seconds on an empty
+	// hand. Readiness is already false by now — that is what started the clip — so the prop is held by the
+	// window alone, and the refresh at the end of it takes it away.
+	//
+	// Not while SUPPRESSED: there the projectile IS the grenade, and a second copy in the hand would put one
+	// object in two places.
+	if (!Definition && !bSuppressed && Mesh && IsPuttingAway())
+	{
+		return;
+	}
 	if (!Mesh || !Definition || bSuppressed)
 	{
 		HideProps();

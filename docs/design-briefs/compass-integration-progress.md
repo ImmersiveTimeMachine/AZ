@@ -2,6 +2,8 @@
 
 Primary [plan](C:/UnrealEngine/Games/AZ/docs/design-briefs/compass-prohud-integration-plan.md). Usage: [target README](C:/UnrealEngine/Games/AZ/Tools/compass_target_README.md).
 
+**Latest manual-check preparation:** Artur reports the compass works well, then explicitly authorized adding three demonstration targets. `BP_AZ_NavigationPreviewTarget` is compiled/saved; three instances in L_001 under `Navigation/CompassPreview` auto-register for existing local players on BeginPlay. Both compass/world channels are enabled, with world labels TEST A/B/C. Level and Blueprint are saved; [final receipt](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/preview-targets-saved.json) records actor transforms, single BeginPlay graph and clean dirty-package readback. Marker gameplay verification remains pending. Earlier “no level placement” notes describe the initial production target; they are superseded for this explicitly authorized demonstration only.
+
 **September 19, 2026: implementation and final registry correction are compiled and saved; manual acceptance remains pending.** The user resumed after the earlier shutdown. Ten Blueprints compiled successfully. Thirteen assets were explicitly saved: nine navigation Blueprints, existing GameHUD and three CHALK textures. User-started PIE reached actual navigation readiness. Marker behavior, heading accuracy and visual gameplay acceptance remain unverified.
 
 The thirteen-asset save snapshot is supplemented by [registry-fix-saved.json](C:/UnrealEngine/Games/AZ/Saved/CompassIntegration/registry-fix-saved.json), which records both corrected containers saved with hashes and zero dirty content. Both were compiled successfully after the final correction. No automated tests or agent-started PIE were performed.

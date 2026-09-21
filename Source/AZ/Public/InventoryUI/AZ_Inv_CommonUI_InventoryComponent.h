@@ -15,6 +15,7 @@ class UAZ_Inv_CommonUI_ItemComponent;
 class AAZ_Weapon;
 struct FAZ_Inv_CommonUI_ItemManifest;
 struct FAZ_InventoryPickupRecord;
+struct FAZ_InventorySnapshot;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCommonUI_InventoryItemChanged, UAZ_Inv_CommonUI_InventoryItem*, InventoryItem);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCommonUI_NoRoomInInventory);
@@ -108,6 +109,19 @@ public:
 	void NotifyInventoryChanged();
 	virtual void ReadyForReplication() override;
 
+	/** Checkpoint/delivery barriers: existing reload/throw/equipment transactions retain priority. */
+	bool CanCaptureCampaignInventory(FString& OutError) const;
+	bool CaptureCampaignInventory(FAZ_InventorySnapshot& OutSnapshot, FString& OutError) const;
+	bool ValidateCampaignInventory(const FAZ_InventorySnapshot& Snapshot, FString& OutError) const;
+	/** Stages exact, unrandomized item instances and locks mutation until publish/cancel. */
+	bool PrepareCampaignInventoryRestore(const FAZ_InventorySnapshot& Snapshot, FString& OutError);
+	UAZ_Inv_CommonUI_InventoryItem* FindCampaignStagedItem(const FGuid& ItemId) const;
+	void CommitCampaignInventoryRestore();
+	void CancelCampaignInventoryRestore();
+	void PublishCampaignInventoryRestore(bool bNotify = true);
+	bool TryConsumeForQuest(FGameplayTag ItemType, int32 Amount,
+		TFunctionRef<bool()> CommitProgressSilently, FString& OutError);
+
 	UFUNCTION(Server, Reliable)
 	void Server_MoveItem(UAZ_Inv_CommonUI_InventoryItem* Item, int32 SourceGridIndex, int32 TargetGridIndex, int32 StackCount);
 	
@@ -200,6 +214,12 @@ private:
 	};
 	FMagazineReloadReservation MagazineReload;
 	bool bMagazineReloadMutation = false;
+	bool bCampaignRestorePrepared = false;
+	bool bCampaignRestoreCommitted = false;
+	UPROPERTY(Transient) TArray<TObjectPtr<UAZ_Inv_CommonUI_InventoryItem>> CampaignStagedItems;
+	UPROPERTY(Transient) TArray<FAZ_InventoryGridPlacement> CampaignStagedPlacements;
+	UPROPERTY(Transient) TArray<FAZ_InventoryGridPlacement> CampaignOriginalPlacements;
+	UPROPERTY(Transient) TArray<TObjectPtr<UAZ_Inv_CommonUI_InventoryItem>> CampaignRemovedItems;
 
 	/** One in-flight throw reservation. One action at a time: the ability is single-instance per avatar and
 	 *  a second throw cannot begin until this one ends. */

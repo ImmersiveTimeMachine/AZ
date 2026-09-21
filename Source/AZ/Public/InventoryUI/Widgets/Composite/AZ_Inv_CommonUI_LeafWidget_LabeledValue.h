@@ -35,9 +35,10 @@ private:
 	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
 	FText PreviewValue;
 
-	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	// Reusable styles must also be authorable on WidgetTree templates.
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	TSubclassOf<UCommonTextStyle> LabelStyle;
 
-	UPROPERTY(EditInstanceOnly, Category = "AZ|Inventory")
+	UPROPERTY(EditAnywhere, Category = "AZ|Inventory")
 	TSubclassOf<UCommonTextStyle> ValueStyle;
 };
