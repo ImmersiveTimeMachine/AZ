@@ -3,6 +3,7 @@
 
 #include "Player/AZ_PlayerController.h"
 
+#include "GameFramework/InputDeviceSubsystem.h"
 #include "EnhancedInputSubsystems.h"
 #include "EnhancedPlayerInput.h"
 #include "UObject/StrongObjectPtr.h"
@@ -585,17 +586,36 @@ UAZ_GA_Throw* AAZ_PlayerController::FindActiveThrow() const
 bool AAZ_PlayerController::RouteThrowInput(const FGameplayTag& InputTag, const bool bPressed)
 {
 	const FAZ_GameplayTags& ThrowInputTags = FAZ_GameplayTags::Get();
-	// ★ LMB THROWS, RMB CANCELS (user call 2026-09-18). Once the grenade is readied the player is already in
-	// the ready pose, so there is nothing left to "start" — both buttons are outcomes of a state they are
-	// already in. RMB reaches the controller through two actions bound to the same physical button, so both
-	// count as the cancel route; RequestCancel is idempotent, and the duplicate edge is harmless.
-	const bool bThrowRoute  = InputTag == ThrowInputTags.Input_Action_PrimaryAttack;
-	const bool bCancelRoute = InputTag == ThrowInputTags.Input_Action_SecondaryAttack
+	// Once the grenade is readied the player is already in the ready pose, so there is nothing left to
+	// "start" — both buttons are outcomes of a state they are already in. One throws, the other puts it away.
+	const bool bPrimaryRoute = InputTag == ThrowInputTags.Input_Action_PrimaryAttack;
+	// RMB (and the left trigger) reach the controller through TWO actions bound to one physical button, so
+	// both spellings count. Whichever side this ends up being, the duplicate edge is harmless: RequestCancel
+	// is idempotent, and RequestThrow's Aiming case calls EnterWindup, which moves Phase to Windup
+	// synchronously so the second edge lands in its "already under way" default.
+	const bool bSecondaryRoute = InputTag == ThrowInputTags.Input_Action_SecondaryAttack
 		|| InputTag == ThrowInputTags.Input_Action_Aim;
-	if (!bThrowRoute && !bCancelRoute)
+	if (!bPrimaryRoute && !bSecondaryRoute)
 	{
 		return false;
 	}
+	// ★ THE THROW SITS ON THE RIGHT-HAND BUTTON OF WHATEVER THE PLAYER IS HOLDING (user call 2026-09-22),
+	// and the two devices spell "right-hand button" with opposite tags: on a pad the RIGHT TRIGGER is
+	// PrimaryAttack, on a mouse the RIGHT BUTTON is SecondaryAttack/Aim. A tag-only route has to pick one
+	// device and gets the other backwards — which is exactly what it did, throwing on LMB while the pad
+	// threw on RT. So the active device is part of the question, and the other button cancels.
+	//
+	// ★ Asked of UInputDeviceSubsystem, NOT of CommonInput (corrected 2026-09-22). CommonInput's "current
+	// input type" only moves when the CommonUI layer observes something, so in plain gameplay — no menu, no
+	// focused widget — it sits on MouseAndKeyboard while the player is on a pad, and this read false every
+	// time. That is exactly how the same mistake broke the melee hand swap. The device subsystem is fed by
+	// the input stack itself and updates on real input.
+	const UInputDeviceSubsystem* Devices = UInputDeviceSubsystem::Get();
+	const FHardwareDeviceIdentifier Hardware = Devices
+		? Devices->GetMostRecentlyUsedHardwareDevice(GetPlatformUserId()) : FHardwareDeviceIdentifier();
+	const bool bGamepad = Hardware.IsValid()
+		&& Hardware.PrimaryDeviceType == EHardwareDevicePrimaryType::Gamepad;
+	const bool bThrowRoute = bGamepad ? bPrimaryRoute : bSecondaryRoute;
 	UAZ_GA_Throw* Throw = FindActiveThrow();
 	if (!Throw)
 	{

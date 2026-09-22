@@ -339,11 +339,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ChooserContext.bIsAiming = ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Aiming)
 		|| Cached_Pawn->IsAimTurningInPlace()   // an aim turn finishes after release: keep the turn clip + aim idle for its tail
 		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_FirearmReady);
-	// ★ State.Throwable.Ready belongs here and NOT in bIsAiming. Carrying a grenade is combat-ready
-	// locomotion — directional strafe legs under a camera-facing torso — which is the only stance the masked
-	// grenade hold reads correctly on. It is not aiming: no aim idle, no aim turn-in-place, no zoom.
-	// The pawn raises its own strafe flag from the same tag; both sides must agree or the body faces the
-	// camera while the chooser keeps handing out Explore clips (measured 2026-09-18).
+	// ★ State.Throwable.Ready belongs here. Carrying a grenade is combat-ready locomotion — directional
+	// strafe legs under a camera-facing torso — which is the only stance the masked grenade hold reads
+	// correctly on. The pawn raises its own strafe flag from the same tag; both sides must agree or the
+	// body faces the camera while the chooser keeps handing out Explore clips (measured 2026-09-18).
+	//
+	// It ALSO belongs in bIsAiming, but only where the throwable profile is actually swapped in — see the
+	// assignment further down, which carries the reasoning.
 	ChooserContext.bStrafe = ChooserContext.bIsAiming
 		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Movement_Strafe)
 		|| ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready);
@@ -388,6 +390,22 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 					ChooserContext.OwnedTags.AddTag(ThrowableLocomotionTag);
 				}
 				NewWeaponProfile = ThrowableLocomotionProfile;
+				// ★ AND THE COMBAT STANCE, NOT THE RELAXED ONE (user call 2026-09-22). The pistol standing
+				// idle exists twice in CHT_v2 and the two rows differ in exactly ONE cell — c6, bound to
+				// bIsAiming: False gives AS_Pistol_Idle_Relaxed (feet square, 3.8cm apart, hand at the hip),
+				// True gives AS_Pistol_Idle (bladed stance, feet 63.9cm apart, weapon up). A grenade in the
+				// hand was landing on the relaxed one, so the legs said "strolling" under a combat hold.
+				//
+				// It was already half true: an aim turn-in-place raises bIsAiming through the pawn, so the
+				// carry TURNED on AS_Pistol_TurnL_90Loop and then SETTLED into the relaxed idle. This makes
+				// the standing pose agree with the turn it just came out of.
+				//
+				// Set here rather than in the bIsAiming expression above so it is scoped to the frames where
+				// the throwable profile is actually the one driving the body. The two other consumers,
+				// AimAlpha and WeaponRelaxedAlpha, are torso layers above spine_01 — which the grenade slot's
+				// mask owns downstream — so this reaches the legs and nothing else. Precision-aim zoom is a
+				// separate tag (Ability.State.Aiming) and is untouched.
+				ChooserContext.bIsAiming = true;
 			}
 		}
 	}

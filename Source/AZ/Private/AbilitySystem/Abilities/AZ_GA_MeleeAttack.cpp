@@ -3,6 +3,8 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"
 #include "AbilitySystem/AZ_MeleeEnvironment.h"
+#include "GameFramework/InputDeviceSubsystem.h"
+#include "GameFramework/PlayerController.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_MeleeSweep.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
 #include "AbilitySystem/AttributeSets/AZ_VitalsAttributeSet.h"
@@ -278,6 +280,47 @@ void UAZ_GA_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	UAnimMontage* Montage = SelectMontage();
+
+	// ★ SWAP THE FIST FOR A GAMEPAD (user call 2026-09-22), applied HERE and not inside SelectMontage().
+	//
+	// Which fist swings is decided by which ability the input tag activates: BP_GA_Punch_L on
+	// Input.Action.PrimaryAttack, BP_GA_Punch_R on Input.Action.SecondaryAttack. On a mouse that reads
+	// right — primary IS the left button — but on a pad primary is the RIGHT trigger and secondary the
+	// LEFT, so the sides come out crossed.
+	//
+	// The first attempt put this in UAZ_GA_MeleeAttack::SelectMontage() and never ran once: both punch
+	// abilities are UAZ_GA_StrikeInteraction, whose override returns PendingVariants[0].Montage and only
+	// falls through to the parent when no variant was drawn. Their StrikeMontage always produces one, so
+	// the parent was dead code for them. Every path funnels through THIS call, so the swap belongs on its
+	// result.
+	//
+	// Matched against the ability's own L/R pairs, so the single-sided clips — the heavy strike and the
+	// kick, both on one button — never match and pass through untouched.
+	if (Montage)
+	{
+		const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+		const APlayerController* PC = AvatarPawn ? Cast<APlayerController>(AvatarPawn->GetController()) : nullptr;
+		const UInputDeviceSubsystem* Devices = PC ? UInputDeviceSubsystem::Get() : nullptr;
+		const FHardwareDeviceIdentifier Hardware = Devices
+			? Devices->GetMostRecentlyUsedHardwareDevice(PC->GetPlatformUserId()) : FHardwareDeviceIdentifier();
+		if (Hardware.IsValid() && Hardware.PrimaryDeviceType == EHardwareDevicePrimaryType::Gamepad)
+		{
+			UAnimMontage* const Pairs[][2] = {
+				{ PunchIdle_L,  PunchIdle_R  },
+				{ PunchMove_L,  PunchMove_R  },
+				{ PunchLunge_L, PunchLunge_R },
+			};
+			for (const auto& Pair : Pairs)
+			{
+				if (!Pair[0] || !Pair[1]) continue;
+				if (Montage == Pair[0]) { Montage = Pair[1]; break; }
+				if (Montage == Pair[1]) { Montage = Pair[0]; break; }
+			}
+			UE_LOG(LogTemp, Display, TEXT("[Melee] pad swap: %s -> %s"),
+				*GetNameSafe(SelectMontage()), *GetNameSafe(Montage));
+		}
+	}
+
 	if (!Montage)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
@@ -664,6 +707,9 @@ AActor* UAZ_GA_MeleeAttack::FindWarpTarget() const
 
 UAnimMontage* UAZ_GA_MeleeAttack::SelectMontage() const
 {
+	// The gamepad hand swap is NOT here: both punch abilities are UAZ_GA_StrikeInteraction, whose override
+	// returns its drawn variant and never reaches this function. It is applied to the RESULT of
+	// SelectMontage() in ActivateAbility, which every path does go through.
 	const bool bLeft = (Hand == EAZ_MeleeHand::Left);
 
 	// DISTANCE FIRST. Warping is meant to CORRECT an attack's authored travel, not invent it: picking a
