@@ -79,3 +79,22 @@ Script/
 # Python bytecode from the Tools/ scripts
 __pycache__/
 *.pyc
+
+# ---------------------------------------------------------------------------------------------
+# Oversized paths, stripped from the pending commits 2026-09-22 (backup branch:
+# backup/pre-bigfile-strip-2026-09-22). They made the push fail outright with
+# "remote: fatal: pack exceeds maximum allowed size (2.00 GiB)".
+# ---------------------------------------------------------------------------------------------
+
+# Fab / Marketplace plugins are reinstallable and enormous: MetaHumanBodyTracker alone was 5 GB of
+# ML models, one single .uasset of 2.4 GB. Nothing under Plugins/ is tracked.
+/Plugins/Marketplace/
+
+# GIMP working sources for the face lookdev: 600 MB of .xcf that the game never loads.
+/UI Design/
+
+# Over GitHub's hard 100 MB per-file limit, so unpushable without LFS (and LFS is currently OFF in
+# this repo - see .gitattributes, where *.uasset !filter cancels the lfs filter set above it).
+/Content/AZ/Blueprints/Character/Appearance/CHALKTeacher/Lookdev/SKM_CHALK_03_AfterAHardNight_FacePreview.uasset
+/Content/AZ/Blueprints/Character/Appearance/CHALKTeacher/Lookdev/SKM_CHALK_02_HeStayed_FacePreview.uasset
+/Content/AZ/Blueprints/Character/AZ_MHC_Hero/Face/SKM_MHC_Hero_FaceMesh.uasset
