@@ -954,7 +954,11 @@ void AAZ_PawnMoverHeroCharacter::ProduceInput_Implementation(int32 SimTimeMs, FM
 	// World-space move = camera-yaw-relative WASD. Pitch/roll discarded — character
 	// moves on the ground plane regardless of where the camera tilts.
 	const FRotator YawOnly(0.f, ControlRot.Yaw, 0.f);
-	FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent);
+	// Stick DIRECTION stays analog, MAGNITUDE is forced to 1: speed comes only from the gait, exactly as on WASD.
+	// The chooser picks clips by the gait label, so a half-pushed stick under Run/Sprint served strides authored
+	// for full speed at a crawl — crossed legs. Normalised here, not in OnMoveTriggered: CachedMoveInputIntent
+	// keeps the raw deflection for AttackCancelInputDeadzone, which must still ignore a drifting stick.
+	FVector WorldMove = FRotationMatrix(YawOnly).TransformVector(CachedMoveInputIntent.GetSafeNormal2D());
 	if (PC->IsMoveInputIgnored()) WorldMove = FVector::ZeroVector;
 
 	// Cache the RAW (pre-clamp) world intent — the obstacle sensor reads THIS (not the clamped cmd below) so a
