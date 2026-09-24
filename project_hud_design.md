@@ -1,8 +1,14 @@
 ---
-name: CHALK HUD approved design and next-session work
-description: User approved A/Quiet survival plus top compass, wants native editable GIMP layers, and deferred implementation to next session after asset review and an implementation plan.
-type: project
+name: chalk-hud-approved-design-and-next-session-work
+description: "User approved A/Quiet survival plus top compass, wants native editable GIMP layers, and deferred implementation to next session after asset review and an implementation plan."
+metadata:
+  node_type: memory
+  type: project
+  originSessionId: aeb43ab9-4e73-47d4-94b2-81b8ebc7e151
+  modified: 2026-09-23T01:37:47.272Z
 ---
+
+2026-09-23 QUICK SELECT KEY BADGE moved OUTSIDE the cards (user: the key number sat inside the card and covered the item icon; "above here, to the side elsewhere, so it looks right"). The visible badge is `FN_SlotKeyPrompt` (WBP_FN_ActionPrompt_Overlay, device-adaptive, added by Tools/field_notes_prompt_hosts.py; the old `KeyText` is retired/transparent). `UAZ_QuickSelectEntryWidget::ApplyEntryView` → file-local `PlaceKeyBadge` re-anchors it to the card's top-right: Left/Right rows → above (-20,-20), Up/Down columns → right side (3,0). Checked against the V5 cross boxes: no overlaps. .cpp-only, Live Coding. Applies to entry + mode card (same C++ class). Artur checked in PIE: OK (2026-09-23); now in the built DLL.
 
 2026-09-09 magazine follow-up IMPLEMENTED/LOADED/SAVED. User wants keepmagicon/count + droppedmagshowsremainingnotinitial + oneinventorycell. Restored MAIN HUD existingMagazineCountRow/Icon/SpareMagazinesText fromAmmo.SpareMagazineCount (loadedcompatiblebackpackspares;excludeinserted/empty). Noquickselectmagbadgeadded; optionalplacementquestionunanswered,rootstatedmainHUDrestoration. Persistencealreadycorrect; staticPickupMessage30/30wasbug. ExistingGetPickupMessage movedout-of-lineformatsactualPickupState.CurrentRounds/Capacity/name,zeroexplicit,unreplicatedunknown--,nonmagpromptsunchanged;controllerupdatesmessageifsameactorchangedafterreplication. LiveCodingUBTSucceeded22.67s,AZpatch02:15:03/editorconfirmed02:15:06UTC; NORMAL BUILD before next editorrestart. Onecell:all9magazinemenifests1x2->1x1 across3magBP roots,riflecontained,3placedmags+2placedriflecontents inL_001. Dedicated4BPcompile/explicit5packagesave/freshverify allpass;allothercapturedfields/rounds/familiespreserved;5diskhashchanged;unrelatedanimdirtyuntouched. Tools/magazine_grid_one_cell.py audit/backup/author/verify(defaultaudit),sourceauthoringconstantfixedbutDO NOT rerunrifle_inventory_content_setupmain. ProtectedtransientpickupfieldsunreadableinPython;helperneveraccesses/writesthem. Statusdocs/design-briefs/magazine-display-fixes-status.md;Saved/MagazineDisplayFix receipts/backups. UserfreshPlayvisual/dropcheckpending;agentnoPIEstart/stop/tests. Supersedescircularmagazinebrief'shiddenMAGSonly.
 

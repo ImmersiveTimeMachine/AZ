@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 787f844b-69e1-48c0-8b39-9a9264829d57
+  modified: 2026-09-23T01:37:45.863Z
 ---
 
 v2 crouch on `feature/rootmotion`. Two-tag-space design (see [[project_v2_architecture]]): `Movement.Crouching` (GAS intent, ASC/game-thread) vs `Mover_IsCrouching` (Mover sync-state RESULT, rollback-aware, on proxies). Anim derives Stance from the RESULT (`CachedCMC->IsCrouching()`), never the intent tag.
@@ -33,6 +34,24 @@ Symptom: ~35cm one-shot vertical POP at crouch/uncrouch on SMOOTHED remote views
   - **★★ THE BUG THAT MADE IT A NO-OP FOR TWO BUILDS (critical lesson):** my first cut ALSO cleared the flag in `SetTransforms_WorldSpace` (intending one-shot). But the movement mode's **floor-snap calls `SetTransforms_WorldSpace` again right after the crouch teleport** → wiped the flag before it replicated → patch had zero effect even though Mover was confirmed-rebuilt. **DO NOT clear `bSkipInterpolation` in `SetTransforms` — anything that re-sets position after a teleport eats it.** Removing the clear = the fix. (Diagnosed via a temp `UE_LOG` in `Interpolate` that never fired → flag wasn't reaching the path → it was being cleared upstream.)
   - **BUILD GOTCHA:** an engine-plugin struct-layout change (adding the member) CANNOT be Live-Coded and the **Mover module must actually recompile** — a partial/LC build silently leaves the old `UnrealEditor-Mover.dll` → "no effect." Verify via the DLL timestamp. Full editor-closed `Build.bat AZEditor` rebuilt 3124 actions (~18 min, the struct ripples everywhere). NetworkPrediction (sync) path only — Chaos async (`ApplyMovementEffect_Async`) would need the same line if ever switched.
   - **Tracked:** patch file `docs/engine-patches/mover-crouch-skipinterp.patch` (in AZ repo) + [[project_local_plugin_patches]] #5. The 3 Mover files are ALSO modified-tracked by the separate engine repo at `C:/UnrealEngine` (the game repo is `C:/UnrealEngine/Games/AZ`).
+
+## ★ CAMERA SNAP on crouch/uncrouch — FIXED 2026-09-23 (built into the DLL, Artur confirmed "всё работает")
+Owner: `AZ_PawnMoverHeroCharacter_Camera.cpp::UpdateCameraHeightSmoothing` (stair-step + crouch camera smoothing,
+committed 2026-09-12). Crouch was designed to glide: boom held at standing height via `HeightCorrection`,
+`CrouchCameraOffset` VInterps to the crouch framing at the stance InterpSpeed (Explore 8).
+**Root cause (MEASURED with `az.Cam.Debug 1`):** `FMoverDefaultSyncState::bSkipInterpolation` (our Mover patch #5)
+is **STICKY** — set by the crouch teleport and never cleared, so `skip=1` on EVERY sim frame after the first crouch.
+The camera treated "skip set + new sim frame" as a fresh teleport → `reset=0x80` every frame → crouch glide forced
+to its end value (camera fell 21 cm in one frame) and stair smoothing silently disabled after any crouch.
+**Fix:** teleport = RISING EDGE of the flag (`bCameraPreviousSkipInterpolation`, an existing member), and no reset
+within 0.25 s of a half-height change (file-local `FCameraBaseFrame::LastStanceChangeTime`). .cpp only.
+**Wrong first theory (strike 1, reverted):** "resize and teleport land in different frames" — the trace showed
+`stance=1 skip=1` in the SAME frame. Measure before patching.
+**Open engine-patch bug:** the sticky flag means proxies NEVER interpolate again after one teleport (co-op
+smoothness). Memory claim "naturally one-shot, fresh sync state each tick" in patch #5 notes is FALSE — the sync
+state is carried over. Needs a real clear at the start of each sim tick (engine Mover rebuild).
+**Side finding:** on landing after the PIE spawn fall, the step detector accepts phantom steps (foot still, Mover
+velocity Z still negative) → camera dips to the -40 clamp and recovers over halfLife 0.5 s.
 
 ## Crouch clip catalog (`Content/Assets/RM_Movement/`, gitignored)
 Idle `RTG_RM_Crouch_Idle` (canonical, no `_new`); 5 breaks `..._Crouch_Idle_Break_v01..v05`; fwd loop `RTG_RM_Crouch_WalkFwdLoop` (canonical); 8-way loops `WalkFwd/Bwd/Lt/Rt_new` + `WalkLt45/Lt135/Rt45/Rt135_new`; starts `WalkFwdStart(+90/180_L/R)`, `Bwd/Lt/RtStart_new`; foot-tagged stops `WalkFwdStop_LU/_RU`(+`Bwd/Lt/Rt..._new`); turns `Turn90L/R_new`; **stance transitions `RTG_RM_Idle2Crouch`/`RTG_RM_Crouch2Idle`(+`_new`)**. **`_new` = newer/complete retarget batch** (directional set is `_new`-only); prefer `_new` except idle+fwd-loop (canonical). Spot-check RM in clip editor before binding.

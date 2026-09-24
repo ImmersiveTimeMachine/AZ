@@ -5,10 +5,56 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3dd30bd7-e1c4-47aa-8af7-41a2784f5a5a
-  modified: 2026-09-09T13:59:28.065Z
+  modified: 2026-09-23T03:26:12.659Z
 ---
 
 # Rifle set = MetaHuman-native clips (2026-09-09)
+
+## ★ 2026-09-23: the MH-native set LEANS BACK — constant spine error from the default-pose retarget
+Artur: "feels like I'm bent backwards" (rifle walk + unarmed idle screenshots). Measured with
+`AnimPoseExtensions.get_anim_pose_at_time` + `optional_skeletal_mesh` (hero body
+`/Game/AZ/Blueprints/Character/AZ_MHC_Hero/Body/SKM_MHC_Hero_BodyMesh` vs `/Game/SurvivalMan/Meshes/SKM_SurvivalMan_Mesh1`),
+torso = pelvis→neck_01 tilt in mesh Y-Z (forward = +Y, negative = back):
+- REST poses already read negative (SM −3.9°, MH −3.2°) — that is spine geometry, the baseline, not a lean.
+- `AnimPro_Idle` (unarmed, SurvivalMan skeleton, compatible playback): SM −2.8° / MH −2.1° → **no pipeline error**;
+  the idle is authored that way. Runtime (ABP) adds <1° (head vs pelvis from `[v2 CrouchEnd]`) → ABP is clean.
+- Rifle walk: source `Riffle_P_W2_Walk_F_Loop_IPC` on SM −1.5°, same source via compatible playback on MH −0.7°,
+  **`AZ_RTG_MH_W2_Walk_F_Loop_IPC` −4.7°** (3.2° further back). Per-segment diff MH-native − SM source is CONSTANT
+  over the loop: pelvis>spine_01 +7.9, spine_01>02 +0.3, **spine_02>03 −12.9**, 03>04 −2.1, 04>05 −5.4, 05>neck −4.4,
+  neck>head −0.6 (rest-geometry diffs only +4.0/+2.2/−1.7/−0.2/−2.9/+1.5/−1.0) → spine_02 world orientation ~11° back.
+  Cause: the user's batch retarget used the DEFAULT retarget pose (the same reason as the 15° hand), not
+  `RTG_SurvivalMan_to_MetaHuman_Aligned`. Because the error is constant, it is fixable like the hand fix
+  (constant bone-space correction per bone), either in the clip data or at runtime.
+- **STATE 2026-09-23 ~02:40 UTC: all 923 clips restored from backup (MD5-identical). Orientation-copy method
+  REJECTED** (overshoots +2°: bone axes differ between UE4 / SurvivalMan / MetaHuman; even the "exact 0.0°"
+  `RTG_RifleP01_UE4_to_MetaHuman` leans −4.9° vs source −1.3°; `RTG_RifleP01_UE4_to_SurvivalMan` currently acts as
+  default-pose). **Chosen method = GEOMETRIC** (`Tools/rifle_mh_spine_fix.py`): per frame swing each MH
+  spine/neck segment onto the UE4 mocap spine curve by arc-length fraction, then swing the whole spine so
+  pelvis→neck_01 equals the source; pelvis untouched, head+clavicles held, `target.modify()` so Save All sees it.
+  Final pilot: torso lean = source to 0.1° on all 4 (idle/start/loop/stop). MODE='referenced' ran 02:56 UTC:
+  fixed=192, skipped=17 (the additive Aim_Point_*). Artur saved + tested: head bobbed forward/back "like a
+  goose" on turns — cause: neck re-aimed at the UE4 neck while head world was held. Restored backup, re-ran
+  (03:03 UTC) SPINE ONLY (spine_01..05 swung; neck_01/neck_02/head keep local rotations and ride the chest;
+  clavicles held): same exact lean, 192 fixed. Artur: turns still "twist back then return". MEASURED cause:
+  MH clips carry the turn in the ROOT (extracted), UE4 sources turn the PELVIS → hip heading drifts 90/180°
+  over a pivot, so world-space source directions flipped forward↔back mid-turn. Fix: per frame yaw the source
+  onto the clip's hip heading (thigh_l→thigh_r axis, convention-free). Restored backup again, pilot 6 clips incl.
+  L90/R180 turn starts: body-relative lean = source on EVERY frame (worst 0.0°). 03:25 UTC referenced run:
+  192 fixed + dirty → awaiting Save All + PIE turn check. Note: body-relative metric sign = +back.
+  Pistol set still to be checked (`/Game/AZ/Assets/Pistol/Runtime/AS_Pistol_*`). Direct to MetaHuman, NO proxy (Artur's decision). Lesson: an in-memory batch
+  got half-saved by a UI Save All + an editor crash — restore from the file backup, not from memory.
+- (history) **FIX IN PROGRESS 2026-09-23 (Artur: "да, исправляй набор винтовки, idle не трогай"; pistol must be checked too).**
+  Per-bone K was constant only for pelvis 9.5°/spine_05 6.6°/head 1.3°; spine_01..04 + neck_02 vary per frame
+  (interpolated spine chain) → per-FRAME fix, not a constant: spine_01..head world = source world, pelvis
+  untouched (legs/contacts), clavicles held at current world (rifle grip/aim as tuned); additive Aim_Point_*
+  skipped (bone-frame constant cancels in mesh-space deltas). Pilot Walk_F: 0.00° vs source, clavicle/pelvis/
+  foot/hand 0.00° moved, torso −4.7° → +0.4°. Tools: `Tools/rifle_mh_spine_fix.py` (118 clips with a
+  `Riffle_P_` SurvivalMan twin; 101 fixed in memory) + `Tools/rifle_mh_spine_fix_ue4.py` (the ~140
+  game-referenced clips whose only source is UE4: retarget source → SurvivalMan with the SAME
+  `RTG_RifleP01_UE4_to_SurvivalMan` / `RTG_RifleAnimsetPro_SurvivalMan` into temp `/Game/AZ/Temp/SpineFixSrc`
+  (SFX_*), fix, cleanup). ~660 unreferenced UE4-sourced clips left as-is. Game refs: 209 clips (69 loops with
+  SM twin + 140 UE4-only). **Edits are IN MEMORY: the user must Save All from the UI** (Python save of
+  PSD-indexed clips deadlocks). Backup of the original 923 files: `Saved/Backups/Riffle_RTG_MH_before_spine_fix_2026-09-23`.
 
 **State.** `CHT_v2` (50 idle/transition refs + 126 root-motion refs: the 122 `rm_W2_*` SurvivalMan clips
 from `/Game/AZ/NoWeapons/RootMotions/` → `AZ_RTG_MH_W2_<x>` — the pack's non-IPC clips, the `rm_` prefix

@@ -5,10 +5,27 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-08-27T21:56:46.476Z
+  modified: 2026-09-23T00:49:26.220Z
 ---
 
 # Model routing policy for the AZ project
+
+## ★★★ USER RULE 2026-09-22 — "ты главный мозг, они выполняют"
+
+Artur, verbatim intent: implementation can always go to weaker models; the strongest model (main loop, now
+Opus 5.5) must define the task **very precisely, step by step**, hand it off, and then verify — to save tokens.
+
+**How to apply:**
+- Main loop does: diagnosis, design, the decision, the WRITTEN SPEC, and the final verification.
+- Anything executional beyond a trivial inline edit → a **Sonnet** subagent (`model: "sonnet"`), with a
+  spec containing: exact files + anchors (content, not just line numbers), the exact change, the exact
+  build/verify commands, the pass/fail line, and "report in N lines, no file dumps".
+- Builds, Live Coding runs, log tailing, asset sweeps, bulk edits → subagent (verbose output stays out of
+  the main context). Supersedes the "build invocation / log tailing = no subagent" row below.
+- Still inline: an edit of a few lines (cold start costs more), commits (staging judgement with parallel
+  agents), and anything whose next step depends on reading the result closely.
+- Verification after a subagent is mandatory and cheap: read the diff / the one log line it cites
+  ([[feedback_verify_never_presume]]).
 
 **User, 2026-08-27:** *"create some rules what type of model should we use... this will optimise our work
 and increase the performance and quality"*.
