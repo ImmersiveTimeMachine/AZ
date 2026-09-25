@@ -8,6 +8,8 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 `az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python`.
 
 ## ★★★ CURRENT DIRECTION — read first
+- [RifleMega retarget](project_riflemega_retarget_2026-09-25.md) — ★★★ 446 pack clips on the MetaHuman (exact + IK post); rifle wiring next, then throwables.
+- [Weapon models import](project_weapon_models_import_2026-09-25.md) — 7 guns as parts in /Game/AZ/Assets/Weapons; whole-mesh spec for a local-model test; ".py in @Description" trap.
 - [Gamepad analog vs gait](project_gamepad_analog_gait_mismatch.md) — ✔ DONE 2026-09-23: stick magnitude→1 in ProduceInput (raw kept for attack-cancel); verified on pad.
 - [Throwable RESUME](project_throwable_resume_2026-09-17.md) — ★★★ throwables start here: review response, slot splice, standing/crouch policy, my corrected claims.
 - [Throwable art](project_throwable_art_assets.md) — chosen grenade icon + M67 mesh (real scale); no stone art.
