@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-09-26T04:48:46.188Z
+  modified: 2026-09-26T17:59:55.741Z
 ---
 
 **Architecture (agreed with Artur 2026-09-25, after he first proposed an ARP proxy rig in Blender):**
@@ -97,6 +97,18 @@ LeftHandGrip socket + auto-generated finger grip pose (close fingers to contact 
 shared with other agents). Capture traps: `unreal.Rotator(a,b,c)` is (roll, pitch, yaw) - use keywords; capture_scene
 and export_render_target must be in SEPARATE calls; a paused pose needs animation_data reset + set_animation, not just
 set_position.
+**Fingers inside our Winchester (thicker forearm/stock wrist than the pack gun) - 2026-09-26:** measured on triangles
+(ray-parity inside test): L fingers 0.5-1.8 cm in, R middle/ring 1.5 cm. Moving/rotating the socket only shifts the
+problem between hands (random-search optimizer: fix one hand, the other palm floats 2.6 cm) - the gun is thicker than
+both grips' aperture. Chosen: per-finger opening 2-24 deg about the knuckle line (share 0.35/1/1 over _01/_02/_03),
+distal/middle weighted -> tips clear, bases still ~0.7 cm in (hidden). `Tools/az_master_finger_grip.py` (deltas from
+Saved/az_finger_fix.json, weight: right = az_weapon_r local near identity, left = hand_l within 2..5 cm of its grip in
+az_weapon_r space) - NOT idempotent. User OK'd the look -> applied to ALL 420 Winchester-group master clips (Auto/DB/SG sets skipped), each exactly once
+(report Saved/az_master_finger_grip_report.txt: 420 FIXED, unique). Then user: "чуть-чуть выше поднять оружие" ->
+RightHandWinchesterSocket rotated 1.32 deg about the right palm = gun +0.8 cm (model +Z) at the left hand, right grip
+unchanged: loc (-31.536, 4.381, -7.366) rot P-18.458 Y84.765 R-2.234 (hero body + SKM_AZ_Master + hero_sockets.json;
+previous values in Saved/az_winch_socket_fix.json prev_*). Lever-rock frames of the shoot clips drop the right weight
+(fingers back to the mocap curl) - watch for it.
 **Left hand slid off the moving gun in reloads - FIXED 2026-09-26:** cause = riflemega_retarget.py step c faded the
 left-hand IK out while the HANDS were 50..75 cm apart (assumed "hand off the weapon"), but in reloads/pickups the RIGHT
 hand leaves and the LEFT keeps holding -> FK arm, 1.7-4.7 cm off the grip, visibly out of sync with the gun.
