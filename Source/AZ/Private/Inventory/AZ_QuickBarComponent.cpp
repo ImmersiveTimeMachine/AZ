@@ -6,10 +6,28 @@
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/AZ_PlayerController.h"
+
+namespace
+{
+	bool IsSameThrowable(const UAZ_Inv_CommonUI_InventoryItem* Item,
+		const UAZ_Inv_CommonUI_InventoryItem* Reference)
+	{
+		if (!IsValid(Item) || !IsValid(Reference) || !Item->IsInitialized() || !Reference->IsInitialized()
+			|| Item->IsWeapon() || Reference->IsWeapon()) return false;
+		const auto& Manifest = Item->GetItemManifest();
+		const auto& ReferenceManifest = Reference->GetItemManifest();
+		const auto* Fragment = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>();
+		const auto* ReferenceFragment = ReferenceManifest.GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>();
+		return Fragment && ReferenceFragment && Fragment->ThrowableDefinition
+			&& Fragment->ThrowableDefinition == ReferenceFragment->ThrowableDefinition
+			&& Manifest.GetItemTypeTag() == ReferenceManifest.GetItemTypeTag();
+	}
+}
 
 UAZ_QuickBarComponent::UAZ_QuickBarComponent()
 {
@@ -42,6 +60,17 @@ const FAZ_QuickSlot* UAZ_QuickBarComponent::GetSlotDefinition(int32 SlotIndex) c
 UAZ_Inv_CommonUI_InventoryItem* UAZ_QuickBarComponent::GetReadyItem() const
 {
 	if (!ReadyItemId.IsValid()) return nullptr;
+	// Inventory Equip can ready a throwable without assigning a quick slot. Resolve that
+	// selection from its owning inventory; quick-slot bindings are only shortcuts.
+	const UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
+	UAZ_Inv_CommonUI_InventoryItem* ReadyItem = Inventory ? Inventory->FindItemById(ReadyItemId) : nullptr;
+	if (IsValid(ReadyItem) && ReadyItem->IsInitialized() && ReadyItem->IsThrowable() && !ReadyItem->IsWeapon()
+		&& Inventory->ContainsItem(ReadyItem)
+		&& ReadyItem->GetLocation() == EAZ_InventoryItemLocation::Backpack
+		&& !ReadyItem->GetParentItemId().IsValid() && ReadyItem->GetTotalStackCount() > 0)
+	{
+		return ReadyItem;
+	}
 	for (int32 Index = 0; Index < Bindings.Slots.Num(); ++Index)
 	{
 		if (Bindings.Slots[Index].ItemId != ReadyItemId) continue;
@@ -67,6 +96,23 @@ UAZ_Inv_CommonUI_InventoryItem* UAZ_QuickBarComponent::GetBoundItem(int32 SlotIn
 	const UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
 	UAZ_Inv_CommonUI_InventoryItem* Item = Inventory ? Inventory->FindItemById(GetBoundItemId(SlotIndex)) : nullptr;
 	return CanBindItem(SlotIndex, Item) ? Item : nullptr;
+}
+
+int32 UAZ_QuickBarComponent::GetThrowableCount(const UAZ_Inv_CommonUI_InventoryItem* ReferenceItem) const
+{
+	const auto* Inventory = GetInventory();
+	if (!Inventory || !IsSameThrowable(ReferenceItem, ReferenceItem)) return 0;
+	int64 Total = 0;
+	for (const auto* Candidate : Inventory->GetItems())
+	{
+		if (IsSameThrowable(Candidate, ReferenceItem)
+			&& Candidate->GetLocation() == EAZ_InventoryItemLocation::Backpack
+			&& !Candidate->GetParentItemId().IsValid())
+		{
+			Total += FMath::Max(0, Candidate->GetTotalStackCount());
+		}
+	}
+	return static_cast<int32>(FMath::Min<int64>(Total, MAX_int32));
 }
 
 FGuid UAZ_QuickBarComponent::GetBoundItemId(int32 SlotIndex) const
@@ -473,6 +519,39 @@ void UAZ_QuickBarComponent::RequestActivateSlot(int32 SlotIndex, FGuid ExpectedB
 	else Server_RequestActivateSlot(SlotIndex, ExpectedBoundItemId, ExpectedRevision, RequestId);
 }
 
+void UAZ_QuickBarComponent::RequestReadyThrowable(FGuid ItemId, FGuid RequestId)
+{
+	if (!GetOwner()) return;
+	if (!GetOwner()->HasAuthority()) { Server_RequestReadyThrowable(ItemId, RequestId); return; }
+	if (!BeginRequest(INDEX_NONE, ItemId, RequestId)) return;
+	BindEquipmentEvents();
+	const UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory();
+	UAZ_Inv_CommonUI_InventoryItem* Item = Inventory ? Inventory->FindItemById(ItemId) : nullptr;
+	if (!IsValid(Item) || !Item->IsInitialized() || !Item->IsThrowable() || Item->IsWeapon()
+		|| Item->GetLocation() != EAZ_InventoryItemLocation::Backpack || Item->GetParentItemId().IsValid()
+		|| Item->GetTotalStackCount() <= 0 || !BoundEquipment.IsValid() || !CanReadyConsumable()
+		|| Inventory->IsItemReloadReserved(ItemId) || Inventory->IsItemThrowReserved(ItemId))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ThrowableEquip] rejected item=%s found=%d equipment=%d canReady=%d reloadReserved=%d throwReserved=%d"),
+			*ItemId.ToString(), IsValid(Item) ? 1 : 0, BoundEquipment.IsValid() ? 1 : 0, CanReadyConsumable() ? 1 : 0,
+			Inventory && Inventory->IsItemReloadReserved(ItemId) ? 1 : 0,
+			Inventory && Inventory->IsItemThrowReserved(ItemId) ? 1 : 0);
+		CompleteRequest(RequestId, EAZ_QuickBarRequestOutcome::Rejected,
+			NSLOCTEXT("AZQuickBar", "ThrowableUnavailable", "This throwable cannot be equipped right now."));
+		return;
+	}
+	BoundEquipment->CancelPendingSelectionRequest();
+	SetReadyItemId(ItemId);
+	UE_LOG(LogTemp, Log, TEXT("[ThrowableEquip] readiness requested item=%s selected=%d"),
+		*ItemId.ToString(), ReadyItemId == ItemId ? 1 : 0);
+	CompleteRequest(RequestId, EAZ_QuickBarRequestOutcome::Activated);
+}
+
+void UAZ_QuickBarComponent::Server_RequestReadyThrowable_Implementation(FGuid ItemId, FGuid RequestId)
+{
+	RequestReadyThrowable(ItemId, RequestId);
+}
+
 void UAZ_QuickBarComponent::Server_RequestActivateSlot_Implementation(int32 SlotIndex, FGuid ExpectedBoundItemId, int64 ExpectedRevision, FGuid RequestId)
 {
 	ActivateSlotInternal(SlotIndex, ExpectedBoundItemId, ExpectedRevision, RequestId);
@@ -586,6 +665,37 @@ void UAZ_QuickBarComponent::Cycle(int32 Direction)
 void UAZ_QuickBarComponent::CycleNext() { Cycle(1); }
 void UAZ_QuickBarComponent::CyclePrev() { Cycle(-1); }
 
+void UAZ_QuickBarComponent::HandleItemRemoved(UAZ_Inv_CommonUI_InventoryItem* RemovedItem)
+{
+	const auto* Inventory = GetInventory();
+	if (bCampaignRestoring || !GetOwner() || !GetOwner()->HasAuthority() || !Inventory
+		|| !IsSameThrowable(RemovedItem, RemovedItem)) return;
+	const TArray<FAZ_QuickSlotBinding> Previous = Bindings.Slots;
+	for (int32 Index = 0; Index < Bindings.Slots.Num(); ++Index)
+	{
+		if (Bindings.Slots[Index].ItemId != RemovedItem->GetInstanceId()) continue;
+		UAZ_Inv_CommonUI_InventoryItem* Replacement = nullptr;
+		for (auto* Candidate : Inventory->GetItems())
+		{
+			if (!IsSameThrowable(Candidate, RemovedItem) || !CanBindItem(Index, Candidate)) continue;
+			const FGuid CandidateId = Candidate->GetInstanceId();
+			// Do not steal another explicit shortcut or a reserved item. Keep unique
+			// physical bindings and checkpoint validation intact.
+			if (Inventory->IsItemThrowReserved(CandidateId) || Inventory->IsItemReloadReserved(CandidateId)
+				|| Bindings.Slots.ContainsByPredicate([&](const FAZ_QuickSlotBinding& Binding)
+					{ return Binding.ItemId == CandidateId; })) continue;
+			if (!Replacement || CandidateId.ToString() < Replacement->GetInstanceId().ToString()) Replacement = Candidate;
+		}
+		Bindings.Slots[Index].ItemId = Replacement ? Replacement->GetInstanceId() : FGuid();
+		UE_LOG(LogTemp, Log, TEXT("[ThrowableSlot] slot=%d stock=%d replacement=%d"), Index,
+			GetThrowableCount(RemovedItem), Replacement ? 1 : 0);
+	}
+	// Preserve the shortcut only. Readiness belongs to the spent source and must
+	// clear normally, so replacing a stack never starts a throw automatically.
+	PruneReadyItem();
+	PublishBindingsIfChanged(Previous);
+}
+
 void UAZ_QuickBarComponent::OnInventoryChanged()
 {
 	if (bCampaignRestoring) return;
@@ -614,6 +724,7 @@ void UAZ_QuickBarComponent::BeginPlay()
 	if (UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory())
 	{
 		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &ThisClass::OnInventoryChanged);
+		Inventory->OnItemRemoved.AddUniqueDynamic(this, &ThisClass::HandleItemRemoved);
 		OnInventoryChanged();
 	}
 }
@@ -623,6 +734,7 @@ void UAZ_QuickBarComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UAZ_Inv_CommonUI_InventoryComponent* Inventory = GetInventory())
 	{
 		Inventory->OnInventoryChanged.RemoveDynamic(this, &ThisClass::OnInventoryChanged);
+		Inventory->OnItemRemoved.RemoveDynamic(this, &ThisClass::HandleItemRemoved);
 	}
 	if (BoundEquipment.IsValid())
 	{

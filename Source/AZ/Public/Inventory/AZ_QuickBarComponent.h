@@ -118,7 +118,11 @@ public:
 	 * invisible. Authority only, like every other readiness write — SP-first scope (see project doctrine).
 	 */
 	UFUNCTION(BlueprintCallable, Category="AZ|QuickBar") void ClearReadyItem();
+	/** Inventory Equip selects a held throwable without rewriting quick-slot assignments. */
+	void RequestReadyThrowable(FGuid ItemId, FGuid RequestId);
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") UAZ_Inv_CommonUI_InventoryItem* GetBoundItem(int32 SlotIndex) const;
+	/** Total owned backpack stock of the same non-weapon throwable definition and item type. */
+	int32 GetThrowableCount(const UAZ_Inv_CommonUI_InventoryItem* ReferenceItem) const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") FGuid GetBoundItemId(int32 SlotIndex) const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") bool IsBindingExplicit(int32 SlotIndex) const;
 	UFUNCTION(BlueprintPure, Category="AZ|QuickBar") int32 GetSlotCount() const { return Slots.Num(); }
@@ -186,11 +190,13 @@ private:
 	void SelectInternal(int32 SlotIndex);
 	void Cycle(int32 Direction);
 	UFUNCTION() void OnInventoryChanged();
+	UFUNCTION() void HandleItemRemoved(UAZ_Inv_CommonUI_InventoryItem* RemovedItem);
 	UFUNCTION() void HandleEquipmentChanged();
 	UFUNCTION() void HandlePawnChanged(APawn* OldPawn, APawn* NewPawn);
 	UFUNCTION() void OnRep_Bindings();
 	UFUNCTION() void OnRep_ReadyItemId();
 	UFUNCTION(Server, Reliable) void Server_Select(int32 SlotIndex);
+	UFUNCTION(Server, Reliable) void Server_RequestReadyThrowable(FGuid ItemId, FGuid RequestId);
 	UFUNCTION(Server, Reliable) void Server_RequestAssignItem(int32 SlotIndex, FGuid CandidateItemId, int64 ExpectedRevision, FGuid RequestId);
 	UFUNCTION(Server, Reliable) void Server_RequestActivateSlot(int32 SlotIndex, FGuid ExpectedBoundItemId, int64 ExpectedRevision, FGuid RequestId);
 	UFUNCTION(Server, Reliable) void Server_RequestToggleCombatMode(int64 ExpectedSelectionGeneration, FGuid RequestId);

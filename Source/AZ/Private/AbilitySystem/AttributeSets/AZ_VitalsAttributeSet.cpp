@@ -8,6 +8,9 @@
 #include "Character/AZ_PawnMoverInfectedCharacter.h"
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
+#include "Throwables/AZ_BurningComponent.h"
+#include "Throwables/AZ_ThrowableProjectile.h"
+#include "AI/AZ_InfectedAIController.h"
 
 UAZ_VitalsAttributeSet::UAZ_VitalsAttributeSet()
 {
@@ -59,7 +62,9 @@ void UAZ_VitalsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModC
 		// Survivable hit -> the owner's on-hit reaction, WITH the real causer (the attribute-change
 		// delegate can't carry it: direct SetHealth fires it with GEModData null). Death path below
 		// carries the causer in its own payload.
-		if (NewHealth > 0.f)
+		UAZ_BurningComponent* Burning = Cast<UAZ_BurningComponent>(Data.EffectSpec.GetEffectContext().GetSourceObject());
+		const bool bIndirectDamage = Burning || Cast<AAZ_ThrowableProjectile>(Data.EffectSpec.GetEffectContext().GetSourceObject());
+		if (NewHealth > 0.f && (!Burning || Burning->ConsumeInitialReaction()))
 		{
 			// Causer robustness (audit rules-finding #11): projectiles/environment set a non-pawn
 			// EffectCauser — fall back to the instigating ASC's avatar so damage still locks/screams.
@@ -78,7 +83,14 @@ void UAZ_VitalsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModC
 			{
 				// Infected keep their pawn funnel: HandleDamaged owns scream/damage-lock/melee-cancel AND
 				// sends Event.Combat.HitReact itself. One sender per victim class, never both.
-				Infected->HandleDamaged(Causer, Damage);
+				Infected->HandleDamaged(Causer, Damage, !bIndirectDamage);
+				if (bIndirectDamage)
+				{
+					const FHitResult* OriginHit = Data.EffectSpec.GetEffectContext().GetHitResult();
+					if (OriginHit)
+						if (auto* AI = Cast<AAZ_InfectedAIController>(Infected->GetController()))
+							AI->ArmInvestigation(OriginHit->TraceStart, true);
+				}
 			}
 			else if (AActor* OwnerActor = GetOwningActor())
 			{

@@ -244,7 +244,7 @@ void AAZ_PawnMoverInfectedCharacter::HandleHealthChanged(const FOnAttributeChang
 	// now runs through HandleDamaged(), called by the vitals set WITH the causer. Kept bound for UI.
 }
 
-void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
+void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage, bool bRevealAttacker)
 {
 	if (MoverComponent && !MoverComponent->IsActive())
 	{
@@ -257,7 +257,7 @@ void AAZ_PawnMoverInfectedCharacter::HandleDamaged(AActor* Causer, float Damage)
 	// strongest stimulus, no cone, no range, no alert beat; fires on EVERY damaging hit.
 	if (AAZ_InfectedAIController* Chalkie = Cast<AAZ_InfectedAIController>(GetController()))
 	{
-		Chalkie->NotifyDamagedBy(Cast<APawn>(Causer));
+		if (bRevealAttacker) Chalkie->NotifyDamagedBy(Cast<APawn>(Causer));
 	}
 
 	// Being hit ALWAYS interrupts the zombie's own attack + halts pathing + SCREAMS — independent of

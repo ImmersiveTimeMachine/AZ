@@ -16,6 +16,7 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Input/CommonUIInputTypes.h"
 #include "Styling/CoreStyle.h"
+#include "Brushes/SlateColorBrush.h"
 
 #define LOCTEXT_NAMESPACE "CHALKMenus"
 
@@ -149,7 +150,16 @@ UComboBoxString* UAZ_MenuRouteWidget::AddChoice(const FText& LabelText, const TA
 	UTextBlock* Label = CastChecked<UTextBlock>(MakeChoiceLabel(LabelText.ToString()));
 	auto* LabelSlot = Row->AddChildToHorizontalBox(Label); LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); LabelSlot->SetVerticalAlignment(VAlign_Center);
 	UComboBoxString* Box = WidgetTree->ConstructWidget<UComboBoxString>();
-	Box->SetWidgetStyle(PaperComboStyle); Box->SetItemStyle(PaperComboRowStyle);
+	// Popup brushes must be opaque: translucent paper lets the settings below bleed through.
+	FComboBoxStyle ChoiceStyle = PaperComboStyle;
+	FLinearColor PopupColor = PaperColor;
+	PopupColor.A = 1.0f;
+	ChoiceStyle.ComboButtonStyle.SetMenuBorderBrush(FSlateColorBrush(PopupColor));
+	ChoiceStyle.ComboButtonStyle.SetMenuBorderPadding(FMargin(6));
+	ChoiceStyle.SetMenuRowPadding(FMargin(12, 8));
+	Box->SetWidgetStyle(ChoiceStyle); Box->SetItemStyle(PaperComboRowStyle);
+	// Keep long resolution lists compact; Slate scrolls the remaining options into view.
+	Box->SetMaxListHeight(240.0f);
 	Box->SetContentPadding(FMargin(14, 10)); Box->SetEnableGamepadNavigationMode(true);
 	Box->OnGenerateWidgetEvent.BindDynamic(this, &ThisClass::MakeChoiceLabel);
 	for (const FString& Value : Choices) Box->AddOption(Value);

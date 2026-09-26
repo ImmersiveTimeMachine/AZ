@@ -13,6 +13,7 @@
 class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_Inv_CommonUI_ItemComponent;
 class AAZ_Weapon;
+class UAZ_CraftRecipe;
 struct FAZ_Inv_CommonUI_ItemManifest;
 struct FAZ_InventoryPickupRecord;
 struct FAZ_InventorySnapshot;
@@ -32,6 +33,11 @@ class AZ_API UAZ_Inv_CommonUI_InventoryComponent : public UActorComponent
 public:
 	// Sets default values for this component's properties
 	UAZ_Inv_CommonUI_InventoryComponent();
+
+	bool CanCraftRecipe(const UAZ_CraftRecipe* Recipe, FString& OutError) const;
+	bool TryCraftRecipe(const UAZ_CraftRecipe* Recipe, const FGuid& RequestId, FString& OutError);
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Crafting")
+	TArray<TObjectPtr<UAZ_CraftRecipe>> CraftingRecipes;
 
 protected:
 	// Called when the game starts
@@ -102,6 +108,7 @@ public:
 	bool CanLoadMagazine(const UAZ_Inv_CommonUI_InventoryItem* Item) const;
 	/** Submit an exact-magazine reload after releasing inventory input capture. Never swaps ammunition directly. */
 	bool RequestLoadMagazine(UAZ_Inv_CommonUI_InventoryItem* Item);
+	bool RequestReadyThrowable(UAZ_Inv_CommonUI_InventoryItem* Item);
 	FIntPoint GetGridDimensions(EInv_ItemCategory Category) const;
 	const TArray<FAZ_InventoryGridPlacement>& GetPlacements() const { return GridPlacements; }
 	FAZ_Inv_CommonUI_SlotAvailabilityResult GetRoomForItem(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32 StackAmountOverride = -1) const;
@@ -214,6 +221,10 @@ private:
 	};
 	FMagazineReloadReservation MagazineReload;
 	bool bMagazineReloadMutation = false;
+	TMap<FGuid, TWeakObjectPtr<const UAZ_CraftRecipe>> CompletedCraftRequests;
+	bool BuildCraftPlan(const UAZ_CraftRecipe* Recipe,
+		TArray<TPair<UAZ_Inv_CommonUI_InventoryItem*, int32>>& OutConsumption,
+		TArray<FAZ_InventoryGridPlacement>& OutPlacements, int32& OutOutputIndex, FString& OutError) const;
 	bool bCampaignRestorePrepared = false;
 	bool bCampaignRestoreCommitted = false;
 	UPROPERTY(Transient) TArray<TObjectPtr<UAZ_Inv_CommonUI_InventoryItem>> CampaignStagedItems;

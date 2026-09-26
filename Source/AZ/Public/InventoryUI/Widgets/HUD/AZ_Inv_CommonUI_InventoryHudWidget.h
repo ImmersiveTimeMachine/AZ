@@ -93,6 +93,7 @@ private:
 	bool bInventoryOpen = false;
 	FGuid PresentedWeaponId;
 	int32 DefaultAmmoFontSize = 0;
+	int32 DefaultWeaponNameFontSize = 0;
 
 	/**
 	 * The two things that can be in the player's hands, each arriving on its own delegate.

@@ -12,6 +12,8 @@ class UAZ_ThrowableDefinition;
 class UProjectileMovementComponent;
 class USphereComponent;
 class UStaticMeshComponent;
+class UNiagaraSystem;
+class USoundBase;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAZ_ThrowableSettled,
 	AAZ_ThrowableProjectile*, Projectile, const FVector&, Location);
@@ -59,6 +61,8 @@ public:
 	FAZ_ThrowableSettled OnSettled;
 
 	const UAZ_ThrowableDefinition* GetDefinition() const { return Definition; }
+	/** Saving waits for an in-flight item/fuse to reach its durable world outcome. */
+	bool HasPendingWorldOutcome() const { return bActivated && !bShattered && !bDetonated && bHasRecoveryPayload; }
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -108,6 +112,10 @@ private:
 
 	/** Convert the resting object into the ordinary world pickup. Hands ownership over exactly once. */
 	bool ConvertToPickup(const FVector& RestSurfacePoint);
+	void Shatter(const FHitResult& Hit);
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastShatterFX(const FVector& Location, const FVector& Normal, UNiagaraSystem* Effect, USoundBase* Sound);
+	bool bShattered = false;
 
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 

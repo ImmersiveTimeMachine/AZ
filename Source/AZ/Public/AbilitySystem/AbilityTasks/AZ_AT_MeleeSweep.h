@@ -9,7 +9,7 @@
 class USkeletalMeshComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAZMeleeHitDelegate, const FHitResult&, Hit);
-DECLARE_DELEGATE_OneParam(FAZMeleeBlockedDelegate, const FHitResult&);
+DECLARE_DELEGATE_TwoParams(FAZMeleeBlockedDelegate, const FHitResult&, bool /* physical socket contact */);
 
 /**
  * SOCKET-SWEPT hit detection — the well-known AAA melee shape, replacing the old actor-forward volume

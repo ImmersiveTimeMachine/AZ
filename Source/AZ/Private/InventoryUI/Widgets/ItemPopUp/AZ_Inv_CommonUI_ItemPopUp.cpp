@@ -8,10 +8,22 @@
 #include "Components/SizeBox.h"
 #include "Components/Slider.h"
 #include "Components/TextBlock.h"
+#include "CommonTextBlock.h"
+#include "Styling/CoreStyle.h"
 
 void UAZ_Inv_CommonUI_ItemPopUp::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+	if (SizeBox_Root) { SizeBox_Root->SetWidthOverride(180.f); SizeBox_Root->ClearHeightOverride(); }
+	for (UAZ_Inv_CommonUI_Button* Action : {Button_Split.Get(), Button_Drop.Get(), Button_Consume.Get(), Button_Equip.Get()})
+	{
+		if (Action && Action->TextRef)
+		{
+			Action->TextRef->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 16));
+			Action->TextRef->SetAutoWrapText(false);
+			Action->TextRef->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+		}
+	}
 
 	ensure(Button_Split);
 	ensure(Button_Drop);
@@ -98,7 +110,7 @@ void UAZ_Inv_CommonUI_ItemPopUp::ConfigureLoadMagazineAction(const FGuid& Magazi
 
 FVector2D UAZ_Inv_CommonUI_ItemPopUp::GetBoxSize() const
 {
-	return FVector2D(SizeBox_Root->GetWidthOverride(), SizeBox_Root->GetHeightOverride());
+	return SizeBox_Root ? SizeBox_Root->GetDesiredSize() : GetDesiredSize();
 }
 
 void UAZ_Inv_CommonUI_ItemPopUp::SplitButtonClicked(UCommonButtonBase* Button)

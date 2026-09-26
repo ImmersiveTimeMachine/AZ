@@ -6,6 +6,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "Inventory/AZ_QuickBarComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/Items/Manifest/AZ_Inv_CommonUI_ItemManifest.h"
@@ -566,6 +567,21 @@ bool UAZ_Inv_CommonUI_InventoryComponent::RequestLoadMagazine(UAZ_Inv_CommonUI_I
     Server_LoadMagazine(Source.Get(), WeaponItemId, Generation, MagazineItemId, IncomingRevision,
         Ammo.MagazineItemId, Ammo.AmmoRevision);
     return true;
+}
+
+bool UAZ_Inv_CommonUI_InventoryComponent::RequestReadyThrowable(UAZ_Inv_CommonUI_InventoryItem* Item)
+{
+	const auto* Player = Cast<AAZ_PlayerController>(GetOwner());
+	auto* QuickBar = GetOwner() ? GetOwner()->FindComponentByClass<UAZ_QuickBarComponent>() : nullptr;
+	if (!Player || !Player->IsLocalController() || !bInventoryMenuOpen || !QuickBar
+		|| !IsValid(Item) || !ContainsItem(Item) || !Item->IsThrowable() || Item->IsWeapon()) return false;
+	const FGuid ItemId = Item->GetInstanceId();
+	const TWeakObjectPtr<UAZ_QuickBarComponent> ReadyOwner(QuickBar);
+	UE_LOG(LogAZInventory, Log, TEXT("[ThrowableEquip] inventory selection item=%s type=%s"),
+		*ItemId.ToString(), *Item->GetItemManifest().GetItemTypeTag().ToString());
+	CloseInventoryMenu();
+	if (ReadyOwner.IsValid()) ReadyOwner->RequestReadyThrowable(ItemId, FGuid::NewGuid());
+	return true;
 }
 
 void UAZ_Inv_CommonUI_InventoryComponent::Server_LoadMagazine_Implementation(AAZ_Weapon* ExpectedSource,

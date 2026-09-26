@@ -18,10 +18,36 @@
 #include "Perception/AISense_Hearing.h"
 #include "Player/AZ_PlayerController.h"
 #include "TimerManager.h"
+#include "UObject/StructOnScope.h"
+#include "UObject/UnrealType.h"
 #include "Weapon/AZ_Weapon.h"
 
 namespace
 {
+	// Prototype adapter: preserve the pack's authored Chaos response without routing scenery
+	// through character GAS damage or re-running the pack's demo weapon trace.
+	bool DispatchDestructionImpact(const FHitResult& Hit)
+	{
+		AActor* Target = Hit.GetActor();
+		if (!IsValid(Target) || !Target->HasAuthority() || !Hit.IsValidBlockingHit()) return false;
+		UClass* Interface = FindObject<UClass>(nullptr,
+			TEXT("/Game/NextGenDestruction/Blueprints/Interfaces/BPI_Destruction.BPI_Destruction_C"));
+		if (!Interface || !Target->GetClass()->ImplementsInterface(Interface)) return false;
+		UFunction* Function = Target->FindFunction(TEXT("BulletImpact"));
+		FStructProperty* HitProperty = Function ? FindFProperty<FStructProperty>(Function, TEXT("HitInfo")) : nullptr;
+		if (!Function || Function->NumParms != 1 || !HitProperty
+			|| !HitProperty->HasAnyPropertyFlags(CPF_Parm) || HitProperty->HasAnyPropertyFlags(CPF_ReturnParm)
+			|| HitProperty->Struct != FHitResult::StaticStruct())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Destruction] Unsupported BulletImpact contract on %s"), *GetNameSafe(Target));
+			return false;
+		}
+		FStructOnScope Parameters(Function);
+		HitProperty->CopyCompleteValue(HitProperty->ContainerPtrToValuePtr<void>(Parameters.GetStructMemory()), &Hit);
+		Target->ProcessEvent(Function, Parameters.GetStructMemory());
+		return true;
+	}
+
 	struct FFirearmSource
 	{
 		AAZ_PawnMoverHeroCharacter* Hero = nullptr;
@@ -363,7 +389,7 @@ bool UAZ_GA_FirearmFire::FireAuthoritativeShot()
 	// Resolved HERE, on authority, alongside the impact effect and for the same reason: the multicast must
 	// not have to look anything up on the client, where the weapon may already be gone by the time it lands.
 	UMaterialInterface* WorldImpactDecal = bWorldImpact ? Source.Definition->WorldImpactDecal.Get() : nullptr;
-	const float WorldImpactDecalSize = Source.Definition->WorldImpactDecalSize;
+	float WorldImpactDecalSize = Source.Definition->WorldImpactDecalSize;
 	const float WorldImpactDecalLifetime = Source.Definition->WorldImpactDecalLifetime;
 	UAbilitySystemComponent* SourceASC = CurrentActorInfo->AbilitySystemComponent.Get();
 	FAZ_WeaponAmmoSnapshot Committed;
@@ -410,6 +436,14 @@ bool UAZ_GA_FirearmFire::FireAuthoritativeShot()
 			SourceASC->ApplyGameplayEffectSpecToTarget(*DamageSpec.Data.Get(), TargetASC);
 			bHitConfirmed = IsValid(TargetASC) && TargetASC->GetNumericAttribute(UAZ_VitalsAttributeSet::GetHealthAttribute()) < Health;
 		}
+	}
+	// Run the external Blueprint callback only after GAS has consumed its target references.
+	// The pack owns fracture FX; size zero suppresses a floating decal while preserving its
+	// configured material (the cosmetic RPC diagnoses null materials as missing configuration).
+	if (bWorldImpact && DispatchDestructionImpact(Hit))
+	{
+		WorldImpactEffect = nullptr;
+		WorldImpactDecalSize = 0.f;
 	}
 	if (IsValid(Source.Hero))
 	{

@@ -82,7 +82,7 @@ protected:
 	/** Rejects a blocked full swing before playback; no shortened jab or automatic wall correction. */
 	bool PrepareEnvironmentMontage(UAnimMontage*& Montage, const FVector* PlannedWarpDestination);
 	UAnimMontage* SelectBlockedMontage() const;
-	void OnSweepBlocked(const FHitResult& Hit);
+	void OnSweepBlocked(const FHitResult& Hit, bool bPhysicalContact);
 	virtual void OnMeleeContactConfirmed(const FHitResult& Hit) {}
 	virtual void OnMeleeEnvironmentBlocked() {}
 	void HoldForBlockedMontage(UAnimMontage* Montage);

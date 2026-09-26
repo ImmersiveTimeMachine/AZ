@@ -39,7 +39,7 @@ void UAZ_QuickSelectComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	RefreshBindings();
-	if (Controller.IsValid() && Controller->IsLocalController() && FSlateApplication::IsInitialized())
+	if (Controller.IsValid() && !Controller->bFrontEndController && Controller->IsLocalController() && FSlateApplication::IsInitialized())
 	{
 		ApplicationActivationHandle = FSlateApplication::Get().OnApplicationActivationStateChanged()
 			.AddUObject(this, &ThisClass::HandleApplicationActivation);
@@ -87,7 +87,7 @@ void UAZ_QuickSelectComponent::RefreshBindings()
 {
 	Unbind();
 	Controller = Cast<AAZ_PlayerController>(GetOwner());
-	if (bEndingPlay || !Controller.IsValid() || !Controller->IsLocalController()) return;
+	if (bEndingPlay || !Controller.IsValid() || Controller->bFrontEndController || !Controller->IsLocalController()) return;
 	Controller->OnPossessedPawnChanged.AddUniqueDynamic(this, &ThisClass::HandlePawnChanged);
 	QuickBar = Controller->FindComponentByClass<UAZ_QuickBarComponent>();
 	Inventory = Controller->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>();
@@ -426,6 +426,10 @@ void UAZ_QuickSelectComponent::RebuildView()
 				Entry.AmmoText = Ammo.MagazineState == EAZ_WeaponMagazineState::Unavailable ? LOCTEXT("AmmoUnknown", "-- / --")
 					: Ammo.MagazineState == EAZ_WeaponMagazineState::NoMagazine ? LOCTEXT("NoMag", "NO MAG")
 					: FText::Format(LOCTEXT("Ammo", "{0} / {1}"), FText::AsNumber(Ammo.Rounds), FText::AsNumber(Ammo.Capacity));
+			}
+			else if (Item->IsThrowable() && !Item->IsWeapon())
+			{
+				Entry.AmmoText = FText::AsNumber(QuickBar->GetThrowableCount(Item));
 			}
 			else if (Item->IsConsumable())
 			{

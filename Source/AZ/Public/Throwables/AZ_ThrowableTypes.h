@@ -54,7 +54,9 @@ enum class EAZ_ThrowImpactBehavior : uint8
 	/** Grenade: bounce, but a fuse started at release detonates once wherever it then is. */
 	FuseAndDetonate,
 	/** Knife: first blocking hit stops/embeds it. */
-	ImpactAndEmbed
+	ImpactAndEmbed,
+	/** Bottle: break on a qualifying impact; otherwise bounce and recover intact. */
+	Shatter
 };
 
 /** Why a launch solution is unusable. Surfaced to the preview so the HUD can say OBSTRUCTED honestly. */

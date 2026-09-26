@@ -13,12 +13,69 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "EngineUtils.h"
+#include "Engine/OverlapResult.h"
+#include "Field/FieldSystemObjects.h"
+#include "GeometryCollection/GeometryCollectionComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "NiagaraFunctionLibrary.h"
 #include "Perception/AISense_Hearing.h"
 #include "Throwables/AZ_ThrowableDefinition.h"
+#include "Throwables/AZ_ThrowableFireArea.h"
+
+namespace
+{
+	// Test-environment adapter. Chaos strain is independent of GAS health damage.
+	// Component-scoped commands preserve vendor fracture FX/anchors and cannot push ragdolls.
+	void ApplyDestructionBlast(UWorld* World, const FVector& Origin, float Radius, AActor* Causer)
+	{
+		if (!IsValid(World) || !IsValid(Causer) || !Causer->HasAuthority()
+			|| Origin.ContainsNaN() || !FMath::IsFinite(Radius) || Radius <= 0.f) return;
+		UClass* Interface = FindObject<UClass>(nullptr,
+			TEXT("/Game/NextGenDestruction/Blueprints/Interfaces/BPI_Destruction.BPI_Destruction_C"));
+		if (!Interface) return;
+
+		FCollisionObjectQueryParams Objects;
+		Objects.AddObjectTypesToQuery(ECC_Destructible);
+		FCollisionQueryParams Query(SCENE_QUERY_STAT(ThrowDestructionBlast), false, Causer);
+		TArray<FOverlapResult> Hits;
+		World->OverlapMultiByObjectType(Hits, Origin, FQuat::Identity, Objects,
+			FCollisionShape::MakeSphere(Radius), Query);
+		TSet<UGeometryCollectionComponent*> Collections;
+		for (const FOverlapResult& Hit : Hits)
+		{
+			auto* Collection = Cast<UGeometryCollectionComponent>(Hit.GetComponent());
+			AActor* Owner = Collection ? Collection->GetOwner() : nullptr;
+			if (IsValid(Collection) && IsValid(Owner) && Owner->GetClass()->ImplementsInterface(Interface))
+			{
+				Collections.Add(Collection);
+			}
+		}
+		if (Collections.IsEmpty()) return;
+
+		// Prototype tuning: pack bullet strain with restrained debris speed. Actual radius
+		// comes from the grenade definition in cm. Unlike pawn damage, scenery has no LOS test.
+		URadialFalloff* Strain = NewObject<URadialFalloff>(Causer);
+		Strain->SetRadialFalloff(2000000.f, 0.f, 1.f, 0.f, Radius, Origin, Field_Falloff_Squared);
+		URadialFalloff* Attenuation = NewObject<URadialFalloff>(Causer);
+		Attenuation->SetRadialFalloff(1.f, 0.f, 1.f, 0.f, Radius, Origin, Field_Falloff_Squared);
+		URadialVector* RadialVelocity = NewObject<URadialVector>(Causer);
+		// User play check: the demo's 1500 cm/s scattered fragments like fireworks.
+		// Reduce only the added velocity; fracture strength and character damage stay independent.
+		RadialVelocity->SetRadialVector(300.f, Origin);
+		UOperatorField* BoundedVelocity = NewObject<UOperatorField>(Causer);
+		BoundedVelocity->SetOperatorField(1.f, Attenuation, RadialVelocity, Field_Multiply);
+		UFieldSystemMetaDataFilter* Filter = NewObject<UFieldSystemMetaDataFilter>(Causer);
+		Filter->SetMetaDataFilterType(Field_Filter_All, Field_Object_Destruction, Field_Position_CenterOfMass);
+		for (UGeometryCollectionComponent* Collection : Collections)
+		{
+			Collection->ApplyPhysicsField(true, EGeometryCollectionPhysicsTypeEnum::Chaos_ExternalClusterStrain, Filter, Strain);
+			Collection->ApplyPhysicsField(true, EGeometryCollectionPhysicsTypeEnum::Chaos_LinearVelocity, Filter, BoundedVelocity);
+		}
+		UE_LOG(LogTemp, Display, TEXT("[Destruction] grenade radius=%.0f collections=%d"), Radius, Collections.Num());
+	}
+}
 
 AAZ_ThrowableProjectile::AAZ_ThrowableProjectile()
 {
@@ -81,6 +138,7 @@ void AAZ_ThrowableProjectile::Activate(const FAZ_ThrowLaunchSolution& Solution,
 	if (Definition->HeldMesh)
 	{
 		Mesh->SetStaticMesh(Definition->HeldMesh);
+		Mesh->SetRelativeTransform(Definition->HeldPropOffset);
 		// The SAME scale the held prop used, so the stone does not change size as it leaves the hand.
 		Mesh->SetWorldScale3D(Definition->GetHeldMeshScale());
 	}
@@ -151,18 +209,31 @@ void AAZ_ThrowableProjectile::SetRecoveryPayload(const FAZ_InventoryPickupRecord
 
 void AAZ_ThrowableProjectile::HandleBounce(const FHitResult& Hit, const FVector& Velocity)
 {
-	if (!HasAuthority())
+	if (!HasAuthority() || bShattered || bDetonated)
 	{
 		return;
 	}
 	++BounceCount;
+	if (Definition && Definition->ImpactBehavior == EAZ_ThrowImpactBehavior::Shatter
+		&& FMath::IsFinite(Velocity.SizeSquared())
+		&& Velocity.Size() >= FMath::Max(0.f, Definition->ShatterMinImpactSpeed))
+	{
+		Shatter(Hit);
+		return;
+	}
 	ReportImpactNoise(Hit.ImpactPoint, Velocity.Size());
 }
 
 void AAZ_ThrowableProjectile::HandleStop(const FHitResult& Hit)
 {
-	if (!HasAuthority() || bSettled)
+	if (!HasAuthority() || bSettled || bShattered || bDetonated)
 	{
+		return;
+	}
+	if (Definition && Definition->ImpactBehavior == EAZ_ThrowImpactBehavior::Shatter
+		&& Definition->ShatterMinImpactSpeed <= 0.f)
+	{
+		Shatter(Hit);
 		return;
 	}
 	bSettled = true;
@@ -256,6 +327,65 @@ void AAZ_ThrowableProjectile::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void AAZ_ThrowableProjectile::Shatter(const FHitResult& Hit)
+{
+	if (!HasAuthority() || bShattered || bDetonated || !Definition || !GetWorld()) return;
+	bShattered = true; // before stopping movement can fire OnStop again
+	bHasRecoveryPayload = false;
+	RecoveryPayload = FAZ_InventoryPickupRecord();
+	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	Mesh->SetVisibility(false);
+	if (Thrower && Definition->ShatterLoudness > 0.f)
+	{
+		UAISense_Hearing::ReportNoiseEvent(GetWorld(), Hit.ImpactPoint, Definition->ShatterLoudness,
+			Thrower, Definition->ImpactHearingRange, Definition->ShatterNoiseTag);
+	}
+	MulticastShatterFX(Hit.ImpactPoint, Hit.ImpactNormal, Definition->ShatterEffect, Definition->ShatterSound);
+	if (Definition->bIgnitesOnImpact)
+	{
+		FVector GroundPoint = Hit.ImpactPoint;
+		FVector GroundNormal = Hit.ImpactNormal;
+		bool bGround = GroundNormal.Z >= 0.5f;
+		if (!bGround)
+		{
+			FHitResult Floor;
+			const FVector Start = Hit.ImpactPoint + Hit.ImpactNormal * 6.f;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(ThrowFireSurface), false, this);
+			if (Hit.GetActor() && Hit.GetActor()->IsA<APawn>()) Params.AddIgnoredActor(Hit.GetActor());
+			bGround = GetWorld()->LineTraceSingleByChannel(Floor, Start, Start - FVector(0,0,300), ECC_Visibility, Params)
+				&& Floor.ImpactNormal.Z >= 0.5f;
+			if (bGround) { GroundPoint = Floor.ImpactPoint; GroundNormal = Floor.ImpactNormal; }
+		}
+		if (bGround)
+		{
+			FActorSpawnParameters Params;
+			Params.Owner = Thrower;
+			Params.Instigator = Thrower;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			if (AAZ_ThrowableFireArea* Fire = GetWorld()->SpawnActor<AAZ_ThrowableFireArea>(
+				AAZ_ThrowableFireArea::StaticClass(), GroundPoint + GroundNormal * 2.f, FRotator::ZeroRotator, Params))
+			{
+				Fire->Initialize(Definition, Thrower, GroundNormal);
+			}
+		}
+	}
+	UE_LOG(LogTemp, Display, TEXT("[Throw] shattered %s fire=%d"), *GetNameSafe(Definition), Definition->bIgnitesOnImpact);
+	SetLifeSpan(0.3f);
+}
+
+void AAZ_ThrowableProjectile::MulticastShatterFX_Implementation(const FVector& Location, const FVector& Normal,
+	UNiagaraSystem* Effect, USoundBase* Sound)
+{
+	Mesh->SetVisibility(false);
+	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Movement->Deactivate();
+	if (GetNetMode() == NM_DedicatedServer) return;
+	if (Effect) UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Effect, Location, Normal.Rotation());
+	if (Sound) UGameplayStatics::PlaySoundAtLocation(this, Sound, Location);
+}
+
 void AAZ_ThrowableProjectile::Detonate()
 {
 	if (!HasAuthority() || bDetonated || !Definition)
@@ -269,6 +399,7 @@ void AAZ_ThrowableProjectile::Detonate()
 	}
 
 	const FVector Origin = GetActorLocation();
+	const float DestructionRadius = Definition->DamageOuterRadius;
 
 	// Ground normal for the scorch decal, and nothing else. A miss is fine — an airburst leaves no mark.
 	FVector SurfaceNormal = FVector::UpVector;
@@ -291,7 +422,7 @@ void AAZ_ThrowableProjectile::Detonate()
 	if (Definition->DetonationLoudness > 0.f && Thrower && GetWorld())
 	{
 		UAISense_Hearing::ReportNoiseEvent(GetWorld(), Origin, Definition->DetonationLoudness,
-			Thrower, Definition->DetonationHearingRange, Definition->ImpactNoiseTag);
+			Thrower, Definition->DetonationHearingRange, Definition->DetonationNoiseTag);
 	}
 
 	MulticastDetonationFX(Origin, SurfaceNormal);
@@ -299,6 +430,9 @@ void AAZ_ThrowableProjectile::Detonate()
 	// The grenade is spent: no pickup, no remains, it simply stops existing. Deferred by a moment so the
 	// multicast and the queued impulses are not cut off by the actor going away.
 	SetLifeSpan(0.3f);
+	// Evaluate GAS damage/cover before fracturing scenery. The authority/once latch above
+	// owns this dispatch too; neither cosmetic multicast nor corpse impulse repeats it.
+	ApplyDestructionBlast(GetWorld(), Origin, DestructionRadius, this);
 }
 
 void AAZ_ThrowableProjectile::ApplyBlast(const FVector& Origin)

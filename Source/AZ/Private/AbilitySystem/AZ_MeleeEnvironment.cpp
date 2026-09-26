@@ -12,6 +12,8 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "MotionWarpingComponent.h"
+#include "Field/FieldSystemObjects.h"
+#include "GeometryCollection/GeometryCollectionComponent.h"
 
 namespace
 {
@@ -48,7 +50,7 @@ namespace
 
 	bool SweepShape(const AActor& Avatar, const FVector& Start, const FVector& End,
 		const FQuat& Rotation, const FCollisionShape& Shape, FHitResult& OutHit,
-		bool bIgnoreFloor, const AActor* IgnoreActor)
+		bool bIgnoreFloor, const AActor* IgnoreActor, bool bIncludeDestructibleContacts = false)
 	{
 		OutHit = FHitResult();
 		const UWorld* World = Avatar.GetWorld();
@@ -60,7 +62,9 @@ namespace
 		bool bBlocked = false;
 		for (const FHitResult& Hit : Hits)
 		{
-			if (!IsSolidScenery(Hit.GetComponent()) || (bIgnoreFloor && IsSupportingFloor(Avatar, Hit))) continue;
+			const bool bContact = IsSolidScenery(Hit.GetComponent())
+				|| (bIncludeDestructibleContacts && FAZ_MeleeEnvironment::IsDestructibleContact(Hit.GetComponent()));
+			if (!bContact || (bIgnoreFloor && IsSupportingFloor(Avatar, Hit))) continue;
 			if (!bBlocked || Hit.Time < OutHit.Time)
 			{
 				OutHit = Hit;
@@ -71,11 +75,49 @@ namespace
 	}
 }
 
+bool FAZ_MeleeEnvironment::IsDestructibleContact(const UPrimitiveComponent* Component)
+{
+	const AActor* Owner = IsValid(Component) ? Component->GetOwner() : nullptr;
+	const UClass* Interface = FindObject<UClass>(nullptr,
+		TEXT("/Game/NextGenDestruction/Blueprints/Interfaces/BPI_Destruction.BPI_Destruction_C"));
+	return Cast<UGeometryCollectionComponent>(Component) && Component->IsQueryCollisionEnabled()
+		&& IsValid(Owner) && Interface && Owner->GetClass()->ImplementsInterface(Interface);
+}
+
+bool FAZ_MeleeEnvironment::ApplyDestructibleContact(AActor& Attacker, const FHitResult& Hit, bool bKick)
+{
+	if (!Attacker.HasAuthority() || !Hit.IsValidBlockingHit() || Hit.bStartPenetrating
+		|| Hit.ImpactPoint.ContainsNaN() || !IsDestructibleContact(Hit.GetComponent())) return false;
+	auto* Collection = CastChecked<UGeometryCollectionComponent>(Hit.GetComponent());
+	// Test tuning, independent of GAS health damage. Keep the effect local to the struck surface.
+	const float Radius = bKick ? 60.f : 35.f;
+	URadialFalloff* Strain = NewObject<URadialFalloff>(&Attacker);
+	Strain->SetRadialFalloff(bKick ? 2000000.f : 750000.f, 0.f, 1.f, 0.f,
+		Radius, Hit.ImpactPoint, Field_Falloff_Linear);
+	UFieldSystemMetaDataFilter* Filter = NewObject<UFieldSystemMetaDataFilter>(&Attacker);
+	Filter->SetMetaDataFilterType(Field_Filter_All, Field_Object_Destruction, Field_Position_CenterOfMass);
+	Collection->ApplyPhysicsField(true, EGeometryCollectionPhysicsTypeEnum::Chaos_ExternalClusterStrain, Filter, Strain);
+	FVector Direction = (Hit.TraceEnd - Hit.TraceStart).GetSafeNormal();
+	if (Direction.IsNearlyZero()) Direction = -Hit.ImpactNormal.GetSafeNormal();
+	if (!Direction.ContainsNaN() && !Direction.IsNearlyZero())
+	{
+		URadialFalloff* Falloff = NewObject<URadialFalloff>(&Attacker);
+		Falloff->SetRadialFalloff(1.f, 0.f, 1.f, 0.f, Radius, Hit.ImpactPoint, Field_Falloff_Linear);
+		UUniformVector* Velocity = NewObject<UUniformVector>(&Attacker);
+		Velocity->SetUniformVector(bKick ? 500.f : 200.f, Direction);
+		UOperatorField* BoundedVelocity = NewObject<UOperatorField>(&Attacker);
+		BoundedVelocity->SetOperatorField(1.f, Falloff, Velocity, Field_Multiply);
+		Collection->ApplyPhysicsField(true, EGeometryCollectionPhysicsTypeEnum::Chaos_LinearVelocity, Filter, BoundedVelocity);
+	}
+	UE_LOG(LogTemp, Display, TEXT("[Destruction] melee %s target=%s"), bKick ? TEXT("kick") : TEXT("punch"), *GetNameSafe(Hit.GetActor()));
+	return true;
+}
+
 bool FAZ_MeleeEnvironment::SweepEnvironment(const AActor& Avatar, const FVector& Start, const FVector& End,
-	float Radius, FHitResult& OutHit, bool bIgnoreFloor, const AActor* IgnoreActor)
+	float Radius, FHitResult& OutHit, bool bIgnoreFloor, const AActor* IgnoreActor, bool bIncludeDestructibleContacts)
 {
 	return SweepShape(Avatar, Start, End, FQuat::Identity,
-		FCollisionShape::MakeSphere(FMath::Max(0.1f, Radius)), OutHit, bIgnoreFloor, IgnoreActor);
+		FCollisionShape::MakeSphere(FMath::Max(0.1f, Radius)), OutHit, bIgnoreFloor, IgnoreActor, bIncludeDestructibleContacts);
 }
 
 bool FAZ_MeleeEnvironment::IsCapsulePathClear(const AActor& Avatar, const FVector& Start, const FVector& End,

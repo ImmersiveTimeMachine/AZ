@@ -5,6 +5,7 @@
 #include "AZ_GameplayTags.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "InventoryUI/AZ_CraftRecipe.h"
 #include "InventoryUI/Widgets/Composite/AZ_Inv_CommonUI_LeafWidget_Text.h"
 
 void UAZ_Inv_CommonUI_ItemDescription::ShowItem(UAZ_Inv_CommonUI_InventoryItem* Item, const UAZ_Inv_CommonUI_InventoryComponent* Inventory)
@@ -13,6 +14,37 @@ void UAZ_Inv_CommonUI_ItemDescription::ShowItem(UAZ_Inv_CommonUI_InventoryItem* 
 	if (!IsValid(Item)) return;
 	const auto& Manifest = Item->GetItemManifest();
 	Manifest.AssimilateInventoryFragments(this);
+	if (Inventory)
+	{
+		FString Uses;
+		const FGameplayTag ItemType = Manifest.GetItemTypeTag();
+		for (const UAZ_CraftRecipe* Recipe : Inventory->CraftingRecipes)
+		{
+			if (!Recipe) continue;
+			const bool bIngredient = Recipe->Ingredients.ContainsByPredicate(
+				[&](const FAZ_CraftIngredient& Input) { return Input.ItemType.MatchesTagExact(ItemType); });
+			const bool bTool = Recipe->Tools.ContainsByPredicate([&](FGameplayTag Tool) { return Tool.MatchesTagExact(ItemType); });
+			if (!bIngredient && !bTool) continue;
+			FString Reason;
+			const bool bReady = Inventory->CanCraftRecipe(Recipe, Reason);
+			if (!Uses.IsEmpty()) Uses += TEXT("\n");
+			Uses += FString::Printf(TEXT("%s: %s\n%s"), bTool ? TEXT("Reusable tool for") : TEXT("Used to craft"),
+				*Recipe->DisplayName.ToString(), bReady ? TEXT("Ready to craft") : TEXT("Open Craft / Recipes to see requirements"));
+		}
+		if (!Uses.IsEmpty())
+		{
+			const auto& Tags = FAZ_GameplayTags::Get();
+			const auto* Existing = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_Text_Fragment>(Tags.Item_Fragment_Description);
+			const FText Hint = FText::FromString(Existing && !Existing->GetText().IsEmpty()
+				? Existing->GetText().ToString() + TEXT("\n\n") + Uses : Uses);
+			ApplyFunction([&](UAZ_Inv_CommonUI_CompositeBaseWidget* Widget)
+			{
+				if (auto* Text = Cast<UAZ_Inv_CommonUI_LeafWidget_Text>(Widget))
+					if (Widget->GetFragmentTag().MatchesTagExact(Tags.Item_Fragment_Description))
+					{ Text->SetText(Hint); Text->Expand(); }
+			});
+		}
+	}
 	const auto* Weapon = Manifest.GetFragmentOfType<FAZ_Inv_CommonUI_WeaponStateFragment>();
 	if (!Item->IsMagazine() && (!Weapon || !Weapon->bUsesDetachableMagazines)) return;
 

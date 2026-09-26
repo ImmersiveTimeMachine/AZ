@@ -77,7 +77,8 @@ void UAZ_PlayerUIComponent::RefreshBindings()
 {
 	if (bEndingPlay) return;
 	APlayerController* Player = Cast<APlayerController>(GetOwner());
-	if (!IsValid(Player) || !Player->IsLocalController())
+	const AAZ_PlayerController* AZPlayer = Cast<AAZ_PlayerController>(Player);
+	if (!IsValid(Player) || !Player->IsLocalController() || (AZPlayer && AZPlayer->bFrontEndController))
 	{
 		UnbindVitals();
 		UnbindInventory();
@@ -425,7 +426,7 @@ void UAZ_PlayerUIComponent::RefreshThrowable()
 		const auto& Manifest = Item->GetItemManifest();
 		const auto& Tags = FAZ_GameplayTags::Get();
 		View.bHasThrowable = true;
-		View.Count = FMath::Max(0, Item->GetTotalStackCount());
+		View.Count = QuickBar->GetThrowableCount(Item);
 		// Same fallbacks as the firearm row, because this feeds the same HUD element: an item that names or
 		// illustrates itself through the untagged fragment must not come out blank next to a pistol that does.
 		const auto* Image = Manifest.GetFragmentOfTypeByTag<FAZ_Inv_CommonUI_ImageFragment>(Tags.Item_Fragment_Icon);

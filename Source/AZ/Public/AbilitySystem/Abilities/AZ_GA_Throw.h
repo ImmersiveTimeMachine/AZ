@@ -69,6 +69,9 @@ public:
 	bool IsThrowContextActive() const { return Phase != EAZ_ThrowPhase::None; }
 
 	EAZ_ThrowPhase GetPhase() const { return Phase; }
+	FGuid GetSourceItemId() const { return SourceItemId; }
+	/** Includes the synchronous inventory notification inside the release transaction. */
+	bool HasCommittedRelease() const;
 
 	virtual void DeclareAbilityTags() override;
 
@@ -140,6 +143,8 @@ private:
 	 * ended-but-still-bound task would fire OnInterrupted and cancel the throw on the Start -> Loop seam.
 	 */
 	void ReleasePresentation();
+	/** Fade only this profile's preparation clips; cross-group montages do not stop each other. */
+	void StopPreparationMontages(float BlendOutTime = -1.f) const;
 
 	/**
 	 * Clear the held task's delegates WITHOUT ending it, so the ability's own teardown still reaches the
@@ -214,6 +219,8 @@ private:
 
 	/** Set by RequestCancel. A still-held RMB coming up after this must not throw. */
 	bool bCancelRequested = false;
+	/** Selection changes during teardown must not start another cancel or recursively end this action. */
+	bool bEndingThrow = false;
 
 	/** Last reported solution status, so a refusal is logged on the EDGE and not twenty times a second. */
 	EAZ_ThrowSolutionStatus LastPreviewStatus = EAZ_ThrowSolutionStatus::Valid;

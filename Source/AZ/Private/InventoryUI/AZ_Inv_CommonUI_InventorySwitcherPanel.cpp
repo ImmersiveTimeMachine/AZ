@@ -11,12 +11,17 @@
 #include "AZ_GameplayTags.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Button.h"
+#include "Components/ButtonSlot.h"
+#include "Components/TextBlock.h"
 #include "UI/AZ_ActionPrompt.h"
 #include "Components/Image.h"
 #include "Components/HorizontalBox.h"
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "InventoryUI/AZ_CraftingPanel.h"
+#include "InventoryUI/AZ_CraftRecipe.h"
 #include "InventoryUI/AZ_Inv_CommonUI_GameInventoryMenu.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryGrid.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
@@ -27,6 +32,7 @@
 #include "InventoryUI/Widgets/Components/AZ_Inv_CommonUI_EquippedGridSlot.h"
 #include "InventoryUI/Widgets/SlottedItems/AZ_Inv_CommonUI_EquippedSlottedItem.h"
 #include "InventoryUI/Utils/AZ_Inv_InventoryStatics.h"
+#include "Styling/CoreStyle.h"
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeOnInitialized()
 {
@@ -84,6 +90,8 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeConstruct()
 		}
 	});
 	RefreshEquipment();
+	EnsureCraftingEntry();
+	UpdateCraftingEntry();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -96,6 +104,12 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeTick(const FGeometry& MyGeom
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::NativeDestruct()
 {
 	OnHide();
+	if (CraftingEntryButton)
+	{
+		CraftingEntryButton->OnClicked.RemoveDynamic(this, &ThisClass::OpenCraftingPanel);
+		CraftingEntryButton->RemoveFromParent();
+		CraftingEntryButton = nullptr;
+	}
 	if (InventoryComponent.IsValid()) InventoryComponent->OnInventoryChanged.RemoveDynamic(this, &ThisClass::HandleInventoryChanged);
 	if (EquipmentComponent.IsValid()) EquipmentComponent->OnEquipmentChanged.RemoveDynamic(this, &ThisClass::RefreshEquipment);
 	InventoryComponent.Reset();
@@ -138,6 +152,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleGridSwitcherIndexChanged(UWi
 	}
 	UAZ_Inv_CommonUI_InventoryGrid* Grid = Cast<UAZ_Inv_CommonUI_InventoryGrid>(LogicalWidget);
 	if (!Grid || !GetGridButtonMap().Contains(Grid)) return;
+	if (CraftingPanel && ActiveGrid.Get() != Grid) CloseCraftingPanel(false);
 	if (ActiveGrid.Get() != Grid)
 	{
 		if (ActiveGrid.IsValid()) ActiveGrid->OnHide();
@@ -149,6 +164,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleGridSwitcherIndexChanged(UWi
 	// An inner animation may finish after the outer page already returned to
 	// Map. Keep its category memory, but select from the actual outer owner.
 	SynchronizeTabSelection();
+	UpdateCraftingEntry();
 }
 
 int32 UAZ_Inv_CommonUI_InventorySwitcherPanel::GetActiveInventoryCategoryIndex() const
@@ -170,7 +186,7 @@ FText UAZ_Inv_CommonUI_InventorySwitcherPanel::GetGridLabel(const UAZ_Inv_Common
 
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CanChangeInventoryTab() const
 {
-	return !HasHoverItem() && !HasActivePopUp();
+	return !CraftingPanel && !HasHoverItem() && !HasActivePopUp();
 }
 
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowInventoryCategory(int32 CategoryIndex)
@@ -181,12 +197,94 @@ bool UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowInventoryCategory(int32 Catego
 	if (!Grid) { SynchronizeTabSelection(); return false; }
 	SetActiveGrid(Grid, GetGridLabel(Grid));
 	SetMapTabActive(false);
+	UpdateCraftingEntry();
 	return ActiveGrid.Get() == Grid;
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetMapTabActive(bool bMapActive)
 {
 	SynchronizeTabSelection(bMapActive);
+	UpdateCraftingEntry();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::EnsureCraftingEntry()
+{
+	if (!OwningCanvasPanel.IsValid() || !WidgetTree) return;
+	if (!CraftingEntryButton)
+	{
+		CraftingEntryButton = WidgetTree->ConstructWidget<UButton>();
+		CraftingEntryButton->SetToolTipText(NSLOCTEXT("AZ_Crafting", "OpenNotesTooltip", "Open crafting field notes"));
+		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>();
+		Label->SetText(NSLOCTEXT("AZ_Crafting", "OpenNotes", "Craft"));
+		Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 18));
+		Label->SetColorAndOpacity(FLinearColor::FromSRGBColor(FColor(40, 46, 41)));
+		CraftingEntryButton->AddChild(Label);
+		if (UButtonSlot* LabelSlot = Cast<UButtonSlot>(Label->Slot)) LabelSlot->SetPadding(FMargin(18, 9));
+		CraftingEntryButton->OnClicked.AddUniqueDynamic(this, &ThisClass::OpenCraftingPanel);
+	}
+	if (CraftingEntryButton->GetParent() != OwningCanvasPanel.Get())
+	{
+		CraftingEntryButton->RemoveFromParent();
+		UCanvasPanelSlot* EntrySlot = OwningCanvasPanel->AddChildToCanvas(CraftingEntryButton);
+		EntrySlot->SetAnchors(FAnchors(1, 0));
+		EntrySlot->SetAlignment(FVector2D(1, 0));
+		EntrySlot->SetPosition(FVector2D(-32, 92));
+		EntrySlot->SetAutoSize(true);
+		EntrySlot->SetZOrder(20);
+	}
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::UpdateCraftingEntry()
+{
+	if (!CraftingEntryButton) return;
+	int32 ReadyRecipes = 0;
+	if (InventoryComponent.IsValid())
+	{
+		for (const UAZ_CraftRecipe* Recipe : InventoryComponent->CraftingRecipes)
+		{
+			FString Reason;
+			if (Recipe && InventoryComponent->CanCraftRecipe(Recipe, Reason)) ++ReadyRecipes;
+		}
+	}
+	if (auto* Label = Cast<UTextBlock>(CraftingEntryButton->GetContent()))
+	{
+		Label->SetText(ReadyRecipes > 0
+			? FText::Format(NSLOCTEXT("AZ_Crafting", "ReadyRecipeCount", "Craft ({0} ready)"), FText::AsNumber(ReadyRecipes))
+			: NSLOCTEXT("AZ_Crafting", "BrowseRecipes", "Craft / Recipes"));
+	}
+	const UAZ_Inv_CommonUI_GameInventoryMenu* Menu = InventoryComponent.IsValid() ? InventoryComponent->GetInventoryMenu() : nullptr;
+	const bool bShow = ActiveGrid.Get() == Grid_Craftables && !CraftingPanel &&
+		Menu && Menu->IsInventoryPageActive();
+	CraftingEntryButton->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::OpenCraftingPanel()
+{
+	if (CraftingPanel || ActiveGrid.Get() != Grid_Craftables || !CanChangeInventoryTab() ||
+		!InventoryComponent.IsValid() || !OwningCanvasPanel.IsValid() || !GetOwningPlayer()) return;
+	const UAZ_Inv_CommonUI_GameInventoryMenu* Menu = InventoryComponent->GetInventoryMenu();
+	if (!Menu || !Menu->IsActivated() || !Menu->IsInventoryPageActive()) return;
+	UAZ_CraftingPanel* NewPanel = CreateWidget<UAZ_CraftingPanel>(GetOwningPlayer(), UAZ_CraftingPanel::StaticClass());
+	if (!NewPanel) return;
+	NewPanel->InitializePanel(InventoryComponent.Get(), this);
+	UCanvasPanelSlot* PanelSlot = OwningCanvasPanel->AddChildToCanvas(NewPanel);
+	PanelSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	PanelSlot->SetOffsets(FMargin(0));
+	PanelSlot->SetZOrder(100);
+	CraftingPanel = NewPanel;
+	OnItemUnHovered();
+	UpdateCraftingEntry();
+	NewPanel->FocusDefaultControl();
+}
+
+void UAZ_Inv_CommonUI_InventorySwitcherPanel::CloseCraftingPanel(bool bRestoreFocus)
+{
+	if (!CraftingPanel) return;
+	CraftingPanel->RemoveFromParent();
+	CraftingPanel = nullptr;
+	UpdateCraftingEntry();
+	const UAZ_Inv_CommonUI_GameInventoryMenu* Menu = InventoryComponent.IsValid() ? InventoryComponent->GetInventoryMenu() : nullptr;
+	if (bRestoreFocus && Menu && Menu->IsActivated() && Menu->IsInventoryPageActive()) FocusActiveInventoryTab();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::FocusActiveInventoryTab()
@@ -238,6 +336,12 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowConsumables()
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::ShowCraftables()
 {
+	// A second activation of the focused tab also reaches Craft on a gamepad.
+	if (ActiveGrid.Get() == Grid_Craftables && !CraftingPanel)
+	{
+		OpenCraftingPanel();
+		return;
+	}
 	ShowInventoryCategory(2);
 }
 
@@ -352,6 +456,7 @@ UCommonActivatableWidgetSwitcher* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetWi
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_InventoryGrid* Grid, const FText& GridLabel)
 {
+	if (CraftingPanel && ActiveGrid.Get() != Grid) CloseCraftingPanel(false);
 	const FText IdentityLabel = GetGridLabel(Grid);
 	if (ActiveSelectionLabelText && (!IdentityLabel.IsEmpty() || !GridLabel.IsEmpty()))
 	{
@@ -379,6 +484,7 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetActiveGrid(UAZ_Inv_CommonUI_Inv
 	{
 		UE_LOG(LogTemp, Error, TEXT("SetActiveGrid: InventoryGridSwitcher is NULL!"));
 	}
+	UpdateCraftingEntry();
 
 }
 
@@ -422,16 +528,20 @@ bool UAZ_Inv_CommonUI_InventorySwitcherPanel::HasActivePopUp() const
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::TryShowContextMenu()
 {
+	if (CraftingPanel) return;
 	if (ActiveGrid.IsValid()) ActiveGrid->TryShowContextMenu();
 }
 
 bool UAZ_Inv_CommonUI_InventorySwitcherPanel::CancelInteraction()
 {
+	if (CraftingPanel) { CloseCraftingPanel(); return true; }
 	return ActiveGrid.IsValid() && ActiveGrid->CancelInteraction();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::OnHide()
 {
+	CloseCraftingPanel(false);
+	if (CraftingEntryButton) CraftingEntryButton->SetVisibility(ESlateVisibility::Collapsed);
 	if (Grid_Equippables) Grid_Equippables->OnHide();
 	if (Grid_Consumables) Grid_Consumables->OnHide();
 	if (Grid_Craftables) Grid_Craftables->OnHide();
@@ -444,10 +554,13 @@ void UAZ_Inv_CommonUI_InventorySwitcherPanel::RefreshFromInventory()
 	if (Grid_Consumables) Grid_Consumables->RefreshFromInventory();
 	if (Grid_Craftables) Grid_Craftables->RefreshFromInventory();
 	RefreshEquipment();
+	if (CraftingPanel) CraftingPanel->Refresh();
+	UpdateCraftingEntry();
 }
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::HandleInventoryChanged()
 {
+	if (CraftingPanel) CraftingPanel->Refresh();
 	RefreshEquipment();
 	if (DescribedItem.IsValid() && InventoryComponent.IsValid() && InventoryComponent->ContainsItem(DescribedItem.Get()))
 	{
@@ -504,10 +617,13 @@ UAZ_Inv_CommonUI_InventoryItem* UAZ_Inv_CommonUI_InventorySwitcherPanel::GetEqui
 
 void UAZ_Inv_CommonUI_InventorySwitcherPanel::SetOwningCanvas(UCanvasPanel* OwningCanvas)
 {
+	CloseCraftingPanel(false);
 	OwningCanvasPanel = OwningCanvas;
 	if (Grid_Equippables) Grid_Equippables->SetOwningCanvas(OwningCanvas);
 	if (Grid_Consumables) Grid_Consumables->SetOwningCanvas(OwningCanvas);
 	if (Grid_Craftables) Grid_Craftables->SetOwningCanvas(OwningCanvas);
+	EnsureCraftingEntry();
+	UpdateCraftingEntry();
 }
 
 // =============================================================================

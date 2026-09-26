@@ -7,6 +7,7 @@
 class AActor;
 class UAnimMontage;
 class USkeletalMeshComponent;
+class UPrimitiveComponent;
 
 struct FAZ_MeleeAttackTrajectorySample
 {
@@ -35,10 +36,13 @@ struct AZ_API FAZ_MeleeAttackTrajectory
 /** Native combat environment queries; no object instance or reflection is required. */
 struct AZ_API FAZ_MeleeEnvironment
 {
+	static bool IsDestructibleContact(const UPrimitiveComponent* Component);
+	static bool ApplyDestructibleContact(AActor& Attacker, const FHitResult& Hit, bool bKick);
 	/** First solid scenery contact, ordered by sweep time. Pawns, attachments and triggers are excluded.
 	 * bIgnoreFloor only excludes upward-facing support near the avatar's feet, not table tops. */
 	static bool SweepEnvironment(const AActor& Avatar, const FVector& Start, const FVector& End,
-		float Radius, FHitResult& OutHit, bool bIgnoreFloor = false, const AActor* IgnoreActor = nullptr);
+		float Radius, FHitResult& OutHit, bool bIgnoreFloor = false, const AActor* IgnoreActor = nullptr,
+		bool bIncludeDestructibleContacts = false);
 
 	/** Validate a straight path and destination using the avatar's root capsule. Start/End are world
 	 * capsule centres. Returns false if the actor has no capsule or world (clearance is unknown). */

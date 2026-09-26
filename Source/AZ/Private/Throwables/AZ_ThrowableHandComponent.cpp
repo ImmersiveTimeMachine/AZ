@@ -12,6 +12,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/PlayerController.h"
 #include "Inventory/AZ_QuickBarComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
@@ -21,6 +22,14 @@
 #include "Player/AZ_PlayerController.h"
 #include "Throwables/AZ_ThrowPresentationProfile.h"
 #include "Throwables/AZ_ThrowableDefinition.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "Kismet/GameplayStatics.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Particles/ParticleSystem.h"
+#include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleLODLevel.h"
+#include "Particles/ParticleModuleRequired.h"
 
 UAZ_ThrowableHandComponent::UAZ_ThrowableHandComponent()
 {
@@ -88,10 +97,22 @@ void UAZ_ThrowableHandComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	// Same reasoning, worse consequences: a stuck Stowing tag makes every future weapon switch defer for
 	// good, because equipment reads it as a committed action.
 	EndPutAway();
+	HideProps();
 	Super::EndPlay(EndPlayReason);
 }
 
-void UAZ_ThrowableHandComponent::HandleReadyItemChanged() { Refresh(); }
+void UAZ_ThrowableHandComponent::HandleReadyItemChanged()
+{
+	if (auto* Owner = Cast<AAZ_PlayerController>(GetOwner()))
+	{
+		if (UAZ_GA_Throw* Active = Owner->FindActiveThrow())
+		{
+			const auto* QuickBar = Owner->FindComponentByClass<UAZ_QuickBarComponent>();
+			if (QuickBar && Active->GetSourceItemId() != QuickBar->GetReadyItemId()) Active->RequestCancel();
+		}
+	}
+	Refresh();
+}
 void UAZ_ThrowableHandComponent::HandleInventoryChanged() { Refresh(); }
 
 void UAZ_ThrowableHandComponent::HandlePawnChanged(APawn* OldPawn, APawn* /*NewPawn*/)
@@ -159,6 +180,21 @@ void UAZ_ThrowableHandComponent::SetActionOwnsBody(const bool bInOwned)
 	}
 	bActionOwnsBody = bInOwned;
 	Refresh();
+}
+
+void UAZ_ThrowableHandComponent::FinishThrowAction()
+{
+	bActionOwnsBody = false;
+	bSuppressed = false;
+	LeaveThrowAction();
+	// A different item can be selected during release recovery. Do not press into
+	// the ending ability: that latches InputPressed without starting the next one.
+	// Re-resolve next frame so changed selection/ownership is checked again.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick(
+			FTimerDelegate::CreateUObject(this, &ThisClass::Refresh));
+	}
 }
 
 void UAZ_ThrowableHandComponent::PublishReadyTag(const bool bReadied) const
@@ -412,6 +448,8 @@ void UAZ_ThrowableHandComponent::EndPutAway()
 
 void UAZ_ThrowableHandComponent::EnterThrowAction() const
 {
+	const auto* Controller = Cast<AAZ_PlayerController>(GetOwner());
+	if (Controller && Controller->FindActiveThrow()) return;
 	const AAZ_PawnMoverHeroCharacter* Hero = GetHero();
 	auto* Asc = Hero ? Cast<UAZ_AbilitySystemComponent>(Hero->GetAbilitySystemComponent()) : nullptr;
 	if (!Asc)
@@ -441,6 +479,9 @@ void UAZ_ThrowableHandComponent::LeaveThrowAction() const
 
 void UAZ_ThrowableHandComponent::HideProps()
 {
+	if (HeldFlame) { HeldFlame->DestroyComponent(); HeldFlame = nullptr; }
+	if (HeldFlameParticles) { HeldFlameParticles->DestroyComponent(); HeldFlameParticles = nullptr; }
+	HeldFlameSource = nullptr;
 	if (StaticProp) { StaticProp->SetVisibility(false, true); }
 	if (SkeletalProp) { SkeletalProp->SetVisibility(false, true); }
 }
@@ -522,6 +563,14 @@ void UAZ_ThrowableHandComponent::Refresh()
 		{
 			if (UAZ_GA_Throw* Active = Owner->FindActiveThrow())
 			{
+				if (bActionOwnsBody && Active->HasCommittedRelease())
+				{
+					// Last-unit removal is not a put-away. Keep the release montage's ownership
+					// until EndAbility yields it, then restore the previously held weapon.
+					LeaveThrowAction();
+					HideProps();
+					return;
+				}
 				// Starting the cancel clip is what opens the put-away window — the ability calls back into
 				// BeginPutAway from there, so every cancel route gets it, not just this one.
 				Active->RequestCancel();
@@ -611,8 +660,54 @@ void UAZ_ThrowableHandComponent::Refresh()
 	// Attached to the grip socket with the item's own offset — the same GripOffset the solver composes onto
 	// the release transform, so the object leaves from where it was visibly held.
 	Prop->AttachToComponent(Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Profile->GripBone);
-	Prop->SetRelativeTransform(Profile->GripOffset);
+	Prop->SetRelativeTransform(Definition->HeldPropOffset * Profile->GripOffset);
 	// Scale LAST: SetRelativeTransform writes GripOffset's own scale of 1 over anything set before it.
 	Prop->SetRelativeScale3D(Scale);
 	Prop->SetVisibility(true, true);
+	const auto* Player = Cast<AAZ_PlayerController>(GetOwner());
+	const auto* Active = Player ? Player->FindActiveThrow() : nullptr;
+	const FVector FlameLocation(0.f, 0.f, Definition->HeldMesh ? Definition->HeldMesh->GetBoundingBox().Max.Z : 12.f);
+	const bool bIgnitedInHand = Definition->bIgnitesOnImpact
+		&& (Definition->HeldIgnitionEffect || Definition->HeldIgnitionParticles) && Active
+		&& Active->GetPhase() != EAZ_ThrowPhase::Cancelling && Active->GetPhase() != EAZ_ThrowPhase::None;
+	if (!bIgnitedInHand || (HeldFlame && HeldFlame->GetAsset() != Definition->HeldIgnitionEffect))
+	{
+		if (HeldFlame) { HeldFlame->DestroyComponent(); HeldFlame = nullptr; }
+	}
+	if (!bIgnitedInHand || (HeldFlameParticles && HeldFlameSource != Definition->HeldIgnitionParticles))
+	{
+		if (HeldFlameParticles) { HeldFlameParticles->DestroyComponent(); HeldFlameParticles = nullptr; }
+		HeldFlameSource = nullptr;
+	}
+	if (bIgnitedInHand && Definition->HeldIgnitionEffect && !HeldFlame)
+	{
+		HeldFlame = UNiagaraFunctionLibrary::SpawnSystemAttached(Definition->HeldIgnitionEffect, Prop,
+			NAME_None, FlameLocation, FRotator::ZeroRotator, EAttachLocation::KeepRelativeOffset, false);
+	}
+	else if (bIgnitedInHand && !Definition->HeldIgnitionEffect && Definition->HeldIgnitionParticles && !HeldFlameParticles)
+	{
+		// A small hand flame must follow the wick. The shared campfire's world-space
+		// particles leave sparks hanging behind a moving hand; adapt a transient copy only.
+		UParticleSystem* LocalFlame = DuplicateObject<UParticleSystem>(Definition->HeldIgnitionParticles, this);
+		for (UParticleEmitter* Emitter : LocalFlame->Emitters)
+		{
+			if (!Emitter) continue;
+			const FString Name = Emitter->GetEmitterName().ToString();
+			for (UParticleLODLevel* LOD : Emitter->LODLevels)
+			{
+				if (!LOD || !LOD->RequiredModule) continue;
+				LOD->RequiredModule->bUseLocalSpace = true;
+				if (Name.Contains(TEXT("Spark")) || Name.Contains(TEXT("Ember"))) LOD->bEnabled = false;
+			}
+		}
+		HeldFlameSource = Definition->HeldIgnitionParticles;
+		HeldFlameParticles = UGameplayStatics::SpawnEmitterAttached(LocalFlame, Prop,
+			NAME_None, FlameLocation, FRotator::ZeroRotator, FVector(0.03f), EAttachLocation::KeepRelativeOffset, false);
+		if (HeldFlameParticles)
+		{
+			HeldFlameParticles->SetAbsolute(false, true, true);
+			HeldFlameParticles->SetWorldRotation(FRotator::ZeroRotator);
+			HeldFlameParticles->SetWorldScale3D(FVector(0.03f));
+		}
+	}
 }

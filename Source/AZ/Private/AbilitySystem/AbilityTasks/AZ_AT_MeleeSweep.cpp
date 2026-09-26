@@ -111,6 +111,7 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 	{
 		FHitResult Hit;
 		bool bEnvironment = false;
+		bool bPhysicalContact = true;
 	};
 	TArray<FContact> Candidates;
 	TArray<FHitResult> Hits;
@@ -137,7 +138,7 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 		FHitResult Obstruction;
 		// Foot/ball sockets are also used by kicks. A planted foot touching its supporting floor is
 		// not a blocked attack; upright scenery still participates in the same temporal ordering.
-		if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Previous, Current, SphereRadius, Obstruction, true))
+		if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Previous, Current, SphereRadius, Obstruction, true, nullptr, true))
 		{
 			Candidates.Add({ Obstruction, true });
 		}
@@ -145,12 +146,12 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 		{
 			FVector Body = PreviousAvatarLocation;
 			Body.Z = Previous.Z;
-			if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Body, Previous, 2.f, Obstruction, true))
+			if (FAZ_MeleeEnvironment::SweepEnvironment(*Avatar, Body, Previous, 2.f, Obstruction, true, nullptr, true))
 			{
 				// This limb was already beyond scenery at the window's first sample. Its body-to-limb
 				// trace fraction is spatial, not temporal: the obstruction predates all swept contacts.
 				Obstruction.Time = 0.f;
-				Candidates.Add({ Obstruction, true });
+				Candidates.Add({ Obstruction, true, false });
 			}
 		}
 	}
@@ -160,7 +161,9 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 
 	Candidates.Sort([](const FContact& A, const FContact& B)
 	{
-		return A.Hit.Time == B.Hit.Time ? A.bEnvironment && !B.bEnvironment : A.Hit.Time < B.Hit.Time;
+		if (A.Hit.Time != B.Hit.Time) return A.Hit.Time < B.Hit.Time;
+		if (A.bEnvironment != B.bEnvironment) return A.bEnvironment;
+		return !A.bPhysicalContact && B.bPhysicalContact;
 	});
 
 	for (const FContact& Contact : Candidates)
@@ -169,7 +172,7 @@ void UAZ_AT_MeleeSweep::SweepSinceLastFrame()
 		if (Contact.bEnvironment)
 		{
 			bConsumed = true; // before the callback, which can synchronously destroy this task
-			if (ShouldBroadcastAbilityTaskDelegates()) OnBlocked.ExecuteIfBound(Hit);
+			if (ShouldBroadcastAbilityTaskDelegates()) OnBlocked.ExecuteIfBound(Hit, Contact.bPhysicalContact && !Hit.bStartPenetrating);
 			return;
 		}
 		AActor* Target = Hit.GetActor();

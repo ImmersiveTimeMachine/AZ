@@ -10,6 +10,7 @@
 
 class AAZ_ThrowableProjectile;
 class UNiagaraSystem;
+class UParticleSystem;
 class USoundBase;
 class UCameraShakeBase;
 class UMaterialInterface;
@@ -29,6 +30,56 @@ class AZ_API UAZ_ThrowableDefinition : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
+	/** Item-specific visual grip adjustment; never changes ballistic release coordinates. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Presentation")
+	FTransform HeldPropOffset = FTransform::Identity;
+
+	/** Reusable inventory tool needed to prepare this item. Empty means no tool. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Preparation")
+	FGameplayTag RequiredIgnitionTool;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Shatter", meta=(ClampMin="0", ForceUnits="cm/s"))
+	float ShatterMinImpactSpeed = 400.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Shatter", meta=(ClampMin="0"))
+	float ShatterLoudness = 1.6f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Shatter")
+	FName ShatterNoiseTag = TEXT("BottleBreak");
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Shatter")
+	TObjectPtr<UNiagaraSystem> ShatterEffect;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Shatter")
+	TObjectPtr<USoundBase> ShatterSound;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	bool bIgnitesOnImpact = false;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire", meta=(ClampMin="1", ForceUnits="cm"))
+	float FireRadius = 250.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire", meta=(ClampMin="0.1", ForceUnits="s"))
+	float FireDuration = 8.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire", meta=(ClampMin="0"))
+	float FireDamagePerSecond = 15.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire", meta=(ClampMin="0.1", ForceUnits="s"))
+	float BurnDuration = 3.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UNiagaraSystem> GroundFireEffect;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UNiagaraSystem> BurningTargetEffect;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UNiagaraSystem> HeldIgnitionEffect;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UParticleSystem> GroundFireParticles;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UParticleSystem> BurningTargetParticles;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<UParticleSystem> HeldIgnitionParticles;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	TObjectPtr<USoundBase> FireLoopSound;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire", meta=(ClampMin="0"))
+	float FireLoudness = 2.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Fire")
+	FName FireNoiseTag = TEXT("Fire");
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AZ|Throwable|Detonation")
+	FName DetonationNoiseTag = TEXT("Explosion");
+
 	// ---- Presentation ----------------------------------------------------------------------------
 
 	/** Used when no weapon-context override applies (unarmed, or a context with no dedicated family). */

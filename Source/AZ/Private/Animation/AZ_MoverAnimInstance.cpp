@@ -690,6 +690,20 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		{
 			ChooserContext.Gait = EAZ_Gait::Walk;
 		}
+		// Clips follow the FASTER of intent and measured speed. Releasing Run switched straight to the walk clips
+		// while the capsule was still braking from run speed - an instant swap plus foot slide. Starts stay
+		// intent-driven: at ~0 speed the band is Walk and the intent wins. Same rule as the CMC SelectionGait.
+		if (const UAZ_PawnMovementMode_Walking* GaitMode = Cast<UAZ_PawnMovementMode_Walking>(
+				Cached_MoverComponent->FindMovementModeByName(TEXT("Walking"))))
+		{
+			const float Speed = ChooserContext.Speed2D;
+			const EAZ_Gait SpeedBand = Speed > (GaitMode->RunSpeed + GaitMode->SprintSpeed) * 0.5f ? EAZ_Gait::Sprint
+				: Speed > (GaitMode->WalkSpeed + GaitMode->RunSpeed) * 0.5f ? EAZ_Gait::Run : EAZ_Gait::Walk;
+			if (static_cast<uint8>(SpeedBand) > static_cast<uint8>(ChooserContext.Gait))
+			{
+				ChooserContext.Gait = SpeedBand;
+			}
+		}
 	}
 
 	// MovementDirection — the directional clip selector. Cheap dot/sign decision for F/B/L/R.

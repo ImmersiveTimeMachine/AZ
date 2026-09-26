@@ -1,10 +1,15 @@
 #include "Game/AZ_CampaignSaveCoordinator.h"
+#include "EngineUtils.h"
+#include "Throwables/AZ_ThrowableProjectile.h"
+#include "Throwables/AZ_ThrowableFireArea.h"
+#include "Throwables/AZ_BurningComponent.h"
 #include "Game/AZ_CampaignCheckpoint.h"
 #include "Game/AZ_CampaignSaveGame.h"
 #include "Game/AZ_CampaignWorldSubsystem.h"
 #include "Game/AZ_CampaignTeleportEffect.h"
 #include "Game/AZ_GameInstance.h"
 #include "Player/AZ_PlayerState.h"
+#include "Player/AZ_PlayerController.h"
 #include "Quests/AZ_QuestProgressComponent.h"
 #include "UI/AZ_QuestMapComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
@@ -25,6 +30,7 @@
 #include "UObject/StrongObjectPtr.h"
 #include "UObject/UnrealType.h"
 #include "Misc/Paths.h"
+#include "Misc/PackageName.h"
 
 namespace
 {
@@ -36,6 +42,22 @@ bool ValidHeader(const UAZ_CampaignSaveGame* Save)
 {
 	return Save && Save->SchemaVersion == UAZ_CampaignSaveGame::CurrentVersion && Save->Sequence > 0 &&
 		Save->Sequence < MAX_int64 && Save->SnapshotId.IsValid() && !Save->WorldPackage.IsEmpty();
+}
+// Both travel and in-world restore use this ordering. Keep A first on equal
+// sequences so a damaged/tampered tie cannot produce a different travel target.
+TArray<TStrongObjectPtr<UAZ_CampaignSaveGame>> ReadCampaignCandidates(const FString& Slot, int32 Index)
+{
+	TArray<TStrongObjectPtr<UAZ_CampaignSaveGame>> Candidates;
+	for (const TCHAR* Suffix : {TEXT("_A"), TEXT("_B")})
+		if (auto* Save = Cast<UAZ_CampaignSaveGame>(UGameplayStatics::LoadGameFromSlot(Slot + Suffix, Index)); ValidHeader(Save))
+			Candidates.Emplace(Save);
+	Candidates.StableSort([](const auto& A, const auto& B) { return A->Sequence > B->Sequence; });
+	return Candidates;
+}
+bool AwaitingCampaignRestore(const UWorld* World)
+{
+	const auto* GI = World ? Cast<UAZ_GameInstance>(World->GetGameInstance()) : nullptr;
+	return GI && GI->bCampaignRestorePending;
 }
 bool PersistentAttribute(const FStructProperty* Property)
 {
@@ -72,6 +94,7 @@ UAZ_CampaignSaveCoordinator* UAZ_CampaignSaveCoordinator::GetOrCreateForControll
 void UAZ_CampaignSaveCoordinator::BeginPlay()
 {
 	Super::BeginPlay();
+	if (const auto* PC = Cast<AAZ_PlayerController>(GetOwner()); PC && PC->bFrontEndController) return;
 	if (auto* PC = Cast<APlayerController>(GetOwner()); PC && PC->HasAuthority() && PC->IsLocalController())
 	{
 		PC->OnPossessedPawnChanged.AddUniqueDynamic(this, &ThisClass::HandlePawnChanged);
@@ -82,6 +105,7 @@ void UAZ_CampaignSaveCoordinator::BeginPlay()
 void UAZ_CampaignSaveCoordinator::RefreshBindings()
 {
 	if (bLoading || bEndingPlay) return;
+	if (const auto* PC = Cast<AAZ_PlayerController>(GetOwner()); PC && PC->bFrontEndController) return;
 	auto* PC = Cast<APlayerController>(GetOwner());
 	if (!PC || !PC->HasAuthority() || !PC->IsLocalController()) return;
 	auto* PS = PC->GetPlayerState<AAZ_PlayerState>();
@@ -181,6 +205,31 @@ bool UAZ_CampaignSaveCoordinator::HasCampaignSave() const
 	return false;
 }
 
+UAZ_CampaignSaveGame* UAZ_CampaignSaveCoordinator::ResolveCampaignTravelSnapshot(FString& Error) const
+{
+	Error.Reset();
+	FString Slot; int32 Index;
+	if (!ResolveSlot(Slot, Index)) { Error = TEXT("Campaign slot is invalid."); return nullptr; }
+	const auto Candidates = ReadCampaignCandidates(Slot, Index);
+	if (Candidates.IsEmpty()) { Error = TEXT("No compatible checkpoint is available."); return nullptr; }
+	const FString& Package = Candidates[0]->WorldPackage;
+	if (!FPackageName::IsValidLongPackageName(Package) || !FPackageName::DoesPackageExist(Package))
+	{ Error = TEXT("The selected checkpoint level is missing or has an invalid package name."); return nullptr; }
+	// The destination world and its actors do not exist yet. Do not claim full
+	// gameplay validation here or pick a different snapshot after loading the map.
+	return Candidates[0].Get();
+}
+
+bool UAZ_CampaignSaveCoordinator::IsReadyForCampaignLoad(FString& Error)
+{
+	Error.Reset();
+	if (bLoading || bEndingPlay) { Error = TEXT("Checkpoint coordinator is not ready."); return false; }
+	if (const auto* PC = Cast<AAZ_PlayerController>(GetOwner()); PC && PC->bFrontEndController)
+	{ Error = TEXT("Load the saved gameplay level before restoring its checkpoint."); return false; }
+	RefreshBindings();
+	return ValidateContext(Error);
+}
+
 bool UAZ_CampaignSaveCoordinator::ValidateContext(FString& Error) const
 {
 	const auto* PC = Cast<APlayerController>(GetOwner());
@@ -275,6 +324,17 @@ bool UAZ_CampaignSaveCoordinator::ValidateSave(UAZ_CampaignSaveGame& Save, FStri
 
 bool UAZ_CampaignSaveCoordinator::WriteCheckpoint(FName Checkpoint, FString& Error)
 {
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AAZ_ThrowableProjectile> It(World); It; ++It)
+			if (It->HasPendingWorldOutcome()) { Error = TEXT("Wait for thrown objects to settle before saving."); return false; }
+		for (TActorIterator<AAZ_ThrowableFireArea> It(World); It; ++It)
+			if (It->HasActiveHazard()) { Error = TEXT("Wait for active fire to finish before saving."); return false; }
+		for (TActorIterator<APawn> It(World); It; ++It)
+			if (const auto* Burn = It->FindComponentByClass<UAZ_BurningComponent>(); Burn && Burn->IsBurning())
+			{ Error = TEXT("Wait for burning effects to finish before saving."); return false; }
+	}
+	if (AwaitingCampaignRestore(GetWorld())) { Error = TEXT("Checkpoint restore must finish before saving."); return false; }
 	if (bLoading) { Error = TEXT("Checkpoint load is still running."); return false; }
 	RefreshBindings();
 	FString Slot; int32 Index;
@@ -328,7 +388,7 @@ FString UAZ_CampaignSaveCoordinator::ProgressFingerprint() const
 
 void UAZ_CampaignSaveCoordinator::HandleQuestChanged()
 {
-	if (bLoading || !bAutoSaveImportantQuestChanges) return;
+	if (bLoading || !bAutoSaveImportantQuestChanges || AwaitingCampaignRestore(GetWorld())) return;
 	const FString Current = ProgressFingerprint();
 	if (Current == LastProgressFingerprint) return; // tracking/UI refresh is not a new quest moment
 	LastProgressFingerprint = Current;
@@ -339,7 +399,7 @@ void UAZ_CampaignSaveCoordinator::HandleQuestChanged()
 
 void UAZ_CampaignSaveCoordinator::TryAutoSave()
 {
-	if (!bAutoSavePending || bLoading) return;
+	if (!bAutoSavePending || bLoading || AwaitingCampaignRestore(GetWorld())) return;
 	FString Error;
 	if (WriteCheckpoint(LastCheckpointId, Error))
 	{ bAutoSavePending = false; GetWorld()->GetTimerManager().ClearTimer(AutoSaveTimer); }
@@ -358,12 +418,23 @@ bool UAZ_CampaignSaveCoordinator::LoadCampaign(FString& Error)
 	if (!ValidateContext(Error)) return false;
 	FString Slot; int32 Index;
 	if (!ResolveSlot(Slot, Index)) { Error = TEXT("Campaign slot is invalid."); return false; }
-	TArray<TStrongObjectPtr<UAZ_CampaignSaveGame>> Candidates;
-	for (const TCHAR* Suffix : {TEXT("_A"), TEXT("_B")})
-		if (auto* Save = Cast<UAZ_CampaignSaveGame>(UGameplayStatics::LoadGameFromSlot(Slot + Suffix, Index)); ValidHeader(Save)) Candidates.Emplace(Save);
-	Candidates.Sort([](const auto& A, const auto& B) { return A->Sequence > B->Sequence; });
+	const auto Candidates = ReadCampaignCandidates(Slot, Index);
 	for (const auto& Candidate : Candidates) if (ValidateSave(*Candidate, Error)) { PendingLoad = Candidate.Get(); break; }
 	if (!PendingLoad) { if (Error.IsEmpty()) Error = TEXT("No compatible checkpoint is available."); return false; }
+	return StartPendingLoad(Error);
+}
+
+bool UAZ_CampaignSaveCoordinator::LoadCampaignSnapshot(UAZ_CampaignSaveGame* Snapshot, FString& Error)
+{
+	if (!IsReadyForCampaignLoad(Error)) return false;
+	if (!IsValid(Snapshot)) { Error = TEXT("The selected checkpoint is no longer available."); return false; }
+	if (!ValidateSave(*Snapshot, Error)) return false;
+	PendingLoad = Snapshot;
+	return StartPendingLoad(Error);
+}
+
+bool UAZ_CampaignSaveCoordinator::StartPendingLoad(FString& Error)
+{
 	auto* PC = CastChecked<APlayerController>(GetOwner());
 	APawn* Pawn = PC->GetPawn();
 	auto* WorldState = GetWorld()->GetSubsystem<UAZ_CampaignWorldSubsystem>();

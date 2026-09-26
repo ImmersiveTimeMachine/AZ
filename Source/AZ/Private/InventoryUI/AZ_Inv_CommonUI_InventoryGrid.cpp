@@ -1091,6 +1091,11 @@ void UAZ_Inv_CommonUI_InventoryGrid::OnPopUpMenuEquip(int32 Index)
 	if (!GridSlots.IsValidIndex(Index) || !CommonUI_InventoryComponent.IsValid()) return;
 	UAZ_Inv_CommonUI_InventoryItem* RightClickedItem = GridSlots[Index]->GetInventoryItem().Get();
 	if (!IsValid(RightClickedItem) || RightClickedItem->IsMagazine()) return;
+	if (RightClickedItem->IsThrowable() && !RightClickedItem->IsWeapon())
+	{
+		CommonUI_InventoryComponent->RequestReadyThrowable(RightClickedItem);
+		return;
+	}
 
 	CommonUI_InventoryComponent->Server_EquipSlotClicked(RightClickedItem, nullptr);
 }
@@ -1225,6 +1230,7 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 	{
 		OwningCanvasPanel->AddChild(ItemPopUp);
 		UCanvasPanelSlot* CanvasSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ItemPopUp);
+		CanvasSlot->SetAutoSize(true);
 		const FVector2D MousePosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer());
 		CanvasSlot->SetPosition(MousePosition - ItemPopUpOffset);
 	}
@@ -1266,13 +1272,35 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 		ItemPopUp->ConfigureLoadMagazineAction(RightClickedItem->GetInstanceId(), bCanLoad);
 		ItemPopUp->OnLoadMagazine.BindDynamic(this, &ThisClass::OnPopUpMenuLoadMagazine);
 	}
-	else if (RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>())
+	else if (RightClickedItem->IsThrowable() || RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_EquipmentFragment>())
 	{
 		ItemPopUp->OnEquip.BindDynamic(this, &ThisClass::OnPopUpMenuEquip);
 	}
 	else
 	{
 		ItemPopUp->CollapseEquipButton();
+	}
+	ItemPopUp->ForceLayoutPrepass();
+	if (OwningCanvasPanel.IsValid())
+	{
+		const FGeometry CanvasGeometry = OwningCanvasPanel->GetCachedGeometry();
+		FVector2D Position;
+		if (IsUsingGamepad())
+		{
+			const FGeometry Cell = GridSlots[GridIndex]->GetCachedGeometry();
+			Position = CanvasGeometry.AbsoluteToLocal(Cell.LocalToAbsolute(FVector2D(Cell.GetLocalSize().X, 0)));
+		}
+		else
+		{
+			const FGeometry ViewportGeometry = UWidgetLayoutLibrary::GetViewportWidgetGeometry(this);
+			Position = CanvasGeometry.AbsoluteToLocal(ViewportGeometry.LocalToAbsolute(
+				UWidgetLayoutLibrary::GetMousePositionOnViewport(GetOwningPlayer()))) - ItemPopUpOffset;
+		}
+		const FVector2D Available = CanvasGeometry.GetLocalSize();
+		const FVector2D MenuSize = ItemPopUp->GetBoxSize();
+		Position.X = FMath::Clamp(Position.X, 8.0, FMath::Max(8.0, Available.X - MenuSize.X - 8.0));
+		Position.Y = FMath::Clamp(Position.Y, 8.0, FMath::Max(8.0, Available.Y - MenuSize.Y - 8.0));
+		UWidgetLayoutLibrary::SlotAsCanvasSlot(ItemPopUp)->SetPosition(Position);
 	}
 }
 

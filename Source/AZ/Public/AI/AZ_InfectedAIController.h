@@ -103,6 +103,7 @@ public:
 	virtual void OnUnPossess() override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result) override;
 
 	// IGenericTeamAgentInterface (via AAIController) — perception affiliation asks THIS.
 	virtual ETeamAttitude::Type GetTeamAttitudeTowards(const AActor& Other) const override;

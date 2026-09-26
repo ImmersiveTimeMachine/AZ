@@ -1,6 +1,10 @@
 // Copyright Artur. AZ project.
 
 #include "AI/AZ_InfectedAIController.h"
+#include "EngineUtils.h"
+#include "NavigationSystem.h"
+#include "NavModifierComponent.h"
+#include "Throwables/AZ_ThrowableFireArea.h"
 
 #include "AbilitySystem/AZ_AbilitySystemComponent.h"   // AddStateTag/RemoveStateTag (replicated phase tags)
 #include "AbilitySystemGlobals.h"            // GetAbilitySystemComponentFromActor (stagger mirror binding)
@@ -307,6 +311,46 @@ void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimu
 	{
 		return;
 	}
+	// Object sounds carry the thrower only for affiliation/credit. They are NOT evidence
+	// of the thrower's present location and must not refresh a chase or move its last-known pin.
+	const bool bObjectSound = Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
+		&& (Stimulus.Tag == FName("ThrowImpact") || Stimulus.Tag == FName("BottleBreak")
+			|| Stimulus.Tag == FName("Explosion") || Stimulus.Tag == FName("Fire"));
+	if (bObjectSound)
+	{
+		if (Stimulus.WasSuccessfullySensed())
+		{
+			const bool bUrgent = Stimulus.Tag == FName("Explosion") || Stimulus.Tag == FName("Fire");
+			FVector InvestigationPoint = Stimulus.StimulusLocation;
+			if (Stimulus.Tag == FName("Fire") && GetPawn())
+			{
+				// Investigate the visible/sounding hazard from its edge, not by walking into its centre.
+				for (TActorIterator<AAZ_ThrowableFireArea> It(GetWorld()); It; ++It)
+				{
+					if (!It->HasActiveHazard() || FVector::DistSquared(It->GetActorLocation(), Stimulus.StimulusLocation) > FMath::Square(50.f)) continue;
+					const auto* Modifier = It->FindComponentByClass<UNavModifierComponent>();
+					if (!Modifier) continue;
+					const float Clearance = Modifier->FailsafeExtent.X * 1.5f + 60.f;
+					FVector Away = (GetPawn()->GetActorLocation() - InvestigationPoint).GetSafeNormal2D();
+					if (Away.IsNearlyZero()) Away = FVector::ForwardVector;
+					UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+					bool bSafePoint = false;
+					for (float Angle : {0.f, 90.f, -90.f, 180.f})
+					{
+						FNavLocation Projected;
+						const FVector Candidate = InvestigationPoint + Away.RotateAngleAxis(Angle, FVector::UpVector) * Clearance;
+						if (Nav && Nav->ProjectPointToNavigation(Candidate, Projected, FVector(80,80,200))
+							&& FVector::DistSquared2D(Projected.Location, InvestigationPoint) > FMath::Square(Modifier->FailsafeExtent.X * 1.45f))
+						{ InvestigationPoint = Projected.Location; bSafePoint = true; break; }
+					}
+					if (!bSafePoint) return; // No reachable-looking safe destination; never force entry into fire.
+					break;
+				}
+			}
+			ArmInvestigation(InvestigationPoint, bUrgent);
+		}
+		return;
+	}
 	LastKnownTargetLocation = Stimulus.StimulusLocation;
 
 	// Rule 9 refinement (log-proven 2026-07-22): NOISE SUSTAINS AN ENGAGEMENT. Memory decay measures
@@ -408,6 +452,25 @@ void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bU
 		// TEMP noise debug (remove with [ChalkieDiag]).
 		UE_LOG(LogTemp, Warning, TEXT("[Noise] %s ARM failed — no blackboard component"), *GetNameSafe(GetPawn()));
 	}
+}
+
+void AAZ_InfectedAIController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
+{
+#if !UE_BUILD_SHIPPING
+	// The tree intentionally continues to scan when MoveTo fails. Record that
+	// outcome before the next task can clear the pin, so hearing is distinguishable
+	// from actually reaching a noise. One record per move, never per frame.
+	const UBlackboardComponent* BB = GetBlackboardComponent();
+	if (const APawn* ControlledPawn = GetPawn(); ControlledPawn && BB && BB->IsVectorValueSet(AZ_ChalkieBBKeys::LastKnownLocation)
+		&& !GetFreshPerceivedTarget())
+	{
+		const FVector Pin = BB->GetValueAsVector(AZ_ChalkieBBKeys::LastKnownLocation);
+		UE_LOG(LogTemp, Display, TEXT("[NoiseMove] %s result=%s location=%s noise=%s distanceToNoise=%.0f"),
+			*GetNameSafe(ControlledPawn), *Result.ToString(), *ControlledPawn->GetActorLocation().ToCompactString(),
+			*Pin.ToCompactString(), FVector::Dist2D(ControlledPawn->GetActorLocation(), Pin));
+	}
+#endif
+	Super::OnMoveCompleted(RequestID, Result);
 }
 
 void AAZ_InfectedAIController::NotifyDamagedBy(APawn* Attacker)

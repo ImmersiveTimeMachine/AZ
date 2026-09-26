@@ -145,7 +145,7 @@ public:
 	/** THE on-hit entry point (survivable hits), called by UAZ_VitalsAttributeSet::PostGameplayEffectExecute
 	 *  with the REAL effect causer (the attribute-change delegate loses it — GEModData is null for direct
 	 *  attribute sets). Fires the damage-lock rule, the stagger scream, and the full-stagger flinch. */
-	void HandleDamaged(AActor* Causer, float Damage);
+	void HandleDamaged(AActor* Causer, float Damage, bool bRevealAttacker = true);
 
 	/** PACK STEP-BACK: the recoil beat when a packmate seizes the prey (horde subsystem calls this on
 	 *  every OTHER Chalkie engaged on that prey). Arch step A: a thin shim — sends Event.Combat.StepBack

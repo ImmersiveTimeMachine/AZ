@@ -5,6 +5,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "Player/AZ_PlayerController.h"
 #include "Navigation/AZ_MapDefinition.h"
 #include "Navigation/AZ_NavigationLibrary.h"
 #include "Navigation/AZ_NavigationTargetComponent.h"
@@ -22,7 +23,8 @@ UAZ_QuestMapComponent::UAZ_QuestMapComponent()
 bool UAZ_QuestMapComponent::IsLocalOwner() const
 {
 	const APlayerController* Controller = Cast<APlayerController>(GetOwner());
-	return IsValid(Controller) && Controller->IsLocalController();
+	const AAZ_PlayerController* AZController = Cast<AAZ_PlayerController>(Controller);
+	return IsValid(Controller) && Controller->IsLocalController() && !(AZController && AZController->bFrontEndController);
 }
 
 UAZ_QuestMapComponent* UAZ_QuestMapComponent::FindForController(APlayerController* Controller)

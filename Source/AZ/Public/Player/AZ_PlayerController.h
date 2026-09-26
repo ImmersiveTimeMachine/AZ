@@ -34,6 +34,9 @@ class AZ_API AAZ_PlayerController : public APlayerController
 public:
 
 	AAZ_PlayerController();
+	/** Native frontend controllers reuse menu routes without gameplay presentation or bindings. */
+	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, Category="AZ|UI")
+	bool bFrontEndController = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Navigation")
 	TObjectPtr<UAZ_QuestMapComponent> QuestMap;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AZ|Save")

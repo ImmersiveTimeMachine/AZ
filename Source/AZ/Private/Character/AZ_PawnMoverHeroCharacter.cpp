@@ -32,6 +32,7 @@ static TAutoConsoleVariable<int32> CVarAZCamDebug(
 #include "Character/AZ_TraversalComponent.h"
 #include "AZ_GameplayTags.h"                 // FAZ_GameplayTags::Get()
 #include "Engine/CollisionProfile.h"
+#include "Engine/Engine.h"                   // GEngine (on-screen master-skeleton warning)
 #include "EnhancedInputComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -241,6 +242,34 @@ namespace
 			TEXT("[MoverMesh] %s wired %d modular follower mesh(es) to %s (%d excluded)"),
 			*GetNameSafe(Owner), WiredCount, *LeaderMesh->GetName(), ExcludedCount);
 	}
+
+	/** Master-skeleton guard. The MetaHuman body carries the master skeleton's extra leaf bones (az_weapon_r,
+	 *  az_prop_r, az_prop_l) and the gun sockets ride az_weapon_r. A MetaHuman re-assembly wipes both, and then
+	 *  every weapon attaches to nothing with no error at all. clavicle_pec_r exists only on MetaHuman bodies, so
+	 *  the stock hero is never flagged. The fix is Tools/metahuman_fixup.py.
+	 */
+	void CheckMasterSkeletonBones_Mover(const USkeletalMeshComponent* BodyMesh, const AActor* Owner)
+	{
+		static const FName MetaHumanMarkerBone(TEXT("clavicle_pec_r"));
+		static const FName WeaponBone(TEXT("az_weapon_r"));
+		if (!BodyMesh || BodyMesh->GetBoneIndex(MetaHumanMarkerBone) == INDEX_NONE
+			|| BodyMesh->GetBoneIndex(WeaponBone) != INDEX_NONE)
+		{
+			return;
+		}
+
+		const FString Message = FString::Printf(
+			TEXT("[MasterSkeleton] %s: MetaHuman body %s has no az_weapon_r - weapons attach to nothing. ")
+			TEXT("Run Tools/metahuman_fixup.py (a MetaHuman re-assembly wipes the master bones and sockets)."),
+			*GetNameSafe(Owner), *GetNameSafe(BodyMesh->GetSkeletalMeshAsset()));
+		UE_LOG(LogTemp, Error, TEXT("%s"), *Message);
+#if !UE_BUILD_SHIPPING
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 30.f, FColor::Red, Message);
+		}
+#endif
+	}
 }
 
 void AAZ_PawnMoverHeroCharacter::BeginPlay()
@@ -257,6 +286,7 @@ void AAZ_PawnMoverHeroCharacter::BeginPlay()
 	// Modular MetaHuman body: garments are leader-posed to the body here, at runtime. See the helper above
 	// for why the BP property alone leaves them frozen. "wired 6" vs "wired 0" is the whole diagnosis.
 	WireModularMeshFollowers_Mover(Mesh, this);
+	CheckMasterSkeletonBones_Mover(Mesh, this);
 
 	// Physics-driven jump: the engine Walking mode (bHandleJump) consumes bIsJumpJustPressed (packed by the GA
 	// jump via IAZ_JumpRequester), applies the launch impulse, and transitions Walking -> Falling; the engine

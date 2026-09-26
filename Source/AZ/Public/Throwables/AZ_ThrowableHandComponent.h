@@ -14,6 +14,9 @@ class UAZ_Inv_CommonUI_InventoryItem;
 class UAZ_ThrowPresentationProfile;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
+class UNiagaraComponent;
+class UParticleSystemComponent;
+class UParticleSystem;
 
 /**
  * UAZ_ThrowableHandComponent — the readied throwable, in the character's hand.
@@ -54,6 +57,8 @@ public:
 	 * mid-aim would otherwise restart the idle straight over the preparation.
 	 */
 	void SetActionOwnsBody(bool bInOwned);
+	/** Reconcile a pending selection after the previous ability has fully released its input and tags. */
+	void FinishThrowAction();
 
 	/**
 	 * Forget the weapon this component holstered, without drawing it back.
@@ -146,6 +151,9 @@ private:
 	void HideProps();
 
 	UPROPERTY() TObjectPtr<UStaticMeshComponent> StaticProp;
+	UPROPERTY(Transient) TObjectPtr<UNiagaraComponent> HeldFlame;
+	UPROPERTY(Transient) TObjectPtr<UParticleSystemComponent> HeldFlameParticles;
+	UPROPERTY(Transient) TObjectPtr<UParticleSystem> HeldFlameSource;
 	UPROPERTY() TObjectPtr<USkeletalMeshComponent> SkeletalProp;
 
 	/** The mesh the props are currently parented to, so a pawn change can be detected and re-attached. */

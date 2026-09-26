@@ -3,6 +3,7 @@
 
 #include "AbilitySystem/Abilities/AZ_GA_MeleeAttack.h"
 #include "AbilitySystem/AZ_MeleeEnvironment.h"
+#include "AbilitySystem/AZ_AnimNotifyState_MeleeWindow.h"
 #include "GameFramework/InputDeviceSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_MeleeSweep.h"
@@ -1057,10 +1058,25 @@ bool UAZ_GA_MeleeAttack::PrepareEnvironmentMontage(UAnimMontage*& Montage, const
 		Actors = PlanMeleeRootPath(Trajectory, *Montage, WarpTargetName, PlannedWarpDestination);
 		const float PlannedRadius = MeleeFacingClearanceRadius(Trajectory,
 			PlannedWarpDestination ? WarpTargetLatched.Get() : nullptr, Radius);
-		if (IsMeleeBodyPathClear(*Avatar, Actors, Hit, WarpTargetLatched.Get())
-			&& FAZ_MeleeEnvironment::IsAttackTrajectoryClear(*Avatar, Trajectory, Actors, PlannedRadius, Hit, HitTime, WarpTargetLatched.Get()))
+		if (IsMeleeBodyPathClear(*Avatar, Actors, Hit, WarpTargetLatched.Get()))
 		{
-			return true;
+			if (FAZ_MeleeEnvironment::IsAttackTrajectoryClear(*Avatar, Trajectory, Actors, PlannedRadius, Hit, HitTime, WarpTargetLatched.Get())) return true;
+			// Unpaired hero attacks may deliberately CONTACT a destructible during their damage
+			// window. The earliest obstruction still wins, capsule clearance remains mandatory,
+			// and the live sweep cancels the swing at contact rather than cleaving beyond it.
+			// Never fracture from this predictive sample or exempt paired/warped enemy strikes.
+			if (!PlannedWarpDestination && Cast<AAZ_PawnMoverHeroCharacter>(Avatar)
+				&& !Hit.bStartPenetrating && FAZ_MeleeEnvironment::IsDestructibleContact(Hit.GetComponent()))
+			{
+				const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
+				for (const FAnimNotifyEvent& Event : Montage->Notifies)
+				{
+					const auto* Window = Cast<UAZ_AnimNotifyState_MeleeWindow>(Event.NotifyStateClass);
+					if (Window && (!Window->BeginEventTag.IsValid() || Window->BeginEventTag == Tags.Event_Montage_Melee_WindowBegin)
+						&& (!Window->EndEventTag.IsValid() || Window->EndEventTag == Tags.Event_Montage_Melee_WindowEnd)
+						&& HitTime >= Event.GetTriggerTime() && HitTime <= Event.GetEndTriggerTime()) return true;
+				}
+			}
 		}
 	}
 
@@ -1108,11 +1124,26 @@ void UAZ_GA_MeleeAttack::HoldForBlockedMontage(UAnimMontage* Montage)
 	}
 }
 
-void UAZ_GA_MeleeAttack::OnSweepBlocked(const FHitResult& Hit)
+void UAZ_GA_MeleeAttack::OnSweepBlocked(const FHitResult& Hit, bool bPhysicalContact)
 {
 	if (!IsActive() || bPlayingBlockedResponse) return;
 	if (SweepTask) SweepTask->DiscardPendingHits();
 	StopHitWindow();
+	// The task consumed the contact before calling us; ending this activation below prevents
+	// any later notify window from applying a second prop hit. Initial obstruction probes do
+	// not count as strikes, and no character contact/paired reaction is fabricated for scenery.
+	if (bPhysicalContact)
+	{
+		if (auto* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetAvatarActorFromActorInfo()))
+		{
+			const bool bKick = GetStrikeSockets().ContainsByPredicate([](FName Socket)
+			{
+				return Socket == TEXT("foot_r") || Socket == TEXT("foot_l")
+					|| Socket == TEXT("ball_r") || Socket == TEXT("ball_l");
+			});
+			FAZ_MeleeEnvironment::ApplyDestructibleContact(*Hero, Hit, bKick);
+		}
+	}
 	OnMeleeEnvironmentBlocked();
 	// Scenery can move into an already approved swing. Cancel through the normal teardown so the
 	// montage, movement and any unconfirmed pair are released without substituting a short punch.

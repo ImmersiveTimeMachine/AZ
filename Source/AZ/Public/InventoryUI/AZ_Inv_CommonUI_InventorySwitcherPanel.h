@@ -17,6 +17,7 @@ class UAZ_Inv_CommonUI_ItemComponent;
 class UAZ_Inv_CommonUI_ItemDescription;
 class UAZ_Inv_CommonUI_InventoryComponent;
 class UAZ_Inv_CommonUI_EquipmentComponent;
+class UAZ_CraftingPanel;
 class UInputAction;
 class UButton;
 class UAZ_ActionPrompt;
@@ -78,6 +79,8 @@ public:
 	void TryShowContextMenu();
 	void SetContextMenuAction(UInputAction* InAction);
 	bool CancelInteraction();
+	/** Dismiss the temporary crafting sheet; the inventory remains active. */
+	void CloseCraftingPanel(bool bRestoreFocus = true);
 	void OnHide();
 	void RefreshFromInventory();
 
@@ -165,6 +168,11 @@ private:
 	void ShowConsumables();
 	void ShowCraftables();
 	void RequestMap();
+	UFUNCTION() void OpenCraftingPanel();
+	void EnsureCraftingEntry();
+	void UpdateCraftingEntry();
+	UPROPERTY(Transient) TObjectPtr<UButton> CraftingEntryButton;
+	UPROPERTY(Transient) TObjectPtr<UAZ_CraftingPanel> CraftingPanel;
 	UFUNCTION() void RequestPreviousTab();
 	UFUNCTION() void RequestNextTab();
 	void RefreshTabNavigationPrompts();

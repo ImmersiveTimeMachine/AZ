@@ -19,6 +19,8 @@ public class AZ : ModuleRules
 			"CinematicCamera",
 			"EngineCameras",   // Perlin/WaveOscillator camera shake patterns (grab struggle shake)
 			"Niagara",
+			"GeometryCollectionEngine", // Component-scoped grenade destruction, excluding character physics.
+			"FieldSystemEngine",
 			"UMG"
 		});
 

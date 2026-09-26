@@ -70,6 +70,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category="Menus") FText Message;
 	UPROPERTY(BlueprintReadOnly, Category="Menus|Settings") FAZ_MenuSettingsDraft PendingSettings;
 	void InitializeForLocalPlayer();
+	void ReportCampaignTravelFailure(const FString& Error);
 	void HandlePauseAction();
 	UFUNCTION(BlueprintCallable, Category="Menus") void Execute(EAZ_MenuCommand Command);
 	UFUNCTION(BlueprintCallable, Category="Menus") void Back();
@@ -108,6 +109,9 @@ private:
 	FDelegateHandle DeactivateHandle;
 	FDelegateHandle TravelFailureHandle;
 	FTimerHandle DeferredLoadRequest;
+	FTimerHandle DestinationReadyTimer;
+	double DestinationReadyDeadline = 0;
+	bool bRestoringAfterTravel = false;
 	AAZ_PlayerController* Controller() const;
 	UGameUserSettings* Settings() const;
 	UAZ_InputPresentationSubsystem* Preferences() const;
@@ -119,6 +123,9 @@ private:
 	void RestoreMenuInput();
 	void StartLoad();
 	void StartNewGame();
+	void ReturnToMainMenu();
+	bool TravelToMap(const FString& Map, bool bRestoreCheckpoint);
+	void TryRestoreAfterTravel();
 	void OpenInventory(bool bMap);
 	void BeginSettings();
 	void ReadSettings();

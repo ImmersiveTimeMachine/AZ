@@ -28,7 +28,7 @@ namespace
 		TWeakObjectPtr<UPrimitiveComponent> Base;
 		FName Bone;
 		FTransform AppliedTransform = FTransform::Identity;
-		int32 LastTeleportFrame = INDEX_NONE;
+		double LastStanceChangeTime = -1.0;
 		bool bHasTransform = false;
 		bool bInitialized = false;
 	};
@@ -206,10 +206,16 @@ void AAZ_PawnMoverHeroCharacter::UpdateCameraHeightSmoothing(float DeltaTime, fl
 	else if (BaseFrame.Base.IsValid()) bCanMeasureTerrain = false;
 	const FMoverDefaultSyncState* Sync = MoverComponent->GetSyncState().SyncStateCollection.FindDataByType<FMoverDefaultSyncState>();
 	const bool bSkipInterpolation = Sync && Sync->bSkipInterpolation != 0;
-	const bool bStanceRecenter = bCameraHeightInitialized && !FMath::IsNearlyEqual(HalfHeight, CameraPreviousHalfHeight, .1f);
 	const int32 SimFrame = MoverComponent->GetLastTimeStep().ServerFrame;
-	const bool bTeleportEvent = bSkipInterpolation && SimFrame != BaseFrame.LastTeleportFrame && !bStanceRecenter;
-	if (bSkipInterpolation) BaseFrame.LastTeleportFrame = SimFrame;
+	const bool bStanceRecenter = bCameraHeightInitialized && !FMath::IsNearlyEqual(HalfHeight, CameraPreviousHalfHeight, .1f);
+	if (bStanceRecenter) BaseFrame.LastStanceChangeTime = Now;
+	// ★ bSkipInterpolation is STICKY: the Mover patch sets it on every teleport and nothing clears it, so after the
+	// first crouch it stayed 1 on every sim frame. Read as "a new teleport each frame", it RESET the crouch glide to
+	// its end value every frame (measured 2026-09-23: skip=1 reset=0x80 on every frame after the crouch, the camera
+	// fell 21 cm in one frame) and silently disabled the stair smoothing too. Only its rising edge is a teleport, and
+	// one landing with or just after a half-height change is the stance re-centre, which the crouch glide owns.
+	const bool bTeleportEvent = bSkipInterpolation && !bCameraPreviousSkipInterpolation
+		&& Now - BaseFrame.LastStanceChangeTime > .25;
 	const float TravelAllowance = 2.f * static_cast<float>(FMath::Max(Velocity.Size(), CameraPreviousVelocity.Size())) * Dt;
 	const FVector Travel = FootPoint - PreviousFootOnCurrentBase;
 	const bool bLargeJump = bCameraHeightInitialized && Travel.Size() > 200.f + TravelAllowance;

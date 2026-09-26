@@ -34,6 +34,13 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Campaign") bool RequestCheckpointSave(AAZ_CampaignCheckpoint* Checkpoint, FString& OutError);
 	/** True means accepted. OnLoadCompleted confirms Mover teleport and publication. Load the saved map first. */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Campaign") bool LoadCampaign(FString& OutError);
+	/** Newest header-valid A/B candidate. Caller must keep a strong reference across travel.
+	 * Destination-dependent validation still happens in LoadCampaignSnapshot. */
+	UAZ_CampaignSaveGame* ResolveCampaignTravelSnapshot(FString& OutError) const;
+	/** Restore the exact snapshot chosen before travel; never silently substitute a different checkpoint. */
+	bool LoadCampaignSnapshot(UAZ_CampaignSaveGame* Snapshot, FString& OutError);
+	/** Refreshes component bindings, then checks the same readiness gates used by checkpoint loading. */
+	bool IsReadyForCampaignLoad(FString& OutError);
 	UFUNCTION(BlueprintPure, Category="Campaign") bool HasCampaignSave() const;
 	UFUNCTION(BlueprintPure, Category="Campaign") bool IsBusy() const { return bLoading; }
 	UFUNCTION(BlueprintCallable, Category="Campaign") void RefreshBindings();
@@ -68,6 +75,7 @@ private:
 	bool ValidateContext(FString& OutError) const;
 	bool Capture(UAZ_CampaignSaveGame& OutSave, FString& OutError) const;
 	bool ValidateSave(UAZ_CampaignSaveGame& Save, FString& OutError) const;
+	bool StartPendingLoad(FString& OutError);
 	bool WriteCheckpoint(FName CheckpointId, FString& OutError);
 	FString ProgressFingerprint() const;
 	void FinishLoad(bool bSuccess, const FString& Message);

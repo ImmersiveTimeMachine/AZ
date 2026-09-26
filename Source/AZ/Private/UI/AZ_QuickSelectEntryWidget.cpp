@@ -4,6 +4,7 @@
 
 #include "AZ_GameplayTags.h"
 #include "Components/Border.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
@@ -30,6 +31,19 @@ namespace
 		Widget->SetText(Text);
 		Widget->SetVisibility(Text.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 	}
+
+	// Inside the card the key badge covered the item icon. It now leaves the card at its top-right corner into
+	// the space the cross keeps free: above the horizontal Left/Right rows, beside the vertical Up/Down columns.
+	// Offsets are from the card's top-right anchor; the authored 0.72 render scale makes the badge ~20x17.
+	void PlaceKeyBadge(UWidget* Badge, EAZ_QuickSlotPosition Position)
+	{
+		UCanvasPanelSlot* BadgeSlot = Badge ? Cast<UCanvasPanelSlot>(Badge->Slot) : nullptr;
+		if (!BadgeSlot) return;
+		const bool bColumn = Position == EAZ_QuickSlotPosition::Up || Position == EAZ_QuickSlotPosition::Down;
+		BadgeSlot->SetAnchors(FAnchors(1.f, 0.f));
+		BadgeSlot->SetAlignment(FVector2D::ZeroVector);
+		BadgeSlot->SetPosition(bColumn ? FVector2D(3.f, 0.f) : FVector2D(-20.f, -20.f));
+	}
 }
 
 void UAZ_QuickSelectEntryWidget::NativeConstruct()
@@ -55,6 +69,7 @@ void UAZ_QuickSelectEntryWidget::ApplyEntryView(const FAZ_QuickSelectEntryView& 
 	SetOptionalText(NameText, ItemDetails || View.bEmpty ? FText::GetEmpty() : View.DisplayName);
 	SetOptionalText(AmmoText, View.bEmpty ? FText::GetEmpty() : View.AmmoText);
 	SetOptionalText(KeyText, View.KeyText);
+	PlaceKeyBadge(GetWidgetFromName(TEXT("FN_SlotKeyPrompt")), View.Position);
 	SetOptionalText(StateText, View.bEditing ? FText::GetEmpty() : View.StateText);
 	SetOptionalText(EmptyMarkText, View.bEmpty ? FText::FromString(TEXT("\u2014")) : FText::GetEmpty());
 	if (ItemDetails)

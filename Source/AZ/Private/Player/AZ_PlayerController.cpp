@@ -93,6 +93,20 @@ AAZ_PlayerController::AAZ_PlayerController()
 void AAZ_PlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	if (bFrontEndController)
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+		{
+			if (PauseMenuMappingContext) Subsystem->AddMappingContext(PauseMenuMappingContext, 3);
+		}
+		if (MenuRoutes)
+		{
+			MenuRoutes->MenuWidgetClass = MenuRoutesWidgetClass;
+			MenuRoutes->bShowTitleOnStartup = true;
+			MenuRoutes->InitializeForLocalPlayer();
+		}
+		return;
+	}
 
 	InventoryComponent = FindComponentByClass<UAZ_Inv_InventoryComponent>();
 	CommonUI_InventoryComponent = FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>();
@@ -160,6 +174,11 @@ void AAZ_PlayerController::SetupInputComponent()
 	Super::SetupInputComponent();
 
 	const auto AZ_InputComponent = CastChecked<UAZ_EnhancedInputComponent>(InputComponent);
+	if (bFrontEndController)
+	{
+		if (PauseMenuAction) AZ_InputComponent->BindAction(PauseMenuAction, ETriggerEvent::Started, this, &ThisClass::HandlePauseMenuAction);
+		return;
+	}
 
 	// Per-pawn movement (Move/Look/Jump/Sprint/etc.) lives on the pawn's
 	// SetupPlayerInputComponent. PC owns only the pawn-agnostic surface:
@@ -404,9 +423,10 @@ void AAZ_PlayerController::UpdateRotation(float DeltaTime)
 
 void AAZ_PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (PauseMenuMappingContext)
+	if (auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
-		if (auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer())) Subsystem->RemoveMappingContext(PauseMenuMappingContext);
+		if (PauseMenuMappingContext) Subsystem->RemoveMappingContext(PauseMenuMappingContext);
+		if (SharedInputMappingContext) Subsystem->RemoveMappingContext(SharedInputMappingContext);
 	}
 	ClearFirearmRecoil();
 	RecentRecoilShotIds.Reset();
@@ -1017,7 +1037,7 @@ void AAZ_PlayerController::AbilityInputTagHeld(const FGameplayTag InputTag)
 
 void AAZ_PlayerController::CreateHUDWidget()
 {
-	if (!IsLocalController())
+	if (bFrontEndController || !IsLocalController())
 		return;
 
 	if (IsValid(HUDWidget)) return;
@@ -1051,6 +1071,14 @@ void AAZ_PlayerController::HandleInventoryMenuToggled(bool bOpen)
 	if (bInventoryInputCaptured == bOpen) return;
 	const bool bWasCaptured = IsGameplayInputCaptured();
 	bInventoryInputCaptured = bOpen;
+	if (!bOpen && FSlateApplication::IsInitialized())
+	{
+		// Equip may ready a throw while the menu click is still held. Consume its tail,
+		// just like quick-select, so it cannot become a gameplay throw/cancel press.
+		const TSet<FKey>& Pressed = FSlateApplication::Get().GetPressedMouseButtons();
+		bMenuMouseReleasePending |= Pressed.Contains(EKeys::RightMouseButton)
+			|| Pressed.Contains(EKeys::LeftMouseButton) || Pressed.Contains(EKeys::MiddleMouseButton);
+	}
 	ApplyGameplayInputCapture(bWasCaptured);
 	// Inventory has acquired its capture before the selector releases its own.
 	if (bOpen && QuickSelect) QuickSelect->Close();

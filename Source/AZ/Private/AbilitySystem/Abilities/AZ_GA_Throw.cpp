@@ -5,6 +5,7 @@
 #include "AZ_GameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AbilityTasks/AZ_AT_PlayMontageAndWaitForEvent.h"
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Character/AZ_PawnMoverHeroCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -24,6 +25,22 @@
 #include "Engine/SkeletalMesh.h"
 #include "Throwables/AZ_ThrowableProjectile.h"
 #include "UObject/Class.h"
+
+namespace
+{
+	bool HasIgnitionTool(const UAZ_Inv_CommonUI_InventoryComponent* Inventory, const UAZ_ThrowableDefinition* Definition)
+	{
+		if (!Definition || !Definition->RequiredIgnitionTool.IsValid()) return true;
+		if (!Inventory) return false;
+		for (const auto* Candidate : Inventory->GetItems())
+		{
+			if (IsValid(Candidate) && Candidate->GetTotalStackCount() > 0
+				&& Candidate->GetLocation() == EAZ_InventoryItemLocation::Backpack
+				&& Candidate->GetItemManifest().GetItemTypeTag().MatchesTagExact(Definition->RequiredIgnitionTool)) return true;
+		}
+		return false;
+	}
+}
 
 UAZ_GA_Throw::UAZ_GA_Throw()
 {
@@ -100,11 +117,12 @@ void UAZ_GA_Throw::ActivateAbility(const FGameplayAbilitySpecHandle Handle, cons
 		? Item->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>() : nullptr;
 	Definition = Fragment ? Fragment->ThrowableDefinition.Get() : nullptr;
 	Profile = Definition ? Definition->DefaultProfile.Get() : nullptr;
-	if (!Definition || !Profile || !Profile->IsUsable())
+	const bool bHasIgnitionTool = HasIgnitionTool(Inventory, Definition);
+	if (!Definition || !Profile || !Profile->IsUsable() || !bHasIgnitionTool)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Throw] activation refused: item=%s found=%d fragment=%d definition=%d profile=%d usable=%d"),
+		UE_LOG(LogTemp, Warning, TEXT("[Throw] activation refused: item=%s found=%d fragment=%d definition=%d profile=%d usable=%d ignitionTool=%d"),
 			*SourceItemId.ToString(), Item ? 1 : 0, Fragment ? 1 : 0, Definition ? 1 : 0, Profile ? 1 : 0,
-			Profile && Profile->IsUsable() ? 1 : 0);
+			Profile && Profile->IsUsable() ? 1 : 0, bHasIgnitionTool ? 1 : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
@@ -396,6 +414,26 @@ void UAZ_GA_Throw::ReleasePresentation()
 	}
 }
 
+void UAZ_GA_Throw::StopPreparationMontages(const float BlendOutTime) const
+{
+	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+	UAnimInstance* Anim = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr;
+	if (!Anim || !Profile) return;
+	for (UAnimMontage* Montage : {Profile->StartMontage.Get(), Profile->LoopMontage.Get()})
+	{
+		if (Montage && Anim->Montage_IsPlaying(Montage) && !Anim->Montage_GetIsStopped(Montage))
+		{
+			// Preparation uses the Throwable group; release uses FullBody/DefaultGroup.
+			// Montage_Play stops only the incoming group, so an ended preparation task
+			// otherwise leaves its loop running under the release and visible afterwards.
+			const float Duration = BlendOutTime >= 0.f ? BlendOutTime : Montage->BlendOut.GetBlendTime();
+			Anim->Montage_Stop(Duration, Montage);
+			UE_LOG(LogTemp, Log, TEXT("[Throw] preparation stopped montage=%s blend=%.3f"),
+				*GetNameSafe(Montage), Duration);
+		}
+	}
+}
+
 void UAZ_GA_Throw::EnterAiming()
 {
 	Phase = EAZ_ThrowPhase::Aiming;
@@ -459,6 +497,9 @@ void UAZ_GA_Throw::EnterWindup()
 		return;
 	}
 	ReleasePresentation();
+	// Detach callbacks first, then fade preparation with the incoming release blend.
+	// Ending the task alone deliberately leaves its montage playing.
+	StopPreparationMontages(ReleaseMontage->BlendIn.GetBlendTime());
 	// The release cue is a gameplay event authored on the project-owned montage at the measured time. A
 	// timer is deliberately not used as the trigger: if the cue never arrives the action cancels, and no
 	// watchdog is allowed to invent a throw.
@@ -511,7 +552,7 @@ void UAZ_GA_Throw::PerformRelease()
 	const FAZ_ThrowLaunchSolution Solution =
 		UAZ_ThrowLaunchSolver::BuildSolution(Hero, Hero->GetMesh(), Definition, Profile, Arc,
 			AcceptedAimDistance, AcceptedAim, true);
-	if (!Solution.IsValid() || !Definition->ProjectileClass)
+	if (!Solution.IsValid() || !Definition->ProjectileClass || !HasIgnitionTool(Inventory, Definition))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Throw] release refused status=%d action=%s"),
 			static_cast<int32>(Solution.Status), *ThrowActionId.ToString());
@@ -600,14 +641,25 @@ void UAZ_GA_Throw::OnPresentationInterrupted(FGameplayTag /*EventTag*/, FGamepla
 	FinishAndRelease(Phase != EAZ_ThrowPhase::Released);
 }
 
+bool UAZ_GA_Throw::HasCommittedRelease() const
+{
+	if (Phase == EAZ_ThrowPhase::Released || Phase == EAZ_ThrowPhase::Recovering) return true;
+	const auto* Hero = Cast<AAZ_PawnMoverHeroCharacter>(GetAvatarActorFromActorInfo());
+	const auto* Controller = Hero ? Cast<AAZ_PlayerController>(Hero->GetController()) : nullptr;
+	const auto* Inventory = Controller ? Controller->FindComponentByClass<UAZ_Inv_CommonUI_InventoryComponent>() : nullptr;
+	return Inventory && Inventory->IsThrowCommitted(ThrowActionId);
+}
+
 void UAZ_GA_Throw::RequestCancel()
 {
-	if (Phase == EAZ_ThrowPhase::None || Phase == EAZ_ThrowPhase::Cancelling)
+	if (bEndingThrow || Phase == EAZ_ThrowPhase::None || Phase == EAZ_ThrowPhase::Cancelling)
 	{
 		return;
 	}
 	// After the physical release there is nothing to cancel — only the remaining recovery presentation.
-	if (Phase == EAZ_ThrowPhase::Released || Phase == EAZ_ThrowPhase::Recovering)
+	// The inventory broadcasts last-unit removal before PerformRelease can advance Phase.
+	// Its committed receipt already owns that outcome; do not play a cancel over the release.
+	if (HasCommittedRelease())
 	{
 		return;
 	}
@@ -657,6 +709,9 @@ void UAZ_GA_Throw::FinishAndRelease(const bool bCancelled)
 void UAZ_GA_Throw::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, const bool bReplicateEndAbility, const bool bWasCancelled)
 {
+	if (bEndingThrow) return;
+	TGuardValue<bool> EndingGuard(bEndingThrow, true);
+	const TWeakObjectPtr<UAZ_ThrowableHandComponent> Hand = FindHandComponent();
 	if (const UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PreviewTimer);
@@ -665,15 +720,18 @@ void UAZ_GA_Throw::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGa
 	// Did this activation get past the entry guards at all? Phase is still None when one of them refused,
 	// and a refusal must not be mistaken for a finished action. Captured before the reset at the bottom.
 	const bool bActionRan = (Phase != EAZ_ThrowPhase::None);
+	// Silence preparation callbacks before stopping its clips. This also cleans up an
+	// interrupted aim without stopping another ability's montage or the cosmetic cancel.
+	DetachPresentation();
+	if (bActionRan) StopPreparationMontages();
 	// Hidden, not destroyed: the pooled segments and materials are wanted again on the next throw.
 	HidePreview();
-	// The action is over: the hand shows whatever is still readied, and the carry idle resumes.
+	// Keep presentation suppressed until the old selection is cleared and GAS has
+	// ended the action. Unmasking here can latch the next selection onto this ability
+	// or play carry over the cancel animation before readiness has been cleared.
 	SetThrowCommittedTag(false);
-	SetHandActionOwnership(false);
-	SuppressHandProp(false);
-	// Detach but KEEP the task: the ability's own teardown reaches it with AbilityEnded=true, which is what
-	// stops the montage. Ending it here would silence that and leave an aim loop playing over locomotion.
-	DetachPresentation();
+	// Keep the detached task: ability teardown still reaches it with AbilityEnded=true
+	// and stops the action montage. The separate preparation group was faded above.
 	// Release the reservation last. An uncommitted action spent nothing so there is nothing to refund; a
 	// committed one is never rolled back, which is what keeps a reentrant "last unit vanished" callback from
 	// destroying the projectile it just paid for.
@@ -720,4 +778,5 @@ void UAZ_GA_Throw::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGa
 	SourceItemId.Invalidate();
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+	if (bActionRan && Hand.IsValid()) Hand->FinishThrowAction();
 }

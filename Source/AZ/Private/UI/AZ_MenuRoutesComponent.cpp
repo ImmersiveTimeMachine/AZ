@@ -3,6 +3,8 @@
 #include "UI/AZ_InputPresentationSubsystem.h"
 #include "Player/AZ_PlayerController.h"
 #include "Game/AZ_CampaignSaveCoordinator.h"
+#include "Game/AZ_CampaignSaveGame.h"
+#include "Game/AZ_GameInstance.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
 #include "InventoryUI/AZ_Inv_CommonUI_GameInventoryMenu.h"
 #include "Input/CommonUIActionRouterBase.h"
@@ -59,7 +61,34 @@ void UAZ_MenuRoutesComponent::InitializeForLocalPlayer()
 		P->OnMasterVolumeChanged.AddUniqueDynamic(this, &ThisClass::HandleMasterVolumeChanged);
 		ApplyMasterVolume(P->GetMasterVolume());
 	}
-	if (bShowTitleOnStartup && !GetWorld()->URL.HasOption(TEXT("AZSkipTitle="))) Show(EAZ_MenuRoute::Title);
+	auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	if (GI && GI->bCampaignTravelPending && UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()) == GI->PendingTravelMap)
+	{
+		GI->bCampaignTravelPending = false;
+		if (!GI->bRestoreAfterTravel) GI->ClearPendingCampaignLoad();
+	}
+	if (Controller()->bFrontEndController)
+	{
+		ReturnRoute = EAZ_MenuRoute::Title;
+		if (GI) GI->ClearPendingCampaignLoad();
+	}
+	if (GI && !GI->PendingTravelError.IsEmpty())
+	{
+		ReportCampaignTravelFailure(GI->PendingTravelError);
+		return;
+	}
+	if (GI && GI->bCampaignRestorePending && !Controller()->bFrontEndController)
+	{
+		bRestoringAfterTravel = bWaitingForLoad = true;
+		ReturnRoute = EAZ_MenuRoute::Title;
+		Message = NSLOCTEXT("CHALK", "PreparingCheckpoint", "Preparing saved campaign…");
+		Show(EAZ_MenuRoute::Loading);
+		DestinationReadyDeadline = FPlatformTime::Seconds() + 30.0;
+		GetWorld()->GetTimerManager().SetTimer(DestinationReadyTimer, this, &ThisClass::TryRestoreAfterTravel, .1f, true);
+		return;
+	}
+	if (Controller()->bFrontEndController || (bShowTitleOnStartup && !GetWorld()->URL.HasOption(TEXT("AZSkipTitle="))))
+		Show(EAZ_MenuRoute::Title);
 }
 
 void UAZ_MenuRoutesComponent::HandlePauseAction()
@@ -70,7 +99,7 @@ void UAZ_MenuRoutesComponent::HandlePauseAction()
 	if (Controller()->IsInventoryInputCaptured()) return;
 	LastNavigationFrame = GFrameCounter;
 	Message = FText::GetEmpty();
-	Show(EAZ_MenuRoute::Pause);
+	Show(Controller()->bFrontEndController ? EAZ_MenuRoute::Title : EAZ_MenuRoute::Pause);
 }
 
 void UAZ_MenuRoutesComponent::AcquirePause()
@@ -143,6 +172,7 @@ void UAZ_MenuRoutesComponent::Back()
 	if (!IsOpen() || LastNavigationFrame == GFrameCounter || bWaitingForLoad || Route == EAZ_MenuRoute::Loading) return;
 	LastNavigationFrame = GFrameCounter;
 	if (Controller()->CampaignSave && Controller()->CampaignSave->IsBusy()) return;
+	if (Route == EAZ_MenuRoute::LoadFailure && bRestoringAfterTravel) { ReturnToMainMenu(); return; }
 	if (Route == EAZ_MenuRoute::ConfirmDisplay) { RevertDisplay(); return; }
 	if (Route == EAZ_MenuRoute::Settings) { CancelSettings(); Message = FText::GetEmpty(); Show(ReturnRoute); return; }
 	if (Route == EAZ_MenuRoute::Pause) { Close(); return; }
@@ -183,7 +213,7 @@ void UAZ_MenuRoutesComponent::Execute(EAZ_MenuCommand Command)
 	{
 		if (Route == EAZ_MenuRoute::ConfirmLoad) StartLoad();
 		else if (Route == EAZ_MenuRoute::ConfirmNewGame) StartNewGame();
-		else if (Route == EAZ_MenuRoute::ConfirmTitle) { bTitleEnteredFromPause = true; Message = FText::GetEmpty(); Show(EAZ_MenuRoute::Title); }
+		else if (Route == EAZ_MenuRoute::ConfirmTitle) ReturnToMainMenu();
 		else if (Route == EAZ_MenuRoute::ConfirmQuit) UKismetSystemLibrary::QuitGame(this, Controller(), EQuitPreference::Quit, false);
 		return;
 	}
@@ -232,6 +262,21 @@ void UAZ_MenuRoutesComponent::StartLoad()
 {
 	auto* Save = Controller()->CampaignSave.Get();
 	if (!Save || !CanLoadCheckpoint()) return;
+	auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	FString Error;
+	UAZ_CampaignSaveGame* Snapshot = Save->ResolveCampaignTravelSnapshot(Error);
+	if (!Snapshot || !GI || Snapshot->WorldPackage == GI->MainMenuMap.ToSoftObjectPath().GetLongPackageName())
+	{
+		Message = FText::FromString(Error.IsEmpty() ? TEXT("The checkpoint does not identify a playable campaign level.") : Error);
+		Show(EAZ_MenuRoute::LoadFailure); return;
+	}
+	if (Controller()->bFrontEndController || Snapshot->WorldPackage != UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()))
+	{
+		GI->PendingCampaignLoad = Snapshot;
+		GI->bCampaignRestorePending = true;
+		if (!TravelToMap(Snapshot->WorldPackage, true)) GI->ClearPendingCampaignLoad();
+		return;
+	}
 	if (!ReleasePause() || GetWorld()->IsPaused())
 	{ Message = NSLOCTEXT("CHALK", "MenuOtherPause", "Another pause owner must resume before a checkpoint can load."); Show(EAZ_MenuRoute::LoadFailure); return; }
 	Save->OnLoadCompleted.AddUniqueDynamic(this, &ThisClass::HandleLoadCompleted);
@@ -267,25 +312,103 @@ void UAZ_MenuRoutesComponent::HandleLoadCompleted(bool bSuccess, const FString& 
 	}
 	if (Save) Save->OnLoadCompleted.RemoveDynamic(this, &ThisClass::HandleLoadCompleted);
 	bWaitingForLoad = false;
-	if (bSuccess) Close();
+	if (bSuccess)
+	{
+		if (bRestoringAfterTravel)
+		{
+			if (auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>()) GI->ClearPendingCampaignLoad();
+			bRestoringAfterTravel = false;
+		}
+		Close();
+	}
 	else { Message = FText::FromString(Error); Show(EAZ_MenuRoute::LoadFailure); }
 }
 
 void UAZ_MenuRoutesComponent::StartNewGame()
 {
-	FString Map;
-	if (GConfig) GConfig->GetString(TEXT("/Script/EngineSettings.GameMapsSettings"), TEXT("GameDefaultMap"), Map, GEngineIni);
-	Map = FSoftObjectPath(Map).GetLongPackageName();
+	const auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	if (!GI) return;
+	const FString Map = GI->FirstCampaignMap.ToSoftObjectPath().GetLongPackageName();
+	if (Map == GI->MainMenuMap.ToSoftObjectPath().GetLongPackageName())
+	{ Message = NSLOCTEXT("CHALK", "CampaignMapIsMenu", "The first episode must be different from the main menu."); Show(EAZ_MenuRoute::LoadFailure); return; }
+	TravelToMap(Map, false);
+}
+
+void UAZ_MenuRoutesComponent::ReturnToMainMenu()
+{
+	const auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	if (GI) TravelToMap(GI->MainMenuMap.ToSoftObjectPath().GetLongPackageName(), false);
+}
+
+bool UAZ_MenuRoutesComponent::TravelToMap(const FString& Map, bool bRestoreCheckpoint)
+{
+	auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	if (!GI || bTravelRequested) return false;
 	if (!FPackageName::IsValidLongPackageName(Map) || !FPackageName::DoesPackageExist(Map))
-	{ Message = NSLOCTEXT("CHALK", "StartupMapUnavailable", "The configured starting area is unavailable."); Show(EAZ_MenuRoute::LoadFailure); return; }
+	{ Message = NSLOCTEXT("CHALK", "StartupMapUnavailable", "The configured destination level is unavailable."); Show(EAZ_MenuRoute::LoadFailure); return false; }
 	if (!ReleasePause() || GetWorld()->IsPaused())
-	{ Message = NSLOCTEXT("CHALK", "MenuOtherPause", "Another pause owner must resume before a checkpoint can load."); Show(EAZ_MenuRoute::LoadFailure); return; }
-	Message = NSLOCTEXT("CHALK", "StartingCampaign", "Starting a new campaign…");
+	{ Message = NSLOCTEXT("CHALK", "MenuOtherPause", "Another pause owner must resume before a checkpoint can load."); Show(EAZ_MenuRoute::LoadFailure); return false; }
+	// Keep save protection through deferred travel, including failed departures.
+	// Clear it only after a successful fresh-game/menu arrival.
+	GI->bRestoreAfterTravel = bRestoreCheckpoint;
+	GI->PendingTravelError.Reset();
+	GI->PendingTravelMap = Map;
+	GI->PendingTravelSourceMap = UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName());
+	GI->bCampaignTravelPending = true;
+	Message = NSLOCTEXT("CHALK", "LoadingLevel", "Loading…");
 	Show(EAZ_MenuRoute::Loading);
 	bTravelRequested = true;
-	if (GEngine) TravelFailureHandle = GEngine->OnTravelFailure().AddUObject(this, &ThisClass::HandleTravelFailure);
 	// No save deletion. The next successful checkpoint/autosave replaces the previous generation.
 	UGameplayStatics::OpenLevel(this, FName(*Map), true, TEXT("AZSkipTitle=1"));
+	return true;
+}
+
+void UAZ_MenuRoutesComponent::TryRestoreAfterTravel()
+{
+	if (!bWaitingForLoad || bEndingPlay) return;
+	auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>();
+	auto* Save = Controller() ? Controller()->CampaignSave.Get() : nullptr;
+	FString Error;
+	if (!GI || !GI->PendingCampaignLoad || !Save)
+		Error = TEXT("The pending checkpoint is unavailable.");
+	else if (GI->PendingCampaignLoad->WorldPackage != UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()))
+		Error = TEXT("The loaded level does not match the checkpoint.");
+	else if (!Save->IsReadyForCampaignLoad(Error) && FPlatformTime::Seconds() < DestinationReadyDeadline)
+		return;
+	else if (Error.IsEmpty())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(DestinationReadyTimer);
+		Save->OnLoadCompleted.AddUniqueDynamic(this, &ThisClass::HandleLoadCompleted);
+		if (Save->LoadCampaignSnapshot(GI->PendingCampaignLoad, Error)) return;
+		Save->OnLoadCompleted.RemoveDynamic(this, &ThisClass::HandleLoadCompleted);
+	}
+	GetWorld()->GetTimerManager().ClearTimer(DestinationReadyTimer);
+	bWaitingForLoad = false;
+	Message = FText::FromString(Error.IsEmpty() ? TEXT("Checkpoint restoration failed.") : Error);
+	Show(EAZ_MenuRoute::LoadFailure);
+}
+
+void UAZ_MenuRoutesComponent::ReportCampaignTravelFailure(const FString& Error)
+{
+	if (bEndingPlay) return;
+	bTravelRequested = false;
+	bWaitingForLoad = false;
+	GetWorld()->GetTimerManager().ClearTimer(DestinationReadyTimer);
+	if (auto* GI = GetWorld()->GetGameInstance<UAZ_GameInstance>())
+	{
+		GI->PendingTravelError.Reset();
+		if (Controller()->bFrontEndController)
+		{
+			ReturnRoute = EAZ_MenuRoute::Title;
+			bRestoringAfterTravel = false;
+			GI->ClearPendingCampaignLoad();
+		}
+		else if (GI->bCampaignRestorePending && UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()) != GI->PendingTravelSourceMap)
+			bRestoringAfterTravel = true;
+		else if (!bRestoringAfterTravel) GI->ClearPendingCampaignLoad();
+	}
+	Message = FText::FromString(Error);
+	Show(EAZ_MenuRoute::LoadFailure);
 }
 
 void UAZ_MenuRoutesComponent::HandleTravelFailure(UWorld* World, ETravelFailure::Type, const FString& Error)
@@ -513,7 +636,11 @@ void UAZ_MenuRoutesComponent::HandleWidgetRemoved()
 void UAZ_MenuRoutesComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
 	bEndingPlay = true; bClosingWidget = true;
-	if (GetWorld()) GetWorld()->GetTimerManager().ClearTimer(DeferredLoadRequest);
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(DeferredLoadRequest);
+		GetWorld()->GetTimerManager().ClearTimer(DestinationReadyTimer);
+	}
 	CancelSettings();
 	if (auto* P = Preferences()) P->OnMasterVolumeChanged.RemoveDynamic(this, &ThisClass::HandleMasterVolumeChanged);
 	ReleaseMasterMix();

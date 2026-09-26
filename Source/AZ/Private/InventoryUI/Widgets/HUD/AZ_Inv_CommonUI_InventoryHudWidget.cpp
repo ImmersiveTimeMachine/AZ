@@ -12,6 +12,7 @@
 #include "Components/TextBlock.h"
 #include "Components/SizeBox.h"
 #include "Components/ScaleBox.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Engine/Texture2D.h"
 #include "GameFramework/PlayerController.h"
@@ -25,6 +26,43 @@
 
 namespace
 {
+	void FitWeaponHUD(UWidgetTree* Tree, UWidget* Container, UTextBlock* Name, bool bThrowable)
+	{
+		if (!Tree || !Container) return;
+		if (UWidget* Backplate = Tree->FindWidget(TEXT("CoreContrast"))) Backplate->SetVisibility(ESlateVisibility::Collapsed);
+		Container->SetClipping(EWidgetClipping::ClipToBounds);
+		const auto Place = [Tree](const TCHAR* WidgetName, FVector2D Position, FVector2D Size)
+		{
+			if (UWidget* Widget = Tree->FindWidget(WidgetName))
+				if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
+				{
+					CanvasSlot->SetAutoSize(false);
+					CanvasSlot->SetAnchors(FAnchors(0, 0));
+					CanvasSlot->SetAlignment(FVector2D::ZeroVector);
+					CanvasSlot->SetPosition(Position); CanvasSlot->SetSize(Size);
+				}
+		};
+		// Square item art needs more height than a wide gun silhouette. Keep its
+		// name and quantity together beside it, within the same transparent HUD host.
+		Place(TEXT("WeaponIconAspectFit"), bThrowable ? FVector2D(0,8) : FVector2D(0,0),
+			bThrowable ? FVector2D(100,100) : FVector2D(128,60));
+		Place(TEXT("WeaponNameText"), bThrowable ? FVector2D(110,12) : FVector2D(140,4),
+			bThrowable ? FVector2D(170,50) : FVector2D(140,54));
+		Place(TEXT("AmmoRoundsText"), bThrowable ? FVector2D(110,66) : FVector2D(6,62),
+			bThrowable ? FVector2D(170,44) : FVector2D(66,68));
+		Place(TEXT("AmmoCapacityText"), FVector2D(73,90), FVector2D(100,38));
+		Place(TEXT("MagazineCountRow"), FVector2D(178,68), FVector2D(102,32));
+		Place(TEXT("FireModeText"), FVector2D(180,109), FVector2D(100,24));
+		if (auto* Fit = Cast<UScaleBox>(Tree->FindWidget(TEXT("WeaponIconAspectFit"))))
+		{ Fit->SetStretch(EStretch::ScaleToFit); Fit->SetStretchDirection(EStretchDirection::Both); }
+		if (Name)
+		{
+			Name->SetAutoWrapText(true); Name->SetWrapTextAt(bThrowable ? 170.f : 140.f);
+			Name->SetClipping(EWidgetClipping::ClipToBounds);
+			Name->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+		}
+	}
+
 	void ShowElement(UWidget* Widget, bool bShow)
 	{
 		if (Widget) Widget->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
@@ -56,6 +94,7 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 	bPresentedHealth = false;
 	PresentedWeaponId.Invalidate();
 	if (AmmoRoundsText && DefaultAmmoFontSize == 0) DefaultAmmoFontSize = AmmoRoundsText->GetFont().Size;
+	if (WeaponNameText && DefaultWeaponNameFontSize == 0) DefaultWeaponNameFontSize = WeaponNameText->GetFont().Size;
 	ShowElement(HealthContainer, false);
 	ShowElement(WeaponContainer, false);
 	// Hide the authored magazine row until the first supported weapon view arrives.
@@ -161,6 +200,13 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleThrowableChanged(const FAZ_Playe
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWeaponView& View)
 {
+	FitWeaponHUD(WidgetTree, WeaponContainer, WeaponNameText, PresentedThrowable.bHasThrowable);
+	if (WeaponNameText && DefaultWeaponNameFontSize > 0)
+	{
+		FSlateFontInfo Font = WeaponNameText->GetFont();
+		Font.Size = PresentedThrowable.bHasThrowable ? FMath::Min(DefaultWeaponNameFontSize, 18) : DefaultWeaponNameFontSize;
+		WeaponNameText->SetFont(Font);
+	}
 	PresentedWeapon = View;
 	if (PresentedWeaponId != View.Ammo.WeaponItemId)
 	{
@@ -197,10 +243,11 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleWeaponChanged(const FAZ_PlayerWe
 			if (DefaultAmmoFontSize > 0)
 			{
 				FSlateFontInfo Font = AmmoRoundsText->GetFont();
-				Font.Size = DefaultAmmoFontSize;
+				Font.Size = FMath::Min(DefaultAmmoFontSize, 30);
 				AmmoRoundsText->SetFont(Font);
 			}
-			AmmoRoundsText->SetText(FText::AsNumber(FMath::Max(0, PresentedThrowable.Count)));
+			AmmoRoundsText->SetText(FText::Format(LOCTEXT("ThrowableQuantity", "×{0}"),
+				FText::AsNumber(FMath::Max(0, PresentedThrowable.Count))));
 		}
 		if (AmmoCapacityText) AmmoCapacityText->SetText(FText::GetEmpty());
 		return;
