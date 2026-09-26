@@ -8,7 +8,10 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 `az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python`.
 
 ## ★★★ CURRENT DIRECTION — read first
+- [Consider the local model](feedback_consider_local_model.md) — ★★★ USER RULE: when splitting ANY task, delegate mechanical steps to the local LM Studio agent (skill `local-model-delegation`); check it runs or ask.
+- [Master skeleton](project_master_skeleton_2026-09-25.md) — ★★★ SK_AZ_Master = exact MH copy + az_weapon_r/az_prop_r/az_prop_l; hero plays it 1:1 (compat, verified); 446 AZ_MST_* RifleMega clips with the gun track; next: sockets onto az_weapon_r + rifle wiring. Master clips NEED retarget_source_asset=SKM_AZ_Master.
 - [RifleMega retarget](project_riflemega_retarget_2026-09-25.md) — ★★★ 446 pack clips on the MetaHuman (exact + IK post); rifle wiring next, then throwables.
+- [Local agent (LM Studio)](reference_local_agent_lmstudio.md) — .agents/agent_script.py: local model + MCP + skills for light tasks; measured limits.
 - [Weapon models import](project_weapon_models_import_2026-09-25.md) — 7 guns as parts in /Game/AZ/Assets/Weapons; whole-mesh spec for a local-model test; ".py in @Description" trap.
 - [Gamepad analog vs gait](project_gamepad_analog_gait_mismatch.md) — ✔ DONE 2026-09-23: stick magnitude→1 in ProduceInput (raw kept for attack-cancel); verified on pad.
 - [Throwable RESUME](project_throwable_resume_2026-09-17.md) — ★★★ throwables start here: review response, slot splice, standing/crouch policy, my corrected claims.
