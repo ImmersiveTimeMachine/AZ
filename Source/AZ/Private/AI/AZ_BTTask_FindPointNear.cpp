@@ -32,6 +32,9 @@ EBTNodeResult::Type UAZ_BTTask_FindPointNear::ExecuteTask(UBehaviorTreeComponent
 	{
 		return EBTNodeResult::Failed;
 	}
+	// A failed attempt must not retain the previous search point. The Investigate
+	// sequence cannot reach its final ClearBBKey task when this task returns Failed.
+	BB->ClearValue(OutKey.SelectedKeyName);
 	if (!BB->IsVectorValueSet(CenterKey.SelectedKeyName))
 	{
 		return EBTNodeResult::Failed;
@@ -48,6 +51,15 @@ EBTNodeResult::Type UAZ_BTTask_FindPointNear::ExecuteTask(UBehaviorTreeComponent
 	FNavLocation Result;
 	if (!NavSys || !NavSys->GetRandomReachablePointInRadius(Center, EffectiveRadius, Result))
 	{
+		if (CenterKey.SelectedKeyName == AZ_ChalkieBBKeys::LastKnownLocation)
+		{
+			// The tree observes this key and falls through to Return Home once it is
+			// empty. Keep permanent HomeLocation intact for the separate wander task.
+			BB->SetValueAsBool(AZ_ChalkieBBKeys::bInvestigateUrgent, false);
+			BB->ClearValue(AZ_ChalkieBBKeys::LastKnownLocation);
+			UE_LOG(LogTemp, Display, TEXT("[NoiseSearch] %s cleared unreachable investigation center=%s nav=%d"),
+				*GetNameSafe(OwnerComp.GetAIOwner()), *Center.ToCompactString(), NavSys != nullptr);
+		}
 		return EBTNodeResult::Failed;
 	}
 

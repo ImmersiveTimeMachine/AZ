@@ -3,6 +3,8 @@
 #include "AI/AZ_InfectedAIController.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
+#include "NavigationData.h"
+#include "AISystem.h"
 #include "NavModifierComponent.h"
 #include "Throwables/AZ_ThrowableFireArea.h"
 
@@ -157,6 +159,9 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 		if (UBlackboardComponent* BB = GetBlackboardComponent())
 		{
 			BB->SetValueAsVector(AZ_ChalkieBBKeys::HomeLocation, InPawn->GetActorLocation());
+			// A chase can become visible before the first horde role-allocation beat.
+			// Give its passive branch a valid hold point from possession onward.
+			BB->SetValueAsVector(AZ_ChalkieBBKeys::SlotLocation, InPawn->GetActorLocation());
 			BB->SetValueAsFloat(AZ_ChalkieBBKeys::AttackRange, StopDistance);
 
 			// Pacing seed — the single source for every BT Wait bound to these keys. Constants for now;
@@ -191,7 +196,7 @@ void AAZ_InfectedAIController::OnPossess(APawn* InPawn)
 	{
 		if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(P->GetAbilitySystemComponent()))
 		{
-			ASC->AddStateTag(FAZ_GameplayTags::Get().State_Infected_Dormant);
+			ASC->SetStateTagEnabled(FAZ_GameplayTags::Get().State_Infected_Dormant, true);
 		}
 	}
 	CurrentPhase = EAZ_InfectedPhase::Dormant;
@@ -315,7 +320,7 @@ void AAZ_InfectedAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimu
 	// of the thrower's present location and must not refresh a chase or move its last-known pin.
 	const bool bObjectSound = Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>()
 		&& (Stimulus.Tag == FName("ThrowImpact") || Stimulus.Tag == FName("BottleBreak")
-			|| Stimulus.Tag == FName("Explosion") || Stimulus.Tag == FName("Fire"));
+			|| Stimulus.Tag == FName("Explosion") || Stimulus.Tag == FName("Fire") || Stimulus.Tag == FName("Door"));
 	if (bObjectSound)
 	{
 		if (Stimulus.WasSuccessfullySensed())
@@ -452,6 +457,51 @@ void AAZ_InfectedAIController::ArmInvestigation(const FVector& Location, bool bU
 		// TEMP noise debug (remove with [ChalkieDiag]).
 		UE_LOG(LogTemp, Warning, TEXT("[Noise] %s ARM failed — no blackboard component"), *GetNameSafe(GetPawn()));
 	}
+}
+
+FPathFollowingRequestResult AAZ_InfectedAIController::MoveTo(const FAIMoveRequest& MoveRequest, FNavPathSharedPtr* OutPath)
+{
+	const FPathFollowingRequestResult Result = Super::MoveTo(MoveRequest, OutPath);
+#if !UE_BUILD_SHIPPING
+	const double Now = FPlatformTime::Seconds();
+	if (Result.Code == EPathFollowingRequestResult::Failed && GetPawn() && Now - LastMoveFailureDiagnostic >= 2.0)
+	{
+		LastMoveFailureDiagnostic = Now;
+		const auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+		const ANavigationData* Data = Nav ? Nav->GetNavDataForProps(GetNavAgentPropertiesRef(), GetNavAgentLocation()) : nullptr;
+		const FVector Goal = MoveRequest.IsMoveToActorRequest() && IsValid(MoveRequest.GetGoalActor())
+			? MoveRequest.GetGoalActor()->GetActorLocation() : MoveRequest.GetGoalLocation();
+		FNavLocation Projected;
+		const bool bProjected = Nav && Data && FAISystem::IsValidLocation(Goal)
+			&& Nav->ProjectPointToNavigation(Goal, Projected, INVALID_NAVEXTENT, Data);
+		const auto* Following = GetPathFollowingComponent();
+		UE_LOG(LogTemp, Display, TEXT("[NoiseNav] move refused %s start=%s goal=%s nav=%s projected=%d locked=%d actorGoal=%d accept=%.1f"),
+			*GetNameSafe(GetPawn()), *GetNavAgentLocation().ToCompactString(), *Goal.ToCompactString(),
+			*GetNameSafe(Data), bProjected, Following && Following->IsResourceLocked(), MoveRequest.IsMoveToActorRequest(),
+			MoveRequest.GetAcceptanceRadius());
+	}
+#endif
+	return Result;
+}
+
+void AAZ_InfectedAIController::FindPathForMoveRequest(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query, FNavPathSharedPtr& OutPath) const
+{
+	Super::FindPathForMoveRequest(MoveRequest, Query, OutPath);
+#if !UE_BUILD_SHIPPING
+	const double Now = FPlatformTime::Seconds();
+	if (!OutPath.IsValid() && Now - LastQueryFailureDiagnostic >= 2.0)
+	{
+		LastQueryFailureDiagnostic = Now;
+		const auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+		const ANavigationData* Data = Query.NavData.Get();
+		FNavLocation Start, End;
+		const bool bStart = Nav && Data && Nav->ProjectPointToNavigation(Query.StartLocation, Start, INVALID_NAVEXTENT, Data, Query.QueryFilter);
+		const bool bEnd = Nav && Data && Nav->ProjectPointToNavigation(Query.EndLocation, End, INVALID_NAVEXTENT, Data, Query.QueryFilter);
+		UE_LOG(LogTemp, Display, TEXT("[NoiseNav] path missing %s start=%s end=%s nav=%s startOnNav=%d endOnNav=%d partialAllowed=%d requireEnd=%d costLimit=%.1f"),
+			*GetNameSafe(GetPawn()), *Query.StartLocation.ToCompactString(), *Query.EndLocation.ToCompactString(),
+			*GetNameSafe(Data), bStart, bEnd, Query.bAllowPartialPaths, Query.bRequireNavigableEndLocation, Query.CostLimit);
+	}
+#endif
 }
 
 void AAZ_InfectedAIController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
@@ -698,8 +748,8 @@ void AAZ_InfectedAIController::SetPhase(EAZ_InfectedPhase NewPhase)
 	{
 		if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(P->GetAbilitySystemComponent()))
 		{
-			ASC->RemoveStateTag(PhaseTag(OldPhase));
-			ASC->AddStateTag(PhaseTag(NewPhase));
+			ASC->SetStateTagEnabled(PhaseTag(OldPhase), false);
+			ASC->SetStateTagEnabled(PhaseTag(NewPhase), true);
 		}
 	}
 

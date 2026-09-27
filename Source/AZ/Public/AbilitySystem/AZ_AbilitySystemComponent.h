@@ -172,6 +172,8 @@ public:
 	 *  flows (QuickBar) can set orthogonal state tags like Movement.Strafe directly. */
 	void AddStateTag(const FGameplayTag& Tag);
 	void RemoveStateTag(const FGameplayTag& Tag);
+	/** Absolute presence for exclusive single-owner states; counted grants retain Add/RemoveStateTag. */
+	void SetStateTagEnabled(const FGameplayTag& Tag, bool bEnabled);
 
 protected:
 

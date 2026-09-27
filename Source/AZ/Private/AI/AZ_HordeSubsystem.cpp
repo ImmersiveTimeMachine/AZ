@@ -424,16 +424,8 @@ void UAZ_HordeSubsystem::ApplyRole(AAZ_InfectedAIController* Controller, EAZ_Com
 	// Leaving a role: give back what it held. Slot/facing belong to Passive; a turn timer to Active.
 	// ReleaseSlot uses the OLD State.CrowdId (still set from the previous grant) to find the right ring —
 	// so it must run BEFORE State.CrowdId is updated below.
-	if (OldRole == EAZ_CombatRole::Passive)
-	{
-		// Don't leave a stale post published — a later Passive assignment on a NEW prey wouldn't get a
-		// fresh BB write until this beat's ring pass runs, and a bare bool key elsewhere reading
-		// "IsSet" on this vector must not see a leftover position from a fight that's already over.
-		if (UBlackboardComponent* BB = Controller->GetBlackboardComponent())
-		{
-			BB->ClearValue(AZ_ChalkieBBKeys::SlotLocation);
-		}
-	}
+	// Do not clear a vector observed by the running Ring MoveTo. Until the role
+	// observer switches branches, that would issue a move to the invalid sentinel.
 	ReleaseSlot(State);
 	ClearManagedFacing(Controller, State);
 	if (OldRole == EAZ_CombatRole::Active && NewRole != EAZ_CombatRole::Active)
@@ -455,6 +447,14 @@ void UAZ_HordeSubsystem::ApplyRole(AAZ_InfectedAIController* Controller, EAZ_Com
 	{
 		State.NextShuffleSeconds = Now + FMath::FRandRange(Row.ShuffleMin, Row.ShuffleMax);
 	}
+	if (NewRole != EAZ_CombatRole::Active)
+	{
+		if (const APawn* HoldingPawn = Controller->GetPawn())
+			if (UBlackboardComponent* BB = Controller->GetBlackboardComponent())
+				BB->SetValueAsVector(AZ_ChalkieBBKeys::SlotLocation, HoldingPawn->GetActorLocation());
+		// bWroteSlot stays false: the ring pass must replace this temporary hold
+		// with a freshly projected post, even if it is close to the previous fight.
+	}
 
 	// ASC role tags — replicated menace state for the AnimInstance (server-authoritative writer).
 	const FAZ_GameplayTags& Tags = FAZ_GameplayTags::Get();
@@ -464,16 +464,8 @@ void UAZ_HordeSubsystem::ApplyRole(AAZ_InfectedAIController* Controller, EAZ_Com
 		{
 			if (UAZ_AbilitySystemComponent* ASC = Cast<UAZ_AbilitySystemComponent>(AbilityInterface->GetAbilitySystemComponent()))
 			{
-				ASC->RemoveStateTag(Tags.State_Combat_Engaged_Active);
-				ASC->RemoveStateTag(Tags.State_Combat_Engaged_Passive);
-				if (NewRole == EAZ_CombatRole::Active)
-				{
-					ASC->AddStateTag(Tags.State_Combat_Engaged_Active);
-				}
-				else if (NewRole == EAZ_CombatRole::Passive)
-				{
-					ASC->AddStateTag(Tags.State_Combat_Engaged_Passive);
-				}
+				ASC->SetStateTagEnabled(Tags.State_Combat_Engaged_Active, NewRole == EAZ_CombatRole::Active);
+				ASC->SetStateTagEnabled(Tags.State_Combat_Engaged_Passive, NewRole == EAZ_CombatRole::Passive);
 			}
 		}
 	}

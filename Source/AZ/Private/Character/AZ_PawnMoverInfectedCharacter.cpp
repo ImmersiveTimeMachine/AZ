@@ -405,9 +405,9 @@ void AAZ_PawnMoverInfectedCharacter::BeginCorpse(float CollapseDuration)
 		return;
 	}
 
-	ASC->RemoveStateTag(CorpseTags.State_Infected_Aggressive);
-	ASC->RemoveStateTag(CorpseTags.State_Infected_Alerted);
-	ASC->AddStateTag(CorpseTags.State_Infected_Dormant);
+	ASC->SetStateTagEnabled(CorpseTags.State_Infected_Aggressive, false);
+	ASC->SetStateTagEnabled(CorpseTags.State_Infected_Alerted, false);
+	ASC->SetStateTagEnabled(CorpseTags.State_Infected_Dormant, true);
 	ASC->AddStateTag(CorpseTags.Character_Dying);
 	ApplyCorpseCollision(this);
 	ForceNetUpdate();

@@ -104,6 +104,8 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result) override;
+	virtual FPathFollowingRequestResult MoveTo(const FAIMoveRequest& MoveRequest, FNavPathSharedPtr* OutPath = nullptr) override;
+	virtual void FindPathForMoveRequest(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query, FNavPathSharedPtr& OutPath) const override;
 
 	// IGenericTeamAgentInterface (via AAIController) — perception affiliation asks THIS.
 	virtual ETeamAttitude::Type GetTeamAttitudeTowards(const AActor& Other) const override;
@@ -285,6 +287,8 @@ protected:
 	/** Escalation memory (see ArmInvestigation): rolling count of recent investigation arms. */
 	int32 RecentInvestigationCount = 0;
 	double LastInvestigationTimeSeconds = -1000.0;
+	double LastMoveFailureDiagnostic = -1000.0;
+	mutable double LastQueryFailureDiagnostic = -1000.0;
 
 	/** BT-task facing override (zero = none). See SetFacingOverrideWorld. */
 	FVector FacingOverrideWorld = FVector::ZeroVector;

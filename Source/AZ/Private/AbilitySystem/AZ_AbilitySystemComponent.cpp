@@ -411,6 +411,19 @@ void UAZ_AbilitySystemComponent::RemoveStateTag(const FGameplayTag& Tag)
 	}
 }
 
+void UAZ_AbilitySystemComponent::SetStateTagEnabled(const FGameplayTag& Tag, const bool bEnabled)
+{
+	if (!Tag.IsValid()) return;
+	const int32 Count = bEnabled ? 1 : 0;
+	// Publish before local delegates: a reentrant transition must be the final writer.
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		auto& Replicated = GetReplicatedLooseTags_Mutable();
+		if (Replicated.TagMap.FindRef(Tag) != Count) Replicated.SetTagCount(Tag, Count);
+	}
+	SetLooseGameplayTagCount(Tag, Count);
+}
+
 void UAZ_AbilitySystemComponent::OnWeaponEquipped(const FGameplayTag& NewWeaponTag)
 {
 	// Remove the old weapon state tag if it's valid
