@@ -1257,7 +1257,8 @@ void UAZ_Inv_CommonUI_InventoryGrid::CreateItemPopUp(const int32 GridIndex)
 
 	// A throwable is SPENT by throwing it, never drunk: it must not offer Consume even though it is stacked
 	// and spendable like one. Consume stays for real consumables only.
-	if (RightClickedItem->IsConsumable() && !RightClickedItem->IsThrowable())
+	if (RightClickedItem->IsConsumable() && !RightClickedItem->IsThrowable()
+		&& RightClickedItem->GetItemManifest().GetFragmentOfType<FAZ_Inv_CommonUI_ConsumableFragment>())
 	{
 		ItemPopUp->OnConsume.BindDynamic(this, &ThisClass::OnPopUpMenuConsume);
 	}

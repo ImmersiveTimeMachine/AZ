@@ -27,6 +27,10 @@ class AZ_API UAZ_Inv_CommonUI_ItemComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="AZ|Interaction", meta=(ClampMin="0", ClampMax="10"))
+	float PickupHoldDuration = 1.f;
+	class AAZ_InteractiveDoor* FindInteractionContainer() const;
+	bool IsAccessibleForPickup() const;
 	// Sets default values for this component's properties
 	UAZ_Inv_CommonUI_ItemComponent();
 	

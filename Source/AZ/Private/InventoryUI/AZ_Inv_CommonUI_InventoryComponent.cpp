@@ -1,4 +1,5 @@
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryComponent.h"
+#include "WorldInteraction/AZ_ObjectInspection.h"
 
 #include "Blueprint/UserWidget.h"
 #include "Engine/World.h"
@@ -730,14 +731,15 @@ void UAZ_Inv_CommonUI_InventoryComponent::TryAddItem(UAZ_Inv_CommonUI_ItemCompon
 bool UAZ_Inv_CommonUI_InventoryComponent::TryPickupItem(UAZ_Inv_CommonUI_ItemComponent* ItemComponent)
 {
     if (!GetOwner() || !GetOwner()->HasAuthority() || bMagazineReloadMutation ||
-        !IsValid(ItemComponent) || ItemComponent->HasBeenPickedUp()) return false;
+        !IsValid(ItemComponent) || ItemComponent->HasBeenPickedUp() || !ItemComponent->IsAccessibleForPickup()) return false;
     AActor* Pickup = ItemComponent->GetOwner();
+    if (const auto* Actions = Pickup ? Pickup->FindComponentByClass<UAZ_ObjectActionsComponent>() : nullptr; Actions && !Actions->Supports(EAZ_ObjectAction::Take)) return false;
     const auto* Controller = Cast<APlayerController>(GetOwner());
     const APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
     if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed() || !Pawn || Pickup->GetWorld() != GetWorld() ||
         FVector::DistSquared(Pawn->GetActorLocation(), Pickup->GetActorLocation()) > FMath::Square(MaximumPickupDistance)) return false;
     if (!Pawn->IsOverlappingActor(Pickup)) return false;
-    FCollisionQueryParams PickupQuery(SCENE_QUERY_STAT(InventoryPickupVisibility), false, Pawn);
+    FCollisionQueryParams PickupQuery(SCENE_QUERY_STAT(InventoryPickupVisibility), true, Pawn);
     FHitResult Obstruction;
     if (GetWorld()->LineTraceSingleByChannel(Obstruction, Pawn->GetPawnViewLocation(), Pickup->GetActorLocation(), ECC_Visibility, PickupQuery) &&
         Obstruction.GetActor() != Pickup) return false;

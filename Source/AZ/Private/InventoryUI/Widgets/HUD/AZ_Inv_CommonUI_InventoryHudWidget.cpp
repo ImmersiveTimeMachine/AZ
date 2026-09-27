@@ -14,6 +14,10 @@
 #include "Components/ScaleBox.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Blueprint/WidgetTree.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Components/PanelWidget.h"
+#include "Components/CanvasPanel.h"
+#include "UObject/UnrealType.h"
 #include "Engine/Texture2D.h"
 #include "GameFramework/PlayerController.h"
 #include "InventoryUI/Widgets/HUD/AZ_Inv_CommonUI_InfoMessage.h"
@@ -91,6 +95,18 @@ namespace
 void UAZ_Inv_CommonUI_InventoryHudWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	if (PickupHoldWidget) { PickupHoldWidget->RemoveFromParent(); PickupHoldWidget = nullptr; }
+	if (PickupHoldWidgetClass)
+		if (auto* Canvas = Cast<UCanvasPanel>(PickupContainer))
+		{
+			PickupHoldWidget = CreateWidget<UUserWidget>(GetOwningPlayer(), PickupHoldWidgetClass);
+			if (PickupHoldWidget)
+			{
+				auto* HoldSlot = Canvas->AddChildToCanvas(PickupHoldWidget);
+				HoldSlot->SetPosition(FVector2D(-40.f, 8.f)); HoldSlot->SetSize(FVector2D(32.f, 32.f));
+				PickupHoldWidget->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
 	bPresentedHealth = false;
 	PresentedWeaponId.Invalidate();
 	if (AmmoRoundsText && DefaultAmmoFontSize == 0) DefaultAmmoFontSize = AmmoRoundsText->GetFont().Size;
@@ -381,6 +397,7 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::RefreshInteractionPrompt()
 	}
 	// Keep the existing outer-HUD visibility owner; callback order is unchanged.
 	ShowElement(PickupContainer, true);
+	UpdateInteractionPromptPosition();
 }
 
 void UAZ_Inv_CommonUI_InventoryHudWidget::HidePickupMessage_Implementation()
@@ -515,3 +532,85 @@ void UAZ_Inv_CommonUI_InventoryHudWidget::HandleReticleChanged(const FAZ_PlayerR
 }
 
 #undef LOCTEXT_NAMESPACE
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::NativeTick(const FGeometry& Geometry, float DeltaSeconds)
+{
+	Super::NativeTick(Geometry, DeltaSeconds);
+	UpdateInteractionPromptPosition();
+	UpdatePickupHoldPresentation();
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::UpdateInteractionPromptPosition()
+{
+	if (!PickupContainer || !bInteractionPromptRequested) return;
+	const auto* Player = Cast<AAZ_PlayerController>(GetOwningPlayer());
+	FVector Point;
+	FVector2D ScreenPosition;
+	const auto* Input = UCommonInputSubsystem::Get(GetOwningLocalPlayer());
+	if (!Player || bInventoryOpen || (Input && !Input->ShouldShowInputKeys()) || !Player->GetFocusedInteractionPoint(Point)
+		|| !UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(const_cast<AAZ_PlayerController*>(Player), Point, ScreenPosition, false))
+	{ ShowElement(PickupContainer, false); return; }
+	UPanelWidget* Parent = PickupContainer->GetParent();
+	auto* PanelSlot = Cast<UCanvasPanelSlot>(PickupContainer->Slot);
+	if (!Parent || !PanelSlot) return;
+	const FGeometry Viewport = UWidgetLayoutLibrary::GetViewportWidgetGeometry(this);
+	const FVector2D Local = Parent->GetCachedGeometry().AbsoluteToLocal(Viewport.LocalToAbsolute(ScreenPosition));
+	const FVector2D Size = Parent->GetCachedGeometry().GetLocalSize();
+	if (Local.X < 0 || Local.Y < 0 || Local.X > Size.X || Local.Y > Size.Y)
+	{ ShowElement(PickupContainer, false); return; }
+	// Keep the key/action row next to the actual handle or item; never clamp a
+	// distant off-screen object into a misleading screen-edge interaction.
+	PanelSlot->SetAnchors(FAnchors(0.f, 0.f));
+	PanelSlot->SetAlignment(FVector2D(0.f, 0.5f));
+	PanelSlot->SetPosition(Local + FVector2D(14.f, 0.f));
+	if (InteractionActionPrompt)
+		if (auto* PromptSlot = Cast<UCanvasPanelSlot>(InteractionActionPrompt->Slot)) PromptSlot->SetAutoSize(true);
+	if (PickupText) PickupText->SetJustification(ETextJustify::Left);
+	ShowElement(PickupContainer, true);
+}
+
+void UAZ_Inv_CommonUI_InventoryHudWidget::UpdatePickupHoldPresentation()
+{
+	if (!PickupHoldWidget) return;
+	const auto* Player = Cast<AAZ_PlayerController>(GetOwningPlayer());
+	const float Progress = Player ? Player->GetPickupHoldProgress() : -1.f;
+	const bool bShowProgress = Progress >= 0.f && bInteractionPromptRequested;
+	ShowElement(PickupHoldWidget, bShowProgress);
+	// Interaction Essentials starts OV_Base at zero opacity in Construct.
+	// Showing the outer UserWidget alone does not reveal its internal renderer.
+	if (UFunction* VisibilityFunction = PickupHoldWidget->FindFunction(TEXT("UpdateVisibility")))
+	{
+		if (VisibilityFunction->ParmsSize == sizeof(bool))
+		{
+			struct { bool bVisible; } Parameters{bShowProgress};
+			PickupHoldWidget->ProcessEvent(VisibilityFunction, &Parameters);
+		}
+	}
+	if (Progress < 0.f) return;
+	// Cover the actual keycap, not an unrelated fixed spot beside the prompt.
+	// The imported progress renderer supplies the fill; only its shape is styled.
+	if (InteractionActionPrompt && PickupContainer)
+		if (UWidget* Keycap = InteractionActionPrompt->GetWidgetFromName(TEXT("Keycap")))
+			if (auto* ProgressSlot = Cast<UCanvasPanelSlot>(PickupHoldWidget->Slot))
+			{
+				const FGeometry& KeyGeometry = Keycap->GetCachedGeometry();
+				const FGeometry& ContainerGeometry = PickupContainer->GetCachedGeometry();
+				const FVector2D TopLeft = ContainerGeometry.AbsoluteToLocal(KeyGeometry.LocalToAbsolute(FVector2D::ZeroVector));
+				const FVector2D BottomRight = ContainerGeometry.AbsoluteToLocal(KeyGeometry.LocalToAbsolute(KeyGeometry.GetLocalSize()));
+				ProgressSlot->SetPosition(TopLeft);
+				ProgressSlot->SetSize(BottomRight - TopLeft);
+				ProgressSlot->SetZOrder(10);
+			}
+	// Adapter to the imported circular progress widget's verified public API.
+	// It receives real interaction progress; the pack does not own input or inventory.
+	if (auto* Property = FindFProperty<FDoubleProperty>(PickupHoldWidget->GetClass(), TEXT("CurrentPercent")))
+		Property->SetPropertyValue_InContainer(PickupHoldWidget, double(Progress));
+	if (UFunction* Function = PickupHoldWidget->FindFunction(TEXT("SetPercentParam")))
+	{
+		if (Function->ParmsSize == sizeof(double))
+		{
+			struct { double Value; } Parameters{double(Progress)};
+			PickupHoldWidget->ProcessEvent(Function, &Parameters);
+		}
+	}
+}

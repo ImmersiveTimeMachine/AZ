@@ -6,6 +6,8 @@
 #include "Components/Border.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Components/ScaleBox.h"
+#include "Components/ScaleBoxSlot.h"
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 #include "HAL/PlatformTime.h"
@@ -30,6 +32,16 @@ namespace
 		if (!Widget) return;
 		Widget->SetText(Text);
 		Widget->SetVisibility(Text.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+
+	void PlaceCardWidget(UWidget* Widget, FVector2D Position, FVector2D Size)
+	{
+		if (auto* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr)
+		{
+			CanvasSlot->SetAutoSize(false);
+			CanvasSlot->SetPosition(Position);
+			CanvasSlot->SetSize(Size);
+		}
 	}
 
 	// Inside the card the key badge covered the item icon. It now leaves the card at its top-right corner into
@@ -64,9 +76,9 @@ void UAZ_QuickSelectEntryWidget::NativeTick(const FGeometry& MyGeometry, float I
 void UAZ_QuickSelectEntryWidget::ApplyEntryView(const FAZ_QuickSelectEntryView& View)
 {
 	EntryView = View;
-	// Physical cards display the item name only, without a fixed slot/category heading.
+	// Names and descriptions live in the focus panel below the selector.
 	SetOptionalText(CategoryText, FText::GetEmpty());
-	SetOptionalText(NameText, ItemDetails || View.bEmpty ? FText::GetEmpty() : View.DisplayName);
+	SetOptionalText(NameText, FText::GetEmpty());
 	SetOptionalText(AmmoText, View.bEmpty ? FText::GetEmpty() : View.AmmoText);
 	SetOptionalText(KeyText, View.KeyText);
 	PlaceKeyBadge(GetWidgetFromName(TEXT("FN_SlotKeyPrompt")), View.Position);
@@ -124,6 +136,39 @@ void UAZ_QuickSelectEntryWidget::ApplyEntryView(const FAZ_QuickSelectEntryView& 
 		? 1.f : FMath::Clamp(UnavailableOpacity, 0.f, 1.f));
 	SetVisibility(ESlateVisibility::Visible);
 	OnEntryViewChanged(View);
+	// Keep cards visual after Blueprint styling and fragment assimilation.
+	// Do not clip the whole card: the shortcut badge intentionally sits outside it.
+	SetOptionalText(NameText, FText::GetEmpty());
+	if (ItemDetails)
+	{
+		ItemDetails->ApplyFunction([](UAZ_Inv_CommonUI_CompositeBaseWidget* Leaf)
+		{
+			if (auto* TextLeaf = Cast<UAZ_Inv_CommonUI_LeafWidget_Text>(Leaf))
+			{
+				TextLeaf->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		});
+	}
+	UWidget* IconHost = ItemDetails ? ItemDetails->GetWidgetFromName(TEXT("IconScale")) : GetWidgetFromName(TEXT("IconScale"));
+	if (auto* CanvasSlot = IconHost ? Cast<UCanvasPanelSlot>(IconHost->Slot) : nullptr)
+	{
+		CanvasSlot->SetAutoSize(false);
+		CanvasSlot->SetAnchors(FAnchors(.5f, .5f));
+		CanvasSlot->SetAlignment(FVector2D(.5f, .5f));
+		CanvasSlot->SetPosition(FVector2D::ZeroVector);
+		CanvasSlot->SetSize(FVector2D(88,56));
+	}
+	if (auto* Fit = Cast<UScaleBox>(IconHost))
+	{
+		Fit->SetStretch(EStretch::ScaleToFit);
+		Fit->SetStretchDirection(EStretchDirection::Both);
+		if (auto* ContentSlot = Cast<UScaleBoxSlot>(Fit->GetContentSlot()))
+		{
+			ContentSlot->SetHorizontalAlignment(HAlign_Center);
+			ContentSlot->SetVerticalAlignment(VAlign_Center);
+		}
+	}
+	PlaceCardWidget(StateText, FVector2D(8,50), FVector2D(44,15));
 }
 
 void UAZ_QuickSelectEntryWidget::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)

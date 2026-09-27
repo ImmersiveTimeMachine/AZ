@@ -6,6 +6,8 @@
 #include "GameFramework/Actor.h"
 #include "Game/AZ_CampaignWorldSubsystem.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "WorldInteraction/AZ_InteractiveDoor.h"
 
 #include "Net/UnrealNetwork.h"
 
@@ -208,4 +210,18 @@ void UAZ_Inv_CommonUI_ItemComponent::SetRemainingStackCount(int32 Count)
 	PickupStackCount = FMath::Max(0, Count);
 	if (auto* Stack = PickupItemManifest.GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>()) Stack->SetStackCount(PickupStackCount);
 	GetOwner()->ForceNetUpdate();
+}
+
+AAZ_InteractiveDoor* UAZ_Inv_CommonUI_ItemComponent::FindInteractionContainer() const
+{
+	if (!GetWorld() || !CampaignPickupId.IsValid()) return nullptr;
+	for (TActorIterator<AAZ_InteractiveDoor> It(GetWorld()); It; ++It)
+		if (!It->IsActorBeingDestroyed() && It->ContentPickupIds.Contains(CampaignPickupId)) return *It;
+	return nullptr;
+}
+
+bool UAZ_Inv_CommonUI_ItemComponent::IsAccessibleForPickup() const
+{
+	const auto* Container = FindInteractionContainer();
+	return !Container || Container->CanAccessContents();
 }

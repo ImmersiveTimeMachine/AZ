@@ -39,8 +39,10 @@ public:
 	void ShowTransientInfo(const FText& Message);
 
 protected:
+	UPROPERTY(EditDefaultsOnly, Category="AZ|HUD|Interaction") TSubclassOf<UUserWidget> PickupHoldWidgetClass;
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& Geometry, float DeltaSeconds) override;
 
 	/** BP forwards to the HQUI child's supported interface; it is not a UProgressBar. */
 	UFUNCTION(BlueprintImplementableEvent, Category="AZ|HUD")
@@ -76,6 +78,8 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UAZ_Inv_CommonUI_InfoMessage> InfoMessage;
 
 private:
+	UPROPERTY(Transient) TObjectPtr<UUserWidget> PickupHoldWidget;
+	void UpdatePickupHoldPresentation();
 	TWeakObjectPtr<UAZ_PlayerUIComponent> PlayerUI;
 	TWeakObjectPtr<UCommonInputSubsystem> InteractionInput;
 	TWeakObjectPtr<UEnhancedInputLocalPlayerSubsystem> InteractionMappings;
@@ -84,6 +88,7 @@ private:
 	FString LegacyInteractionEHint;
 	bool bInteractionPromptRequested = false;
 	void RefreshInteractionPrompt();
+	void UpdateInteractionPromptPosition();
 	void HandleInteractionInputChanged(ECommonInputType InputType);
 	UFUNCTION() void HandleInteractionMappingsRebuilt();
 	void UnbindInteractionPresentation();

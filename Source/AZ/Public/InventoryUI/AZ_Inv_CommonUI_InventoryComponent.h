@@ -224,7 +224,8 @@ private:
 	TMap<FGuid, TWeakObjectPtr<const UAZ_CraftRecipe>> CompletedCraftRequests;
 	bool BuildCraftPlan(const UAZ_CraftRecipe* Recipe,
 		TArray<TPair<UAZ_Inv_CommonUI_InventoryItem*, int32>>& OutConsumption,
-		TArray<FAZ_InventoryGridPlacement>& OutPlacements, int32& OutOutputIndex, FString& OutError) const;
+		TArray<FAZ_InventoryGridPlacement>& OutPlacements, int32& OutOutputIndex,
+		UAZ_Inv_CommonUI_InventoryItem*& OutOutputStack, FString& OutError) const;
 	bool bCampaignRestorePrepared = false;
 	bool bCampaignRestoreCommitted = false;
 	UPROPERTY(Transient) TArray<TObjectPtr<UAZ_Inv_CommonUI_InventoryItem>> CampaignStagedItems;

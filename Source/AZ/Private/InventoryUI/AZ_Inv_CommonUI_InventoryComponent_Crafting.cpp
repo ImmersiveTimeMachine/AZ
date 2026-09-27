@@ -62,12 +62,14 @@ bool IsSupportedCraftOutput(const FAZ_Inv_CommonUI_ItemManifest& Manifest, int32
 
 bool UAZ_Inv_CommonUI_InventoryComponent::BuildCraftPlan(const UAZ_CraftRecipe* Recipe,
 	TArray<TPair<UAZ_Inv_CommonUI_InventoryItem*, int32>>& OutConsumption,
-	TArray<FAZ_InventoryGridPlacement>& OutPlacements, int32& OutOutputIndex, FString& OutError) const
+	TArray<FAZ_InventoryGridPlacement>& OutPlacements, int32& OutOutputIndex,
+	UAZ_Inv_CommonUI_InventoryItem*& OutOutputStack, FString& OutError) const
 {
 	OutError.Reset();
 	OutConsumption.Reset();
 	OutPlacements.Reset();
 	OutOutputIndex = INDEX_NONE;
+	OutOutputStack = nullptr;
 	const auto Fail = [&OutError](const TCHAR* Message) { OutError = Message; return false; };
 	if (!GetOwner() || !GetOwner()->HasAuthority()) return Fail(TEXT("Crafting requires inventory authority."));
 	if (const auto* PC = Cast<AAZ_PlayerController>(GetOwner()); PC && PC->FindActiveThrow())
@@ -207,6 +209,40 @@ bool UAZ_Inv_CommonUI_InventoryComponent::BuildCraftPlan(const UAZ_CraftRecipe* 
 		}
 		if (Remaining != 0) return Fail(TEXT("Ingredient placements changed before crafting."));
 	}
+	// Prefer an existing compatible stack, just as pickup does. Keep its identity
+	// so assigned quick slots continue to refer to the same inventory item.
+	const auto& Output = Recipe->OutputManifest;
+	const auto* OutputStack = Output.GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();
+	const auto* OutputThrowable = Output.GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>();
+	const auto* OutputGrid = Output.GetFragmentOfType<FAZ_Inv_CommonUI_GridFragment>();
+	if (Output.IsStackable() && OutputStack)
+	{
+		for (auto* Candidate : Candidates)
+		{
+			if (!IsAvailable(Candidate) || !Candidate->IsStackable()
+				|| ConsumedItemIds.Contains(Candidate->GetInstanceId())
+				|| (Equipment && Equipment->GetActiveItem() == Candidate)) continue;
+			const auto& Existing = Candidate->GetItemManifest();
+			const auto* ExistingThrowable = Existing.GetFragmentOfType<FAZ_Inv_CommonUI_ThrowableFragment>();
+			const auto* ExistingGrid = Existing.GetFragmentOfType<FAZ_Inv_CommonUI_GridFragment>();
+			const auto* ExistingStack = Existing.GetFragmentOfType<FAZ_Inv_CommonUI_Stackable_Fragment>();
+			if (!IsSupportedCraftOutput(Existing, 1) || Existing.GetItemTypeTag() != Output.GetItemTypeTag()
+				|| Existing.GetItemCategory() != Output.GetItemCategory()
+				|| !ExistingThrowable || ExistingThrowable->ThrowableDefinition != OutputThrowable->ThrowableDefinition
+				|| !ExistingGrid || ExistingGrid->GetGridSize() != OutputGrid->GetGridSize()
+				|| !ExistingStack || ExistingStack->GetMaxStackSize() != OutputStack->GetMaxStackSize()) continue;
+			for (const auto& Placement : OutPlacements)
+			{
+				if (Placement.ItemId == Candidate->GetInstanceId()
+					&& Recipe->OutputCount <= ExistingStack->GetMaxStackSize() - Placement.StackCount)
+				{
+					OutOutputStack = Candidate;
+					OutOutputIndex = Placement.GridIndex;
+					return true;
+				}
+			}
+		}
+	}
 	const FIntPoint Grid = GetGridDimensions(Recipe->OutputManifest.GetItemCategory());
 	if (Grid.X <= 0 || Grid.Y <= 0 || int64(Grid.X) * Grid.Y > MaxCraftUnits)
 		return Fail(TEXT("Output grid is unsupported."));
@@ -226,7 +262,8 @@ bool UAZ_Inv_CommonUI_InventoryComponent::CanCraftRecipe(const UAZ_CraftRecipe* 
 	TArray<TPair<UAZ_Inv_CommonUI_InventoryItem*, int32>> Consumption;
 	TArray<FAZ_InventoryGridPlacement> Placements;
 	int32 OutputIndex = INDEX_NONE;
-	return BuildCraftPlan(Recipe, Consumption, Placements, OutputIndex, OutError);
+	UAZ_Inv_CommonUI_InventoryItem* OutputStack = nullptr;
+	return BuildCraftPlan(Recipe, Consumption, Placements, OutputIndex, OutputStack, OutError);
 }
 
 bool UAZ_Inv_CommonUI_InventoryComponent::TryCraftRecipe(const UAZ_CraftRecipe* Recipe,
@@ -247,29 +284,40 @@ bool UAZ_Inv_CommonUI_InventoryComponent::TryCraftRecipe(const UAZ_CraftRecipe* 
 	TArray<TPair<UAZ_Inv_CommonUI_InventoryItem*, int32>> Consumption;
 	TArray<FAZ_InventoryGridPlacement> Placements;
 	int32 OutputIndex = INDEX_NONE;
-	if (!BuildCraftPlan(Recipe, Consumption, Placements, OutputIndex, OutError)) return false;
+	UAZ_Inv_CommonUI_InventoryItem* OutputStack = nullptr;
+	if (!BuildCraftPlan(Recipe, Consumption, Placements, OutputIndex, OutputStack, OutError)) return false;
 
-	// Stage a fresh item and identity before touching any ingredient. Only output creation may
-	// run Manifest() randomization; existing inputs retain their exact manifest and state.
+	// Stage the destination before touching ingredients. A compatible stack keeps
+	// its manifest and identity; only a genuinely new output runs Manifest().
 	auto OutputManifest = Recipe->OutputManifest;
-	auto* OutputItem = OutputManifest.Manifest(GetOwner());
+	auto* OutputItem = OutputStack ? OutputStack : OutputManifest.Manifest(GetOwner());
 	if (!IsValid(OutputItem)) { OutError = TEXT("Could not create crafted item."); return false; }
-	FGuid OutputId;
-	for (int32 Attempt = 0; Attempt < 4; ++Attempt)
+	FGuid OutputId = OutputStack ? OutputStack->GetInstanceId() : FGuid();
+	if (!OutputStack)
 	{
-		OutputId = FGuid::NewGuid();
-		if (OutputId.IsValid() && !FindItemById(OutputId)) break;
+		for (int32 Attempt = 0; Attempt < 4; ++Attempt)
+		{
+			OutputId = FGuid::NewGuid();
+			if (OutputId.IsValid() && !FindItemById(OutputId)) break;
+		}
+		if (!OutputId.IsValid() || FindItemById(OutputId))
+		{ OutError = TEXT("Could not assign a unique crafted item ID."); return false; }
+		FAZ_InventoryItemState OutputState;
+		OutputState.InstanceId = OutputId;
+		OutputState.Location = EAZ_InventoryItemLocation::Backpack;
+		if (auto* Stack = OutputItem->GetItemManifestMutable().GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
+			Stack->SetStackCount(Recipe->OutputCount);
+		OutputItem->InitializeInstance(OutputState, Recipe->OutputCount);
+		if (!OutputItem->IsInitialized() || OutputItem->GetTotalStackCount() != Recipe->OutputCount)
+		{ OutError = TEXT("Crafted item initialization failed."); return false; }
 	}
-	if (!OutputId.IsValid() || FindItemById(OutputId))
-	{ OutError = TEXT("Could not assign a unique crafted item ID."); return false; }
-	FAZ_InventoryItemState OutputState;
-	OutputState.InstanceId = OutputId;
-	OutputState.Location = EAZ_InventoryItemLocation::Backpack;
-	if (auto* Stack = OutputItem->GetItemManifestMutable().GetFragmentOfTypeMutable<FAZ_Inv_CommonUI_Stackable_Fragment>())
-		Stack->SetStackCount(Recipe->OutputCount);
-	OutputItem->InitializeInstance(OutputState, Recipe->OutputCount);
-	if (!OutputItem->IsInitialized() || OutputItem->GetTotalStackCount() != Recipe->OutputCount)
-	{ OutError = TEXT("Crafted item initialization failed."); return false; }
+	else
+	{
+		auto* Placement = Placements.FindByPredicate([&](const auto& P)
+			{ return P.ItemId == OutputId && P.GridIndex == OutputIndex; });
+		if (!Placement) { OutError = TEXT("Craft output stack changed."); return false; }
+		Placement->StackCount += Recipe->OutputCount;
+	}
 
 	TArray<TStrongObjectPtr<UAZ_Inv_CommonUI_InventoryItem>> RemovedItems;
 	TStrongObjectPtr<UAZ_Inv_CommonUI_InventoryItem> KeepOutputAlive(OutputItem);
@@ -285,16 +333,23 @@ bool UAZ_Inv_CommonUI_InventoryComponent::TryCraftRecipe(const UAZ_CraftRecipe* 
 		else Entry.Key->SetTotalStackCount(Entry.Key->GetTotalStackCount() - Entry.Value);
 	}
 	GridPlacements = MoveTemp(Placements);
-	InventoryList.AddInventoryItem(OutputItem);
-	auto& OutputPlacement = GridPlacements.AddDefaulted_GetRef();
-	OutputPlacement.ItemId = OutputId;
-	OutputPlacement.GridIndex = OutputIndex;
-	OutputPlacement.StackCount = Recipe->OutputCount;
+	if (OutputStack)
+	{
+		OutputItem->SetTotalStackCount(OutputItem->GetTotalStackCount() + Recipe->OutputCount);
+	}
+	else
+	{
+		InventoryList.AddInventoryItem(OutputItem);
+		auto& OutputPlacement = GridPlacements.AddDefaulted_GetRef();
+		OutputPlacement.ItemId = OutputId;
+		OutputPlacement.GridIndex = OutputIndex;
+		OutputPlacement.StackCount = Recipe->OutputCount;
+	}
 	CompletedCraftRequests.Add(RequestId, TWeakObjectPtr<const UAZ_CraftRecipe>(Recipe));
 
 	// Receipt and every ownership/count/placement write precede reentrant listeners.
 	for (const auto& Removed : RemovedItems) OnItemRemoved.Broadcast(Removed.Get());
-	OnItemAdded.Broadcast(OutputItem);
+	if (!OutputStack) OnItemAdded.Broadcast(OutputItem);
 	}
 	// Refresh final availability after the mutation guard is released; callbacks above cannot
 	// reenter the transaction, while the final UI refresh must not get stuck on "action busy".
