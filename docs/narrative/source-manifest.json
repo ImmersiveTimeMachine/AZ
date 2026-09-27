@@ -1,0 +1,32 @@
+[
+  {
+    "name": "campaign-13-parts-v0.1.md",
+    "bytes": 36895,
+    "sha256": "9026830FB939BD5A5A7A3D4A19C40CF2EAF1A8EBDF35F62595EDC18511EC71DD"
+  },
+  {
+    "name": "chapter-01-evacuation-v0.1.md",
+    "bytes": 17232,
+    "sha256": "D35198D703C8D698647CA5065A668E4FD1259A0432AA31B2898BBE998E9035C2"
+  },
+  {
+    "name": "district-population-v0.1.md",
+    "bytes": 15438,
+    "sha256": "E984E2825606AAAFF5953ACDD4ABE34C4A964318B6A951C0CA5BD8A4A0ADBA1F"
+  },
+  {
+    "name": "prologue-v0.2.md",
+    "bytes": 11136,
+    "sha256": "143B0B7A3C74B95AA6989EC904CC3940B35CB85C9D970B6533482ADA4F33BC35"
+  },
+  {
+    "name": "README.md",
+    "bytes": 5765,
+    "sha256": "5192F4ADDA7BD5D66ACC4A127CE89BE4A016DF451B97AD2551D8415959134A37"
+  },
+  {
+    "name": "synopsis-en-ru.md",
+    "bytes": 7345,
+    "sha256": "1AA2A1B596B040301D9D0AF6E30048D8B02553AC28603CC9A9DBF0DA25BAC1CB"
+  }
+]
