@@ -9,6 +9,8 @@ being re-proposed.
 
 | brief | question |
 |---|---|
+| `weapon-grip-system.md` | Weapon Grip System design: constant hand-weapon relation -> grasp solved once per weapon (master grip / offline solver), runtime only body push-out, arms vs weapon, left reach, finger IK to markers; data model, node stages, validation thresholds, ruled-out list. |
+| `weapon-grip-system-plan.md` | WGS implementation plan: status table, delegation protocol, task cards (0.1-6.3) with exact files/APIs/acceptance for Sonnet, validation clip set, chooser row map. |
 | `quest-marker-presentation-next-task.md` | Next session: verified identical marker presets, ProHUD icon/font inventory, shared role/state styles across compass/world/Map/journal; review only, implementation deferred. |
 | `quest-map-implementation-progress.md` | Quest/Map/save integration compiled and saved; first user feedback and remaining gameplay acceptance. |
 | `quest-map-implementation-plan.md` | Authorized module plan: campaign+sidequests, full inventory Map, personal waypoint, ProHUD reuse, committed progress and save/load gates. |
