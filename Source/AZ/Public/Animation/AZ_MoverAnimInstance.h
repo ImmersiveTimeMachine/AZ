@@ -8,6 +8,7 @@
 #include "Animation/TrajectoryTypes.h"
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"   // FPoseSearchTrajectoryData (CMC-branch trajectory tuning)
 #include "AnimationWarpingTypes.h"                    // EOffsetRootBoneMode (OffsetRootBone node settings)
+#include "Animation/AnimNode_AZWeaponGrip.h"          // FAZ_WeaponGripMarkers
 #include "AZ_MoverAnimInstance.generated.h"
 
 class AAZ_CmcCharacterBase;
@@ -134,6 +135,35 @@ public:
 	 *  mantle variant authored for that foot: entering a moving mantle on the wrong foot reads as a
 	 *  skipped step, because the clip starts by pushing off the foot it expects to be planted. */
 	bool IsLeftFootDown() const { return ChooserContext.bLeftFootDown; }
+
+	// ============ WEAPON GRIP (AZ Weapon Grip node: left hand IK + fingers onto the held weapon) ============
+	// Gathered on the game thread from the equipped weapon (AAZ_Weapon::GripPose + its LeftHandGrip socket). The
+	// target is RELATIVE TO THE BONE THE WEAPON HANGS ON, so the node resolves it against the current pose (no lag).
+
+	/** The held weapon's grip pose (null = no grip). Bind to the node's Grip Pose pin. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
+	TObjectPtr<UAnimSequence> WeaponGripPose = nullptr;
+
+	/** hand_l grip target relative to WeaponGripBone. Bind to Left Hand In Weapon Bone. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
+	FTransform WeaponGripLeftHandInBone = FTransform::Identity;
+
+	/** Bone the held weapon is attached to (its attach socket's bone, e.g. az_weapon_r). Bind to Weapon Bone Name. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
+	FName WeaponGripBone = NAME_None;
+
+	/** 0..1, eased: a weapon with grip data is in the hands. Bind to Grip Alpha. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
+	float WeaponGripAlpha = 0.f;
+
+	/** WeaponGripAlpha ease rate (per second). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0"))
+	float WeaponGripBlendSpeed = 6.f;
+
+	/** The held weapon's fingertip + stock markers relative to WeaponGripBone (AAZ_Weapon::GetGripMarkersInBone).
+	 *  Bind to the node's Markers pin. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
+	FAZ_WeaponGripMarkers WeaponGripMarkers;
 
 	// ============ GRAB HAND-IK (idle + hands pinned on the grabber — user design 2026-07-24) ============
 	// The grabbed hold plays NO montage: base idle + two TwoBoneIK nodes in the AnimGraph pin the hero's

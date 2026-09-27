@@ -6,7 +6,7 @@ public class AZ : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "GameplayTags", "AIModule", "NavigationSystem", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory", "Mover", "NetworkPrediction", "Chooser", "StructUtils", "AssetRegistry", "BlendStack", "AnimationWarpingRuntime", "AnimGraphRuntime", "MotionWarping" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NetCore", "GameplayAbilities", "GameplayTags", "AIModule", "NavigationSystem", "CommonUI", "CommonInput", "PoseSearch", "MotionTrajectory", "Mover", "NetworkPrediction", "Chooser", "StructUtils", "AssetRegistry", "BlendStack", "AnimationWarpingRuntime", "AnimGraphRuntime", "MotionWarping", "AnimationCore" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"ApplicationCore", // Local input-device pairing and connection notifications.

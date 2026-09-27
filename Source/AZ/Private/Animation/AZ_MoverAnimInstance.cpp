@@ -40,6 +40,7 @@ static TAutoConsoleVariable<int32> CVarAZSlotsDebug(
 #include "AnimationWarpingLibrary.h"
 #include "Equipment/Components/AZ_Inv_CommonUI_EquipmentComponent.h"
 #include "GameFramework/Controller.h"
+#include "Weapon/AZ_Weapon.h"
 #include "AbilitySystemComponent.h"
 #include "AZ_GameplayTags.h"
 #include "BlendStack/BlendStackAnimNodeLibrary.h"
@@ -421,6 +422,40 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		}
 	}
 	ActiveWeaponAnimationProfile = NewWeaponProfile;
+
+	// ============================== WEAPON GRIP GATHER ==============================
+	// The held weapon (attached at its Relaxed/Aim socket, not the carry socket) with grip data -> the AZ Weapon Grip
+	// node's inputs. The target is expressed relative to the bone the weapon hangs on; while the weapon stays on that
+	// socket it is a constant, and the node applies it to the CURRENT pose of that bone.
+	{
+		float TargetGripAlpha = 0.f;
+		const APawn* GripPawn = TryGetPawnOwner();
+		// The equipment component lives on the CONTROLLER (same lookup as the profile gather above), not on the pawn.
+		const AController* GripController = GripPawn ? GripPawn->GetController() : nullptr;
+		const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GripController ? GripController->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+		if (const AAZ_Weapon* Weapon = Equipment ? Equipment->GetActiveWeapon() : nullptr)
+		{
+			const USceneComponent* WeaponRoot = Weapon->GetRootComponent();
+			const USkeletalMeshComponent* AttachMesh = WeaponRoot ? Cast<USkeletalMeshComponent>(WeaponRoot->GetAttachParent()) : nullptr;
+			const FName AttachSocket = WeaponRoot ? WeaponRoot->GetAttachSocketName() : NAME_None;
+			const bool bInHands = AttachMesh && (AttachSocket == Weapon->RelaxedSocketName || AttachSocket == Weapon->AimSocketName);
+			const FName AttachBone = bInHands ? AttachMesh->GetSocketBoneName(AttachSocket) : NAME_None;
+			FTransform LeftHandInBone;
+			if (Weapon->GripPose && AttachBone != NAME_None && Weapon->GetLeftHandGripInBone(AttachMesh, AttachBone, LeftHandInBone))
+			{
+				WeaponGripPose = Weapon->GripPose;
+				WeaponGripLeftHandInBone = LeftHandInBone;
+				WeaponGripBone = AttachBone;
+				Weapon->GetGripMarkersInBone(AttachMesh, AttachBone, WeaponGripMarkers);
+				TargetGripAlpha = 1.f;
+			}
+		}
+		WeaponGripAlpha = FMath::FInterpConstantTo(WeaponGripAlpha, TargetGripAlpha, DeltaSeconds, WeaponGripBlendSpeed);
+		if (WeaponGripAlpha <= 0.f && TargetGripAlpha <= 0.f)
+		{
+			WeaponGripPose = nullptr;       // keep the last pose while fading out, drop it once fully off
+		}
+	}
 
 	// ============================== GRAB HAND-IK GATHER ==============================
 	// Grabbed hold = base IDLE + hands pinned onto the grabber (two TwoBoneIK nodes near the AnimGraph

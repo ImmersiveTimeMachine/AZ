@@ -120,6 +120,33 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Sockets")
 	FName LeftHandGripSocket{ TEXT("LeftHandGrip") };
 
+	/** Weapon grip pose (Tools/az_grip_solve2.py -> e.g. /Game/AZ/Blueprints/Animation/WeaponGrip/AS_Grip_Winchester):
+	 *  a 1-frame pose whose finger bones hold THIS weapon. With LeftHandGripSocket on the weapon's mesh it drives the
+	 *  hero's AZ Weapon Grip anim node (left hand IK + both hands' fingers). Null = no grip (old behaviour). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
+	TObjectPtr<UAnimSequence> GripPose = nullptr;
+
+	/** The left hand's grip target (the hand_l transform stored in LeftHandGripSocket) relative to BoneName of
+	 *  CharMesh. Searches this weapon's components for the first one that owns LeftHandGripSocket (static or skeletal
+	 *  mesh). False when there is none. */
+	bool GetLeftHandGripInBone(const USkeletalMeshComponent* CharMesh, FName BoneName, FTransform& OutInBone) const;
+
+	/** Stock segment markers (sockets on the weapon mesh): the capsule StockFrontSocket -> StockButtSocket, radius
+	 *  StockRadius, keeps the arm out of the stock (AZ Weapon Grip node). No sockets = no avoidance. */
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Grip")
+	FName StockFrontSocket{ TEXT("StockFront") };
+
+	UPROPERTY(EditAnywhere, Category = "AZ|Weapon|Grip")
+	FName StockButtSocket{ TEXT("StockButt") };
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip", meta = (ClampMin = "0"))
+	float StockRadius = 2.5f;
+
+	/** Grip markers relative to BoneName of CharMesh: fingertip pads (sockets Grip_<L|R>_<Thumb|Index|Middle|Ring|Pinky>)
+	 *  and the stock segment. Sockets are searched on every component of this weapon; a missing one switches that
+	 *  finger's IK (or the stock avoidance) off. */
+	void GetGripMarkersInBone(const USkeletalMeshComponent* CharMesh, FName BoneName, struct FAZ_WeaponGripMarkers& Out) const;
+
 	/** Optional weapon-mesh mechanism clip (for example, a pistol slide), played once per accepted shot.
 	 *  Uses single-node animation on WeaponMesh3P; leave unset for weapons driven by their own AnimBP. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Fire")

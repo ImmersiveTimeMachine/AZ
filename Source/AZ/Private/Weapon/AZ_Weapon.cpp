@@ -23,6 +23,7 @@
 #include "GameFramework/Pawn.h"
 #include "InventoryUI/Items/Fragments/AZ_Inv_CommonUI_ItemFragment.h"
 #include "InventoryUI/AZ_Inv_CommonUI_InventoryItem.h"
+#include "Animation/AnimNode_AZWeaponGrip.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "NiagaraFunctionLibrary.h"
@@ -1361,3 +1362,60 @@ void AAZ_Weapon::Tick(float DeltaTime)
 	WeaponMesh3P->SetRelativeTransform(MeshOffset);
 }
 
+bool AAZ_Weapon::GetLeftHandGripInBone(const USkeletalMeshComponent* CharMesh, FName BoneName, FTransform& OutInBone) const
+{
+	if (!CharMesh || BoneName == NAME_None || LeftHandGripSocket == NAME_None)
+	{
+		return false;
+	}
+	TInlineComponentArray<USceneComponent*> Components(this);
+	for (const USceneComponent* Component : Components)
+	{
+		if (Component && Component->DoesSocketExist(LeftHandGripSocket))
+		{
+			const FTransform GripWorld = Component->GetSocketTransform(LeftHandGripSocket, RTS_World);
+			const FTransform BoneWorld = CharMesh->GetSocketTransform(BoneName, RTS_World);
+			OutInBone = GripWorld.GetRelativeTransform(BoneWorld);
+			return true;
+		}
+	}
+	return false;
+}
+
+
+void AAZ_Weapon::GetGripMarkersInBone(const USkeletalMeshComponent* CharMesh, FName BoneName, FAZ_WeaponGripMarkers& Out) const
+{
+	static const FName FingerSockets[10] = {
+		TEXT("Grip_L_Thumb"), TEXT("Grip_L_Index"), TEXT("Grip_L_Middle"), TEXT("Grip_L_Ring"), TEXT("Grip_L_Pinky"),
+		TEXT("Grip_R_Thumb"), TEXT("Grip_R_Index"), TEXT("Grip_R_Middle"), TEXT("Grip_R_Ring"), TEXT("Grip_R_Pinky") };
+	Out.FingerTargets.SetNumZeroed(UE_ARRAY_COUNT(FingerSockets));
+	Out.FingerMask = 0;
+	Out.bHasStock = false;
+	Out.StockRadius = StockRadius;
+	if (!CharMesh || BoneName == NAME_None)
+	{
+		return;
+	}
+	const FTransform BoneWorld = CharMesh->GetSocketTransform(BoneName, RTS_World);
+	TInlineComponentArray<USceneComponent*> Components(this);
+	auto FindInBone = [&Components, &BoneWorld](FName Socket, FVector& OutInBone)
+	{
+		for (const USceneComponent* Component : Components)
+		{
+			if (Component && Socket != NAME_None && Component->DoesSocketExist(Socket))
+			{
+				OutInBone = BoneWorld.InverseTransformPosition(Component->GetSocketLocation(Socket));
+				return true;
+			}
+		}
+		return false;
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(FingerSockets); ++Index)
+	{
+		if (FindInBone(FingerSockets[Index], Out.FingerTargets[Index]))
+		{
+			Out.FingerMask |= 1 << Index;
+		}
+	}
+	Out.bHasStock = FindInBone(StockFrontSocket, Out.StockFront) && FindInBone(StockButtSocket, Out.StockButt);
+}

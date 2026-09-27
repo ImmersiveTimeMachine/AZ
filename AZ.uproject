@@ -16,6 +16,11 @@
 				"EnhancedInput",
 				"CoreUObject"
 			]
+		},
+		{
+			"Name": "AZEditor",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
