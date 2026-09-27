@@ -8,6 +8,7 @@
 #include "AbilitySystem/GameplayEffects/AZ_GE_Damage.h"
 #include "AZ_GameplayTags.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 #include "NiagaraComponent.h"
@@ -16,6 +17,10 @@
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Particles/ParticleSystemComponent.h"
+#include "Particles/ParticleSystem.h"
+#include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleLODLevel.h"
+#include "Particles/ParticleModuleRequired.h"
 
 namespace
 {
@@ -75,6 +80,7 @@ void UAZ_BurningComponent::Ignite(const UAZ_ThrowableDefinition* InDefinition,
 	if (!bWasBurning)
 	{
 		RefreshVisuals();
+		UE_LOG(LogTemp, Log, TEXT("[Burn] ignited %s duration=%.1f"), *GetNameSafe(Owner), InDefinition->BurnDuration);
 		World->GetTimerManager().SetTimer(BurnTimer, this, &ThisClass::BurnStep,
 			BurnStepSeconds, true, BurnStepSeconds);
 	}
@@ -157,7 +163,8 @@ void UAZ_BurningComponent::OnRep_BurningState()
 
 void UAZ_BurningComponent::RefreshVisuals()
 {
-	if (BurningParticles) { BurningParticles->DestroyComponent(); BurningParticles = nullptr; }
+	for (UParticleSystemComponent* Particles : BurningParticles) if (IsValid(Particles)) Particles->DestroyComponent();
+	BurningParticles.Reset();
 	if (BurningEffect)
 	{
 		BurningEffect->DestroyComponent();
@@ -167,13 +174,51 @@ void UAZ_BurningComponent::RefreshVisuals()
 	if (!bBurning || !IsValid(VisualDefinition)
 		|| !IsValid(Owner) || !Owner->GetRootComponent()) return;
 	if (GetNetMode() == NM_DedicatedServer) return;
+	USkeletalMeshComponent* Body = Owner->FindComponentByClass<USkeletalMeshComponent>();
+	USceneComponent* AttachTo = Body ? Body : Owner->GetRootComponent();
+	const FName TorsoSocket = Body && Body->DoesSocketExist(TEXT("spine_02")) ? FName(TEXT("spine_02")) : NAME_None;
 	if (VisualDefinition->BurningTargetEffect) BurningEffect = UNiagaraFunctionLibrary::SpawnSystemAttached(
-		VisualDefinition->BurningTargetEffect, Owner->GetRootComponent(), NAME_None,
+		VisualDefinition->BurningTargetEffect, AttachTo, TorsoSocket,
 		FVector::ZeroVector, FRotator::ZeroRotator, EAttachLocation::KeepRelativeOffset, false);
 	else if (VisualDefinition->BurningTargetParticles)
-		BurningParticles = UGameplayStatics::SpawnEmitterAttached(VisualDefinition->BurningTargetParticles,
-			Owner->GetRootComponent(), NAME_None, FVector(0,0,-45), FRotator::ZeroRotator, FVector(0.65f),
-			EAttachLocation::KeepRelativeOffset, false);
+	{
+		if (BodyParticleSource != VisualDefinition->BurningTargetParticles || !BodyParticleTemplate)
+		{
+			BodyParticleSource = VisualDefinition->BurningTargetParticles;
+			BodyParticleTemplate = DuplicateObject<UParticleSystem>(BodyParticleSource, this);
+			if (!BodyParticleTemplate) return;
+			// A private body effect follows animation; the shared campfire asset stays unchanged.
+			for (UParticleEmitter* Emitter : BodyParticleTemplate->Emitters)
+			{
+				if (!Emitter) continue;
+				const FString Name = Emitter->GetEmitterName().ToString();
+				for (UParticleLODLevel* LOD : Emitter->LODLevels)
+				{
+					if (!LOD || !LOD->RequiredModule) continue;
+					LOD->RequiredModule->bUseLocalSpace = true;
+					if (Name.Contains(TEXT("Spark")) || Name.Contains(TEXT("Ember"))) LOD->bEnabled = false;
+				}
+			}
+		}
+		const auto SpawnBodyFlame = [&](USceneComponent* Parent, FName Socket, FVector Offset, float Scale)
+		{
+			if (auto* Particles = UGameplayStatics::SpawnEmitterAttached(BodyParticleTemplate, Parent, Socket,
+				Offset, FRotator::ZeroRotator, FVector(Scale), EAttachLocation::KeepRelativeOffset, false))
+			{
+				Particles->SetAbsolute(false, true, true);
+				Particles->SetWorldRotation(FRotator::ZeroRotator);
+				Particles->SetWorldScale3D(FVector(Scale));
+				BurningParticles.Add(Particles);
+			}
+		};
+		if (Body && Body->DoesSocketExist(TEXT("pelvis")))
+		{
+			SpawnBodyFlame(Body, TEXT("pelvis"), FVector::ZeroVector, .55f);
+			if (!TorsoSocket.IsNone()) SpawnBodyFlame(Body, TorsoSocket, FVector::ZeroVector, .45f);
+		}
+		else SpawnBodyFlame(Owner->GetRootComponent(), NAME_None, FVector(0,0,-35), .65f);
+		UE_LOG(LogTemp, Log, TEXT("[Burn] body visuals %s anchors=%d"), *GetNameSafe(Owner), BurningParticles.Num());
+	}
 }
 
 void UAZ_BurningComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

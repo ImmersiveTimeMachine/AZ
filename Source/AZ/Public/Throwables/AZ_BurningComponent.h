@@ -11,6 +11,7 @@ class APawn;
 class UAZ_ThrowableDefinition;
 class UNiagaraComponent;
 class UParticleSystemComponent;
+class UParticleSystem;
 
 /** One authority-owned, refreshable burn per actor. Damage remains on the shared GAS vitals path. */
 UCLASS(ClassGroup=(AZ), BlueprintType, meta=(BlueprintSpawnableComponent))
@@ -48,7 +49,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UNiagaraComponent> BurningEffect;
-	UPROPERTY(Transient) TObjectPtr<UParticleSystemComponent> BurningParticles;
+	UPROPERTY(Transient) TArray<TObjectPtr<UParticleSystemComponent>> BurningParticles;
+	UPROPERTY(Transient) TObjectPtr<UParticleSystem> BodyParticleTemplate;
+	UPROPERTY(Transient) TObjectPtr<UParticleSystem> BodyParticleSource;
 
 	TWeakObjectPtr<APawn> SourceThrower;
 	TWeakObjectPtr<AActor> SourceFire;
