@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-09-26T17:59:55.741Z
+  modified: 2026-09-26T22:49:08.341Z
 ---
 
 **Architecture (agreed with Artur 2026-09-25, after he first proposed an ARP proxy rig in Blender):**
@@ -97,6 +97,63 @@ LeftHandGrip socket + auto-generated finger grip pose (close fingers to contact 
 shared with other agents). Capture traps: `unreal.Rotator(a,b,c)` is (roll, pitch, yaw) - use keywords; capture_scene
 and export_render_target must be in SEPARATE calls; a paused pose needs animation_data reset + set_animation, not just
 set_position.
+**★★★ WEAPON GRIP SYSTEM - user chose the universal runtime grip (2026-09-26), PILOT on the Winchester in progress.**
+Design (industry/Lyra style): body anims shared; per WEAPON: mesh socket LeftHandGrip (= hand_l target, weapon-model
+space) + a 1-frame grip pose (finger local rotations, both hands); per CLIP: curves AZ_Grip_L / AZ_Grip_R; runtime
+(hero ABP, NOT built yet): LayeredBlendPerBone on finger branches from the grip pose (weights = curves) + TwoBoneIK
+hand_l with effector in BoneSpace az_weapon_r (current frame, no lag) + maintain effector rel rot. Rejected: per-clip
+Blender (x clips x weapons, dies on runtime blends), per-finger IK markers (VR style), fitting our guns to the pack
+props (not universal: 1 pack, 4 guns, MH hands differ).
+Done: Tools/az_grip_export.py (reference hold -> weapon-model space) -> Tools/az_grip_solve.py (plain Python: palm rest
++ per-finger close/open to contact on the TRIANGLES, ray-parity inside test) -> Tools/az_grip_apply.py (MODE assets |
+curves | preview). Winchester: LeftHandGrip socket on SM_Winchester_Whole, RightHandWinchesterSocket moved 3 mm (palm
+rest), AS_Grip_Winchester at /Game/AZ/Blueprints/Animation/WeaponGrip (git). Curves in all 446 master clips (L = pack
+palm on pack gun; R = az_weapon_r local ~ identity, tolerant to the lever rock - proximity was WRONG for R: loading
+shells keeps the hand at the gun). Previews (runtime math baked offline) in /Game/AZ/Assets/Master/GripPreview
+(Idle00, Walk_F, Shoot_Winch, Reload_Winch). Check on Idle00 (not the solve clip): left palm/fingers 0..0.1 cm,
+right middle/ring -0.5/-0.7 (lever loop). Next: user review -> C++ (AAZ_Weapon grip pose field, anim instance
+target/alphas) + hero ABP nodes (ask about other agents first) + Winchester weapon BP to test in PIE.
+User review round 2 (level pairs AZ_GRIPVIEW_* = ORIGINAL vs NEW GRIP, scratchpad az_grip_view.py; screenshots were
+useless - "поставь в левеле, я сам посмотрю"): (1) right thumb touched the receiver/sight with its tip instead of
+wrapping the wrist -> the right hand sat 3 cm too far forward (pack: palm 5-6 cm behind the receiver) ->
+AZ_GRIP_RIGHT_SLIDE 0,-3,0; (2) the gun was ROLLED 18.5 deg about the barrel vs the pack gun (up axes compared in
+the hand frame) -> AZ_GRIP_ROLL -18.5, solver rolls both hands about the barrel through the wrist centre, socket gets
+the rotation; (3) left thumb stuck out: the old "close all joints until ANY point touches" stops at the base ->
+solver v3 = per finger 2 params (base a, middle b, last 0.7b), limits a -30..45, b -20..60, cost 100*penetration^2 +
+2*tip-gap^2 + 1.5e-4*(a^2+b^2), coarse grid + refine (41 s). Result: roll fixed, both thumbs + index touch; middle/
+ring/pinky still 0.6-1.1 cm inside on the underside (our forearm/wrist much thicker than the pack gun) -> candidate
+for the planned Blender touch-up of the one grip pose. Previews re-baked in place (preview() reads the master clip).
+**ADAPTIVE GRASP (user-approved plan 2026-09-26, "проработай план и начинай"):** pack mocap fingers are NOT contact-
+exact even on their own gun (pack L fingers float 0.4-1.7 cm, R ring/pinky 0.5-0.7 cm in) -> grips must be BUILT from
+the weapon's geometry. Tools/az_grip_solve2.py: palm = skin points (bone lines + 1 cm towards the palm side, palm
+normal signed by where curled tips go) pushed along the normal to touch; fingers from the OPEN reference pose, per
+finger search over base a / middle b (last = 0.75b) with per-joint flexion axes taken from ref->mocap rotation,
+cost 400*pen^2 + 3*sum(seg gap^2 * (0.6,1,1.4)) + 2e-4*dist-to-mocap-curl -> all phalanges -0.13..+0.8 cm on the
+Winchester (v1 "close until any touch" left tip-only contacts; v3 anatomical search left straight fingers). Reference
+export v2 = CURRENT socket (roll/slide already in it) -> Saved/az_grip_reference_v2.json. Assets written 22:18.
+Stage 3 (runtime) started: FAnimNode_AZWeaponGrip (Source/AZ/.../AnimNode_AZWeaponGrip.h/.cpp: left arm
+SolveTwoBoneIK to LeftHandInWeaponBone * CS(weapon bone) = current frame, hand rotation set, fingers slerped to the
+grip pose sampled by bone name, per-hand alpha = GripAlpha * curve AZ_Grip_L/R or DefaultHandAlpha) + NEW editor
+module Source/AZEditor (UncookedOnly; UAnimGraphNode_AZWeaponGrip, template = AnimationWarping SlopeWarping). Sonnet
+subagent does the edits to existing files from docs/agent-tasks/weapon-grip-runtime-integration.md (AZ.Build.cs
++AnimationCore, AZ.uproject module, AZEditor.Target.cs, AAZ_Weapon::GripPose + GetLeftHandGripInBone, MoverAnimInstance
+WeaponGrip* props + gather after ActiveWeaponAnimationProfile). Needs a FULL rebuild (new module + headers).
+Test weapon plan: AZ_BP_Rifle (root PickupSphere; static Mesh + WeaponMesh3P M16, all identity) -> AZ_BP_Winchester
+(Mesh = SM_Winchester_Whole, WeaponMesh3P hidden, sockets RightHandWinchesterSocket), DA_Item_Winchester, pickup.
+GetLeftHandGripInBone must skip hidden components (M16 may carry its own LeftHandGrip). ABP insertion point: before
+the interaction Control Rig near the output of AZ_ABP_MoverHero_MHC (ask the user about other agents first).
+**Runtime grip BUILT + wired 2026-09-26 (user full build 18:35 local OK, AZEditor.dll exists):** Sonnet's edits
+verified by diff (7 files, additive). Hero ABP AZ_ABP_MoverHero_MHC: node "AZ Weapon Grip" (GUID 4B1C87F8...) between
+the feet Control Rig (2B5F62E6) and the interaction Control Rig (4A824B68); L2C/C2L auto-inserted by TryCreateConnection
+(utility ConnectPoseLink only finds an output named "Pose" - connecting a local pose to a CS pin makes the schema add
+conversions); pins bound to WeaponGripPose / WeaponGripLeftHandInBone / WeaponGripBone / WeaponGripAlpha. ABP NOT
+compiled from Python - user compiles (Ctrl+F7) + saves. The ABP already had someone's uncommitted change (09-22).
+AZ_BP_Winchester (git): Mesh=SM_Winchester_Whole, WeaponMesh3P mesh cleared (no muzzle socket yet), sockets
+RightHandWinchesterSocket, GripPose=AS_Grip_Winchester. Level (NOT saved by me): AZ_Winchester_Pickup_TEST at
+(270,-50,240) = duplicate of the rifle pickup BPAZ_CommonUI_PickupItem, manifest WeaponStateFragment.WeaponActorClass
+set to AZ_BP_Winchester_C by a cpp harness (TU deleted), M16 display cleared. AnimationProfile still the rifle's (M16
+anims) -> no AZ_Grip curves -> DefaultHandAlpha 1 all the time in hands, incl. M16 reload montages (left hand stays on
+the forearm) - known pilot limitation; fix = curves on the M16 montages or wire the RifleMega set.
 **Fingers inside our Winchester (thicker forearm/stock wrist than the pack gun) - 2026-09-26:** measured on triangles
 (ray-parity inside test): L fingers 0.5-1.8 cm in, R middle/ring 1.5 cm. Moving/rotating the socket only shifts the
 problem between hands (random-search optimizer: fix one hand, the other palm floats 2.6 cm) - the gun is thicker than
@@ -185,3 +242,7 @@ print() is returned) - no Blender MCP is registered in Claude Code. MH armature 
 along the bone; the root bone became the armature object). ARP rig `rig` is NOT matched: refs ~3 cm off, deform ~22 cm,
 subneck above the head, object scale 0.9748. ARP can only ever be a control layer: its deform bones have their own axes
 and a non-chain hierarchy, so it can't be the 1:1 skeleton.
+
+**2026-09-27 RUNTIME GRIP v2 (user asked for finger IK to markers):** FAnimNode_AZWeaponGrip now does (1) fingertip IK: pads onto weapon sockets Grip_<L|R>_<Thumb|Index|Middle|Ring|Pinky> (FAZ_WeaponGripMarkers pin `Markers`, bound to UAZ_MoverAnimInstance::WeaponGripMarkers, gathered by AAZ_Weapon::GetGripMarkersInBone); 2 params per finger (base, middle; tip = DistalRatio*middle) about flexion axes = grip pose vs ref pose, damped Gauss-Newton, FingerIKMaxChangeDeg 45; (2) right arm swing about shoulder->hand axis until forearm (r 5, first 70%) / upper arm (r 6) clear the stock capsule StockFront->StockButt (AAZ_Weapon::StockRadius 2.5). Built 00:23 local. SK_Winchester markers from the solver (Tools/az_grip_solve2.py now outputs finger_tips); Grip_R_Middle (-14.5 Y) is a bad straight-finger result - user to fix by eye. Stock markers (-0.44,-30,8)->(-0.42,-62,8). Tools/az_grip_refit.py = one-click finger re-solve (fingers only, keeps hands). Weak spot: flexion axes from small grip angles are noisy - if fingers twist, put the mocap curl as frame 1 of the grip pose and derive axes from it.
+
+**Design review of option 4 (grip component + solver), 2026-09-27, user asked "is the idea workable" (not a run):** verdict workable WITH a correction - while held, the hand-weapon relation is CONSTANT in every clip (right hand rigid on the socket, left hand IK-pinned to LeftHandGrip), so per-frame finger contact solving recomputes the same pose: heavy contact math belongs OFFLINE (exact triangles, per-part union / winding-number inside test because Base/Elit shells overlap, per-skeleton flexion axes, dedicated thumb model, optional Blender template as prior). Runtime = what changes per frame: weapon push-out from torso/legs (move the whole two-hand assembly, allow stock-shoulder contact in ADS), both arms vs weapon (elbow swing), left arm reach, blend in reload/draw, marker IK for live authoring. The component = data asset + clothing inflation + status/debug + validation; the correction itself must run inside the AnimGraph (a game-thread component cannot fix the evaluated pose without lag). Runtime weapon collision = marker capsules, SDF only offline. Open risks: thumb, flexion axes, sweater/backpack thickness vs PhysicsAsset, ADS shoulder zone, pistol hand-on-hand. Proof run when UE is back: export ~10 clips arm/torso/weapon transforms, measure penetration.
