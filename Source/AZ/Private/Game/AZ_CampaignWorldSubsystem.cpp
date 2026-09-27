@@ -1,4 +1,5 @@
 #include "Game/AZ_CampaignWorldSubsystem.h"
+#include "WorldInteraction/AZ_InteractiveDoor.h"
 #include "InventoryUI/AZ_Inv_CommonUI_ItemComponent.h"
 #include "Throwables/AZ_ThrowableProjectile.h"
 #include "Weapon/AZ_Weapon.h"
@@ -91,6 +92,17 @@ bool UAZ_CampaignWorldSubsystem::Capture(FAZ_CampaignWorldSnapshot& Out, FString
 	Out = FAZ_CampaignWorldSnapshot();
 	Records.GenerateValueArray(Out.Pickups);
 	Out.Facts = Facts;
+	TSet<FGuid> DoorIds;
+	for (TActorIterator<AAZ_InteractiveDoor> It(GetWorld()); It; ++It)
+	{
+		if (It->IsActorBeingDestroyed()) continue;
+		if (!It->DoorId.IsValid() || DoorIds.Contains(It->DoorId) || It->IsMoving())
+		{ Error = TEXT("Doors require unique persistent IDs and must finish moving before saving."); return false; }
+		DoorIds.Add(It->DoorId);
+		FAZ_CampaignDoorSnapshot R;
+		R.DoorId = It->DoorId; R.OpenFraction = It->GetOpenFraction(); R.bLocked = It->IsLocked();
+		Out.Doors.Add(R);
+	}
 	return true;
 }
 
@@ -100,6 +112,24 @@ bool UAZ_CampaignWorldSubsystem::Validate(const FAZ_CampaignWorldSnapshot& State
 	const auto Fail = [&Error](const TCHAR* Message) { Error = Message; return false; };
 	if (bRestoring || bUnidentifiedAuthoredPickupRemoved || !AmbiguousIds.IsEmpty() || State.Pickups.Num() > 10000 || State.Facts.Num() > 10000)
 		return Fail(TEXT("World state is busy, ambiguous or too large."));
+	if (State.Doors.Num() > 10000) return Fail(TEXT("Too many saved doors."));
+	TSet<FGuid> DoorIds;
+	for (const auto& R : State.Doors)
+	{
+		if (!R.DoorId.IsValid() || DoorIds.Contains(R.DoorId) || !FMath::IsFinite(R.OpenFraction)
+			|| R.OpenFraction < 0.f || R.OpenFraction > 1.f || (R.bLocked && R.OpenFraction != 0.f))
+			return Fail(TEXT("Invalid saved door state."));
+		DoorIds.Add(R.DoorId);
+	}
+	TSet<FGuid> CurrentDoorIds;
+	for (TActorIterator<AAZ_InteractiveDoor> It(GetWorld()); It; ++It)
+	{
+		if (It->IsActorBeingDestroyed()) continue;
+		if (!It->DoorId.IsValid() || CurrentDoorIds.Contains(It->DoorId) || !DoorIds.Contains(It->DoorId))
+			return Fail(TEXT("Authored door layout differs from the save."));
+		CurrentDoorIds.Add(It->DoorId);
+	}
+	if (CurrentDoorIds.Num() != DoorIds.Num()) return Fail(TEXT("Saved door is missing from this map."));
 	TSet<FGuid> WorldIds, ItemIds, AuthoredIds;
 	for (const auto& Item : Inventory.Items) ItemIds.Add(Item.State.InstanceId);
 	for (const auto& R : State.Pickups)
@@ -149,6 +179,14 @@ bool UAZ_CampaignWorldSubsystem::PrepareRestore(const FAZ_CampaignWorldSnapshot&
 	if (bRestoring) { Error = TEXT("World restore is busy."); return false; }
 	bRestoring = true;
 	PendingState = State;
+	for (const auto& R : State.Doors)
+	{
+		AAZ_InteractiveDoor* Door = nullptr;
+		for (TActorIterator<AAZ_InteractiveDoor> It(GetWorld()); It; ++It)
+			if (!It->IsActorBeingDestroyed() && It->DoorId == R.DoorId) { Door = *It; break; }
+		if (!Door) { Error = TEXT("Door disappeared before restore."); CancelRestore(); return false; }
+		RestoreDoors.Add(R.DoorId, Door);
+	}
 	for (const auto& R : State.Pickups)
 	{
 		if (R.bCollected) continue;
@@ -180,7 +218,7 @@ bool UAZ_CampaignWorldSubsystem::PrepareRestore(const FAZ_CampaignWorldSnapshot&
 void UAZ_CampaignWorldSubsystem::CancelRestore()
 {
 	for (const auto& Actor : StagedActors) if (IsValid(Actor)) Actor->Destroy();
-	StagedActors.Reset(); RestoreTargets.Reset(); PendingState = FAZ_CampaignWorldSnapshot();
+	StagedActors.Reset(); RestoreTargets.Reset(); RestoreDoors.Reset(); PendingState = FAZ_CampaignWorldSnapshot();
 	bRestoring = false;
 }
 
@@ -200,7 +238,10 @@ void UAZ_CampaignWorldSubsystem::CommitRestore()
 		Component->GetOwner()->SetActorHiddenInGame(false); Component->GetOwner()->SetActorEnableCollision(true);
 		LivePickups.Add(Component);
 	}
+	for (const auto& R : PendingState.Doors)
+		RestoreDoors.FindChecked(R.DoorId)->RestoreDoorState(R.OpenFraction, R.bLocked);
+	for (const auto& Pair : RestoreDoors) Pair.Value->RefreshContentAccess();
 	Facts = MoveTemp(PendingState.Facts);
-	StagedActors.Reset(); RestoreTargets.Reset(); PendingState = FAZ_CampaignWorldSnapshot();
+	StagedActors.Reset(); RestoreTargets.Reset(); RestoreDoors.Reset(); PendingState = FAZ_CampaignWorldSnapshot();
 	bRestoring = false;
 }

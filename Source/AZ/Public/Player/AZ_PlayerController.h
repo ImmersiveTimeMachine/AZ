@@ -32,6 +32,8 @@ class AZ_API AAZ_PlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Inspection") TObjectPtr<class UAZ_InspectionComponent> Inspection;
+	void SetInspectionInputCaptured(bool bOpen);
 
 	AAZ_PlayerController();
 	/** Native frontend controllers reuse menu routes without gameplay presentation or bindings. */
@@ -148,12 +150,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category="AZ|Interaction")
 	void RequestImmediateWorldInteraction(AActor* Target);
 	bool CanUseImmediateWorldInteraction() const;
+	bool GetFocusedInteractionPoint(FVector& OutPoint) const;
+	float GetPickupHoldProgress() const;
 
 	/** The live throw instance, or null when nothing is readied. Public because the throwable hand component
 	 *  — a sibling on this actor — has to end a throw whose item is no longer the readied one. */
 	class UAZ_GA_Throw* FindActiveThrow() const;
 
 private:
+	bool bInspectionInputCaptured = false;
+	void BeginPickupHold(AActor* Target);
+	void CancelPickupHold();
+	void UpdatePickupHold();
+	UFUNCTION(Server, Reliable) void Server_SetPickupHold(AActor* Target);
+	UFUNCTION(Client, Reliable) void Client_FinishPickupHold(AActor* Target);
+	TWeakObjectPtr<AActor> PickupHoldTarget;
+	TWeakObjectPtr<AActor> ServerPickupHoldTarget;
+	double PickupHoldStartedAt = 0.;
+	double ServerPickupHoldStartedAt = 0.;
+	float PickupHoldSeconds = 1.f;
 	/**
 	 * Mouse routing for the throw, run BEFORE ordinary ASC dispatch.
 	 *

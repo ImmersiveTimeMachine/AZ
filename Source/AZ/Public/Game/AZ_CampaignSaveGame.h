@@ -23,11 +23,21 @@ struct AZ_API FAZ_CampaignPickupSnapshot
 };
 
 USTRUCT()
+struct AZ_API FAZ_CampaignDoorSnapshot
+{
+	GENERATED_BODY()
+	UPROPERTY() FGuid DoorId;
+	UPROPERTY() float OpenFraction = 0.f;
+	UPROPERTY() bool bLocked = false;
+};
+
+USTRUCT()
 struct AZ_API FAZ_CampaignWorldSnapshot
 {
 	GENERATED_BODY()
 	UPROPERTY() TArray<FAZ_CampaignPickupSnapshot> Pickups;
 	UPROPERTY() TMap<FName, bool> Facts;
+	UPROPERTY() TArray<FAZ_CampaignDoorSnapshot> Doors;
 };
 
 USTRUCT()

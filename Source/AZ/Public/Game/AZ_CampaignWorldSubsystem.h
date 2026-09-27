@@ -6,6 +6,7 @@
 #include "AZ_CampaignWorldSubsystem.generated.h"
 
 class UAZ_Inv_CommonUI_ItemComponent;
+class AAZ_InteractiveDoor;
 
 /** Supported world participants: persistent pickups plus explicitly published campaign facts. */
 UCLASS()
@@ -29,6 +30,7 @@ private:
 	UPROPERTY() TMap<FName, bool> Facts;
 	UPROPERTY(Transient) TArray<TObjectPtr<AActor>> StagedActors;
 	UPROPERTY(Transient) TMap<FGuid, TObjectPtr<UAZ_Inv_CommonUI_ItemComponent>> RestoreTargets;
+	UPROPERTY(Transient) TMap<FGuid, TObjectPtr<AAZ_InteractiveDoor>> RestoreDoors;
 	UPROPERTY(Transient) FAZ_CampaignWorldSnapshot PendingState;
 	bool bRestoring = false;
 	bool bUnidentifiedAuthoredPickupRemoved = false;
