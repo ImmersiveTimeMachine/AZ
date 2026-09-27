@@ -210,7 +210,25 @@ the level for the worst frames (never saved).
 | Pistol hand-on-hand | `Mode = HandOnHand`: left fingers target the right hand's skin; later phase |
 | Parallel agents editing the same files | additive edits, per-hunk commits, specs list the exact files |
 
-## 13. Open questions (user)
+## 13. Alternatives considered (2026-09-27)
+
+| alternative | verdict |
+|---|---|
+| Per-frame contact solver for every phalanx (SDF of the weapon at runtime) | Not needed: F1 makes the finger pose constant while held, so it would recompute the same answer every frame. The contact math stays offline (Path A); the runtime keeps a cheap marker IK for live tweaks. |
+| Control Rig as the host (like the feet rig) | Possible (IK nodes, math, custom C++ RigUnits) and nice for visual tuning, but the heavy stages (constrained finger IK with backtracking, push-out spring, elbow-swing search) would still be C++ RigUnits, traces do not help (the held weapon is cosmetic, no collision) and the data must be fed as variables anyway. Decision: stay in the C++ node; optional later step = wrap the same stages as RigUnits for artist tuning. |
+| Blender master grip (fix one pose, the rest follows) | Valid - it IS Path S (section 8). UE posing (Sequencer + FK Control Rig) is preferred because every Blender round trip needs a per-bone rest-orientation calibration and the FBX export already cost us a root scale-100 trap; the Blender route stays documented as 1.1b in the plan. |
+| Fix every clip by hand (Blender / UE) | Rejected for the per-clip part: hundreds of clips. One hand-fixed clip is used only to CALIBRATE the runtime (forearm radius / clothing inflation, section 8.5). |
+| ML grasp synthesis (ManipNet-style) | Rejected for v1: training data + weeks; no gain over F1 + master grip. |
+| Physics-driven hands | Rejected: jitter, cost, no art control. |
+
+## 14. Backups
+
+Before any phase that writes assets: a file-system snapshot of the folders it will touch (robocopy, editor closed or at
+least with those packages saved), plus a git commit of the blueprint tree. Commands and folders: plan, "Pre-flight
+backup". First full snapshot: `C:/UnrealEngine/Games/AZ_Backups/2026-09-27_pre-WGS/` (all of `Content/AZ/Assets`,
+5852 files). The tuned M16 / pistol / unarmed sets are protected content (plan, "Protected content").
+
+## 15. Open questions (user)
 
 1. Path S first (you pose the master grip in UE; tools derive the rest) - or Path A (solver proposes, you correct)?
 2. Clothing: calibrate on one clip by hand, or accept Physics Asset + a global inflation?

@@ -7,6 +7,7 @@ the status table says so.
 
 | id | task | owner | depends | status |
 |---|---|---|---|---|
+| -1 | Pre-flight backup before every phase (file system + git) | executor of the phase | - | first full snapshot DONE 2026-09-27 |
 | 0.1 | Clip sampler (UE Python) | Sonnet | - | todo |
 | 0.2 | Physics Asset + weapon parts dump, watertight check | Sonnet | - | todo |
 | 0.3 | Baseline measurement report | Opus | 0.1, 0.2, 1.2 | todo |
@@ -28,6 +29,8 @@ the status table says so.
 | 6.1 | Winchester locomotion rows (pack clips only) | Opus decides, Sonnet executes | 6.0 | todo |
 | 6.2 | Next long guns (skeletal conversion + grip data) | Sonnet per weapon | 1.x-5.x | todo |
 | 6.3 | Pistol HandOnHand mode | Opus | 4 | later |
+| 1.1b | Blender route for the master grip (alternative to 1.1) | Opus scripts, user poses | 1.2 | only if the user prefers Blender |
+| 7.1 | Wrap node stages as Control Rig units (artist tuning) | Opus | 4 | optional, later |
 
 Already done before this plan (2026-09-26/27): node v2 (left-hand IK, finger IK 3 DOF with backtracking, stock
 elbow swing, `az.Weapon.Debug 3` draw), `SK_Winchester` rig (root fixed), `AZ_BP_Winchester`, `BP_Pickup_Winchester`,
@@ -50,6 +53,24 @@ Every task in this plan must leave them untouched:
   (idle, walk, run, crouch, aim, fire, reload, switch) and compares with before.
 - Backups: gitignored assets copied to `C:/UnrealEngine/Games/AZ_Backups/2026-09-27_pre-WGS/` (5852 files, editor
   closed; restore with the editor closed, see its README); blueprint-tree assets are in git.
+
+## Pre-flight backup (task -1, first step of EVERY phase)
+
+File-system snapshots are much faster than anything else and cover the gitignored assets:
+1. Save all in the editor, then close it (or at least make sure the folders below have no unsaved packages).
+2. Snapshot the folders the phase will write (plus the protected sets once per day), with the phase id in the name:
+   ```
+   robocopy "C:\UnrealEngine\Games\AZ\Content\AZ\Assets\<Folder>" "C:\UnrealEngine\Games\AZ_Backups\<yyyy-mm-dd>_<phase>\Content\AZ\Assets\<Folder>" /E /COPY:DAT /DCOPY:T /MT:8 /R:1 /W:1 /NFL /NDL /NP
+   robocopy "C:\UnrealEngine\Games\AZ\Content\AZ\Blueprints" "C:\UnrealEngine\Games\AZ_Backups\<yyyy-mm-dd>_<phase>\Content\AZ\Blueprints" /E /COPY:DAT /DCOPY:T /MT:8 /R:1 /W:1 /NFL /NDL /NP
+   ```
+   robocopy exit codes 0-7 = success (1 = files copied), >= 8 = failure -> stop the phase.
+3. Check: file count and total bytes of source and copy are equal; write `README.txt` into the snapshot (what, why,
+   restore command). Restore = the same robocopy in the other direction, editor CLOSED.
+4. Commit the blueprint tree + code in git before the phase starts (the snapshot does not replace git history).
+5. Old snapshots are deleted only by the user (never by an agent).
+
+Full snapshot 2026-09-27 01:20: `C:/UnrealEngine/Games/AZ_Backups/2026-09-27_pre-WGS/` (whole `Content/AZ/Assets`,
+5852 files, 5.42 GB, 0 failures).
 
 ## Delegation protocol (token economy)
 
@@ -122,6 +143,18 @@ distance, radii from the Physics Asset + inflation), left-hand reach. Output
 4. "Edit in Sequencer" -> FK Control Rig: pose the fingers of both hands and the left hand on the fore-end; bake back
    into `AS_Grip_Winchester` (keep 1 frame).
 5. Tell the lead -> task 1.3 runs and reports numbers; iterate until the numbers pass (design section 10).
+
+### 1.1b Blender route (only if the user prefers posing in Blender) - Opus scripts, user poses
+- Export (UE Python, Sonnet-able): `SKM_AZ_Master` (FBX, no animation) + `AS_Grip_Winchester` (FBX animation, 1 frame)
+  + `SK_Winchester` placed at `RightHandWinchesterSocket` of frame 0 -> `Art/CHALK_Winchester_Grip/`.
+- Blender: import, pose fingers + left hand, keep the weapon parented to `az_weapon_r` (moving `az_weapon_r` relative
+  to `hand_r` = changing the right-hand placement).
+- Back to UE WITHOUT an FBX animation import: a Blender script writes, per bone, the posed WORLD transform converted
+  to UE (position = (x, -y, z) x 100; rotation mirrored in Y) and a UE script rebuilds local rotations with a per-bone
+  REST-ORIENTATION calibration (UE rest world vs converted Blender rest world, measured once from the unposed frame)
+  -> writes `AS_Grip_Winchester` (same writer as `Tools/az_grip_apply.py` MODE assets) and the socket; then 1.3.
+- Acceptance: re-exporting the unposed frame through the pipeline reproduces the original pose within 0.05 cm /
+  0.1 deg for every bone (calibration test) before any posed data is trusted.
 
 ### 1.2 `Tools/wgs/geom.py` - Opus
 Pure Python (runs in CPython and in UE Python): per-part exact nearest-triangle distance with a uniform-grid
@@ -398,6 +431,11 @@ AK12, STG44, SVD, Hunter.
 
 ### 6.3 Pistol HandOnHand - Opus (later)
 Left fingers target the right hand's skin: a second contact surface built from the right-hand bone capsules.
+
+### 7.1 Control Rig wrapper (optional, later) - Opus
+Only if visual tuning of stage order / weights is wanted: expose S1-S5 as C++ `FRigUnit_AZGrip*` units with the same
+math and inputs, build `CR_AZ_WeaponGrip` from them, swap it for the node behind a CVar, compare frame by frame with the
+node on the validation set (must match within 0.05 cm) before switching.
 
 ---
 
