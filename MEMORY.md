@@ -11,7 +11,7 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [Protected weapon sets](project_protected_weapon_sets.md) — ★★★ M16/pistol/unarmed clips are tuned: never touch; gitignored → backup 2026-09-27 in AZ_Backups/2026-09-27_pre-WGS.
 - [Consider the local model](feedback_consider_local_model.md) — ★★★ USER RULE: when splitting ANY task, delegate mechanical steps to the local LM Studio agent (skill `local-model-delegation`); check it runs or ask.
 - [Master skeleton](project_master_skeleton_2026-09-25.md) — ★★★ SK_AZ_Master = exact MH copy + az_weapon_r/az_prop_r/az_prop_l; hero plays it 1:1 (compat, verified); 446 AZ_MST_* RifleMega clips with the gun track; next: sockets onto az_weapon_r + rifle wiring. Master clips NEED retarget_source_asset=SKM_AZ_Master.
-- [Winchester integration audit](project_winchester_integration_audit_2026-09-26.md) — ★★★ rifle + grip PLANS written 2026-09-27 (docs/design-briefs/weapon-grip-system*.md, winchester-rifle-integration-plan.md); start from them; idle works in PIE.
+- [Winchester integration audit](project_winchester_integration_audit_2026-09-26.md) — ★★★ 2026-09-27: R1 rows/PSDs/IPC root fix + R2 AO + tube-as-contained-magazine (aim/fire) DONE, PIE pending; R3 reload designed, awaiting go. Plans: docs/design-briefs/winchester-*.md, weapon-grip-system*.md.
 - [RifleMega retarget](project_riflemega_retarget_2026-09-25.md) — ★★★ 446 pack clips on the MetaHuman (exact + IK post); rifle wiring next, then throwables.
 - [Local agent (LM Studio)](reference_local_agent_lmstudio.md) — .agents/agent_script.py: local model + MCP + skills for light tasks; measured limits.
 - [Weapon models import](project_weapon_models_import_2026-09-25.md) — 7 guns as parts in /Game/AZ/Assets/Weapons; whole-mesh spec for a local-model test; ".py in @Description" trap.
@@ -29,6 +29,7 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [MM spine continuity](feedback_mover_spine_search_continuity.md) — ★★★ read before touching the Mover spine MotionMatch call or any loop DB.
 
 ## Workflow rules
+- [feedback_rider_debugger_ensure_resume.md](feedback_rider_debugger_ensure_resume.md) — ★★★ editor under the Rider debugger: an ensure PAUSES it ("hung") → xdebug status → RESUME (F5) via Rider MCP, then continue.
 - [feedback_offer_runtime_solution_first.md](feedback_offer_runtime_solution_first.md) — ★★★ "universal" request → propose runtime markers+IK first; anticipate failure axes before the user finds them.
 - [feedback_deliver_result_not_analysis.md](feedback_deliver_result_not_analysis.md) — ★★★ результат, а не разбор: значения выбирать самому, без A/B/C и цифр.
 - [feedback_open_the_file_i_must_edit.md](feedback_open_the_file_i_must_edit.md) — ★★★ просишь поменять руками — сначала открой ассет/файл.

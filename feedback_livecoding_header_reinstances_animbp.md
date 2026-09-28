@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-09-19T05:58:37.562Z
+  modified: 2026-09-28T00:28:14.658Z
 ---
 
 **If a change is meant to go in via Live Coding, edit ONLY the .cpp. Never the header — not even a
@@ -36,6 +36,13 @@ state. The ABP had compiled clean and run in PIE minutes earlier, so the correla
   graph nodes looking for the fault.
 - Recovery is a full rebuild with the editor closed. LC patches do not survive a restart anyway, so
   nothing is lost.
+
+**2026-09-27 (editor hang):** LiveCoding.Compile patches EVERY modified .cpp of the module, including OTHER sessions'
+work: my .cpp-only grip patch also took AZ_PlayerState (whose header had changed after the DLL) + an engine NetCore
+patch -> "Re-instancing AZ_PlayerState", recompiling BPs incl. the hero ABP -> the editor hung. BEFORE triggering LC:
+`git status Source` + compare the mtime of every modified header (mine AND others') with UnrealEditor-AZ.dll; any
+header newer than the DLL -> no LC, ask the user for an editor-closed full build. (A Rider launch rebuilds the DLL, so
+after the user restarts from Rider the DLL may already contain the source - check its mtime before assuming loss.)
 
 Related: [[feedback_parallel_build_header_edit_corruption]] (same class-layout family, different trigger),
 [[feedback_python_gc_crash]] (never compile an AnimBP from Python either),

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3dd30bd7-e1c4-47aa-8af7-41a2784f5a5a
-  modified: 2026-09-23T03:26:12.659Z
+  modified: 2026-09-27T20:34:16.658Z
 ---
 
 # Rifle set = MetaHuman-native clips (2026-09-09)
@@ -83,7 +83,10 @@ and the additive setup on the 20 `Aim_Point_*` clips.
   flung around in-game while the raw clip previews fine.
 - **PSD membership is BranchIn-synced** (`PreSaveRoot`). `remove_all_pose_search_notifies(old)` +
   `add_branch_in_notify(new, db, 0, 0)` + save; calling `add_sequences_to_database` as well double-adds
-  (16 members). `Tools/rifle_p01_setup.py` says so; ignored once.
+  (16 members). `Tools/rifle_p01_setup.py` says so; ignored once. **Ignored AGAIN 2026-09-27 (Winchester PSD_WIN_*).
+  Repair:** `clear_database(db)` + save the DB -> `PreSaveRoot` re-syncs ONLY from BranchIn (entries get a BranchInId).
+  Removing duplicates by index is WRONG: it keeps the manual (BranchInId 0) entries and every later clip save
+  re-adds the synced one (seen: 8 -> 9). Check `db.get_num_animation_assets()` after any clip save.
 - **Struct arrays are copies in Python** (`BlendSample`, `AnimSegment`): build new instances into a fresh
   `unreal.Array` and assign; mutating elements of `get_editor_property()` writes nothing.
 - **`save_asset` returns False after PreSaveRoot saved** — verify by mtime.

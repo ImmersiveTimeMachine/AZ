@@ -5,10 +5,19 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 5bce0c20-5866-4582-9e79-760a09865698
-  modified: 2026-07-24T17:47:31.772Z
+  modified: 2026-09-27T23:39:05.603Z
 ---
 
-# Editor close→build→reopen automation — RETIRED
+# Editor close→build→reopen automation — RETIRED (re-authorized case: see top note)
+
+**2026-09-27 19:40 user (overrides the note below while they are present):** "Больше без меня не закрывай редактор.
+И я уже на месте, так что я буду его закрывать. Скажи, когда тебе это нужно будет. Также я буду его открывать." ->
+the USER closes and opens the editor; I only say when a build needs it. The away-time permission below ended.
+
+**2026-09-27 user (earlier, while away):** "если надо перегрузить редактор unreal можешь это делать через mcp в райдере потом можешь
+открывать и доделывать" - restarts ARE allowed when the user says so (e.g. while they are away), through Rider MCP
+(run configuration `AZ` = editor under the Rider debugger). Before quitting: save dirty packages and close asset-editor
+tabs (the exit crash below comes from open Persona / BP editor windows). Ensure pauses: [[feedback-rider-debugger-ensure-resume]].
 
 **Why:** the user retracted the automation after the second cycle ("ok forget about close open loop UE
 Editor crashed"). Both automated quits crashed identically at EXIT in

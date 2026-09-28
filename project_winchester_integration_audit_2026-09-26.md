@@ -1,11 +1,11 @@
 ---
 name: project-winchester-integration-audit-2026-09-26
-description: "★★★ Audit for integrating the Winchester (first RifleMega gun) into the item/equip/anim system: 3 hard blockers (static mesh destroyed on equip, magazine-only fire/reload/ready, chooser tag routing), pack measurements, M16-clip barrel offsets, recommended hybrid plan. Awaiting user go."
+description: "★★★ Winchester (first RifleMega gun): audit + state. 2026-09-27: R1 locomotion rows/PSDs/IPC root fix, R2 aim offsets, tube magazine as contained magazine (aim+fire) DONE, user PIE pending; R3 reload branch designed (winchester-tube-magazine.md), awaiting go."
 metadata:
   node_type: memory
   type: project
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-09-26T23:12:11.361Z
+  modified: 2026-09-27T20:35:06.949Z
 ---
 
 User order 2026-09-26: "Да, начинай с винчестера, делай аудит" (rifle integration, Winchester first). Audit done, plan
@@ -54,5 +54,16 @@ tag-cell C++ setter, internal-magazine spec work; me = skeletal mesh, sockets/gr
 **2026-09-27 PIE: WORKS.** profile=Weapon.Rifle.Winchester, idle AZ_MST_Rifle02_St_Idle00, grip node holds the Winchester. User placed the level pickup AZ_Winchester_Pickup at (-3717.99, 4526.53, 22.48) - NEVER move it back / respawn elsewhere. Old AZ_Winchester_Pickup_TEST deleted (it carried Weapon.Rifle + M16 profile = the "M16 pose" report). Leak: aiming picked M16 row AZ_RTG_MH_W2_Stand_Aim_Turn_In_Place_L_Loop_IPC - exclude when wiring aim. LC harness static init runs OFF the game thread: wrap work in AsyncTask(GameThread). Next: Rifle02 walk/run 8-dir + Cr, then Rifle01 aim + TurnSet (no starts/stops).
 
 **Blender->UE rig trap (2026-09-27):** the Blender FBX export (meters scene, apply_unit_scale, bones tails +Z) gave SK_Winchester a root bone with SCALE 100 and roll 90 -> root-attached sockets land 100x away (LeftHandGrip ~6 m off). Fixed in UE with SkeletonModifier: set root identity, children identity at same cm positions, commit (mesh does not move; bounds equal). For the next weapon rig: fix the export (cm scene / bones along +Y) or run the same post-fix. User-tuned RightHandWinchesterSocket (-32.160, 5.637, -7.098) P0.014 Y83.656 R-2.119 saved on SKM_AZ_Master + hero body + hero_sockets.json; right fingers still need a re-solve for it.
+
+**R1 + R2 + half of R3 DONE 2026-09-27 16:00-17:10 (user: "делать так, как мы разработали план"; away 1 h, PIE
+pending).** Snapshot AZ_Backups/2026-09-27_R1. C++ (full build): ChooserUtils Set/GetCellGameplayTagsOnSub,
+SetGameplayTagColumnMatchExact, DescribeGameplayTagColumn; profile bNoGroundTransitionClips -> SM Tick remaps
+TransitionToLocomotion/Idle (D1). Data: CHT_v2 rows 409-463 (55, pack clips) + c9=Winchester on 25 shared leak rows
+(77-102, 304-307; neutral for M16/pistol/unarmed); PSD_WIN_{Walk,Run}{Relaxed,Aim}/Crouch/Sprint (BranchIn-synced,
+8/8/8/8/8/1); 41 AZ_MST _IPC loops got the root track of their RM twin (pack IPC = twin with root zeroed; R17 garbage
+costs otherwise) + loop/rm/force_root_lock; 3 idles loop=True; profile: PlayRateLoopAssets (48 M16) cleared, sprint
+463; AO_Winchester_Stand/Crouch (17 Rifle01 / Cr poses, additive mesh-space vs CC); pickup: contained tube magazine
+(Winchester.Tube 7/7) + bUsesDetachableMagazines=True -> aim + fire on the existing path, reload = R3 branch
+(design winchester-tube-magazine.md, awaiting go). Cards: docs/agent-tasks/wgs-6.1-*.md, winchester-r2-*.md.
 
 **PLANS WRITTEN 2026-09-27 (user: "сегодня ничего не реализуем, только документы"):** docs/design-briefs/weapon-grip-system.md (design), weapon-grip-system-plan.md (task cards 0.1-7.1, protected content, pre-flight robocopy backup = task -1), winchester-rifle-integration-plan.md (D1-D7 decisions, R1-R11, milestones). All committed+pushed (spike/cmc-backport up to c58e78b). Chooser regression baseline (407 rows, pre-Winchester) in AZ_Backups/2026-09-27_pre-WGS/chooser_baseline/. Start the next session from those plans; open user questions: WGS section 15 + rifle D1-D7.
