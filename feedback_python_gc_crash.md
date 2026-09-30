@@ -56,3 +56,5 @@ so authored height/rotation is preserved and only travel is added.
 
 See [[feedback_python_save_only_if_dirty]] (the complementary "save silently skipped" trap),
 [[reference_ue5_python_posesearch]], [[asset-modification-via-python]].
+
+**CRASH 2026-09-28: a package path with a DOUBLE SLASH is an engine FATAL ERROR (UObjectGlobals.cpp:1096), not a Python exception** - `load_asset("/Game/X//Name")` after a batch retarget killed the editor. Build paths with rstrip/strip and assert no "//" before any load/create (fixed in Tools/riflemega_retarget.py inventory()).
