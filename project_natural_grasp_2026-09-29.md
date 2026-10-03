@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-09-30T03:04:20.826Z
+  modified: 2026-10-01T05:10:42.674Z
 ---
 
 **2026-09-29, user asked for a deep re-think of the finger math ("не тупое айкей").** Root causes found, all verified
@@ -53,6 +53,27 @@ failed: tips touch the guard first. Generic tools: weapon_skm_dump.py (skeletal 
 GeometryScript while another session runs editor Python - froze the editor once), skm_parts.py, add_hand_socket.py,
 add_grip_curves.py, nat_grip_preview.py (SOCKET/BEFORE_SOCKET/WEAPON/DST/LABEL; MH-native clips without az_weapon_r
 -> the preview hangs the gun on hand_r with S*D^-1).
+
+**M16 index fix (2026-09-30, user PIE: "палец чуть-чуть кривой"):** the pad-on-trigger fit had a free DOF and
+picked a hook (MCP -5/PIP 58/DIP 41); at the approved re-grip no natural index reached the trigger, so the PLACEMENT
+was re-searched with a natural index (Tools/wgs/natgrip place_nat.py + rsolve3.py): hand 1.4 cm higher/outward,
+index 22/38/25, wrist bend lower. Applied to AS_Grip_M16 + AZ_BP_Rifle correction (backup AZ_Backups/2026-09-30_m16_index),
+user PIE: works ("правой рукой можно заканчивать"). ★ LESSON (user: "сегодняшний урок про правую руку"): a contact
+target leaves free DOFs and a contact-only fit picks hooks/claws -> ALWAYS search the hand PLACEMENT together with
+natural finger shapes (every joint flexed, DIP ~0.65 PIP, small side angle) + palm contact + wrist bend; for BOTH hands.
+**M16 LEFT HAND APPLIED 2026-10-01** (Tools/wgs/natgrip/lsolve_m16.py, L2 p=(0,10,15,1,0,0) around the medoid AIM
+clip hold; LeftHandGrip on M16_Skeleton (old in AZ_Backups/2026-10-01_m16_left), AS_Grip_M16 left fingers,
+bBakedLeftHandGrasp; AZ_Grip_L: 871 clips 1, 52 animated (reload/holster/swap/death/melee, brief grabs <0.35 s removed;
+Tools/wgs/set_left_curve_m16.py). 76 unarmed AnimPro clips used in M16 transitions have NO AZ_Grip curves - user
+declined adding them (dismissed). ★ NEXT (user PIE 2026-10-01, screenshot): left hand only SUPPORTS from below,
+thumb and hand do not grip ("when shooting you hold it firmly"). Likely causes: (1) search anchored on the clip's
+cradle hold + "smallest change"; (2) thumb rule copied from the Winchester forend (lies along, pointing forward) - no
+thumb OPPOSITION rule; (3) wrap only 106-149 deg, proximal phalanges 4-6 mm off - not a power grasp; (4) maybe a
+runtime mismatch (in-game fingers point along the barrel, render shows them up the far side) - verify first.
+Plan: verify runtime vs solve; power-grasp objective (handguard seated in the hand, palm+proximals touching, wrap
+>=180 deg, thumb pad opposite the finger pads = closure); wider rotation about the handguard axis.
+Machine note: 12 parallel CPython solver processes produced impossible TypeErrors + "Fatal Python error: Executing a
+cache" (single process fine) - run the solvers single-process (NATGRIP_POOL=1, place_nat `slice 0 1`).
 
 **Why:** no finger math can look natural while the palm is inside the wood and the base fingers are twisted.
 **How to apply:** runtime plan pending user review of the preview: AAZ_Weapon RightHandGripCorrection (hand-local)

@@ -50,3 +50,11 @@ rebuild script doing delete -> duplicate -> edit then silently *stacks* edits on
 read source data from the SOURCE asset every time so the operation is **idempotent**, and never rely on
 delete+recreate. Verify idempotence by running twice and comparing metrics. A failed delete on a
 referenced asset also **nulls the chooser cell** that pointed at it — re-check rows after any delete.
+
+## ★★ 2026-10-01 — saving is refused while PIE runs ("LogUtils: Error: The Editor is currently in a play mode.")
+
+A long Python batch (52 M16 clips' AZ_Grip_L) was mid-way when the user pressed Play: every `save_asset` returned
+False, the edits stayed in memory (dirty), the user's later Save All wrote them. **How to apply:** before a write+save
+batch check `mcp__rider__ue_status` playState == "Idle"; inside long batches stop/re-check when a save returns False;
+on a False, grep the log for "currently in a play mode" before suspecting anything else; then save the dirty set via
+`EditorLoadingAndSavingUtils.get_dirty_content_packages()` once PIE ends and verify mtimes.
