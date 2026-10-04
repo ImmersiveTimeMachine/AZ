@@ -619,6 +619,11 @@ void AAZ_Weapon::Multicast_BeginEquipmentAnimation_Implementation(const FGuid& A
 		*ActionId.ToString(), *GetNameSafe(Sequence), PlayRate);
 }
 
+const UAnimMontage* AAZ_Weapon::GetEquipmentAnimationMontage(const FGuid& ActionId) const
+{
+	return ActionId.IsValid() && EquipmentAnimationActionId == ActionId ? EquipmentAnimationMontage.Get() : nullptr;
+}
+
 void AAZ_Weapon::Multicast_EndEquipmentAnimation_Implementation(const FGuid& ActionId)
 {
 	if (!ActionId.IsValid()) return;
@@ -1392,6 +1397,9 @@ void AAZ_Weapon::GetGripMarkersInBone(const USkeletalMeshComponent* CharMesh, FN
 	Out.FingerMask = 0;
 	Out.bHasStock = false;
 	Out.StockRadius = StockRadius;
+	Out.RightHandCorrection = RightHandGripCorrection;
+	Out.bBakedRightFingers = bBakedRightHandGrasp && GripPose != nullptr;
+	Out.bBakedLeftFingers = bBakedLeftHandGrasp && GripPose != nullptr;
 	if (!CharMesh || BoneName == NAME_None)
 	{
 		return;
@@ -1418,4 +1426,9 @@ void AAZ_Weapon::GetGripMarkersInBone(const USkeletalMeshComponent* CharMesh, FN
 		}
 	}
 	Out.bHasStock = FindInBone(StockFrontSocket, Out.StockFront) && FindInBone(StockButtSocket, Out.StockButt);
+
+	// Surface field: lives in WeaponMesh3P's mesh space.
+	const USkeletalMeshComponent* FieldMesh = GetWeaponMesh3P();
+	Out.Field = FieldMesh ? GripField.Get() : nullptr;
+	Out.FieldInBone = FieldMesh ? FieldMesh->GetComponentTransform().GetRelativeTransform(BoneWorld) : FTransform::Identity;
 }

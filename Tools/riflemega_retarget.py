@@ -41,8 +41,10 @@ MODE = globals().get('MODE', 'measure')
 NAMES = globals().get('NAMES', None)
 REPORT = globals().get('REPORT', r'C:\UnrealEngine\Games\AZ\Saved\riflemega_report.txt')
 
-SRC_ROOT = '/Game/RifleMega_MocapAnimPack/AnimationsFBX/'
-DST_ROOT = '/Game/AZ/Assets/RifleMega/'
+# Overridable per run (2026-09-28: the same pipeline moves RifleAnimsetPro starts / stops / jumps / turns).
+SRC_ROOT = globals().get('SRC_ROOT', '/Game/RifleMega_MocapAnimPack/AnimationsFBX/')
+DST_ROOT = globals().get('DST_ROOT', '/Game/AZ/Assets/RifleMega/')
+REST_SKEL = globals().get('REST_SKEL', 'Rifle_Mannequin_A_Skeleton')     # source mesh whose rest pose feeds the post
 PREFIX = 'AZ_RTG_MH_'
 RTG_PATH = '/Game/AZ/Blueprints/Animation/Retarget/RTG_RifleMega_UE4_to_MetaHuman'
 HERO_PATH = '/Game/AZ/Blueprints/Character/AZ_MHC_Hero/Body/SKM_MHC_Hero_BodyMesh'
@@ -52,7 +54,8 @@ MESH_BY_SKEL = {
     'Rifle_Auto_Mannequin_A_Skeleton': _M + 'forShootingReloading/Character_Automatic/Mesh/Rifle_Auto_Mannequin_A',
     'Rifle_DB_Mannequin_A_Skeleton': _M + 'forShootingReloading/Character_DoubleBarrel/Mesh/Rifle_DB_Mannequin_A',
     'Rifle_SG_Mannequin_A_Skeleton': _M + 'forShootingReloading/Character_ShotGun/Mesh/Rifle_SG_Mannequin_A',
-    'Rifle_Winch_Mannequin_A_Skeleton': _M + 'forShootingReloading/Character_Winchester/Mesh/Rifle_Winch_Mannequin_A'}
+    'Rifle_Winch_Mannequin_A_Skeleton': _M + 'forShootingReloading/Character_Winchester/Mesh/Rifle_Winch_Mannequin_A',
+    'UE4_Mannequin_Skeleton': '/Game/RifleAnimsetPro/UE4_Mannequin/Mesh/SK_Mannequin'}
 
 APE = unreal.AnimPoseExtensions
 W, LOC = unreal.AnimPoseSpaces.WORLD, unreal.AnimPoseSpaces.LOCAL
@@ -190,7 +193,7 @@ class Ctx(object):
 
     def __init__(self):
         self.hero = unreal.load_asset(HERO_PATH)
-        self.src_mesh = unreal.load_asset(MESH_BY_SKEL['Rifle_Mannequin_A_Skeleton'])
+        self.src_mesh = unreal.load_asset(MESH_BY_SKEL[REST_SKEL])
         rest_bones = ['pelvis', 'head', 'foot_l', 'foot_r', 'ball_l', 'ball_r']
         self.t_rest, _ = rest_of(self.hero, rest_bones)
         self.s_rest, _ = rest_of(self.src_mesh, rest_bones)
@@ -274,10 +277,15 @@ def inventory():
     for a in registry.get_assets_by_path(SRC_ROOT[:-1], recursive=True):
         if str(a.asset_class_path.asset_name) != 'AnimSequence':
             continue
-        sub_path = str(a.package_path)[len(SRC_ROOT):]
+        # Relative sub-folder; clips directly in SRC_ROOT have none. (2026-09-28: 'DST_ROOT + sub_path + /' built
+        # '/Game/.../RifleAnimsetPro//AZ_RTG_MH_x' for a flat source folder -> engine fatal error on load, editor crash.)
+        sub_path = str(a.package_path)[len(SRC_ROOT.rstrip('/')):].strip('/')
+        folder = DST_ROOT.rstrip('/') + ('/' + sub_path if sub_path else '')
         name = str(a.asset_name)
-        rows.append((name, str(a.package_name), DST_ROOT + sub_path, DST_ROOT + sub_path + '/' + PREFIX + name,
-                     a.get_tag_value('Skeleton').split('.')[-1].rstrip("'")))
+        dst = folder + '/' + PREFIX + name
+        if '//' in dst or '//' in folder:
+            raise RuntimeError('bad destination path ' + dst)
+        rows.append((name, str(a.package_name), folder, dst, a.get_tag_value('Skeleton').split('.')[-1].rstrip("'")))
         ASSET_DATA[name] = a
     rows.sort()
     return rows
@@ -521,10 +529,13 @@ def post(ctx, source, target):
 
 
 LOOP_WORDS = ('_Idle', '_Walk', '_Run', '_Sprint', 'Circle', 'Cirlce', '_Loop')
-NOT_LOOP_WORDS = ('_to_', 'Jump', 'Turn', 'Start', 'End')
+NOT_LOOP_WORDS = ('_to_', 'Jump', 'Turn', 'Start', 'End', 'Stop', 'Land')
 
 
 def is_cycle_name(name):
+    # Explicit cycles first: turn-in-place loops ('..._90Loop') and the platformer fall loop (RifleAnimsetPro).
+    if name.endswith('Loop') or name.endswith('_Fall'):
+        return True
     return any(w in name for w in LOOP_WORDS) and not any(w in name for w in NOT_LOOP_WORDS)
 
 

@@ -7,8 +7,15 @@
 #include "Animation/AnimStats.h"
 #include "Animation/Skeleton.h"
 #include "BonePose.h"
+#include "HAL/FileManager.h"
+#include "HAL/PlatformTime.h"
+#include "Misc/DateTime.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "TwoBoneIK.h"
 #include "AZ_ConsoleVariables.h"
+#include "Animation/AZ_MoverAnimInstance.h"
+#include "Weapon/AZ_WeaponGripField.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AnimNode_AZWeaponGrip)
 
@@ -24,8 +31,6 @@ FAnimNode_AZWeaponGrip::FAnimNode_AZWeaponGrip()
 	LeftLowerArm.BoneName = TEXT("lowerarm_l");
 	LeftHand.BoneName = TEXT("hand_l");
 	RightHand.BoneName = TEXT("hand_r");
-	RightUpperArm.BoneName = TEXT("upperarm_r");
-	RightLowerArm.BoneName = TEXT("lowerarm_r");
 	for (int32 Side = 0; Side < NumSides; ++Side)
 	{
 		for (int32 Finger = 0; Finger < NumFingers; ++Finger)
@@ -45,9 +50,9 @@ FAnimNode_AZWeaponGrip::FAnimNode_AZWeaponGrip()
 void FAnimNode_AZWeaponGrip::GatherDebugData(FNodeDebugData& DebugData)
 {
 	FString DebugLine = DebugData.GetNodeName(this);
-	DebugLine += FString::Printf(TEXT("(Grip %s on %s, alpha %.2f, L %.2f R %.2f, finger markers 0x%03x, elbow swing %.1f deg)"),
+	DebugLine += FString::Printf(TEXT("(Grip %s on %s, alpha %.2f, L %.2f R %.2f, finger markers 0x%03x, contact field %s fingers %d, switch %.2f)"),
 		*GetNameSafe(GripPose), *WeaponBoneName.ToString(), GripAlpha, LastLeftAlpha, LastRightAlpha, Markers.FingerMask,
-		LastElbowSwingDeg);
+		*GetNameSafe(Markers.Field), LastContactFingers, LastSwitchOwnership);
 	DebugData.AddDebugItem(DebugLine);
 	ComponentPose.GatherDebugData(DebugData);
 }
@@ -58,8 +63,6 @@ void FAnimNode_AZWeaponGrip::InitializeBoneReferences(const FBoneContainer& Requ
 	LeftLowerArm.Initialize(RequiredBones);
 	LeftHand.Initialize(RequiredBones);
 	RightHand.Initialize(RequiredBones);
-	RightUpperArm.Initialize(RequiredBones);
-	RightLowerArm.Initialize(RequiredBones);
 	for (int32 Side = 0; Side < NumSides; ++Side)
 	{
 		for (int32 Finger = 0; Finger < NumFingers; ++Finger)
@@ -75,6 +78,25 @@ void FAnimNode_AZWeaponGrip::InitializeBoneReferences(const FBoneContainer& Requ
 	WeaponBone.BoneName = WeaponBoneName;
 	WeaponBone.Initialize(RequiredBones);
 	bWeaponBoneDirty = false;
+	bRecordBonesDirty = true;
+}
+
+void FAnimNode_AZWeaponGrip::FlushRecording()
+{
+	if (RecordingFrames.Num() > 0)
+	{
+		const FString Dir = FPaths::ProjectSavedDir() / TEXT("NaturalGrip/SwitchRecordings");
+		IFileManager::Get().MakeDirectory(*Dir, true);
+		const FString Path = Dir / FString::Printf(TEXT("%s_%s.json"), *RecordingClip.ToString(), *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
+		const FString Json = FString::Printf(TEXT("{%s,\"frames\":[\n%s\n]}\n"), *RecordingHeader, *FString::Join(RecordingFrames, TEXT(",\n")));
+		const bool bSaved = FFileHelper::SaveStringToFile(Json, *Path);
+		UE_LOG(LogTemp, Display, TEXT("[Reach] recorded %d frames of %s -> %s (%s)"), RecordingFrames.Num(), *RecordingClip.ToString(), *Path,
+			bSaved ? TEXT("saved") : TEXT("FAILED"));
+	}
+	RecordingFrames.Reset();
+	RecordingHeader.Reset();
+	RecordingClip = NAME_None;
+	RecordingPhase.Invalidate();
 }
 
 void FAnimNode_AZWeaponGrip::UpdateInternal(const FAnimationUpdateContext& Context)
@@ -90,6 +112,17 @@ void FAnimNode_AZWeaponGrip::UpdateInternal(const FAnimationUpdateContext& Conte
 	if (CachedGripPose.Get() != GripPose)
 	{
 		CacheGripPose();
+	}
+
+	// The weapon switch (game thread, already updated for this frame).
+	Reach = FAZ_WeaponSwitchReach();
+	if (const UAZ_MoverAnimInstance* Owner = Context.AnimInstanceProxy ? Cast<UAZ_MoverAnimInstance>(Context.AnimInstanceProxy->GetAnimInstanceObject()) : nullptr)
+	{
+		Reach = Owner->GetWeaponSwitchReach();
+	}
+	if (RecordingPhase.IsValid() && (!Reach.bRecord || Reach.RecordPhaseId != RecordingPhase))
+	{
+		FlushRecording();   // the recorded phase ended (the next one starts its own file on its first evaluated frame)
 	}
 }
 
@@ -137,6 +170,19 @@ void FAnimNode_AZWeaponGrip::CacheGripPose()
 			{
 				continue;
 			}
+			// The metacarpal too (a solved grasp arches the palm: ring / pinky metacarpals flex with their fingers).
+			Chain.bHasParentGrip = false;
+			if (Finger > 0)
+			{
+				const int32 ParentSkeletonIndex = PoseSkeleton->GetReferenceSkeleton().FindBoneIndex(Chain.Parent.BoneName);
+				if (ParentSkeletonIndex != INDEX_NONE)
+				{
+					FTransform Local;
+					GripPose->GetBoneTransform(Local, FSkeletonPoseBoneIndex(ParentSkeletonIndex), FAnimExtractContext(0.0), false);
+					Chain.ParentGripRotation = Local.GetRotation().GetNormalized();
+					Chain.bHasParentGrip = true;
+				}
+			}
 			// Joints the grip pose barely bends have no reliable axis of their own: they borrow the most bent joint's.
 			const float MinAngle = FMath::DegreesToRadians(4.f);
 			int32 Strongest = 0;
@@ -163,6 +209,362 @@ void FAnimNode_AZWeaponGrip::CacheGripPose()
 			Chain.bIKReady = true;
 		}
 	}
+
+	// Palm side per hand for the real-time contact closing: the fingers curl toward the palm, and the grip pose curls
+	// them, so the grip pose's fingertips lie on the palm side of the open (reference) ones. The sign is taken against
+	// the (index_01 - hand) x (pinky_01 - hand) plane, which the contact solver rebuilds every frame from the live hand.
+	for (int32 Side = 0; Side < NumSides; ++Side)
+	{
+		bPalmSignReady[Side] = false;
+		PalmSign[Side] = 1.f;
+		if (!PoseSkeleton)
+		{
+			continue;
+		}
+		const FReferenceSkeleton& Ref = PoseSkeleton->GetReferenceSkeleton();
+		const int32 HandIndex = Ref.FindBoneIndex(FName(*FString::Printf(TEXT("hand_%s"), AZWeaponGrip::Sides[Side])));
+		if (HandIndex == INDEX_NONE)
+		{
+			continue;
+		}
+		// Reference transform of a bone relative to the hand (walks the parents up to the hand).
+		auto InHand = [&Ref, HandIndex](int32 Index)
+		{
+			FTransform T = FTransform::Identity;
+			while (Index != INDEX_NONE && Index != HandIndex)
+			{
+				T = T * Ref.GetRefBonePose()[Index];
+				Index = Ref.GetParentIndex(Index);
+			}
+			return T;
+		};
+		const int32 Index01 = Ref.FindBoneIndex(Chains[Side][1].Bones[0].BoneName);
+		const int32 Pinky01 = Ref.FindBoneIndex(Chains[Side][4].Bones[0].BoneName);
+		if (Index01 == INDEX_NONE || Pinky01 == INDEX_NONE)
+		{
+			continue;
+		}
+		const FVector PlaneNormal = (InHand(Index01).GetLocation() ^ InHand(Pinky01).GetLocation()).GetSafeNormal();
+		FVector Curl = FVector::ZeroVector;
+		for (int32 Finger = 1; Finger < NumFingers; ++Finger)
+		{
+			const FFingerChain& Chain = Chains[Side][Finger];
+			const int32 ParentIndex = Ref.FindBoneIndex(Chain.Parent.BoneName);
+			int32 BoneIndices[3];
+			bool bFound = Chain.bHasGrip && ParentIndex != INDEX_NONE;
+			for (int32 Joint = 0; Joint < 3 && bFound; ++Joint)
+			{
+				BoneIndices[Joint] = Ref.FindBoneIndex(Chain.Bones[Joint].BoneName);
+				bFound = BoneIndices[Joint] != INDEX_NONE;
+			}
+			if (!bFound)
+			{
+				continue;
+			}
+			FTransform Open = InHand(ParentIndex);
+			FTransform Grip = Open;
+			for (int32 Joint = 0; Joint < 3; ++Joint)
+			{
+				const FTransform& RefLocal = Ref.GetRefBonePose()[BoneIndices[Joint]];
+				Open = RefLocal * Open;
+				Grip = FTransform(Chain.GripRotation[Joint], RefLocal.GetTranslation()) * Grip;
+			}
+			const FVector TipOffset = Ref.GetRefBonePose()[BoneIndices[2]].GetTranslation() * FingertipExtension;
+			Curl += Grip.TransformPosition(TipOffset) - Open.TransformPosition(TipOffset);
+		}
+		if (Curl.Size() > 0.5 && !PlaneNormal.IsNearlyZero())
+		{
+			PalmSign[Side] = (Curl | PlaneNormal) >= 0.0 ? 1.f : -1.f;
+			bPalmSignReady[Side] = true;
+		}
+	}
+	for (int32 Side = 0; Side < NumSides; ++Side)
+	{
+		for (int32 Finger = 0; Finger < NumFingers; ++Finger)
+		{
+			bContactAnglesValid[Side][Finger] = false;
+		}
+	}
+}
+
+namespace AZWeaponGrip
+{
+	/** Fit one finger of the BASE shape (the playing clip's own fingers, or an authored pose) onto the weapon's surface
+	 *  field: the whole finger curls a little more or less (all joints together, the tip by Node.DistalCoupling) until it
+	 *  touches without entering. See FAnimNode_AZWeaponGrip::FingerContactAlpha. */
+	static bool FitFingerToSurface(const FAnimNode_AZWeaponGrip& Node, bool bThumb, const FQuat InBase[3],
+		const FVector& PalmNormalCS, const FTransform& ParentCS, const FVector Translations[3], const FTransform& WeaponCS,
+		float DeltaSeconds, float& Smoothed, bool& bSmoothedValid, FQuat OutRotations[3])
+	{
+	const UAZ_WeaponGripField* Field = Node.Markers.Field;
+	if (!Field || !Field->IsValidField() || PalmNormalCS.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FQuat Base[3] = { InBase[0], InBase[1], InBase[2] };
+
+	// Hinge axis of every joint of the authored finger: perpendicular to its bone and to the palm normal, signed so
+	// that a positive angle curls toward the palm; stored in the joint's parent frame so it turns with the joints
+	// before it. The thumb keeps its base (CMC) joint and adapts its two outer joints.
+	FVector AxisLocal[3];
+	{
+		FTransform Parent = ParentCS;
+		for (int32 Joint = 0; Joint < 3; ++Joint)
+		{
+			const FTransform Bone = FTransform(Base[Joint], Translations[Joint]) * Parent;
+			const FVector Child = Joint < 2
+				? (FTransform(Base[Joint + 1], Translations[Joint + 1]) * Bone).GetLocation()
+				: Bone.TransformPosition(Translations[2] * Node.FingertipExtension);
+			FVector Axis = (Child - Bone.GetLocation()).GetSafeNormal() ^ PalmNormalCS;
+			if (!Axis.Normalize())
+			{
+				return false;
+			}
+			AxisLocal[Joint] = Parent.InverseTransformVectorNoScale(Axis);
+			Parent = Bone;
+		}
+	}
+	// One parameter per finger: the whole finger curls by T beyond the authored pose (T < 0 opens it); the tip joint
+	// moves Node.DistalCoupling x T. The shape the artist gave stays; only how tight it is changes.
+	const float Weight[3] = { bThumb ? 0.f : 1.f, 1.f, Node.DistalCoupling };
+	auto Rotations = [&](float T, FQuat Out[3])
+	{
+		for (int32 Joint = 0; Joint < 3; ++Joint)
+		{
+			Out[Joint] = Weight[Joint] > 0.f
+				? (FQuat(AxisLocal[Joint], Weight[Joint] * T) * Base[Joint]).GetNormalized()
+				: Base[Joint];
+		}
+	};
+	// Nearest clearance (cm) over the finger's phalanx capsules: min of (field distance - radius); < 0 = inside.
+	const FVector Radii = bThumb ? Node.ThumbRadii : Node.FingerRadii;
+	auto Clearance = [&](float T)
+	{
+		FQuat R[3];
+		Rotations(T, R);
+		FVector Points[4];
+		FTransform Bone = ParentCS;
+		for (int32 Joint = 0; Joint < 3; ++Joint)
+		{
+			Bone = FTransform(R[Joint], Translations[Joint]) * Bone;
+			Points[Joint] = Bone.GetLocation();
+		}
+		Points[3] = Bone.TransformPosition(Translations[2] * Node.FingertipExtension);
+		float Best = TNumericLimits<float>::Max();
+		for (int32 Segment = 0; Segment < 3; ++Segment)
+		{
+			for (int32 Sample = 0; Sample <= 2; ++Sample)
+			{
+				const FVector P = FMath::Lerp(Points[Segment], Points[Segment + 1], 0.5f * Sample);
+				const FVector InField = Node.Markers.FieldInBone.InverseTransformPosition(WeaponCS.InverseTransformPosition(P));
+				Best = FMath::Min(Best, Field->Sample(InField) - static_cast<float>(Radii[Segment]));
+			}
+		}
+		return Best;
+	};
+
+	// Smallest change from the authored pose that puts the finger ON the surface: inside -> open until out; floating
+	// -> curl until touching (never into the weapon); touching -> leave it as authored.
+	const float Step = FMath::DegreesToRadians(Node.ContactStepDeg);
+	const float OpenLimit = -FMath::DegreesToRadians(Node.FingerAdaptOpenDeg);
+	const float CloseLimit = FMath::DegreesToRadians(Node.FingerAdaptCloseDeg);
+	float T = 0.f;
+	float C = Clearance(T);
+	if (C < -Node.ContactSkin)
+	{
+		while (C < -Node.ContactSkin && T - Step >= OpenLimit)
+		{
+			T -= Step;
+			C = Clearance(T);
+		}
+	}
+	else if (C > Node.ContactTouchDistance)
+	{
+		while (T + Step <= CloseLimit)
+		{
+			const float Next = Clearance(T + Step);
+			if (Next < -Node.ContactSkin)
+			{
+				break;
+			}
+			T += Step;
+			C = Next;
+			if (C <= Node.ContactTouchDistance)
+			{
+				break;
+			}
+		}
+	}
+
+	// Smooth over time (contacts change as the clip moves the hand; no popping between steps).
+	if (!bSmoothedValid || Node.ContactInterpSpeed <= 0.f || DeltaSeconds <= 0.f)
+	{
+		Smoothed = T;
+		bSmoothedValid = true;
+	}
+	else
+	{
+		Smoothed = FMath::FInterpTo(Smoothed, T, DeltaSeconds, Node.ContactInterpSpeed);
+	}
+	Rotations(Smoothed, OutRotations);
+	return true;
+}
+}
+
+namespace AZWeaponGrip
+{
+	/** Put one finger's pad on a semantic target (e.g. the index on the trigger), starting from the BASE shape (the
+	 *  clip's own finger): three small changes are searched - base joint flexion, middle joint flexion (tip coupled)
+	 *  and base spread about the palm normal - minimising the pad-to-target distance plus a preference for small
+	 *  changes, with the weapon's surface field keeping the finger out of the metal. */
+	static bool FitFingerToTarget(const FAnimNode_AZWeaponGrip& Node, bool bThumb, const FQuat InBase[3], const FVector& PalmNormalCS,
+		const FTransform& ParentCS, const FVector Translations[3], const FTransform& WeaponCS, const FVector& TargetCS,
+		float DeltaSeconds, float Smoothed[2], bool& bSmoothedValid, FQuat OutRotations[3])
+	{
+		if (PalmNormalCS.IsNearlyZero())
+		{
+			return false;
+		}
+		const UAZ_WeaponGripField* Field = Node.Markers.Field;
+		const bool bField = Field && Field->IsValidField();
+		FVector AxisLocal[3];
+		{
+			FTransform Parent = ParentCS;
+			for (int32 Joint = 0; Joint < 3; ++Joint)
+			{
+				const FTransform Bone = FTransform(InBase[Joint], Translations[Joint]) * Parent;
+				const FVector Child = Joint < 2
+					? (FTransform(InBase[Joint + 1], Translations[Joint + 1]) * Bone).GetLocation()
+					: Bone.TransformPosition(Translations[2] * Node.FingertipExtension);
+				FVector Axis = (Child - Bone.GetLocation()).GetSafeNormal() ^ PalmNormalCS;
+				if (!Axis.Normalize())
+				{
+					return false;
+				}
+				AxisLocal[Joint] = Parent.InverseTransformVectorNoScale(Axis);
+				Parent = Bone;
+			}
+		}
+		const FVector SpreadLocal = ParentCS.InverseTransformVectorNoScale(PalmNormalCS).GetSafeNormal();
+		auto Rotations = [&](double Base, double Middle, double Spread, FQuat Out[3])
+		{
+			Out[0] = (FQuat(SpreadLocal, Spread) * FQuat(AxisLocal[0], Base) * InBase[0]).GetNormalized();
+			Out[1] = (FQuat(AxisLocal[1], Middle) * InBase[1]).GetNormalized();
+			Out[2] = (FQuat(AxisLocal[2], Node.DistalCoupling * Middle) * InBase[2]).GetNormalized();
+		};
+		auto Chain = [&](double Base, double Middle, double Spread, FVector Points[4])
+		{
+			FQuat R[3];
+			Rotations(Base, Middle, Spread, R);
+			FTransform Bone = ParentCS;
+			for (int32 Joint = 0; Joint < 3; ++Joint)
+			{
+				Bone = FTransform(R[Joint], Translations[Joint]) * Bone;
+				Points[Joint] = Bone.GetLocation();
+			}
+			Points[3] = Bone.TransformPosition(Translations[2] * Node.FingertipExtension);
+		};
+		auto Cost = [&](double Base, double Middle, double Spread, bool bWithField)
+		{
+			FVector Points[4];
+			Chain(Base, Middle, Spread, Points);
+			double C = (Points[3] - TargetCS).SizeSquared() + 0.5 * (Base * Base + Middle * Middle + Spread * Spread);
+			if (bWithField && bField)
+			{
+				for (int32 Segment = 0; Segment < 3; ++Segment)
+				{
+					for (int32 Sample = 0; Sample <= 2; ++Sample)
+					{
+						const FVector P = FMath::Lerp(Points[Segment], Points[Segment + 1], 0.5f * Sample);
+						const FVector InField = Node.Markers.FieldInBone.InverseTransformPosition(WeaponCS.InverseTransformPosition(P));
+						const float Radius = static_cast<float>(bThumb ? Node.ThumbRadii[Segment] : Node.FingerRadii[Segment]);
+						const double Inside = -(Field->Sample(InField) - Radius) - Node.ContactSkin;
+						if (Inside > 0.0)
+						{
+							C += 20.0 * Inside * Inside;
+						}
+					}
+				}
+			}
+			return C;
+		};
+		// Coarse grid (distance only), then coordinate descent with the surface term.
+		const double Open = -FMath::DegreesToRadians(Node.FingerAdaptOpenDeg);
+		const double Close = FMath::DegreesToRadians(FMath::Max(Node.FingerAdaptCloseDeg, 40.f));
+		const double SpreadLimit = FMath::DegreesToRadians(20.0);
+		double Best[3] = { 0.0, 0.0, 0.0 };
+		double BestCost = Cost(0.0, 0.0, 0.0, false);
+		const double Coarse = FMath::DegreesToRadians(5.0);
+		for (double B = Open; B <= Close + 1e-6; B += Coarse)
+		{
+			for (double M = Open; M <= Close + 1e-6; M += Coarse)
+			{
+				for (double S = -SpreadLimit; S <= SpreadLimit + 1e-6; S += Coarse)
+				{
+					const double C = Cost(B, M, S, false);
+					if (C < BestCost)
+					{
+						BestCost = C;
+						Best[0] = B;
+						Best[1] = M;
+						Best[2] = S;
+					}
+				}
+			}
+		}
+		BestCost = Cost(Best[0], Best[1], Best[2], true);
+		const double Lo[3] = { Open, Open, -SpreadLimit };
+		const double Hi[3] = { Close, Close, SpreadLimit };
+		for (double Step = FMath::DegreesToRadians(2.5); Step >= FMath::DegreesToRadians(0.4); Step *= 0.5)
+		{
+			bool bImproved = true;
+			for (int32 Pass = 0; Pass < 20 && bImproved; ++Pass)
+			{
+				bImproved = false;
+				for (int32 K = 0; K < 3; ++K)
+				{
+					for (const double Sign : { -1.0, 1.0 })
+					{
+						double Trial[3] = { Best[0], Best[1], Best[2] };
+						Trial[K] = FMath::Clamp(Trial[K] + Sign * Step, Lo[K], Hi[K]);
+						const double C = Cost(Trial[0], Trial[1], Trial[2], true);
+						if (C < BestCost - 1e-9)
+						{
+							BestCost = C;
+							Best[0] = Trial[0];
+							Best[1] = Trial[1];
+							Best[2] = Trial[2];
+							bImproved = true;
+						}
+					}
+				}
+			}
+		}
+		if (!bSmoothedValid || Node.ContactInterpSpeed <= 0.f || DeltaSeconds <= 0.f)
+		{
+			Smoothed[0] = static_cast<float>(Best[0]);
+			Smoothed[1] = static_cast<float>(Best[1]);
+			bSmoothedValid = true;
+		}
+		else
+		{
+			Smoothed[0] = FMath::FInterpTo(Smoothed[0], static_cast<float>(Best[0]), DeltaSeconds, Node.ContactInterpSpeed);
+			Smoothed[1] = FMath::FInterpTo(Smoothed[1], static_cast<float>(Best[1]), DeltaSeconds, Node.ContactInterpSpeed);
+		}
+		Rotations(Smoothed[0], Smoothed[1], Best[2], OutRotations);
+		return true;
+	}
+}
+
+bool FAnimNode_AZWeaponGrip::SolveFingerContact(int32 Side, int32 Finger, const FVector& PalmNormalCS, const FTransform& ParentCS,
+	const FVector Translations[3], const FQuat& ClipBaseRotation, const FTransform& WeaponCS, float DeltaSeconds,
+	FQuat OutRotations[3]) const
+{
+	(void)ClipBaseRotation;
+	const FFingerChain& Chain = Chains[Side][Finger];
+	return AZWeaponGrip::FitFingerToSurface(*this, Finger == 0, Chain.GripRotation, PalmNormalCS, ParentCS, Translations,
+		WeaponCS, DeltaSeconds, ContactAngles[Side][Finger][0], bContactAnglesValid[Side][Finger], OutRotations);
 }
 
 void FAnimNode_AZWeaponGrip::SolveFingerIK(const FFingerChain& Chain, const FTransform& ParentCS, const FVector Translations[3],
@@ -284,102 +686,17 @@ void FAnimNode_AZWeaponGrip::SolveFingerIK(const FFingerChain& Chain, const FTra
 	Rotations(X, OutRotations);
 }
 
-float FAnimNode_AZWeaponGrip::AvoidStockWithRightArm(float Weight, const FTransform& WeaponCS, FComponentSpacePoseContext& Output,
-	TArray<FBoneTransform>& OutBoneTransforms) const
-{
-	const FBoneContainer& RequiredBones = Output.Pose.GetPose().GetBoneContainer();
-	if (!Markers.bHasStock || Weight <= UE_KINDA_SMALL_NUMBER || !RightUpperArm.IsValidToEvaluate(RequiredBones)
-		|| !RightLowerArm.IsValidToEvaluate(RequiredBones) || !RightHand.IsValidToEvaluate(RequiredBones))
-	{
-		return 0.f;
-	}
-	const FCompactPoseBoneIndex UpperIndex = RightUpperArm.GetCompactPoseIndex(RequiredBones);
-	const FCompactPoseBoneIndex LowerIndex = RightLowerArm.GetCompactPoseIndex(RequiredBones);
-	const FCompactPoseBoneIndex HandIndex = RightHand.GetCompactPoseIndex(RequiredBones);
-	FTransform UpperCS = Output.Pose.GetComponentSpaceTransform(UpperIndex);
-	FTransform LowerCS = Output.Pose.GetComponentSpaceTransform(LowerIndex);
-	const FTransform HandCS = Output.Pose.GetComponentSpaceTransform(HandIndex);
-	const FVector StockA = WeaponCS.TransformPosition(Markers.StockFront);
-	const FVector StockB = WeaponCS.TransformPosition(Markers.StockButt);
-	if (AZCVars::GetWeaponDebug() >= 3)
-	{
-		const FTransform& ToWorld = Output.AnimInstanceProxy->GetComponentTransform();
-		Output.AnimInstanceProxy->AnimDrawDebugLine(ToWorld.TransformPosition(StockA), ToWorld.TransformPosition(StockB), FColor::Yellow,
-			false, -1.f, 2.f * Markers.StockRadius, SDPG_Foreground);
-	}
-	const FVector Shoulder = UpperCS.GetLocation();
-	const FVector Elbow = LowerCS.GetLocation();
-	const FVector Hand = HandCS.GetLocation();
-	const FVector Axis = (Hand - Shoulder).GetSafeNormal();
-	if (Axis.IsNearlyZero())
-	{
-		return 0.f;
-	}
-
-	// Clearance (cm, >= 0 = free) of the arm swung by Deg about the shoulder->hand axis. The wrist end of the forearm is
-	// left out (ForearmTestFraction): the hand legitimately holds the stock's wrist.
-	auto Clearance = [&](double Deg)
-	{
-		const FVector SwungElbow = Shoulder + FQuat(Axis, FMath::DegreesToRadians(Deg)).RotateVector(Elbow - Shoulder);
-		const FVector ForearmEnd = SwungElbow + (Hand - SwungElbow) * ForearmTestFraction;
-		FVector OnArm, OnStock;
-		FMath::SegmentDistToSegmentSafe(SwungElbow, ForearmEnd, StockA, StockB, OnArm, OnStock);
-		const double Forearm = FVector::Dist(OnArm, OnStock) - (ForearmRadius + Markers.StockRadius);
-		FMath::SegmentDistToSegmentSafe(Shoulder, SwungElbow, StockA, StockB, OnArm, OnStock);
-		const double Upper = FVector::Dist(OnArm, OnStock) - (UpperArmRadius + Markers.StockRadius);
-		return FMath::Min(Forearm, Upper);
-	};
-	double BestClearance = Clearance(0.0);
-	if (BestClearance >= 0.0)
-	{
-		return 0.f;
-	}
-	// Smallest swing that frees the arm; the side used last frame is tried first so the elbow never flips sides.
-	const double PreferredSign = LastElbowSwingDeg < 0.f ? -1.0 : 1.0;
-	double Best = 0.0;
-	for (int32 Degrees = 1; Degrees <= FMath::FloorToInt(MaxElbowSwingDeg); ++Degrees)
-	{
-		bool bFree = false;
-		for (const double Sign : { PreferredSign, -PreferredSign })
-		{
-			const double Candidate = Sign * Degrees;
-			const double Value = Clearance(Candidate);
-			if (Value > BestClearance)
-			{
-				BestClearance = Value;
-				Best = Candidate;
-			}
-			if (Value >= 0.0)
-			{
-				bFree = true;
-				break;
-			}
-		}
-		if (bFree)
-		{
-			break;
-		}
-	}
-	const double Applied = Best * Weight;
-	if (FMath::IsNearlyZero(Applied))
-	{
-		return 0.f;
-	}
-	const FQuat Swing(Axis, FMath::DegreesToRadians(Applied));
-	UpperCS.SetRotation((Swing * UpperCS.GetRotation()).GetNormalized());
-	LowerCS.SetLocation(Shoulder + Swing.RotateVector(Elbow - Shoulder));
-	LowerCS.SetRotation((Swing * LowerCS.GetRotation()).GetNormalized());
-	OutBoneTransforms.Add(FBoneTransform(UpperIndex, UpperCS));
-	OutBoneTransforms.Add(FBoneTransform(LowerIndex, LowerCS));
-	OutBoneTransforms.Add(FBoneTransform(HandIndex, HandCS));    // the hand (and the weapon on it) stays exactly where it was
-	return static_cast<float>(Applied);
-}
-
 bool FAnimNode_AZWeaponGrip::IsValidToEvaluate(const USkeleton* Skeleton, const FBoneContainer& RequiredBones)
 {
-	return GripPose != nullptr
-		&& GripAlpha > UE_KINDA_SMALL_NUMBER
-		&& WeaponBoneName != NAME_None
+	// a held weapon with grip data, or a weapon switch owning the left hand (its reach, and the left-arm clearance even
+	// before the incoming weapon has grip data)
+	const bool bGrip = GripPose != nullptr && WeaponBoneName != NAME_None && GripAlpha > UE_KINDA_SMALL_NUMBER;
+	const bool bSwitch = Reach.Ownership > UE_KINDA_SMALL_NUMBER || Reach.bRecord;
+	if (!bSwitch)
+	{
+		LastSwitchOwnership = 0.f;
+	}
+	return (bGrip || bSwitch)
 		&& LeftUpperArm.IsValidToEvaluate(RequiredBones)
 		&& LeftLowerArm.IsValidToEvaluate(RequiredBones)
 		&& LeftHand.IsValidToEvaluate(RequiredBones)
@@ -398,6 +715,40 @@ void FAnimNode_AZWeaponGrip::AppendFingers(int32 Side, float GripBlendFactor, co
 {
 	const FBoneContainer& RequiredBones = Output.Pose.GetPose().GetBoneContainer();
 	const FCompactPoseBoneIndex HandIndex = (Side == 0 ? LeftHand : RightHand).GetCompactPoseIndex(RequiredBones);
+
+	// A weapon with a solved grasp for this hand (AAZ_Weapon::bBakedRightHandGrasp / bBakedLeftHandGrasp): the grip pose IS
+	// the grasp of the hand on its hold (the right hand re-gripped by AZ Weapon Body Clearance, the left hand IK'd onto
+	// LeftHandGrip above) - applied as it is, metacarpals included (the palm arch); no real-time fitting, so no clip
+	// finger shape and no per-frame search leak into it.
+	const bool bBaked = Side == 1 ? Markers.bBakedRightFingers : Markers.bBakedLeftFingers;
+
+	// Real-time contact closing: palm normal of the LIVE hand (knuckles from the clip's metacarpals), signed to the
+	// palm side (PalmSign, from the grip pose).
+	FVector PalmNormalCS = FVector::ZeroVector;
+	const bool bContact = !bBaked && bWeaponValid && FingerContactAlpha > UE_KINDA_SMALL_NUMBER && Markers.Field != nullptr
+		&& bPalmSignReady[Side];
+	if (bContact)
+	{
+		auto KnuckleCS = [&](const FFingerChain& Chain, FVector& Out)
+		{
+			if (!Chain.Parent.IsValidToEvaluate(RequiredBones) || !Chain.Bones[0].IsValidToEvaluate(RequiredBones))
+			{
+				return false;
+			}
+			const FTransform Metacarpal = Output.Pose.GetLocalSpaceTransform(Chain.Parent.GetCompactPoseIndex(RequiredBones)) * HandCS;
+			Out = Metacarpal.TransformPosition(Output.Pose.GetLocalSpaceTransform(Chain.Bones[0].GetCompactPoseIndex(RequiredBones)).GetTranslation());
+			return true;
+		};
+		FVector IndexKnuckle, PinkyKnuckle;
+		if (KnuckleCS(Chains[Side][1], IndexKnuckle) && KnuckleCS(Chains[Side][4], PinkyKnuckle))
+		{
+			const FVector Wrist = HandCS.GetLocation();
+			PalmNormalCS = ((IndexKnuckle - Wrist) ^ (PinkyKnuckle - Wrist)).GetSafeNormal() * PalmSign[Side];
+		}
+	}
+	const float DeltaSeconds = Output.AnimInstanceProxy ? Output.AnimInstanceProxy->GetDeltaSeconds() : 0.f;
+	int32 ContactFingers = 0;
+
 	for (int32 Finger = 0; Finger < NumFingers; ++Finger)
 	{
 		const FFingerChain& Chain = Chains[Side][Finger];
@@ -407,16 +758,64 @@ void FAnimNode_AZWeaponGrip::AppendFingers(int32 Side, float GripBlendFactor, co
 		{
 			continue;
 		}
-		// Parent in component space, re-derived from the (possibly IK-moved) hand: metacarpals keep their local.
+		// Parent in component space, re-derived from the (possibly IK-moved) hand: metacarpals keep their local, except in
+		// a solved grasp, which arches the palm (the grip pose's metacarpal).
 		const FCompactPoseBoneIndex ParentIndex = Chain.Parent.GetCompactPoseIndex(RequiredBones);
-		FTransform ParentCS = ParentIndex == HandIndex
-			? HandCS
-			: Output.Pose.GetLocalSpaceTransform(ParentIndex) * HandCS;
+		FTransform ParentCS = HandCS;
+		if (ParentIndex != HandIndex)
+		{
+			FTransform ParentLocal = Output.Pose.GetLocalSpaceTransform(ParentIndex);
+			if (bBaked && Chain.bHasParentGrip)
+			{
+				ParentLocal.SetRotation(FQuat::Slerp(ParentLocal.GetRotation(), Chain.ParentGripRotation, GripBlendFactor).GetNormalized());
+				ParentCS = ParentLocal * HandCS;
+				OutBoneTransforms.Add(FBoneTransform(ParentIndex, ParentCS));
+			}
+			else
+			{
+				ParentCS = ParentLocal * HandCS;
+			}
+		}
 
 		// Target rotations: the grip pose, re-bent by the fingertip IK when the weapon has this finger's marker.
 		FQuat TargetRotation[3] = { Chain.GripRotation[0], Chain.GripRotation[1], Chain.GripRotation[2] };
 		const int32 MarkerIndex = Side * NumFingers + Finger;
-		if (bWeaponValid && Chain.bIKReady && FingerIKAlpha > UE_KINDA_SMALL_NUMBER && (Markers.FingerMask & (1 << MarkerIndex)) != 0
+		bool bContactSolved = false;
+		if (bContact && !PalmNormalCS.IsNearlyZero())
+		{
+			FVector Translations[3];
+			for (int32 Joint = 0; Joint < 3; ++Joint)
+			{
+				Translations[Joint] = Output.Pose.GetLocalSpaceTransform(Chain.Bones[Joint].GetCompactPoseIndex(RequiredBones)).GetTranslation();
+			}
+			// Base shape = the playing clip's OWN fingers (natural mocap, per clip: hip carry, aim, crouch...), fitted
+			// onto the weapon's surface. The authored grip pose is no longer the finger shape when a field exists.
+			FQuat ClipRotation[3];
+			for (int32 Joint = 0; Joint < 3; ++Joint)
+			{
+				ClipRotation[Joint] = Output.Pose.GetLocalSpaceTransform(Chain.Bones[Joint].GetCompactPoseIndex(RequiredBones)).GetRotation();
+			}
+			FQuat Contact[3];
+			// A finger with a marker on the weapon has a semantic target (the right index -> the trigger, the left thumb
+			// -> along the forend's side): put its pad there; every other finger just rests on the surface.
+			const bool bHasTarget = (Markers.FingerMask & (1 << MarkerIndex)) != 0 && Markers.FingerTargets.IsValidIndex(MarkerIndex);
+			const bool bFitted = bHasTarget
+				? AZWeaponGrip::FitFingerToTarget(*this, Finger == 0, ClipRotation, PalmNormalCS, ParentCS, Translations, WeaponCS,
+					WeaponCS.TransformPosition(Markers.FingerTargets[MarkerIndex]), DeltaSeconds, ContactAngles[Side][Finger],
+					bContactAnglesValid[Side][Finger], Contact)
+				: AZWeaponGrip::FitFingerToSurface(*this, Finger == 0, ClipRotation, PalmNormalCS, ParentCS, Translations, WeaponCS,
+					DeltaSeconds, ContactAngles[Side][Finger][0], bContactAnglesValid[Side][Finger], Contact);
+			if (bFitted)
+			{
+				for (int32 Joint = 0; Joint < 3; ++Joint)
+				{
+					TargetRotation[Joint] = FQuat::Slerp(ClipRotation[Joint], Contact[Joint], FingerContactAlpha).GetNormalized();
+				}
+				bContactSolved = true;
+				++ContactFingers;
+			}
+		}
+		if (!bBaked && !bContactSolved && bWeaponValid && Chain.bIKReady && FingerIKAlpha > UE_KINDA_SMALL_NUMBER && (Markers.FingerMask & (1 << MarkerIndex)) != 0
 			&& Markers.FingerTargets.IsValidIndex(MarkerIndex))
 		{
 			FVector Translations[3];
@@ -453,6 +852,7 @@ void FAnimNode_AZWeaponGrip::AppendFingers(int32 Side, float GripBlendFactor, co
 			Output.AnimInstanceProxy->AnimDrawDebugSphere(ToWorld.TransformPosition(PadCS), 0.3f, 8, FColor::Red, false, -1.f, 0.f, SDPG_Foreground);
 		}
 	}
+	LastContactFingers += ContactFingers;
 }
 
 void FAnimNode_AZWeaponGrip::EvaluateSkeletalControl_AnyThread(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
@@ -463,17 +863,75 @@ void FAnimNode_AZWeaponGrip::EvaluateSkeletalControl_AnyThread(FComponentSpacePo
 		WeaponBone.Initialize(RequiredBones);
 		bWeaponBoneDirty = false;
 	}
+	// ---- az.Weapon.RecordSwitch: this node's INPUT pose (the switch clip's upper body over the live legs, after foot
+	// placement and the real layering) - what the offline switch-arm solver bakes the clip's correction against.
+	if (Reach.bRecord)
+	{
+		if (RecordingPhase != Reach.RecordPhaseId)
+		{
+			FlushRecording();
+			RecordingPhase = Reach.RecordPhaseId;
+			RecordingClip = Reach.RecordClip;
+			RecordingStartTime = FPlatformTime::Seconds();
+			RecordingHeader = FString::Printf(TEXT("\"clip\":\"%s\",\"weapon\":\"%s\",\"holster\":%s,\"crouching\":%s,\"weaponBone\":\"%s\",\"leftHandInWeaponBone\":[%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f]"),
+				*Reach.RecordClip.ToString(), *Reach.RecordWeapon.ToString(), Reach.bRecordHolster ? TEXT("true") : TEXT("false"),
+				Reach.bRecordCrouching ? TEXT("true") : TEXT("false"), *WeaponBoneName.ToString(),
+				LeftHandInWeaponBone.GetLocation().X, LeftHandInWeaponBone.GetLocation().Y, LeftHandInWeaponBone.GetLocation().Z,
+				LeftHandInWeaponBone.GetRotation().X, LeftHandInWeaponBone.GetRotation().Y, LeftHandInWeaponBone.GetRotation().Z, LeftHandInWeaponBone.GetRotation().W);
+		}
+		if (bRecordBonesDirty)
+		{
+			static const TCHAR* const Names[] = {
+				TEXT("root"), TEXT("pelvis"), TEXT("spine_01"), TEXT("spine_02"), TEXT("spine_03"), TEXT("spine_04"), TEXT("spine_05"),
+				TEXT("neck_01"), TEXT("head"), TEXT("clavicle_l"), TEXT("upperarm_l"), TEXT("upperarm_twist_01_l"), TEXT("upperarm_twist_02_l"),
+				TEXT("lowerarm_l"), TEXT("lowerarm_twist_01_l"), TEXT("lowerarm_twist_02_l"), TEXT("hand_l"),
+				TEXT("clavicle_r"), TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"), TEXT("az_weapon_r"),
+				TEXT("thigh_l"), TEXT("thigh_twist_01_l"), TEXT("calf_l"), TEXT("calf_twist_01_l"), TEXT("calf_twist_02_l"), TEXT("foot_l"), TEXT("ball_l"),
+				TEXT("thigh_r"), TEXT("thigh_twist_01_r"), TEXT("calf_r"), TEXT("calf_twist_01_r"), TEXT("calf_twist_02_r"), TEXT("foot_r"), TEXT("ball_r") };
+			RecordBones.Reset();
+			for (const TCHAR* Name : Names)
+			{
+				FBoneReference Bone(Name);
+				if (Bone.Initialize(RequiredBones))
+				{
+					RecordBones.Add(Bone);
+				}
+			}
+			bRecordBonesDirty = false;
+		}
+		FString Frame = FString::Printf(TEXT("{\"t\":%.4f,\"clipTime\":%.4f,\"w\":%.3f,\"own\":%.3f,\"alpha\":%.3f,\"master\":%.3f,\"bones\":{"),
+			FPlatformTime::Seconds() - RecordingStartTime, Reach.RecordClipTime, Reach.RecordMontageWeight, Reach.Ownership, Reach.Alpha, GripAlpha);
+		for (int32 I = 0; I < RecordBones.Num(); ++I)
+		{
+			const FTransform BoneCS = Output.Pose.GetComponentSpaceTransform(RecordBones[I].GetCompactPoseIndex(RequiredBones));
+			const FVector L = BoneCS.GetLocation();
+			const FQuat Q = BoneCS.GetRotation();
+			Frame += FString::Printf(TEXT("%s\"%s\":[%.3f,%.3f,%.3f,%.6f,%.6f,%.6f,%.6f]"), I ? TEXT(",") : TEXT(""),
+				*RecordBones[I].BoneName.ToString(), L.X, L.Y, L.Z, Q.X, Q.Y, Q.Z, Q.W);
+		}
+		Frame += TEXT("}}");
+		RecordingFrames.Add(MoveTemp(Frame));
+	}
+
 	LastLeftAlpha = HandAlpha(Output.Curve, LeftCurveName);
 	LastRightAlpha = HandAlpha(Output.Curve, RightCurveName);
-
-	const bool bWeaponValid = WeaponBone.IsValidToEvaluate(RequiredBones);
+	// A weapon switch OWNS the left hand by Reach.Ownership (tau): its weight (the switch clip's own AZ_Grip_L) replaces
+	// the pose's AZ_Grip_L, which upper-body layers fading out at the switch start override with their own 1. The two
+	// weights are mixed, so a change of owner never jumps.
+	const float Tau = FMath::Clamp(Reach.Ownership, 0.f, 1.f);
+	LastSwitchOwnership = Tau;
+	const bool bWeaponValid = GripPose != nullptr && WeaponBone.IsValidToEvaluate(RequiredBones);
 	const FTransform WeaponCS = bWeaponValid
 		? Output.Pose.GetComponentSpaceTransform(WeaponBone.GetCompactPoseIndex(RequiredBones))
 		: FTransform::Identity;
+	const float NormalAlpha = bWeaponValid ? LastLeftAlpha : 0.f;
+	const float SwitchAlpha = bWeaponValid && Tau > 0.f ? FMath::Clamp(Reach.Alpha, 0.f, 1.f) : 0.f;
+	const float LeftAlpha = FMath::Lerp(NormalAlpha, SwitchAlpha, Tau);
+	LastLeftAlpha = LeftAlpha;
 
 	// ---- left hand onto the weapon's grip (current-frame weapon bone -> no lag)
 	FTransform LeftHandCS = Output.Pose.GetComponentSpaceTransform(LeftHand.GetCompactPoseIndex(RequiredBones));
-	if (LastLeftAlpha > UE_KINDA_SMALL_NUMBER && bWeaponValid)
+	if (LeftAlpha > UE_KINDA_SMALL_NUMBER)
 	{
 		const FCompactPoseBoneIndex UpperIndex = LeftUpperArm.GetCompactPoseIndex(RequiredBones);
 		const FCompactPoseBoneIndex LowerIndex = LeftLowerArm.GetCompactPoseIndex(RequiredBones);
@@ -483,8 +941,8 @@ void FAnimNode_AZWeaponGrip::EvaluateSkeletalControl_AnyThread(FComponentSpacePo
 		FTransform HandCS = LeftHandCS;
 
 		const FTransform TargetCS = LeftHandInWeaponBone * WeaponCS;
-		const FVector Goal = FMath::Lerp(HandCS.GetLocation(), TargetCS.GetLocation(), LastLeftAlpha);
-		const FQuat GoalRotation = FQuat::Slerp(HandCS.GetRotation(), TargetCS.GetRotation(), LastLeftAlpha).GetNormalized();
+		const FVector Goal = FMath::Lerp(HandCS.GetLocation(), TargetCS.GetLocation(), LeftAlpha);
+		const FQuat GoalRotation = FQuat::Slerp(HandCS.GetRotation(), TargetCS.GetRotation(), LeftAlpha).GetNormalized();
 
 		// Pole: keep the input pose's own elbow side.
 		const FVector ShoulderToHandMid = 0.5 * (UpperCS.GetLocation() + HandCS.GetLocation());
@@ -503,17 +961,13 @@ void FAnimNode_AZWeaponGrip::EvaluateSkeletalControl_AnyThread(FComponentSpacePo
 		LeftHandCS = HandCS;
 	}
 
-	// ---- right arm out of the stock (the right hand and the weapon on it do not move)
-	LastElbowSwingDeg = bWeaponValid && LastRightAlpha > UE_KINDA_SMALL_NUMBER
-		? AvoidStockWithRightArm(LastRightAlpha, WeaponCS, Output, OutBoneTransforms)
-		: 0.f;
-
-	// ---- fingers of both hands: grip pose + fingertip IK onto the weapon's markers
-	if (LastLeftAlpha > UE_KINDA_SMALL_NUMBER)
+	// ---- fingers of both hands: grip pose, closed on the weapon's surface field (or fingertip IK onto its markers)
+	LastContactFingers = 0;
+	if (GripPose && LeftAlpha > UE_KINDA_SMALL_NUMBER)
 	{
-		AppendFingers(0, LastLeftAlpha, LeftHandCS, WeaponCS, bWeaponValid, Output, OutBoneTransforms);
+		AppendFingers(0, LeftAlpha, LeftHandCS, WeaponCS, bWeaponValid, Output, OutBoneTransforms);
 	}
-	if (LastRightAlpha > UE_KINDA_SMALL_NUMBER)
+	if (GripPose && LastRightAlpha > UE_KINDA_SMALL_NUMBER)
 	{
 		const FTransform RightHandCS = Output.Pose.GetComponentSpaceTransform(RightHand.GetCompactPoseIndex(RequiredBones));
 		AppendFingers(1, LastRightAlpha, RightHandCS, WeaponCS, bWeaponValid, Output, OutBoneTransforms);

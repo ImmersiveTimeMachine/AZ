@@ -9,6 +9,8 @@
 #include "FloatRangeColumn.h"
 #include "BoolColumn.h"
 #include "RandomizeColumn.h"
+#include "GameplayTagColumn.h"
+#include "GameplayTagContainer.h"
 #include "ObjectChooser_Asset.h"
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "Kismet2/BlueprintEditorUtils.h"
@@ -1898,6 +1900,93 @@ bool UAZ_ChooserUtils::SetCellBoolOnSub(const FString& RootChooserPath, const FS
 	return true;
 #else
 	return false;
+#endif
+}
+
+bool UAZ_ChooserUtils::SetCellGameplayTagsOnSub(const FString& RootChooserPath, const FString& SubTableName,
+	int32 RowIndex, int32 ColumnIndex, const TArray<FString>& TagNames)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table || !Table->ColumnsStructs.IsValidIndex(ColumnIndex)) return false;
+	FGameplayTagColumn* Col = Table->ColumnsStructs[ColumnIndex].GetMutablePtr<FGameplayTagColumn>();
+	if (!Col || !Col->RowValues.IsValidIndex(RowIndex)) return false;
+
+	// Resolve every name before touching the cell: one unknown tag leaves the table exactly as it was.
+	FGameplayTagContainer NewValue;
+	for (const FString& Name : TagNames)
+	{
+		const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(FName(*Name), /*ErrorIfNotFound*/ false);
+		if (!Tag.IsValid())
+		{
+			UE_LOG(LogTemp, Error, TEXT("SetCellGameplayTagsOnSub: '%s' is not a registered gameplay tag"), *Name);
+			return false;
+		}
+		NewValue.AddTag(Tag);
+	}
+
+	Table->Modify();
+	Col->RowValues[RowIndex] = NewValue;
+	Root->MarkPackageDirty();
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool UAZ_ChooserUtils::GetCellGameplayTagsOnSub(const FString& RootChooserPath, const FString& SubTableName,
+	int32 RowIndex, int32 ColumnIndex, TArray<FString>& OutTagNames)
+{
+	OutTagNames.Reset();
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table || !Table->ColumnsStructs.IsValidIndex(ColumnIndex)) return false;
+	const FGameplayTagColumn* Col = Table->ColumnsStructs[ColumnIndex].GetPtr<FGameplayTagColumn>();
+	if (!Col || !Col->RowValues.IsValidIndex(RowIndex)) return false;
+	for (const FGameplayTag& Tag : Col->RowValues[RowIndex])
+	{
+		OutTagNames.Add(Tag.ToString());
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool UAZ_ChooserUtils::SetGameplayTagColumnMatchExact(const FString& RootChooserPath, const FString& SubTableName,
+	int32 ColumnIndex, bool bExact)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table || !Table->ColumnsStructs.IsValidIndex(ColumnIndex)) return false;
+	FGameplayTagColumn* Col = Table->ColumnsStructs[ColumnIndex].GetMutablePtr<FGameplayTagColumn>();
+	if (!Col) return false;
+	Table->Modify();
+	Col->bMatchExact = bExact;
+	Root->MarkPackageDirty();
+	return true;
+#else
+	return false;
+#endif
+}
+
+FString UAZ_ChooserUtils::DescribeGameplayTagColumn(const FString& RootChooserPath, const FString& SubTableName,
+	int32 ColumnIndex)
+{
+#if WITH_EDITOR
+	UChooserTable* Root = LoadChooser(RootChooserPath);
+	UChooserTable* Table = ResolveTable(Root, SubTableName);
+	if (!Table || !Table->ColumnsStructs.IsValidIndex(ColumnIndex)) return FString();
+	const FGameplayTagColumn* Col = Table->ColumnsStructs[ColumnIndex].GetPtr<FGameplayTagColumn>();
+	if (!Col) return FString();
+	return FString::Printf(TEXT("match=%d dir=%d exact=%d invert=%d rows=%d"),
+		static_cast<int32>(Col->TagMatchType), static_cast<int32>(Col->TagMatchDirection),
+		Col->bMatchExact ? 1 : 0, Col->bInvertMatchingLogic ? 1 : 0, Col->RowValues.Num());
+#else
+	return FString();
 #endif
 }
 

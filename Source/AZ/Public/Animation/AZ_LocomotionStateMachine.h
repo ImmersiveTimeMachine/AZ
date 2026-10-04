@@ -100,6 +100,17 @@ struct FAZ_LocoSMInputs
 	 *  AimTurnInPlaceMinSeconds for why the exit angle alone is not enough. */
 	float AimTurnInPlaceMinSeconds = 0.67f;
 
+	// Explicit cosmetic Mover firearm opt-in. Default false preserves CMC and
+	// legacy throwable/residual selection; it does not change gameplay facing.
+	bool bUseAppliedAimSteps = false;
+	bool bAppliedAimStepEligible = false;
+	bool bAppliedAimStepDemand = false;
+	bool bAppliedAimStepFrozen = false;
+	bool bAppliedAimStepReset = false;
+	int8 AppliedAimStepDirection = 0; // -1 left, +1 right; pending direction, not a mid-step redirect
+	bool bAppliedAimStepBoundary = false; // confirmed full cycles, never a C++ timer approximation
+	bool bAppliedAimStepFeedbackFailed = false;
+
 	/** True while the obstacle sensor reports an active reaction (Brace/Blocked). The SM HOLDS LocomotionLoop and
 	 *  skips start/stop/turn transitions so a wall reaction can't be interrupted by turning / stick-flicker into
 	 *  the wall (those would fire pivots/stops that out-match the reaction row). Grounded-only; clears the instant
@@ -111,6 +122,13 @@ struct FAZ_LocoSMInputs
 	 *  serves the brake; false keeps the legacy fall-to-IdleLoop dispatch (2026-08-27 tap bug on CMC).
 	 *  Default false = the Mover backend stays bit-identical; the CMC backend opts in. */
 	bool bStopOnAbortedStart = false;
+
+	/** The active weapon set has no start / stop / pivot / land clips (the RifleMega pack). True skips the ground
+	 *  transition phases: TransitionToLocomotion becomes LocomotionLoop and TransitionToIdle becomes IdleLoop, so
+	 *  the loop and idle rows cross-fade directly instead of holding a phase with nothing to play (its 1 s default
+	 *  stamp = the idle sliding under a moving capsule, or a loop walking in place after a stop). Sourced from the
+	 *  profile's bNoGroundTransitionClips; false keeps every existing set bit-identical. */
+	bool bNoGroundTransitionClips = false;
 
 	// ---- Tunables (kept CDO-editable on the AnimInstance, passed in rather than duplicated here) ----
 	float IdleBreakMinTime = 5.f;
@@ -127,6 +145,7 @@ struct FAZ_LocoSMOutputs
 	EAZ_StartDirection    StartDirection = EAZ_StartDirection::Fwd;   // gated: only meaningful in TransitionToLocomotion
 	bool                  bMovingTransition = false;                  // gated: only in TransitionToLocomotion
 	bool                  bJustLanded       = false;                  // gated: only in TransitionToIdle
+	bool                  bAppliedAimStep = false;
 };
 
 /**
@@ -208,6 +227,7 @@ private:
 	/** World time the current stepping turn may first be re-evaluated. Until then the angle cannot end it,
 	 *  so the step completes instead of being cut a third of the way in. <0 = no turn running. */
 	float AimTurnEndTime    = -1.f;
+	bool bAppliedAimStepRunning = false;
 	/** World time the active impact-reaction clip is ~done; holds LocomotionLoop past the sensor's brief trigger
 	 *  window so the flinch plays in full. <0 = no reaction active. Set by NotifyReactionClipPushed. */
 	float ReactionEndTime   = -1.f;

@@ -321,6 +321,30 @@ public:
 	static bool SetCellAssetOnSub(const FString& RootChooserPath, const FString& SubTableName,
 		int32 RowIndex, UObject* NewAsset);
 
+	/** Replace one FGameplayTagColumn cell with TagNames (every name must be a registered tag; an empty array
+	 *  clears the cell, which the column treats as "match any"). Modify() + dirty, no save -- use CompileAndSave.
+	 *  @return false on a bad index, a column that is not a gameplay-tag column, or an unknown tag (cell untouched) */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool SetCellGameplayTagsOnSub(const FString& RootChooserPath, const FString& SubTableName,
+		int32 RowIndex, int32 ColumnIndex, const TArray<FString>& TagNames);
+
+	/** Read one FGameplayTagColumn cell back as tag names (empty = match any).
+	 *  @return false on a bad index or a column that is not a gameplay-tag column */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool GetCellGameplayTagsOnSub(const FString& RootChooserPath, const FString& SubTableName,
+		int32 RowIndex, int32 ColumnIndex, TArray<FString>& OutTagNames);
+
+	/** Set bMatchExact on an FGameplayTagColumn. Modify() + dirty, no save. */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static bool SetGameplayTagColumnMatchExact(const FString& RootChooserPath, const FString& SubTableName,
+		int32 ColumnIndex, bool bExact);
+
+	/** "match=<0 Any|1 All> dir=<0 RowValueInInput|1 InputInRowValue> exact=<0|1> invert=<0|1> rows=<n>" for a
+	 *  gameplay-tag column, or an empty string when the column is not one (regression dumps). */
+	UFUNCTION(BlueprintCallable, Category = "AZ|Chooser|Build")
+	static FString DescribeGameplayTagColumn(const FString& RootChooserPath, const FString& SubTableName,
+		int32 ColumnIndex);
+
 	/** Rebind property names in ALL column bindings across root + nested sub-choosers.
 	 *  Walks every EnumColumn/MultiEnumColumn/FloatRangeColumn/BoolColumn and checks
 	 *  if the PropertyBindingChain[0] matches any entry in FromPropertyNames[]; if so,

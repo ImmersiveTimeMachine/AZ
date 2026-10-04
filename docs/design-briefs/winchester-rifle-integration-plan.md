@@ -26,6 +26,7 @@ touches C++, the hero ABP or the chooser.
 | Pickup | done (v1) | `/Game/AZ/Blueprints/Items/Equippables/Weapons/Winchester/BP_Pickup_Winchester` - tag, class, profile, `bUsesDetachableMagazines=False`, 7 rounds, M16 abilities, PLACEHOLDER icon (AK12). Level instance placed by the user at (-3717.99, 4526.53, 22.48) - never move it |
 | Works in PIE | yes | pickup -> quick slot -> equip -> Rifle02 hip idle, grip node active |
 | Does not work yet | - | aim, fire, reload (firearm code accepts only detachable magazines), walking / running (no rows), sprint, jumps, draw from the back, AO |
+| **Update 2026-09-27 16:50** | data done, PIE pending | R1 rows + PSD_WIN + `bNoGroundTransitionClips` (walk / run / crouch / sprint / aim loops / stance changes); the pickup now carries a contained tube magazine (`Winchester.Tube`, 7/7) and `bUsesDetachableMagazines=True`, so aim + fire use the existing magazine path (the first half of the R3 design); reload still missing (R3 reload branch); R2 aim offsets being built |
 
 ## 3. Pack facts (measured 2026-09-26)
 
@@ -59,6 +60,34 @@ starts with the pre-flight backup and ends with its acceptance check + (if it to
 pistol regression pass.
 
 ### R1 - Locomotion rows (Sonnet after Opus decisions) - see WGS plan 6.0 + 6.1 + Appendix B
+**Decisions taken 2026-09-27 (lead):**
+- (a) MM pools: the M16 profile has no database fields set; its loop rows search the single chooser clip through the
+  clip's BranchIn notify (`PSD_P01_*`). The Winchester copies that pattern: `PSD_WIN_WalkRelaxed / WalkAim /
+  RunRelaxed / RunAim / Crouch / Sprint` (duplicates of the P01 DBs, same schema) + a whole-clip BranchIn on each of
+  the 41 `_IPC` loops. Without it every direction change would restart the clip at frame 0 (`[v2 MMFallback]`).
+- (b) = D1: no transition rows. New profile flag `bNoGroundTransitionClips` (C++, `UAZ_WeaponAnimationProfile`) ->
+  `FAZ_LocoSMInputs::bNoGroundTransitionClips` -> `UAZ_LocomotionStateMachine::Tick` remaps TransitionToLocomotion
+  -> LocomotionLoop and TransitionToIdle -> IdleLoop (starts, stops, pivots, land). Default false = M16 / pistol /
+  unarmed bit-identical. Without it the empty transition phase holds 1 s (idle sliding under a moving capsule).
+- (c) aim turn-in-place: rows 304-307 (M16 TIP loops, the 2026-09-26 leak) are excluded for the Winchester; its own
+  rows 464-467 use `Riflel01_St_Turn_Linear_90L/R` and `Riflel_Cr_Turn_Linear_90L/R` (measured: root yaw linear
+  90 deg / 1.0 s, body constant relative to root, loop seam 0.1-0.2 cm -> loop + force_root_lock), profile
+  `AimTurnInPlaceClipRateDegPerSec` = 90.
+- Measured 2026-09-27 (seam trace before PIE): the pack `_IPC` loops had a flat root, loop=False, no root motion ->
+  R17 garbage MM costs and a frozen loop. Each `_IPC` equals its root-motion twin relative to root (0.000 cm, same keys),
+  so the twin's root track was copied in (`Tools/wgs/winchester_ipc_root_fix.py`) + loop / root motion / root lock on;
+  the 3 idles loop=True. Clip speeds (cm/s) F / side / back: walk 130 / 95 / 110, run 265 / 178 / 192, crouch 143 /
+  115 / 143, sprint 463 (profile sprint override 463; the side / back speeds are below the gait speed - strafe foot
+  slide is a later tuning item, same as the M16).
+- (d) jumps / falls: R7. With no takeoff rows the current loop keeps playing in the air; landing goes straight to the
+  loop / idle (flag above).
+- Leak rows: 25 shared rows (unarmed starts / turns / bump reactions / stops 77-102, M16 TIP 304-307) have empty c8,
+  c9, c19 and matched the Winchester. Their c9 (inverted any-match) cell gets `Weapon.Rifle.Winchester` - the second
+  documented exception to "existing rows unchanged": provably neutral for the M16 (`Weapon.Rifle` does not contain
+  the child tag), the pistol and unarmed.
+- Profile: `PlayRateLoopAssets` held 48 M16 loops (copied from the M16 profile) -> cleared, `bUseLoopPlayRate` off.
+- Card: `docs/agent-tasks/wgs-6.1-winchester-rows.md`; snapshot `AZ_Backups/2026-09-27_R1`.
+
 - 6.0 first: `UAZ_ChooserUtils::SetCellGameplayTagsOnSub` + `SetGameplayTagColumnMatchExact` (C++, additive).
 - Opus decides D1 / D3 / D4 and whether rows with `bUseMM=True` need a PoseSearch database (check the v2 MM pool).
 - Sonnet duplicates the M16 source rows, sets c8 = `Weapon.Rifle.Winchester` and the pack asset, `CompileAndSave`.
@@ -77,6 +106,9 @@ pistol regression pass.
   within 2 deg over the aim cone (Opus measures with a PIE probe).
 
 ### R3 - Tube magazine gameplay (Opus design -> Sonnet implements -> Opus reviews; C++)
+**Design v1 written 2026-09-27: `winchester-tube-magazine.md`** (the tube = a magazine item that never leaves the gun;
+fire / HUD / save / pickup reuse the magazine model unchanged; only reload becomes a per-shell cartridge transfer).
+It supersedes the field list below.
 Today fire (`AZ_GA_FirearmFire` ResolveSource), reload (`AZ_GA_FirearmReload` ResolveReloadSource) and readiness
 (`AZ_Inv_CommonUI_EquipmentReady`) require `bUsesDetachableMagazines`. Add a second, additive branch:
 - `FAZ_Inv_CommonUI_WeaponStateFragment`: `bInternalMagazine`, `InternalCapacity`, `CartridgeFamily` (FName);
@@ -92,6 +124,8 @@ Today fire (`AZ_GA_FirearmFire` ResolveSource), reload (`AZ_GA_FirearmReload` Re
   rounds; M16 + pistol reload / fire unchanged.
 
 ### R4 - Reload montage sections (Opus measures, Sonnet builds)
+**Measured 2026-09-27** (see `winchester-tube-magazine.md` section 3): Start 0-1.733, Load 1.733-2.033 (0.300 s
+push cycle, seam 0.07 cm), End 3.233-4.667; identical for Rifle01 / Rifle02 / Cr. Montages wait for the R3 go.
 - Measure `AZ_MST_Rifle0{1,2}_St_Reload_Winch` and `Rifle_Cr_Reload_Winch`: shell-insert cycles from the right hand's
   distance to the loading gate (weapon space) and the `az_weapon_r` track -> times Start / Load (one cycle) / End.
 - Montages `AM_Winchester_Reload_<Rifle01|Rifle02|Cr>` with sections Start -> Load (loops to itself) -> End, slot as
@@ -100,6 +134,12 @@ Today fire (`AZ_GA_FirearmFire` ResolveSource), reload (`AZ_GA_FirearmReload` Re
   <= 1 cm on the hands).
 
 ### R5 - Fire + lever action (Opus measures, Sonnet builds)
+**Measured 2026-09-27** (`Rifle01_St_Shoot_Winch` and `Rifle_Cr_Shoot_Winch`, 0.833 s, identical relative to the gun):
+shot + recoil 0-0.40 s (gun rises ~2.5 cm), lever cycle 0.40-0.80 (`AZ_Grip_R` 0): the right hand drops 16 cm and
+moves 8 cm forward, max at 0.53 s = ~45 deg about the lever pivot (lever bone at (-0.5, -8.9, 10.2)), back on the grip
+at 0.73-0.80. Lever angle keys (deg): 0.40:0, 0.47:22, 0.53:45, 0.60:38, 0.67:22, 0.73:7, 0.80:0 (wrist-based estimate,
+refine with the fingertip on the lever loop when building `AS_Winchester_LeverCycle`). Fire cadence: clip 0.833 s,
+item `FireRate` 1.0 shot/s (the lever cycle always completes).
 - `Shoot_Winch` = shot + lever cycle. Measure the right hand's rotation relative to the weapon over the clip -> lever
   angle curve; hammer and bolt follow the lever (bolt slides back ~6 cm at full throw).
 - Weapon mesh animation `AS_Winchester_LeverCycle` on `SK_Winchester_Skeleton` (lever / hammer / bolt tracks from the

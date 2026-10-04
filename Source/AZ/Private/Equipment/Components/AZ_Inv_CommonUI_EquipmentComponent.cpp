@@ -95,6 +95,28 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::TryGetDrawAnimationPresentation(
 	return true;
 }
 
+bool UAZ_Inv_CommonUI_EquipmentComponent::TryGetSwitchPresentation(FAZ_WeaponSwitchPresentation& Out) const
+{
+	Out = FAZ_WeaponSwitchPresentation();
+	if (bIsProxy || !WeaponTransition.Id.IsValid() || !WeaponTransition.PhaseId.IsValid()
+		|| !WeaponTransition.Coordinator.IsValid()) return false;
+	const bool bHolster = WeaponTransition.bHolsterPhase;
+	const FWeaponSwitchPhase& Phase = bHolster ? WeaponTransition.Holster : WeaponTransition.Draw;
+	if (!Phase.Animation.IsValid()) return false;
+	// A read-only view for the animation instance's hands: nothing here feeds selection, abilities or deadlines.
+	Out.TransitionId = WeaponTransition.Id;
+	Out.PhaseId = WeaponTransition.PhaseId;
+	Out.bHolster = bHolster;
+	Out.bCrouching = WeaponTransition.bCrouching;
+	Out.bSocketApplied = WeaponTransition.bSocketApplied;
+	Out.PresentedWeapon = bHolster ? WeaponTransition.SourceWeapon.Get() : WeaponTransition.TargetWeapon.Get();
+	Out.Coordinator = WeaponTransition.Coordinator.Get();
+	Out.Animation = Phase.Animation.Get();
+	Out.Profile = Phase.Profile.Get();
+	Out.ClipAttachTime = Phase.ClipAttachTime;
+	return true;
+}
+
 bool UAZ_Inv_CommonUI_EquipmentComponent::IsActiveWeaponSource(const UObject* Source) const
 {
 	return !bIsProxy && !bCommitting && !IsSwitchingWeapon() && !IsHardBlocked() && IsValid(Selection.Item)
@@ -592,6 +614,8 @@ bool UAZ_Inv_CommonUI_EquipmentComponent::BuildSwitchPhase(UAZ_Inv_CommonUI_Inve
 		return false;
 	}
 	Out.Animation = Sequence;
+	Out.Profile = const_cast<UAZ_WeaponAnimationProfile*>(Profile);
+	Out.ClipAttachTime = Action.AttachTime;
 	Out.Slot = Profile->SwitchAnimationSlot;
 	Out.PlayRate = Profile->SwitchAnimationPlayRate;
 	Out.BlendIn = Profile->SwitchAnimationBlendIn;

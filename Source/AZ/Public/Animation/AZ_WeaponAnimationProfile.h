@@ -67,6 +67,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Animation")
 	bool bPhaseLockedTransitionToLoop = false;
 
+	/** This set has no start / stop / pivot / land clips (the RifleMega pack): the locomotion state machine skips
+	 *  the ground transition phases and the loop / idle rows cross-fade directly. Leave false for every set that
+	 *  has them. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Animation")
+	bool bNoGroundTransitionClips = false;
+
+	/** The same, but only while aiming: the relaxed rows come from a set WITH starts / stops (the Winchester walks
+	 *  relaxed on the M16 set and aims on the RifleMega pack, 2026-09-28). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Animation")
+	bool bNoGroundTransitionClipsWhileAiming = false;
+
+	/** While a ground start / stop or the air loop plays, the upper body comes from this profile's aim idles (the
+	 *  aim-lock layer) even when not aiming. For sets whose transition clips were BORROWED from a pack with another
+	 *  weapon hold (Winchester: RifleAnimsetPro starts / stops / fall under RifleMega loops, 2026-09-28) - the legs
+	 *  come from the borrowed clip, the arms and the weapon stay on this set's own pose. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Animation")
+	bool bUpperBodyFromAimPoseInTransitions = false;
+
 	/** The current MHC graph contains unarmed additive lean assets. Most weapon profiles must bypass them. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AZ|Animation")
 	bool bUseUnarmedLeans = false;

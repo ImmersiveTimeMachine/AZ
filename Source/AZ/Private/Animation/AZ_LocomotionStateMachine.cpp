@@ -62,10 +62,36 @@ void UAZ_LocomotionStateMachine::NotifyReactionClipPushed(float WorldNow, float 
 
 FAZ_LocoSMOutputs UAZ_LocomotionStateMachine::Tick(const FAZ_LocoSMInputs& In)
 {
-	const EAZ_StateMachineState NewState = ComputeNextState(In);
+	EAZ_StateMachineState NewState = ComputeNextState(In);
+
+	// A set without ground transition clips never enters a transition phase: the phase would hold with nothing
+	// to push. Remapped AFTER ComputeNextState so every dispatch rule above stays the single source of truth.
+	if (In.bNoGroundTransitionClips)
+	{
+		if (NewState == EAZ_StateMachineState::TransitionToLocomotion)
+		{
+			TransitionEndTime        = -1.f;
+			LatchedStartDirection    = EAZ_StartDirection::Fwd;
+			bLatchedMovingTransition = false;
+			bLatchedJustLanded       = false;
+			NewState = EAZ_StateMachineState::LocomotionLoop;
+		}
+		else if (NewState == EAZ_StateMachineState::TransitionToIdle)
+		{
+			TransitionEndTime  = -1.f;
+			bLatchedJustLanded = false;
+			NextIdleBreakTime  = In.WorldNow + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+			NewState = EAZ_StateMachineState::IdleLoop;
+		}
+	}
 
 	FAZ_LocoSMOutputs Out;
 	Out.State = NewState;
+	if (NewState != EAZ_StateMachineState::IdleTurnLeft && NewState != EAZ_StateMachineState::IdleTurnRight)
+	{
+		bAppliedAimStepRunning = false;
+	}
+	Out.bAppliedAimStep = bAppliedAimStepRunning;
 
 	// Latch lifetime-gating (was in NativeUpdateAnimation): hold the latched bucket/flag only for the phase it
 	// belongs to, defaults everywhere else. DeriveSMState set the latches at the entry edge; we gate them here.
@@ -446,11 +472,17 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			TransitionEndTime = Now + 1.0f;
 			return EAZ_StateMachineState::TransitionStance;
 		}
-		// AIM TURN-IN-PLACE entry. Aiming keeps the body on the camera even at rest, so a camera sweep
-		// rotates the capsule under a standing idle and the feet slide. Past the enter angle, hand the turn to
-		// the stepping clip (chooser rows on IdleTurnLeft/Right); the walking mode paces the facing spring to
-		// that clip's rate so the two agree. Cancels a pending/playing idle break; rescheduled on return.
-		if (In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
+		if (In.bUseAppliedAimSteps && In.bAimTurnInPlaceEnabled && In.bAppliedAimStepEligible
+			&& In.bAppliedAimStepDemand && !In.bAppliedAimStepFrozen && !In.bAppliedAimStepReset
+			&& In.AppliedAimStepDirection != 0 && Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
+		{
+			IdleBreakEndTime = NextIdleBreakTime = AimTurnEndTime = -1.f;
+			bAppliedAimStepRunning = true;
+			return In.AppliedAimStepDirection > 0 ? EAZ_StateMachineState::IdleTurnRight : EAZ_StateMachineState::IdleTurnLeft;
+		}
+		// Legacy residual selection remains for non-opted-in callers/throwables.
+		// Gameplay pacing is separate; authored rifle playback does not match capsule yaw rate.
+		if (!In.bUseAppliedAimSteps && In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
 			&& Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
 		{
 			IdleBreakEndTime  = -1.f;
@@ -490,6 +522,25 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			AimTurnEndTime = -1.f;
 			TransitionEndTime = Now + 1.0f;
 			return EAZ_StateMachineState::TransitionStance;
+		}
+		if (bAppliedAimStepRunning)
+		{
+			if (!In.bUseAppliedAimSteps || !In.bAppliedAimStepEligible || In.bAppliedAimStepReset
+				|| In.bAppliedAimStepFeedbackFailed)
+			{
+				AimTurnEndTime = -1.f;
+				NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+				return EAZ_StateMachineState::IdleLoop;
+			}
+			if (In.bAppliedAimStepFrozen || !In.bAppliedAimStepBoundary) return Previous;
+			if (!In.bAppliedAimStepDemand || In.AppliedAimStepDirection == 0)
+			{
+				NextIdleBreakTime = Now + FMath::FRandRange(In.IdleBreakMinTime, In.IdleBreakMaxTime);
+				return EAZ_StateMachineState::IdleLoop;
+			}
+			// Same direction retains the same player/epoch. A queued reversal is
+			// applied only after actual full-cycle feedback, then starts a new epoch.
+			return In.AppliedAimStepDirection > 0 ? EAZ_StateMachineState::IdleTurnRight : EAZ_StateMachineState::IdleTurnLeft;
 		}
 		// ★ A STEP IS INDIVISIBLE. Until the started step has had its authored time, neither the angle nor a
 		// sign flip may end or redirect it: the body reaches the aim about a third of the way into the clip,
@@ -536,11 +587,16 @@ EAZ_StateMachineState UAZ_LocomotionStateMachine::ComputeNextState(const FAZ_Loc
 			TransitionEndTime = Now + 1.0f;   // overridden by the clip's real length
 			return EAZ_StateMachineState::TransitionStance;
 		}
-		// AIM TURN-IN-PLACE entry. Aiming keeps the body on the camera even at rest, so a camera sweep
-		// rotates the capsule under a standing idle and the feet slide. Past the enter angle, hand the turn to
-		// the stepping clip (chooser rows on IdleTurnLeft/Right); the walking mode paces the facing spring to
-		// that clip's rate so the two agree. Cancels a pending/playing idle break; rescheduled on return.
-		if (In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
+		if (In.bUseAppliedAimSteps && In.bAimTurnInPlaceEnabled && In.bAppliedAimStepEligible
+			&& In.bAppliedAimStepDemand && !In.bAppliedAimStepFrozen && !In.bAppliedAimStepReset
+			&& In.AppliedAimStepDirection != 0 && Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
+		{
+			IdleBreakEndTime = NextIdleBreakTime = AimTurnEndTime = -1.f;
+			bAppliedAimStepRunning = true;
+			return In.AppliedAimStepDirection > 0 ? EAZ_StateMachineState::IdleTurnRight : EAZ_StateMachineState::IdleTurnLeft;
+		}
+		// Default/CMC and throwable callers retain residual-based selection.
+		if (!In.bUseAppliedAimSteps && In.bAimTurnInPlaceEnabled && In.bIsAiming && FMath::Abs(In.AimYawDeltaDeg) >= In.AimTurnInPlaceEnterDeg
 			&& Now - LastIdleEntryTime >= AimTurnInPlaceMinIdleSeconds)
 		{
 			IdleBreakEndTime  = -1.f;

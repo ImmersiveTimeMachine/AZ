@@ -8,7 +8,8 @@
 #include "Animation/TrajectoryTypes.h"
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"   // FPoseSearchTrajectoryData (CMC-branch trajectory tuning)
 #include "AnimationWarpingTypes.h"                    // EOffsetRootBoneMode (OffsetRootBone node settings)
-#include "Animation/AnimNode_AZWeaponGrip.h"          // FAZ_WeaponGripMarkers
+#include "Animation/AnimNode_AZWeaponGrip.h"          // FAZ_WeaponGripMarkers, FAZ_WeaponSwitchReach
+#include "UObject/ObjectKey.h"
 #include "AZ_MoverAnimInstance.generated.h"
 
 class AAZ_CmcCharacterBase;
@@ -24,6 +25,9 @@ class UBlendSpace;
 class UPrimitiveComponent;
 class USkeletalMesh;
 class AController;
+class AAZ_Weapon;
+struct FAnimNode_BlendStack_Standalone;
+struct FAZ_WeaponSwitchPresentation;
 
 /**
  * UAZ_MoverAnimInstance — v2 AnimInstance for the Mover-driven hero pawn.
@@ -56,11 +60,24 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="0.01")) float ProceduralGroundNormalSmoothingSeconds = 0.08f;
 	/** Additional displacement beyond predicted travel before stale plant positions are discarded. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet", meta=(ClampMin="1", ForceUnits="cm")) float ProceduralTeleportThresholdCm = 80.f;
+	/** Starting, tunable pin-only turn thresholds; these are not measured noise limits. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0", ForceUnits="cm/s")) float ProceduralFootTurnStationaryEnterSpeed = 2.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0", ForceUnits="cm/s")) float ProceduralFootTurnStationaryExitSpeed = 5.f;
+	/** Heading excursion from the stationary pin reference; slow turning accumulates across updates. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0.001", ClampMax="180", ForceUnits="deg")) float ProceduralFootTurnReleaseAngleDeg = 1.f;
+	/** Rotation settling window, NOT a prediction of the rig's pin fade duration. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0", ForceUnits="s")) float ProceduralFootTurnQuietSeconds = 0.2f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0", ForceUnits="deg")) float ProceduralFootTurnQuietRangeDeg = 0.05f;
+	/** Longer/invalid samples conservatively invalidate pins without clearing terrain dampers. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|Procedural|Feet|Turn", meta=(ClampMin="0.001", ForceUnits="s")) float ProceduralFootTurnContinuitySeconds = 0.25f;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") float ProceduralFeetAlpha = 0.f;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") FVector ProceduralGroundNormal = FVector::UpVector;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") FTransform ProceduralBasedMovementDelta = FTransform::Identity;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFeetRaycast = false;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFootPinning = false;
+	/** Persistent release request. The owned feet rig must consume a changed serial BEFORE any old-pin target use,
+	 *  clear both pin flags/weights, then mark it handled. Do not reset this during detector reseeds. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") int32 ProceduralFootPinReleaseSerial = 0;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralSlopeWarping = false;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralHasTeleported = false;
 	UPROPERTY(Transient, BlueprintReadOnly, Category="AZ|Procedural|Feet") bool bProceduralFeetReset = true;
@@ -101,6 +118,12 @@ public:
 	float AimPitch = 0.f;
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float AimAlpha = 0.f;
+	/** Weight of the upper-body LOCK layer (the aim idles above spine_01): max(AimAlpha, the borrowed-transition lock of
+	 *  profiles with bUpperBodyFromAimPoseInTransitions). Bind the lock layer's weight here; everything that means
+	 *  "aiming" (aim offset, head, fire) stays on AimAlpha. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
+	float UpperBodyLockAlpha = 0.f;
+	float TransitionLockAlpha = 0.f;
 	/** 0 standing -> 1 crouching, eased. Selects the torso source of the aim upper-body LOCK in the AnimGraph
 	 *  (Two-Way Blend: A = standing aim idle, B = crouched aim idle; Alpha bound here). A float on purpose: an
 	 *  AnimGraph property binding cannot copy a UENUM class (ChooserContext.Stance is an FEnumProperty and
@@ -108,13 +131,21 @@ public:
 	 *  enum entries on a Blend-Poses-by-enum node is an editor-only C++ action. Float -> float just binds. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Weapon")
 	float AimStanceAlpha = 0.f;
+
+	/** Initial animation-demand choices, not measured noise limits. Independent of foot IK/pinning tuning. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps") bool bEnableAppliedAimSteps = true;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0", ForceUnits="cm/s")) float AimStepStationaryEnterSpeed = 2.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0", ForceUnits="cm/s")) float AimStepStationaryExitSpeed = 5.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0.001", ForceUnits="deg")) float AimStepEntryAngleDeg = 5.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0.001", ForceUnits="deg")) float AimStepReversalAngleDeg = 5.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0", ForceUnits="s")) float AimStepQuietSeconds = 0.15f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AZ|V2|Anim|Aim Steps", meta=(ClampMin="0", ForceUnits="deg")) float AimStepQuietRangeDeg = 0.25f;
 	/** Ease rate for AimStanceAlpha (per second); ~6 settles the torso-source swap in ~0.3 s instead of a pop. */
 	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Weapon", meta = (ClampMin = "0"))
 	float AimStanceBlendSpeed = 6.f;
 
-	/** Actor yaw rate (deg/s, signed, lightly smoothed), sampled on the game thread each update. Drives the play
-	 *  rate of the aim turn-in-place clips so the feet match the capsule's turn at any speed (see
-	 *  GetWeaponLoopPlayRate). Not a UPROPERTY: transient, rebuilt every frame. */
+	/** Smoothed actor yaw rate for telemetry. Rifle clips remain at authored 1x;
+	 *  gameplay pacing and visual step selection are independent. Not a UPROPERTY. */
 	float BodyYawRateDegPerSec = 0.f;
 	float PrevBodyYawDeg = 0.f;
 	bool bHasPrevBodyYaw = false;
@@ -164,6 +195,48 @@ public:
 	 *  Bind to the node's Markers pin. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "AZ|V2|Anim|Grip")
 	FAZ_WeaponGripMarkers WeaponGripMarkers;
+
+	// ============ WEAPON SWITCH LEFT HAND (draw / holster; read by AZ Weapon Grip) ============
+	// The equipment-owned switch phase (its exact montage) owns the left hand; see AZ_MoverAnimInstance_WeaponReach.cpp
+	// and docs/design-briefs/left-hand-weapon-switch-h1-h2-checkpoint.md section 5. The switch clip moves the arm; the
+	// grip closes where the clip's own hand touches the gun and lets go where it leaves it (the clip's AZ_Grip_L, read from
+	// the clip itself). Any correction of the arm's path is baked into the switch clip offline (az.Weapon.RecordSwitch
+	// records the live situation for that), never solved here.
+
+	/** The left hand's switch state for this frame (AZ Weapon Grip reads it every update). */
+	const FAZ_WeaponSwitchReach& GetWeaponSwitchReach() const { return WeaponSwitchReach; }
+
+	/** A switch clip without AZ_Grip_L: the draw's grip closes over this time (s) from the moment the clip's hand meets the
+	 *  gun (WeaponReachContactRadius of its final hold, measured on the clip). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0.01"))
+	float WeaponReachSettleTime = 0.12f;
+
+	/** A switch clip without AZ_Grip_L: the holster lets go of the grip in this time (s) at least - longer when the clip's
+	 *  hand stays on the gun longer (until it is 3 cm from its starting hold). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0.01"))
+	float WeaponReachReleaseTime = 0.12f;
+
+	/** A switch clip without AZ_Grip_L: its hand has met the gun once it stays within this distance (cm) of its final hold
+	 *  (position only, the weapon's frame; about one palm length - the hand touches the handguard, then slides along it). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0.5"))
+	float WeaponReachContactRadius = 8.f;
+
+	/** A switch clip without AZ_Grip_L counts as two-handed when its hold is within this (cm) of the weapon's grip. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0"))
+	float WeaponReachHoldTolerance = 15.f;
+
+	/** The switch takes over / hands back the left hand over this time (s). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0"))
+	float WeaponReachOwnershipBlendTime = 0.1f;
+
+	/** A crouched switch while standing still plays the switch clip on the whole body (its own legs and pelvis - the crouch
+	 *  switch clips are full-body motions; see AnimNode_AZWeaponSwitchFullBody.h). Blend in / out time (s). */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0"))
+	float WeaponSwitchFullBodyBlendTime = 0.15f;
+
+	/** ... and "standing still" = no move input and a ground speed under this (cm/s); moving, the legs stay locomotion's. */
+	UPROPERTY(EditDefaultsOnly, Category = "AZ|V2|Anim|Grip", meta = (ClampMin = "0", ForceUnits = "cm/s"))
+	float WeaponSwitchFullBodyMaxSpeed = 10.f;
 
 	// ============ GRAB HAND-IK (idle + hands pinned on the grabber — user design 2026-07-24) ============
 	// The grabbed hold plays NO montage: base idle + two TwoBoneIK nodes in the AnimGraph pin the hero's
@@ -701,8 +774,197 @@ protected:
 	uint32 LastPushedTransitionSerial = 0;
 
 private:
+	/** The grip windows of one switch clip that carries no AZ_Grip_L, from its own geometry (clip times). */
+	struct FSwitchGripWindow
+	{
+		bool bTwoHanded = false;
+		float Contact = 0.f;      // draw: the clip's hand meets the gun
+		float Release = 0.f;      // holster: the clip's hand has left the gun
+	};
+	TMap<TPair<TObjectKey<UAnimSequenceBase>, TObjectKey<UClass>>, FSwitchGripWindow> SwitchGripWindows;
+	FAZ_WeaponSwitchReach WeaponSwitchReach;
+	/** Holster: the phase whose grip has been let go of - latched: the hand stays the clip's until that phase ends (the
+	 *  crouch holster's own AZ_Grip_L returns to 1 with the gun already on the back). */
+	FGuid SwitchReleasedPhase;
+	/** The left hand during a weapon switch, after WeaponGripAlpha is updated (AZ_MoverAnimInstance_WeaponReach.cpp).
+	 *  Switch = the equipment's snapshot of the running phase (null = no switch / not the authority). */
+	void UpdateWeaponSwitchReach(float DeltaSeconds, const FAZ_WeaponSwitchPresentation* Switch);
+	/** Measures the grip windows of the phase clip for Weapon (a clip without AZ_Grip_L). */
+	void BuildSwitchGripWindow(const FAZ_WeaponSwitchPresentation& Switch, const AAZ_Weapon* Weapon, FSwitchGripWindow& Out) const;
+
+	// Physical visual-motion sampling precedes the SM. It neither consumes nor
+	// resets the foot rig's independently scoped pin/relevance history.
+	enum class EVisualMotionContinuity : uint8
+	{
+		NotSampled, Continuous, SourcesInvalid, Initial, SourceChanged, BaseChanged, BaseUnavailable, UpChanged,
+		InvalidTime, ZeroDeltaTime, TimeNotAdvanced, TimeGap, InvalidTransform,
+		InvalidHeading, SkipInterpolation, DiscontinuousTravel
+	};
+	struct FVisualMotionSample
+	{
+		FTransform MeshTransform = FTransform::Identity;
+		FTransform SupportWorldDelta = FTransform::Identity;
+		FVector Up = FVector::UpVector;
+		FVector Heading = FVector::ZeroVector;
+		FVector OwnPlanarDisplacement = FVector::ZeroVector;
+		double WorldTimeSeconds = 0.0;
+		double ElapsedSeconds = 0.0;
+		double OwnYawDeltaDeg = 0.0;
+		double OwnPlanarSpeed = 0.0;
+		double SupportRelativeDistance = 0.0;
+		float RawDeltaSeconds = 0.f;
+		EVisualMotionContinuity Continuity = EVisualMotionContinuity::NotSampled;
+		bool bSourcesValid = false;
+		bool bGeometryValid = false;
+		bool bQualified = false; // positive elapsed time and a continuous previous sample
+		bool bReseeded = false;  // current anchors were committed without a motion event
+		bool bGrounded = false;
+		bool bSourceChanged = false;
+		bool bBaseChanged = false;
+	};
+	struct FVisualMotionHistory
+	{
+		TWeakObjectPtr<USkeletalMesh> MeshAsset;
+		TWeakObjectPtr<USkeletalMeshComponent> MeshComponent;
+		TWeakObjectPtr<AAZ_PawnMoverHeroCharacter> Owner;
+		TWeakObjectPtr<AController> Controller;
+		TWeakObjectPtr<UAZ_PawnMoverComponent> Mover;
+		TWeakObjectPtr<UCharacterMoverComponent> CharacterMover;
+		TWeakObjectPtr<UPrimitiveComponent> Base;
+		FName BaseBone = NAME_None;
+		FTransform BaseTransform = FTransform::Identity;
+		FVector MeshLocation = FVector::ZeroVector;
+		// Full selected world axis: projection must follow support transport.
+		FVector HeadingAxis = FVector::ZeroVector;
+		FVector Up = FVector::UpVector;
+		double WorldTimeSeconds = 0.0;
+		bool bBaseValid = false;
+		bool bHistoryValid = false;
+		bool bUseSecondaryHeadingAxis = false;
+	};
+	// Independent physical continuity guards, not animation-demand or pin tuning.
+	static constexpr double VisualMotionMaxGapSeconds = 0.25;
+	static constexpr double VisualMotionDiscontinuityDistanceCm = 80.0;
+	FVisualMotionSample VisualMotionSample;
+	FVisualMotionHistory VisualMotionHistory;
+	void UpdateVisualMotionSample(float DeltaSeconds);
+	void ResetVisualMotionState();
+
+	struct FAppliedAimStepDemand
+	{
+		TWeakObjectPtr<UAZ_WeaponAnimationProfile> Profile;
+		TWeakObjectPtr<AAZ_Weapon> Weapon;
+		EAZ_Stance Stance = EAZ_Stance::Standing;
+		double EntryAngleDeg = 0.0;
+		double OppositeAngleDeg = 0.0;
+		double QuietHeadingDeg = 0.0;
+		double QuietMinDeg = 0.0;
+		double QuietMaxDeg = 0.0;
+		double QuietSeconds = 0.0;
+		int8 Direction = 0;
+		bool bEpisodeValid = false;
+		bool bStationary = false;
+		bool bActive = false;
+		bool bReset = false;
+		bool bFrozen = false;
+		bool bPlaybackBlocked = false;
+	};
+	FAppliedAimStepDemand AppliedAimStepDemand;
+	void UpdateAppliedAimStepDemand(bool bEligible, UAZ_WeaponAnimationProfile* Profile, AAZ_Weapon* Weapon);
+
+	// GT request -> worker observation -> GT consumption. All transfers are
+	// protected by the existing animation task fence, never by a guessed timer.
+	struct FAimStepPlaybackFeedback
+	{
+		TWeakObjectPtr<UAnimSequence> RequestedAsset;
+		TWeakObjectPtr<UAnimSequence> ActualAsset;
+		uint64 UpdateSerial = 0;
+		uint32 Epoch = 0;
+		EAZ_StateMachineState State = EAZ_StateMachineState::IdleLoop;
+		double Phase = 0.0;
+		double PreviousPhase = 0.0;
+		double Delta = 0.0;
+		double Length = 0.0;
+		double PeriodSeconds = 0.0;
+		double PlayerAge = 0.0;
+		int32 PoseLink = INDEX_NONE;
+		bool bLoop = false;
+		bool bValid = false;
+	};
+	struct FAimStepPlaybackProgress
+	{
+		TWeakObjectPtr<UAnimSequence> Asset;
+		TWeakObjectPtr<UAnimSequence> LastObservedAsset;
+		uint64 LastUpdateSerial = 0;
+		double LastPhase = 0.0;
+		double LastPlayerAge = 0.0;
+		double LastObservedAge = 0.0;
+		double LastObservedPhase = 0.0;
+		double LastObservedPreviousPhase = 0.0;
+		double LastObservedDelta = 0.0;
+		double Length = 0.0;
+		double PeriodSeconds = 0.0;
+		double WaitQualifiedSeconds = 0.0;
+		int32 PoseLink = INDEX_NONE;
+		int32 LastObservedPoseLink = INDEX_NONE;
+		int32 CompletedCycles = 0;
+		int32 MinimumCycles = 1;
+		bool bCursorValid = false;
+		bool bObservationValid = false;
+		bool bWholeCycleOpen = false;
+		bool bBoundary = false;
+		bool bFailed = false;
+		FName Reason = NAME_None;
+	};
+	static constexpr double AimStepFeedbackTimeoutSeconds = 0.25;
+	static constexpr double AimStepPhaseEpsilonSeconds = 0.0001;
+	static constexpr double AimStepMinimumNominalToleranceSeconds = 0.005;
+	uint64 AimStepUpdateSerial = 0;
+	uint64 PreviousAimStepUpdateSerial = 0;
+	uint32 AimStepEpoch = 0;
+	EAZ_StateMachineState AimStepState = EAZ_StateMachineState::IdleLoop;
+	float AimStepMinimumSeconds = 0.67f;
+	bool bAimStepRunning = false;
+	bool bAimStepGameWorld = false;
+	FAimStepPlaybackFeedback AimStepFeedback; // worker writer; GT reads only after join
+	FAimStepPlaybackProgress AimStepProgress; // GT only
+	uint32 CommittedAimStepEpoch = 0;         // worker only, from an actual chooser commit
+	EAZ_StateMachineState CommittedAimStepState = EAZ_StateMachineState::IdleLoop;
+	TWeakObjectPtr<UAnimSequence> CommittedAimStepAsset;
+	void ResetAppliedAimStepPlayback();
+	void CaptureAppliedAimStepPlayback(FAnimNode_BlendStack_Standalone& Node);
+	void ConsumeAppliedAimStepPlayback();
+	TWeakObjectPtr<UAnimationAsset> LastMMMirrorLogAsset;
+	bool bLastMMMirrorLog = false;
+	bool bHasMMMirrorLog = false;
+	TWeakObjectPtr<UAnimationAsset> LastPlayerMirrorLogAsset;
+	bool bLastPlayerMirrorLog = false;
+	bool bHasPlayerMirrorLog = false;
+
 	void UpdateProceduralAnimation(float DeltaSeconds);
 	void ResetProceduralAnimationState();
+	void RequestProceduralFootPinRelease();
+	void UpdateProceduralFootTurnState(const FTransform& MeshTransform, const FTransform& BasedWorldAffineDelta,
+		const FVector& UpDirection, float DeltaSeconds, bool bFeetEligible, bool bResetHistory, bool bBaseChanged);
+	struct FProceduralFootTurnState
+	{
+		FVector PreviousHeading = FVector::ZeroVector;
+		FVector PinReferenceHeading = FVector::ZeroVector;
+		FVector QuietReferenceHeading = FVector::ZeroVector;
+		double QuietMinAngleDeg = 0.0;
+		double QuietMaxAngleDeg = 0.0;
+		double QuietSeconds = 0.0;
+		double OwnPlanarSpeed = 0.0;
+		double HeadingExcursionDeg = 0.0;
+		bool bHistoryValid = false;
+		bool bStationary = false;
+		bool bSuppressed = false;
+		bool bInvalidEpisode = false;
+		bool bUseSecondaryHeadingAxis = false;
+	};
+	FProceduralFootTurnState ProceduralFootTurn;
+	// Relevance writes only this request; game-thread Update consumes it and reseeds its own history.
+	bool bProceduralFootTurnHistoryResetPending = false;
 	TWeakObjectPtr<USkeletalMesh> PreviousProceduralMesh;
 	TWeakObjectPtr<USkeletalMeshComponent> PreviousProceduralMeshComponent;
 	TWeakObjectPtr<AAZ_PawnMoverHeroCharacter> PreviousProceduralOwner;

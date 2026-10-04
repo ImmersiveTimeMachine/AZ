@@ -33,6 +33,27 @@ struct FAZ_EquipmentSelection
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAZ_EquipmentChanged);
 
+/** Game-thread cosmetic view of the running weapon-switch phase (authority). Animation reads it to drive the hands;
+ *  the equipment component stays the only gameplay authority. Validate PhaseId against
+ *  AAZ_Weapon::GetEquipmentAnimationMontage(PhaseId) on Coordinator before trusting the montage. */
+struct FAZ_WeaponSwitchPresentation
+{
+	FGuid TransitionId;
+	FGuid PhaseId;
+	bool bHolster = false;
+	bool bCrouching = false;
+	bool bSocketApplied = false;
+	/** Holster: the outgoing weapon; draw: the incoming one. */
+	TWeakObjectPtr<const AAZ_Weapon> PresentedWeapon;
+	/** Plays the phase montage (the source weapon if any, else the target). */
+	TWeakObjectPtr<const AAZ_Weapon> Coordinator;
+	TWeakObjectPtr<const UAnimSequence> Animation;
+	/** The presented weapon's animation profile (the one the phase clip came from). */
+	TWeakObjectPtr<const UAZ_WeaponAnimationProfile> Profile;
+	/** The frame the weapon changes hands, seconds on the CLIP timeline (the profile entry's AttachTime). */
+	float ClipAttachTime = 0.f;
+};
+
 /** Authority receipts for explicit quick-select requests; not another selection store. */
 enum class EAZ_EquipmentRequestOutcome : uint8
 {
@@ -65,6 +86,8 @@ public:
 	/** Game-thread cosmetic snapshot: prime the incoming base pose beneath its draw montage. */
 	bool TryGetDrawAnimationPresentation(UAZ_WeaponAnimationProfile*& OutProfile, FGameplayTag& OutWeaponTag) const;
 	UFUNCTION(BlueprintPure, Category="AZ|Equipment") bool IsSwitchingWeapon() const;
+	/** Game-thread cosmetic snapshot of the running switch phase (false = none, or not the authority). */
+	bool TryGetSwitchPresentation(FAZ_WeaponSwitchPresentation& Out) const;
 	/** A valid source is the committed, owned physical item and its current representation. */
 	bool IsActiveWeaponSource(const UObject* Source) const;
 	/** Begin one Ready lifetime. Repeated requests do not extend it; an accepted shot does. */
@@ -152,6 +175,8 @@ private:
 	struct FWeaponSwitchPhase
 	{
 		TWeakObjectPtr<UAnimSequence> Animation;
+		TWeakObjectPtr<UAZ_WeaponAnimationProfile> Profile;
+		float ClipAttachTime = 0.f;     // seconds on the clip timeline (AttachTime below is wall seconds)
 		FName Slot;
 		float PlayRate = 1.f;
 		float BlendIn = .1f;

@@ -8,8 +8,8 @@ the status table says so.
 | id | task | owner | depends | status |
 |---|---|---|---|---|
 | -1 | Pre-flight backup before every phase (file system + git) | executor of the phase | - | first full snapshot DONE 2026-09-27 |
-| 0.1 | Clip sampler (UE Python) | Sonnet | - | todo |
-| 0.2 | Physics Asset + weapon parts dump, watertight check | Sonnet | - | todo |
+| 0.1 | Clip sampler (UE Python) | Sonnet | - | DONE 2026-09-27: 26 clips in `Saved/wgs/samples/`, checks passed (reload max 32.9 cm at 1.13 s) |
+| 0.2 | Physics Asset + weapon parts dump, watertight check | Sonnet | - | DONE 2026-09-27: 21 bodies (no spine_01/03/05 - MH), 8 parts / 3908 tris, 2 closed / 6 open (`Saved/wgs/weapons/`) |
 | 0.3 | Baseline measurement report | Opus | 0.1, 0.2, 1.2 | todo |
 | 1.1 | Master grip pose for the Winchester (Path S) | User (+Opus checks) | - | todo |
 | 1.2 | `Tools/wgs/geom.py` - per-part signed distance, hand skin model | Opus | 0.2 | todo |
@@ -25,8 +25,8 @@ the status table says so.
 | 4 | Node v3: S1 push-out, S2, S3 reach, S4 both arms, S5 profile axes + thumb, S6 | Opus | 2.x, 3.x | todo |
 | 5.1 | Validator core (replica of S1-S5) | Opus | 1.2, 4 | todo |
 | 5.2 | Validator batch run + report + review actors | Sonnet | 5.1, 0.1 | todo |
-| 6.0 | ChooserUtils: gameplay-tag cell setter + MatchExact setter | Sonnet | - | todo |
-| 6.1 | Winchester locomotion rows (pack clips only) | Opus decides, Sonnet executes | 6.0 | todo |
+| 6.0 | ChooserUtils: gameplay-tag cell setter + MatchExact setter | Opus (small) | - | DONE 2026-09-27 (+ getter, column describe; full build) |
+| 6.1 | Winchester locomotion rows (pack clips only) | Opus decides, Sonnet executes | 6.0 | DONE 2026-09-27 (rows 409-463, 25 c9 exclusions, 6 PSD_WIN, profile flag; verified by script) - user PIE pending |
 | 6.2 | Next long guns (skeletal conversion + grip data) | Sonnet per weapon | 1.x-5.x | todo |
 | 6.3 | Pistol HandOnHand mode | Opus | 4 | later |
 | 1.1b | Blender route for the master grip (alternative to 1.1) | Opus scripts, user poses | 1.2 | only if the user prefers Blender |
@@ -46,7 +46,8 @@ Every task in this plan must leave them untouched:
   to `/Game/AZ/Assets/M16`, `/Pistol`, `/RTG`, `/GASP`, `/Riffle_RTG`, the M16 / pistol profiles
   (`DA_WeaponAnim_P01`, `DA_WeaponAnim_Pistol`), `AZ_BP_Rifle`, `AZ_BP_Pistol` or their hero sockets.
 - Chooser edits only ADD rows with the Winchester (or the new weapon's) tag; existing rows and column settings are not
-  changed (the one exception, c8 MatchExact, was checked: the M16 tag is exactly `Weapon.Rifle`).
+  changed (exceptions, both checked: c8 MatchExact - the M16 tag is exactly `Weapon.Rifle`; c9 = the new weapon's
+  tag on the shared rows that would otherwise match it - see the rifle plan R1 decisions).
 - The grip node is inert without grip data (`GripPose` null -> alpha 0): M16 and pistol have none and must keep none
   until a card explicitly migrates them.
 - Regression check after every phase that touches C++ or the hero ABP: the user runs PIE with the M16 and the pistol
@@ -114,7 +115,9 @@ Full snapshot 2026-09-27 01:20: `C:/UnrealEngine/Games/AZ_Backups/2026-09-27_pre
   `|az_weapon_r - hand_r|` exceeds 20 cm at some t (weapon moves in the reload).
 
 ### 0.2 Physics Asset + weapon parts dump - Sonnet `[LM-ok for the report formatting]`
-- **Physics:** hero body mesh `physics_asset` -> every `skeletal_body_setups[i]`: `bone_name`, `agg_geom.sphyl_elems`
+- **Physics** (`SkeletalBodySetups` is protected in Python - iterate `unreal.ObjectIterator(unreal.BodySetup)` and keep
+  those whose `get_outer()` is the physics asset; done that way 2026-09-27): hero body mesh `physics_asset` -> every
+  body setup: `bone_name`, `agg_geom.sphyl_elems`
   (center, rotation, radius, length), `box_elems` (center, rotation, x, y, z), `sphere_elems` (center, radius) ->
   `Saved/wgs/hero_physics.json`. Also list the hero pawn BP's skeletal mesh components (garments) with mesh names
   and bounds (informational).

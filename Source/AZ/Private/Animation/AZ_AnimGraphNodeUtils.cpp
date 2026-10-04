@@ -399,6 +399,21 @@ bool UAZ_AnimGraphNodeUtils::ConnectPoseLink(const FString& BlueprintPath,
 	if (!SourceNode || !TargetNode) return false;
 
 	UEdGraphPin* OutputPin = SourceNode->FindPin(TEXT("Pose"), EGPD_Output);
+	if (!OutputPin)
+	{
+		// Space converters and some nodes name their output differently (Local To Component -> "ComponentPose"):
+		// take the first output pin that carries a pose (local or component space).
+		for (UEdGraphPin* Pin : SourceNode->Pins)
+		{
+			const UObject* PinStruct = Pin ? Pin->PinType.PinSubCategoryObject.Get() : nullptr;
+			if (Pin && Pin->Direction == EGPD_Output
+				&& (PinStruct == FPoseLink::StaticStruct() || PinStruct == FComponentSpacePoseLink::StaticStruct()))
+			{
+				OutputPin = Pin;
+				break;
+			}
+		}
+	}
 	UEdGraphPin* InputPin = TargetNode->FindPin(FName(*TargetPinName), EGPD_Input);
 
 	if (!OutputPin || !InputPin)

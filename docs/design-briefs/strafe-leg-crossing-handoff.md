@@ -1,8 +1,13 @@
-# CHALK — Combat-mode legs cross / Motion Matching picks the opposite strafe clip — standalone handoff
+# CHALK — Walking/turning leg crossover — historical handoff
 
-**Status:** narrowed to Motion Matching selection in the strafe databases. Root cause NOT found.
+**Status:** historical investigation; root cause NOT established. The opposite-clip-name inference is retracted in section 3.2.
 **Date:** 2026-09-18
 **Audience:** a separate AI assistant reading this file ALONE.
+
+**2026-10-03 continuation:** use the [shared leg-turning plan](leg-turning-shared-plan.md) for current evidence,
+scope and implementation status. Historical claims below that infer the wrong direction from a clip name or
+assume a null weapon-profile database falls back to the AnimBP pool are not current verified facts. Preserve
+the measured data and failed-attempt history without treating those claims as an accepted diagnosis.
 
 > Self-contained on purpose. It assumes no access to this project's other notes, memory, or prior
 > conversation. Every number below was measured from the running editor — game logs and asset dumps —

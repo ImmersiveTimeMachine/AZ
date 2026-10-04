@@ -126,6 +126,26 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
 	TObjectPtr<UAnimSequence> GripPose = nullptr;
 
+	/** Baked signed-distance lattice of WeaponMesh3P's mesh (Tools/wgs/bake_grip_field.py). With it the AZ Weapon Grip
+	 *  node closes the fingers on the weapon's real surface every frame; without it the fingertip markers are used. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
+	TObjectPtr<class UAZ_WeaponGripField> GripField = nullptr;
+
+	/** Right-hand re-grip of this weapon, in hand_r's own space: the hand moves by it while the weapon keeps its animated
+	 *  place, so the palm rests ON the stock (not in it) and the wrist stays natural. Solved offline together with the
+	 *  hand's grasp (Tools/wgs/natgrip, written by Tools/wgs/apply_nat_grip.py). Identity = the animation's hold. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
+	FTransform RightHandGripCorrection = FTransform::Identity;
+
+	/** GripPose's right-hand fingers are the solved grasp of the re-gripped hand: they are applied as they are (no
+	 *  real-time surface fitting for that hand). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
+	bool bBakedRightHandGrasp = false;
+
+	/** GripPose's left-hand fingers are the solved grasp of the hand held on LeftHandGripSocket: applied as they are. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AZ|Weapon|Grip")
+	bool bBakedLeftHandGrasp = false;
+
 	/** The left hand's grip target (the hand_l transform stored in LeftHandGripSocket) relative to BoneName of
 	 *  CharMesh. Searches this weapon's components for the first one that owns LeftHandGripSocket (static or skeletal
 	 *  mesh). False when there is none. */
@@ -227,6 +247,8 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_EndEquipmentAnimation(const FGuid& ActionId);
 	FAZ_EquipmentAnimationInterrupted OnEquipmentAnimationInterrupted;
+	/** Cosmetic read-only: the montage presenting equipment phase ActionId, null once that phase has ended. */
+	const UAnimMontage* GetEquipmentAnimationMontage(const FGuid& ActionId) const;
 
 	/** Authority changes the root attachment, preserving the visible mesh through a short local blend. */
 	void BlendToEquipmentSocket(FName Socket, float Duration);

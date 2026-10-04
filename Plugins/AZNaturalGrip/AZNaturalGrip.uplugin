@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "AZ Natural Grip",
+	"Description": "Editor tool that solves natural hand grasps on held weapons: placement + anatomical finger search against the weapon's signed-distance field (C++ port of Tools/wgs/natgrip). Tools > AZ Natural Grip.",
+	"Category": "AZ",
+	"CreatedBy": "Artur",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AZNaturalGrip",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

@@ -34,6 +34,7 @@ static TAutoConsoleVariable<int32> CVarAZSlotsDebug(
 
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimInstanceProxy.h"
 #include "Animation/AZ_LocomotionStateMachine.h"
 #include "Animation/AZ_WeaponAnimationProfile.h"
 #include "Animation/BlendSpace.h"
@@ -62,6 +63,9 @@ static TAutoConsoleVariable<int32> CVarAZSlotsDebug(
 #include "PoseSearch/PoseSearchLibrary.h"
 #include "PoseSearch/PoseSearchTrajectoryLibrary.h"
 #include "PoseSearch/PoseSearchTrajectoryPredictor.h"
+#include "Engine/SkeletalMeshSocket.h"
+
+// The left hand during a weapon switch (az.Weapon.Reach, plans): AZ_MoverAnimInstance_WeaponReach.cpp.
 
 // ★ IK MASTER SWITCH (user decision 2026-08-31): fights will use a different technique (paired /
 // contextual montages), so ALL procedural IK on the hero is OFF. The only IK in the Mover hero's
@@ -253,6 +257,7 @@ FVector UAZ_MoverAnimInstance::ResolveGrabIKTarget(
 void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	ResetVisualMotionState();
 	ResetProceduralAnimationState();
 	Cached_Pawn = nullptr;
 	Cached_MoverComponent = nullptr;
@@ -308,6 +313,7 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 	WeaponStandingAimPose            = nullptr;
 	WeaponCrouchingAimPose           = nullptr;
 	AimYaw = AimPitch = AimAlpha      = 0.f;
+	UpperBodyLockAlpha = TransitionLockAlpha = 0.f;
 	WeaponRelaxedPose                = nullptr;
 	WeaponRelaxedAlpha               = 0.f;
 }
@@ -315,11 +321,15 @@ void UAZ_MoverAnimInstance::NativeInitializeAnimation()
 void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
+	// Join the preceding animation task before reading worker feedback or
+	// changing the next worker's request (the same fence used by GetCurveValue).
+	GetProxyOnGameThread<FAnimInstanceProxy>();
 
 	// [SPIKE: spike/cmc-backport] CMC (v3) backend takes its own compact path — one added branch, the
 	// entire Mover body below stays byte-identical (zero risk to the v2 pawn the spike compares against).
 	if (!Cached_Pawn && Cached_CmcCharacter)
 	{
+		ResetVisualMotionState();
 		ResetProceduralAnimationState();
 		UpdateAnimation_Cmc(DeltaSeconds);
 		return;
@@ -327,9 +337,13 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	if (!Cached_Pawn || !Cached_MoverComponent)
 	{
+		ResetVisualMotionState();
 		ResetProceduralAnimationState();
 		return;
 	}
+	bAimStepGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+	PreviousAimStepUpdateSerial = AimStepUpdateSerial;
+	AimStepUpdateSerial = AimStepUpdateSerial == MAX_uint64 ? 1 : AimStepUpdateSerial + 1;
 
 	// Snapshot gameplay and equipment on the game thread before deriving camera-relative direction.
 	// The chooser/BlendStack path reads this snapshot and never reaches into inventory on an anim worker.
@@ -419,6 +433,7 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			// Never fade a previous weapon's additive correction over the new profile's base poses.
 			WeaponAimOffset = nullptr;
 			AimAlpha = 0.f;
+			UpperBodyLockAlpha = TransitionLockAlpha = 0.f;
 		}
 	}
 	ActiveWeaponAnimationProfile = NewWeaponProfile;
@@ -433,7 +448,42 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// The equipment component lives on the CONTROLLER (same lookup as the profile gather above), not on the pawn.
 		const AController* GripController = GripPawn ? GripPawn->GetController() : nullptr;
 		const UAZ_Inv_CommonUI_EquipmentComponent* Equipment = GripController ? GripController->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
-		if (const AAZ_Weapon* Weapon = Equipment ? Equipment->GetActiveWeapon() : nullptr)
+		// Arms owned by something else -> the grip lets go (eases out): a traversal (mantle / climb / hurdle) or any
+		// montage on the FullBody slot. Climbing with the Winchester twisted both wrists toward the gun (2026-09-27).
+		// Montage lifetime is the test (same reason as the throwable gate above: slot weight feeds back into itself).
+		bool bArmsOwnedElsewhere = ChooserContext.MovementMode == EAZ_MovementMode::Traversing;
+		static const FName FullBodySlot(TEXT("FullBody"));
+		for (const FAnimMontageInstance* MI : MontageInstances)
+		{
+			if (bArmsOwnedElsewhere)
+			{
+				break;
+			}
+			if (!MI || !MI->Montage || !MI->IsValid())
+			{
+				continue;
+			}
+			for (const FSlotAnimationTrack& Track : MI->Montage->SlotAnimTracks)
+			{
+				if (Track.SlotName == FullBodySlot)
+				{
+					bArmsOwnedElsewhere = true;
+					break;
+				}
+			}
+		}
+		// A WEAPON SWITCH: the equipment-owned phase names the weapon physically presented - holster: the outgoing one,
+		// draw: the incoming one (the selection commits only when the draw clip ends; gripping the committed weapon kept
+		// the grip off for the whole draw and the hand slid onto the handguard after it, "as if it searches for its
+		// place", 2026-10-03).
+		FAZ_WeaponSwitchPresentation SwitchPresentation;
+		const bool bSwitchPresentation = Equipment && !bArmsOwnedElsewhere && Equipment->TryGetSwitchPresentation(SwitchPresentation);
+		const AAZ_Weapon* GripWeapon = (Equipment && !bArmsOwnedElsewhere) ? Equipment->GetActiveWeapon() : nullptr;
+		if (bSwitchPresentation)
+		{
+			GripWeapon = SwitchPresentation.PresentedWeapon.Get();
+		}
+		if (const AAZ_Weapon* Weapon = GripWeapon)
 		{
 			const USceneComponent* WeaponRoot = Weapon->GetRootComponent();
 			const USkeletalMeshComponent* AttachMesh = WeaponRoot ? Cast<USkeletalMeshComponent>(WeaponRoot->GetAttachParent()) : nullptr;
@@ -450,8 +500,11 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 				TargetGripAlpha = 1.f;
 			}
 		}
+		// The master weight (right hand, body clearance) follows the weapon in the hands only - a switch never changes it.
 		WeaponGripAlpha = FMath::FInterpConstantTo(WeaponGripAlpha, TargetGripAlpha, DeltaSeconds, WeaponGripBlendSpeed);
-		if (WeaponGripAlpha <= 0.f && TargetGripAlpha <= 0.f)
+		// The left hand during the switch: AZ_MoverAnimInstance_WeaponReach.cpp.
+		UpdateWeaponSwitchReach(DeltaSeconds, bSwitchPresentation ? &SwitchPresentation : nullptr);
+		if (WeaponGripAlpha <= 0.f && TargetGripAlpha <= 0.f && WeaponSwitchReach.Ownership <= 0.f)
 		{
 			WeaponGripPose = nullptr;       // keep the last pose while fading out, drop it once fully off
 		}
@@ -1022,6 +1075,23 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// the capsule resizes. Runs regardless of AimAlpha: it must already be right when the lock fades in.
 	AimStanceAlpha = FMath::FInterpTo(AimStanceAlpha,
 		ChooserContext.Stance == EAZ_Stance::Crouching ? 1.f : 0.f, DeltaSeconds, AimStanceBlendSpeed);
+	// Borrowed transitions: the legs play the borrowed start / stop / fall clip, the arms and the weapon stay on this
+	// set's own aim idle through the same lock layer (SMState is last frame's - the lock eases in anyway).
+	{
+		const EAZ_StateMachineState S = ChooserContext.SMState;
+		const bool bBorrowedTransition = WeaponProfile && WeaponProfile->bUpperBodyFromAimPoseInTransitions
+			&& WeaponStandingAimPose && WeaponCrouchingAimPose
+			&& (S == EAZ_StateMachineState::TransitionToLocomotion || S == EAZ_StateMachineState::TransitionToIdle
+				|| S == EAZ_StateMachineState::InAirLoop)
+			&& !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_Reloading)
+			&& !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().Ability_State_WeaponSwitching);
+		TransitionLockAlpha = FMath::FInterpTo(TransitionLockAlpha, bBorrowedTransition ? 1.f : 0.f, DeltaSeconds, 12.f);
+		if (!WeaponStandingAimPose || !WeaponCrouchingAimPose)
+		{
+			TransitionLockAlpha = 0.f;
+		}
+		UpperBodyLockAlpha = FMath::Max(AimAlpha, TransitionLockAlpha);
+	}
 	UAnimSequence* RequestedRelaxedPose = WeaponProfile ? WeaponProfile->RelaxedUpperBodyPose.Get() : nullptr;
 	if (RequestedRelaxedPose)
 	{
@@ -1167,6 +1237,10 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// and a glancing hit slides -> matching loco. The sensor's Reaction now only carries cosmetic IMPACT flinches
 	// (Brace / Stumble / HeadHit) for the chooser's Reaction column.
 
+	// Sample actual support-relative visual motion before phase selection. This
+	// stage is independent of procedural IK enable/LOD/contact/pinning policy.
+	UpdateVisualMotionSample(DeltaSeconds);
+
 	// ---- Phase derivation (the "C++ SM") — now owned by UAZ_LocomotionStateMachine. We resolve all role /
 	// mode / jump-edge awareness HERE (at the boundary) and hand it in; the SM stays a pure decision function,
 	// and applies the latch lifetime-gating (StartDirection / bMovingTransition / bJustLanded) inside Tick. ----
@@ -1197,6 +1271,9 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// the active profile -- unarmed has none -> false -> the two-phase jump is untouched.
 		const UAZ_WeaponAnimationProfile* AirLoopProfile = ActiveWeaponAnimationProfile.Get();
 		SMIn.bUseAirLoop          = AirLoopProfile && AirLoopProfile->bUseAirLoop;
+		// Sets without start / stop / land clips (RifleMega) skip the ground transition phases -- same profile.
+		SMIn.bNoGroundTransitionClips = AirLoopProfile && (AirLoopProfile->bNoGroundTransitionClips
+			|| (AirLoopProfile->bNoGroundTransitionClipsWhileAiming && ChooserContext.bIsAiming));
 		SMIn.PendingStartAngleDeg = PendingStartAngleDeg;
 		SMIn.bStrafe              = ChooserContext.bStrafe;   // strafe: directional starts/stops, no body-turning
 		SMIn.bIsAiming            = ChooserContext.bIsAiming; // aiming: never bucket a turn-start (cone vs RM overshoot)
@@ -1232,6 +1309,39 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		// instant the reaction expires -> bIsMoving is already false (clamped) -> SM goes to idle. So the visible flow
 		// is still "impact -> reaction clip -> idle"; LocomotionLoop is just the bucket the reaction clip lives in.
 		SMIn.bObstacleReacting    = (ChooserContext.Reaction != EAZ_ObstacleReaction::None);
+		const AController* StepController = Cached_Pawn->GetController();
+		const UAZ_Inv_CommonUI_EquipmentComponent* StepEquipment = StepController
+			? StepController->FindComponentByClass<UAZ_Inv_CommonUI_EquipmentComponent>() : nullptr;
+		AAZ_Weapon* StepWeapon = StepEquipment ? StepEquipment->GetActiveWeapon() : nullptr;
+		SMIn.bUseAppliedAimSteps = bEnableAppliedAimSteps && bAimStepGameWorld && AirLoopProfile && IsValid(StepWeapon)
+			&& StepEquipment->IsFirearmRaised() && !ChooserContext.OwnedTags.HasTag(FAZ_GameplayTags::Get().State_Throwable_Ready);
+		const EAZ_StateMachineState StepPhase = ChooserContext.SMState;
+		const bool bIdleStepPhase = StepPhase == EAZ_StateMachineState::IdleLoop || StepPhase == EAZ_StateMachineState::IdleBreak
+			|| StepPhase == EAZ_StateMachineState::IdleTurnLeft || StepPhase == EAZ_StateMachineState::IdleTurnRight;
+		const USkeletalMeshComponent* StepMesh = GetSkelMeshComponent();
+		bool bStepPoseOwned = GetSlotMontageGlobalWeight(TEXT("FullBody")) > KINDA_SMALL_NUMBER;
+		for (const FAnimMontageInstance* MI : MontageInstances)
+		{
+			if (!MI || !MI->Montage || !MI->IsValid()) continue;
+			for (const FSlotAnimationTrack& Track : MI->Montage->SlotAnimTracks)
+				bStepPoseOwned |= Track.SlotName == TEXT("FullBody");
+		}
+		const FAZ_GameplayTags& StepTags = FAZ_GameplayTags::Get();
+		SMIn.bAppliedAimStepEligible = SMIn.bUseAppliedAimSteps && SMIn.bAimTurnInPlaceEnabled && SMIn.bIsAiming
+			&& !SMIn.bIsMoving && SMIn.MovementMode == EAZ_MovementMode::OnGround && !SMIn.bSuppressLocomotion
+			&& !SMIn.bObstacleReacting && ChooserContext.Reaction == EAZ_ObstacleReaction::None && bIdleStepPhase
+			&& ChooserContext.FromStance == ChooserContext.Stance && !StepEquipment->IsSwitchingWeapon()
+			&& StepMesh && !StepMesh->IsSimulatingPhysics() && !bStepPoseOwned
+			&& !ChooserContext.OwnedTags.HasTag(StepTags.Character_Dead) && !ChooserContext.OwnedTags.HasTag(StepTags.State_Grabbed);
+		UpdateAppliedAimStepDemand(SMIn.bAppliedAimStepEligible, ActiveWeaponAnimationProfile.Get(), StepWeapon);
+		SMIn.bAppliedAimStepEligible &= AppliedAimStepDemand.bEpisodeValid && AppliedAimStepDemand.bStationary;
+		SMIn.bAppliedAimStepDemand = AppliedAimStepDemand.bActive;
+		SMIn.AppliedAimStepDirection = AppliedAimStepDemand.Direction;
+		SMIn.bAppliedAimStepFrozen = AppliedAimStepDemand.bFrozen;
+		SMIn.bAppliedAimStepReset = AppliedAimStepDemand.bReset;
+		ConsumeAppliedAimStepPlayback();
+		SMIn.bAppliedAimStepBoundary = AimStepProgress.bBoundary;
+		SMIn.bAppliedAimStepFeedbackFailed = AimStepProgress.bFailed;
 
 		// Defensive: StateMachine is created in NativeInitializeAnimation, but Live Coding re-instancing (and any
 		// path that ticks an AnimInstance whose Init didn't run) can leave this Transient pointer null — calling
@@ -1245,6 +1355,15 @@ void UAZ_MoverAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		ChooserContext.StartDirection    = SMOut.StartDirection;
 		ChooserContext.bMovingTransition = SMOut.bMovingTransition;
 		ChooserContext.bJustLanded       = SMOut.bJustLanded;
+		if (SMOut.bAppliedAimStep && (!bAimStepRunning || SMOut.State != AimStepState))
+		{
+			AimStepEpoch = AimStepEpoch == MAX_uint32 ? 1 : AimStepEpoch + 1;
+			AimStepProgress = FAimStepPlaybackProgress{};
+			AimStepMinimumSeconds = SMIn.AimTurnInPlaceMinSeconds;
+		}
+		bAimStepRunning = SMOut.bAppliedAimStep;
+		AimStepState = SMOut.State;
+		if (!bAimStepRunning) AimStepProgress = FAimStepPlaybackProgress{};
 
 		// FromStance — the last SETTLED stance (pre-transition). With two stances the chooser's "from" is
 		// implied by the Stance column; a third stance (prone) makes Stand2Prone vs Crouch2Prone undecidable
@@ -1722,6 +1841,216 @@ double UAZ_MoverAnimInstance::GetWeaponLoopPlayRate(const FAnimNodeReference& Bl
 	return 1.0;
 }
 
+void UAZ_MoverAnimInstance::ResetAppliedAimStepPlayback()
+{
+	AimStepUpdateSerial = PreviousAimStepUpdateSerial = 0;
+	AimStepEpoch = CommittedAimStepEpoch = 0;
+	bAimStepRunning = bAimStepGameWorld = false;
+	AimStepState = CommittedAimStepState = EAZ_StateMachineState::IdleLoop;
+	CommittedAimStepAsset.Reset();
+	AimStepFeedback = FAimStepPlaybackFeedback{};
+	AimStepProgress = FAimStepPlaybackProgress{};
+	bHasMMMirrorLog = bHasPlayerMirrorLog = false;
+}
+
+void UAZ_MoverAnimInstance::CaptureAppliedAimStepPlayback(FAnimNode_BlendStack_Standalone& Node)
+{
+	// Called from the existing node update callback BEFORE this update's asset
+	// tick/sync. These are the preceding completed player's clock and delta record.
+	FAimStepPlaybackFeedback Packet;
+	Packet.UpdateSerial = AimStepUpdateSerial;
+	Packet.Epoch = CommittedAimStepEpoch;
+	Packet.State = CommittedAimStepState;
+	Packet.RequestedAsset = CommittedAimStepAsset;
+	UAnimationAsset* ActualAsset = Node.GetAnimAsset();
+	UAnimSequence* Sequence = Cast<UAnimSequence>(ActualAsset);
+	Packet.ActualAsset = Sequence;
+	if (!Node.AnimPlayers.IsEmpty() && Sequence)
+	{
+		FBlendStackAnimPlayer& Player = Node.AnimPlayers[0];
+		Packet.Phase = Node.GetAccumulatedTime();
+		Packet.Length = Sequence->GetPlayLength();
+		Packet.PlayerAge = Player.GetCurrentBlendInTime();
+		Packet.PoseLink = Player.GetPoseLinkIndex();
+		Packet.bLoop = Player.IsLooping();
+		const double EffectiveRate = Player.GetPlayRate() * Sequence->RateScale;
+		Packet.PeriodSeconds = EffectiveRate > 0.0 ? Packet.Length / EffectiveRate : 0.0;
+		// The OUTER inherited delta record is not its embedded sequence's record.
+		const FAnimNode_AssetPlayerBase* Inner = Player.GetAssetPlayerNode();
+		const FDeltaTimeRecord* Record = Inner ? Inner->GetDeltaTimeRecord() : nullptr;
+		if (Record && Record->IsPreviousValid())
+		{
+			Packet.PreviousPhase = Record->GetPrevious();
+			Packet.Delta = Record->Delta;
+			Packet.bValid = Packet.bLoop && Player.IsActive() && !Player.IsPostponed()
+				&& FMath::IsFinite(Packet.Length) && Packet.Length > AimStepPhaseEpsilonSeconds
+				&& FMath::IsFinite(Packet.PeriodSeconds) && Packet.PeriodSeconds > 0.0
+				&& FMath::IsFinite(Packet.Phase) && FMath::IsFinite(Packet.PreviousPhase)
+				&& FMath::IsFinite(Packet.Delta) && Packet.Delta >= 0.0
+				&& FMath::IsFinite(Packet.PlayerAge) && Packet.PlayerAge >= 0.0
+				&& Packet.Phase >= 0.0 && Packet.Phase <= Packet.Length
+				&& Packet.PreviousPhase >= 0.0 && Packet.PreviousPhase <= Packet.Length;
+		}
+	}
+	AimStepFeedback = Packet; // next GT reads only after joining the animation task
+	if (CVarAZTipRateDebug.GetValueOnAnyThread() > 1 && bAimStepGameWorld)
+	{
+		const bool bMirror = Node.GetMirror();
+		if (!bHasPlayerMirrorLog || LastPlayerMirrorLogAsset.Get() != ActualAsset || bLastPlayerMirrorLog != bMirror)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[v2 PlayerMirror] <%s/%s> asset=%s phase=%.4f mirror=%d"),
+				*GetNameSafe(GetOwningActor()), *GetNameSafe(GetOwningComponent()), *GetNameSafe(ActualAsset), Node.GetAccumulatedTime(), bMirror);
+			LastPlayerMirrorLogAsset = ActualAsset;
+			bLastPlayerMirrorLog = bMirror;
+			bHasPlayerMirrorLog = true;
+		}
+		if (bAimStepRunning)
+		{
+			UE_LOG(LogTemp, Display, TEXT("[v2 TipPhase] <%s/%s> requestEpoch=%u observedEpoch=%u update=%llu actual=%s requested=%s phase=%.5f prev=%.5f delta=%.5f age=%.5f period=%.5f loop=%d valid=%d"),
+				*GetNameSafe(GetOwningActor()), *GetNameSafe(GetOwningComponent()), AimStepEpoch, Packet.Epoch,
+				Packet.UpdateSerial, *GetNameSafe(Sequence), *GetNameSafe(Packet.RequestedAsset.Get()), Packet.Phase,
+				Packet.PreviousPhase, Packet.Delta, Packet.PlayerAge, Packet.PeriodSeconds, Packet.bLoop, Packet.bValid);
+		}
+	}
+}
+
+void UAZ_MoverAnimInstance::ConsumeAppliedAimStepPlayback()
+{
+	check(IsInGameThread());
+	FAimStepPlaybackProgress& Progress = AimStepProgress;
+	Progress.bBoundary = false;
+	if (!bAimStepRunning || AppliedAimStepDemand.bReset || !AppliedAimStepDemand.bEpisodeValid
+		|| !AppliedAimStepDemand.bStationary)
+	{
+		Progress = FAimStepPlaybackProgress{};
+		return;
+	}
+	if (AppliedAimStepDemand.bFrozen || !VisualMotionSample.bQualified) return;
+	Progress.WaitQualifiedSeconds += VisualMotionSample.ElapsedSeconds;
+	const FAimStepPlaybackFeedback& Packet = AimStepFeedback;
+	bool bMatching = Packet.bValid && Packet.Epoch == AimStepEpoch && Packet.State == AimStepState
+		&& Packet.ActualAsset.IsValid() && Packet.ActualAsset == Packet.RequestedAsset;
+	Progress.Reason = bMatching ? TEXT("Freshness") : TEXT("MissingOrMismatch");
+	bMatching &= PreviousAimStepUpdateSerial != 0 && Packet.UpdateSerial == PreviousAimStepUpdateSerial
+		&& Packet.UpdateSerial != Progress.LastUpdateSerial;
+	if (bMatching)
+	{
+		const double Sum = Packet.PreviousPhase + Packet.Delta;
+		const double Expected = FMath::Fmod(Sum, Packet.Length);
+		const double Difference = FMath::Abs(Expected - Packet.Phase);
+		const bool bRecordConsistent = FMath::Min(Difference, FMath::Abs(Packet.Length - Difference)) <= AimStepPhaseEpsilonSeconds;
+		const bool bInitialCursor = !Progress.bCursorValid;
+		const bool bSamePlayer = bInitialCursor || (Progress.Asset == Packet.ActualAsset && Progress.PoseLink == Packet.PoseLink
+			&& FMath::Abs(Progress.Length - Packet.Length) <= AimStepPhaseEpsilonSeconds
+			&& FMath::Abs(Progress.PeriodSeconds - Packet.PeriodSeconds) <= AimStepPhaseEpsilonSeconds
+			&& Packet.PlayerAge + AimStepPhaseEpsilonSeconds >= Progress.LastPlayerAge
+			&& Packet.PlayerAge - Progress.LastPlayerAge <= VisualMotionMaxGapSeconds
+			&& FMath::Abs(Packet.PreviousPhase - Progress.LastPhase) <= AimStepPhaseEpsilonSeconds);
+		// A newly initialized player can retain an older embedded delta record until
+		// its first tick. Age zero cannot justify positive progress from that record.
+		const bool bNewObservedPlayer = !Progress.bObservationValid || Progress.LastObservedAsset != Packet.ActualAsset
+			|| Progress.LastObservedPoseLink != Packet.PoseLink;
+		const bool bAgeAdvanced = bNewObservedPlayer ? Packet.PlayerAge > 0.0 : Packet.PlayerAge > Progress.LastObservedAge;
+		// Outer blend-in age advances even if its inner graph does not tick. Keep
+		// the inner observation independently of the resettable trusted cursor.
+		// Exact equality detects staleness without swallowing tiny real advances.
+		const bool bInnerChanged = !bNewObservedPlayer && (Packet.Phase != Progress.LastObservedPhase
+			|| Packet.PreviousPhase != Progress.LastObservedPreviousPhase || Packet.Delta != Progress.LastObservedDelta);
+		const bool bNewProgress = Packet.Delta > 0.0 && bAgeAdvanced && bInnerChanged;
+		const bool bSeedObservation = bInitialCursor && bNewObservedPlayer;
+		Progress.LastObservedAsset = Packet.ActualAsset;
+		Progress.LastObservedPoseLink = Packet.PoseLink;
+		Progress.LastObservedAge = Packet.PlayerAge;
+		Progress.LastObservedPhase = Packet.Phase;
+		Progress.LastObservedPreviousPhase = Packet.PreviousPhase;
+		Progress.LastObservedDelta = Packet.Delta;
+		Progress.bObservationValid = true;
+		bMatching = bRecordConsistent && bSamePlayer && (Packet.Delta == 0.0 || bNewProgress || bSeedObservation);
+		Progress.Reason = !bRecordConsistent ? TEXT("DeltaMismatch") : !bSamePlayer ? TEXT("RestartOrGap")
+			: bSeedObservation ? TEXT("ObserveSeed") : Packet.Delta > 0.0 && !bNewProgress
+			? TEXT("InnerClockAmbiguous") : TEXT("Continuous");
+		if (bMatching)
+		{
+			if (bInitialCursor)
+			{
+				Progress.Asset = Packet.ActualAsset;
+				Progress.PoseLink = Packet.PoseLink;
+				Progress.Length = Packet.Length;
+				Progress.PeriodSeconds = Packet.PeriodSeconds;
+				Progress.CompletedCycles = 0;
+				// Nonzero actual entry is partial: wait for its wrap before counting full cycles.
+				Progress.bWholeCycleOpen = Packet.PreviousPhase <= AimStepPhaseEpsilonSeconds
+					|| Packet.PreviousPhase == Packet.Length || Packet.Phase == Packet.Length
+					|| (Packet.Phase == 0.0 && Packet.Delta > 0.0);
+				const double Minimum = FMath::IsFinite(AimStepMinimumSeconds) ? FMath::Max(0.f, AimStepMinimumSeconds) : .67;
+				const double Required = (Minimum - AimStepMinimumNominalToleranceSeconds) / Packet.PeriodSeconds;
+				if (!FMath::IsFinite(Required) || Required > MAX_int32)
+				{
+					Progress.Reason = TEXT("InvalidMinimum");
+					bMatching = false;
+				}
+				else Progress.MinimumCycles = FMath::Max(1, FMath::CeilToInt(Required));
+			}
+			// Count boundaries in (previous, previous + delta], not an absolute
+			// quotient. AdvanceTime permits phase == Length: its next departure
+			// is NOT another completed cycle. Only canonical observed endpoints
+			// may correct floating addition onto that boundary.
+			double End = Sum;
+			if (Packet.Phase == Packet.Length || Packet.Phase == 0.0)
+			{
+				const double Canonical = FMath::RoundToDouble(Sum / Packet.Length) * Packet.Length;
+				if (FMath::Abs(Canonical - Sum) <= AimStepPhaseEpsilonSeconds) End = Canonical;
+			}
+			const double WrapCount = FMath::FloorToDouble(End / Packet.Length) - FMath::FloorToDouble(Packet.PreviousPhase / Packet.Length);
+			if (!FMath::IsFinite(WrapCount) || WrapCount > MAX_int32) bMatching = false;
+			// Every new trusted cursor is a seed, including recovery with retained
+			// observer history. Its endpoint opens the NEXT interval, not this one.
+			int32 Wraps = bMatching && bNewProgress && !bInitialCursor ? FMath::Max(0, static_cast<int32>(WrapCount)) : 0;
+			// Float addition can round onto the end while the double sum is just below it.
+			if (bMatching && bNewProgress && !bInitialCursor && Wraps == 0 && Packet.PreviousPhase < Packet.Length
+				&& Packet.Phase + AimStepPhaseEpsilonSeconds < Packet.PreviousPhase) Wraps = 1;
+			if (Wraps > 0)
+			{
+				const int32 WholeWraps = Progress.bWholeCycleOpen ? Wraps : FMath::Max(0, Wraps - 1);
+				Progress.CompletedCycles = static_cast<int32>(FMath::Min<int64>(MAX_int32,
+					static_cast<int64>(Progress.CompletedCycles) + WholeWraps));
+				Progress.bWholeCycleOpen = true;
+				Progress.bBoundary = WholeWraps > 0 && Progress.CompletedCycles >= Progress.MinimumCycles;
+			}
+			Progress.bCursorValid = bMatching;
+			Progress.LastPhase = Packet.Phase;
+			Progress.LastPlayerAge = Packet.PlayerAge;
+			if (bMatching && bNewProgress) Progress.WaitQualifiedSeconds = 0.0;
+		}
+	}
+	if (!bMatching)
+	{
+		// An isolated bad packet is not an abort, but cannot preserve a possibly
+		// restarted player's cycle credit. Recovery starts a fresh observed cursor.
+		Progress.bCursorValid = Progress.bWholeCycleOpen = false;
+		Progress.bBoundary = false;
+		Progress.CompletedCycles = 0;
+	}
+	Progress.LastUpdateSerial = Packet.UpdateSerial;
+	if (Progress.WaitQualifiedSeconds >= AimStepFeedbackTimeoutSeconds)
+	{
+		Progress.bFailed = true;
+		AppliedAimStepDemand.bPlaybackBlocked = true;
+		AppliedAimStepDemand.bActive = false;
+		AppliedAimStepDemand.Direction = 0;
+		AppliedAimStepDemand.EntryAngleDeg = AppliedAimStepDemand.OppositeAngleDeg = 0.0;
+		AppliedAimStepDemand.QuietHeadingDeg = AppliedAimStepDemand.QuietMinDeg
+			= AppliedAimStepDemand.QuietMaxDeg = AppliedAimStepDemand.QuietSeconds = 0.0;
+	}
+	if (CVarAZTipRateDebug.GetValueOnGameThread() > 1 && bAimStepGameWorld)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[v2 TipDecision] <%s/%s> epoch=%u reason=%s cycles=%d/%d boundary=%d failed=%d wait=%.4f ownYaw=%+.4f ownSpeed=%.3f demand=%d direction=%d"),
+			*GetNameSafe(GetOwningActor()), *GetNameSafe(GetOwningComponent()), AimStepEpoch, *Progress.Reason.ToString(),
+			Progress.CompletedCycles, Progress.MinimumCycles, Progress.bBoundary, Progress.bFailed, Progress.WaitQualifiedSeconds,
+			VisualMotionSample.OwnYawDeltaDeg, VisualMotionSample.OwnPlanarSpeed, AppliedAimStepDemand.bActive, AppliedAimStepDemand.Direction);
+	}
+}
+
 void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	bool bForceBlend,
 	FAnimNodeReference BlendStackNode,
@@ -1738,7 +2067,6 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 	// the pin) could clobber the derived phase, making IdleBreak flash one tick then revert.
 	ChooserOutputs = ChooserOut;
 
-#if !UE_BUILD_SHIPPING
 	// ★ [v2 Play] / [v2 Replay] — the RENDERED truth, read straight off the outer blend stack every tick.
 	// [v2 Pick] and [v2 Snap] only see what this function PUSHES; a clip that gets re-pushed at the same
 	// StartTime (so no snap), or that the blend stack restarts on its own, is invisible to both — and
@@ -1752,17 +2080,21 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 		// jump stream every frame), so a single static compared consecutive calls from DIFFERENT
 		// instances — the asset always differed, and a genuine same-clip restart on the hero could never
 		// register as a [v2 Replay]. Keyed by `this` (weak, so a dead instance's entry is just ignored).
+#if !UE_BUILD_SHIPPING
 		struct FPlayPrev { TWeakObjectPtr<const UObject> Asset; float Time = 0.f; };
 		static TMap<const UAZ_MoverAnimInstance*, FPlayPrev> GPrevPlayByInstance;
 		FPlayPrev& Prev = GPrevPlayByInstance.FindOrAdd(this);
 		TWeakObjectPtr<const UObject>& GPrevPlayAsset = Prev.Asset;
 		float& GPrevPlayTime = Prev.Time;
+#endif
 		EAnimNodeReferenceConversionResult PlayConv = EAnimNodeReferenceConversionResult::Failed;
 		const FBlendStackAnimNodeReference PlayRef = UBlendStackAnimNodeLibrary::ConvertToBlendStackNode(BlendStackNode, PlayConv);
 		if (PlayConv == EAnimNodeReferenceConversionResult::Succeeded)
 		{
-			if (const FAnimNode_BlendStack_Standalone* BS = PlayRef.GetAnimNodePtr<FAnimNode_BlendStack_Standalone>())
+			if (FAnimNode_BlendStack_Standalone* BS = PlayRef.GetAnimNodePtr<FAnimNode_BlendStack_Standalone>())
 			{
+				CaptureAppliedAimStepPlayback(*BS);
+#if !UE_BUILD_SHIPPING
 				const UObject* PlayAsset = BS->GetAnimAsset();
 				const float    PlayTime  = BS->GetAccumulatedTime();
 				const bool bSameAsset = (PlayAsset != nullptr) && (PlayAsset == GPrevPlayAsset.Get());
@@ -1777,7 +2109,7 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 					ChooserContext.SMState == EAZ_StateMachineState::TransitionToLocomotion ||
 					ChooserContext.SMState == EAZ_StateMachineState::TransitionToInAir;
 					// (crouch-idle playhead traced 2026-08-31 03:17: adv == dt every frame, rate 1.0, weight 1.0 — uniform)
-				if (bTransitionPhase || !bSameAsset)
+				if (bTransitionPhase || !bSameAsset || (CVarAZTipRateDebug.GetValueOnAnyThread() > 1 && bAimStepRunning))
 				{
 					UE_LOG(LogTemp, Display, TEXT("[v2 Play] <%s/%s> %s @%.4f adv=%+.4f dt=%.4f rate=%.3f w=%.3f | SM=%d serial=%u/%u pushedAnim=%s pushedStart=%.2f justLanded=%d moving=%d"),
 						*GetNameSafe(GetOwningActor()), *GetNameSafe(GetOwningComponent()),
@@ -1791,10 +2123,10 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 				}
 				GPrevPlayAsset = PlayAsset;
 				GPrevPlayTime  = PlayTime;
+#endif
 			}
 		}
 	}
-#endif
 
 	// Nothing to play: first-match mode gives ChosenAnim, return-all mode gives Candidates.
 	// Bail only when both are empty.
@@ -2057,6 +2389,22 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 			MMResult);
 
 		UAnimationAsset* MMAnim = Cast<UAnimationAsset>(MMResult.SelectedAnim);
+		if (CVarAZTipRateDebug.GetValueOnAnyThread() > 1 && bAimStepGameWorld
+			&& (!bHasMMMirrorLog || LastMMMirrorLogAsset.Get() != MMAnim || bLastMMMirrorLog != MMResult.bIsMirrored))
+		{
+			FString Pool;
+			for (const UObject* Entry : AssetsToSearch)
+			{
+				if (!Pool.IsEmpty()) Pool += TEXT(",");
+				Pool += GetPathNameSafe(Entry);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[v2 MMMirror] <%s/%s> selected=%s time=%.5f mirror=%d database=%s pool=[%s]"),
+				*GetNameSafe(GetOwningActor()), *GetNameSafe(GetOwningComponent()), *GetPathNameSafe(MMAnim), MMResult.SelectedTime,
+				MMResult.bIsMirrored, *GetPathNameSafe(MMResult.SelectedDatabase.Get()), *Pool);
+			LastMMMirrorLogAsset = MMAnim;
+			bLastMMMirrorLog = MMResult.bIsMirrored;
+			bHasMMMirrorLog = true;
+		}
 		double MMStartTime = MMResult.SelectedTime;
 		PickCost = MMResult.SearchCost;
 
@@ -2232,6 +2580,18 @@ void UAZ_MoverAnimInstance::SetBlendStackAnimFromChooser(
 
 	// ---- COMMITTED-PUSH bookkeeping: everything from here down runs only when an anim actually landed in
 	// BlendStackInputs (every no-push path returned above). ----
+	if (bAimStepRunning && (ChooserContext.SMState == EAZ_StateMachineState::IdleTurnLeft
+		|| ChooserContext.SMState == EAZ_StateMachineState::IdleTurnRight))
+	{
+		CommittedAimStepEpoch = AimStepEpoch;
+		CommittedAimStepState = ChooserContext.SMState;
+		CommittedAimStepAsset = Cast<UAnimSequence>(BlendStackInputs.Anim);
+	}
+	else
+	{
+		CommittedAimStepEpoch = 0;
+		CommittedAimStepAsset.Reset();
+	}
 	GLastPushSMStateByInstance.FindOrAdd(this) = ChooserContext.SMState;
 	++GPushCountByInstance.FindOrAdd(this);
 
