@@ -59,3 +59,18 @@ Along with this input rewire, `Get_Gait` was inverted from GASP's default:
 - **AZ: default = Walk, Sprint button = fast (Shift).** Walk button still maps to Walk (no-op vs default; kept for force-walk overrides).
 
 See `AZ_HeroPawn.cpp::Get_Gait` comment block for rationale.
+
+## Opposite move keys: last pressed wins (2026-10-05)
+
+**Correction.** The earlier claim "A+D cancel to zero" was WRONG.
+- AZ_IA_RT_Move uses the default AccumulationBehavior TakeHighestAbsoluteValue.
+- Engine merge (EnhancedPlayerInput.cpp, ProcessActionMappingEvent) uses `>=`, so the mapping LATER in the IMC wins the tie.
+- IMC order is W, S, A, D, Up, Down, Left, Right, Gamepad_Left2D. So S always beats W and D always beats A, and they never give zero.
+- Reversals therefore worked only one way round: holding D, a press of A was ignored until D was released.
+
+**Fix (user-approved):**
+- `FAZ_MoveKeyPriority` (Character/AZ_MoveKeyPriority.h/.cpp), called from `AAZ_PawnMoverHeroCharacter::OnMoveTriggered`. Toggle: UPROPERTY `bLastPressedMoveKeyWins` (default true).
+- It reads the live mappings of MoveInputAction through `GetEnhancedActionMappingsView` (GetEnhancedActionMappings is protected), so it survives rebinding.
+- Each mapping's direction = its modifiers applied to a unit press. Only Negate / Swizzle / Scalar are allowed; any other modifier leaves the engine value.
+- The axis takes the most recently pressed held key. Releasing it falls back to the key still held. Analog stick untouched.
+- Log: `[MoveKeys] held=[..] engine=(x,y) -> (x,y)` on every change, `[MoveKeys] released` on Completed. Use it to tell a real release gap from priority.

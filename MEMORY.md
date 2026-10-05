@@ -10,10 +10,12 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 ## ★★★ CURRENT DIRECTION — read first
 - [Leg IK knee twist fix](project_leg_ik_knee_twist_fix_2026-10-04.md) — ★★★ cause = leg solve (forced twist + fixed-hinge pole); fix weight 0 + knee-plane pole; user: "much better"; identity-test rule.
 - [Crouch start<->loop flap](project_crouch_start_loop_flap_2026-10-04.md) — ★★ fixed 2026-10-04: borrowed crouch turn starts, 5 PSDs → Master schema, SM pivot block; PIE pending.
+- [M16 sprint turns](project_m16_sprint_turns_2026-10-05.md) — ★★ left hand reaching on sprint turns = shared unarmed rows 88-93 leaked to M16; fixed 2026-10-05 (c9 + rows 537-548); run/sprint pivots = BAKED AZ_M16_RunPivot180_* (GraftUpperBody), user PIE OK 2026-10-05.
+- [Winchester on the M16 set](project_winchester_on_m16_set_2026-10-05.md) — ★★★ Winchester MOVES on W2 (LocomotionWeaponTag=Weapon.Rifle); own HOLD (AZ Weapon Hold node: RifleMega arms in chest space) + lever fire + tube reload from RifleMega; PIE pending. (Supersedes the turn-start/pivot bakes.)
 - [Protected weapon sets](project_protected_weapon_sets.md) — ★★★ M16/pistol/unarmed clips are tuned: never touch; backup AZ_Backups/2026-09-27_pre-WGS.
 - [Consider the local model](feedback_consider_local_model.md) — ★★★ USER RULE: delegate mechanical steps to the local LM Studio agent (skill `local-model-delegation`).
 - [Master skeleton](project_master_skeleton_2026-09-25.md) — ★★★ SK_AZ_Master = MH copy + az_weapon_r/az_prop_*; 446 AZ_MST_* clips; Master clips NEED retarget_source_asset=SKM_AZ_Master.
-- [Natural Grip C++ plugin](project_natural_grip_plugin_2026-10-02.md) — ★★★ Plugins/AZNaturalGrip (grip solver + BakeSwitchClip); left hand on switch + crouched M16 legs SOLVED; docs design-briefs/left-hand-weapon-switch-h1-h2-checkpoint.md.
+- [Natural Grip C++ plugin](project_natural_grip_plugin_2026-10-02.md) — ★★★ Plugins/AZNaturalGrip (grip solver + BakeSwitchClip + GraftUpperBody); left hand on switch + crouched M16 legs SOLVED; docs design-briefs/left-hand-weapon-switch-h1-h2-checkpoint.md.
 - [Natural grasp](project_natural_grasp_2026-09-29.md) — ★★★ crooked fingers = palm in stock + twisted retarget; hand re-grip + baked anatomical grasp.
 - [Weapon arm solver](project_weapon_arm_solver_2026-09-28.md) — ★★★ Body Clearance = body push + right-arm SDF solver; user order: Winchester → shotgun → M16/pistol → knife.
 - [Winchester integration audit](project_winchester_integration_audit_2026-09-26.md) — ★★★ R1/R2 done; R3 reload designed, awaiting go; plans docs/design-briefs/winchester-*.md.
