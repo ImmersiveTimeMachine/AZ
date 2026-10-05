@@ -58,3 +58,7 @@ See [[feedback_python_save_only_if_dirty]] (the complementary "save silently ski
 [[reference_ue5_python_posesearch]], [[asset-modification-via-python]].
 
 **CRASH 2026-09-28: a package path with a DOUBLE SLASH is an engine FATAL ERROR (UObjectGlobals.cpp:1096), not a Python exception** - `load_asset("/Game/X//Name")` after a batch retarget killed the editor. Build paths with rstrip/strip and assert no "//" before any load/create (fixed in Tools/riflemega_retarget.py inventory()).
+
+## 2026-10-04: texture import from Python HUNG the editor
+`AssetImportTask` for a PNG with no factory goes through Interchange; the game thread froze (every log line on one frame, "Script Stack: AssetTools.ImportAssetTasks" warnings, then `NameError: name 'unreal' is not defined` in the same script) and the editor had to be killed; the imported texture was never saved. Use the legacy factory: `task.set_editor_property('factory', unreal.TextureFactory())`, import in ONE call with nothing else, then set texture properties and save in SEPARATE calls.
+

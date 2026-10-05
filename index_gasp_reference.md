@@ -1,0 +1,5 @@
+# GASP reference index (detail)
+
+Moved out of MEMORY.md 2026-10-04 to keep the index small.
+
+- [gasp_animbp_architecture.md](gasp_animbp_architecture.md), [gasp_animbp_full_audit.md](gasp_animbp_full_audit.md), [gasp_pawn_cpp_port_plan.md](gasp_pawn_cpp_port_plan.md), [gasp_character_movement.md](gasp_character_movement.md), [gasp_data_model.md](gasp_data_model.md), [gasp_data_model_full.md](gasp_data_model_full.md), [gasp_sm_tip_flow.md](gasp_sm_tip_flow.md), [gasp_orientation_intent_tip.md](gasp_orientation_intent_tip.md), [gasp_update_logic_flow.md](gasp_update_logic_flow.md), [gasp_posesearch_choosers.md](gasp_posesearch_choosers.md), [reference_cht_chooser_structure.md](reference_cht_chooser_structure.md), [reference_gasp_anim_notifies.md](reference_gasp_anim_notifies.md), [gasp_project_settings.md](gasp_project_settings.md), [gasp_framework_cameras_rigs.md](gasp_framework_cameras_rigs.md), [gasp_actor_components_and_notifies.md](gasp_actor_components_and_notifies.md), [gasp_cpp_architecture.md](gasp_cpp_architecture.md)

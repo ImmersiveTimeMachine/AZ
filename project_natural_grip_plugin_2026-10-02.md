@@ -107,7 +107,7 @@ Plan + status: docs/design-briefs/natural-grip-cpp-plugin.md.
 - 2026-10-04 FULL-BODY CROUCH SWITCH WORKS (user OK): node AnimNode_AZWeaponSwitchFullBody (+AZEditor AnimGraphNode)
   inserted in AZ_ABP_MoverHero_MHC after the RifleFire LayeredBoneBlend (73E21D1A) -> before Save 'AdiativePoses'; weight
   FAZ_WeaponSwitchReach::FullBodyAlpha (crouched + still, 0.15 s, CVar az.Weapon.SwitchFullBody). NEXT SESSION (user):
-  legs swap after a crouched holster/draw - RifleMega switch clips end/start in "MOB" crouch (RIGHT knee up) while rifle
+  legs swap after a crouched holster/draw - M16 W2 switch clips (not RifleMega) end/start in the UE4 demo "MOB1" crouch (= DMO_MOB1_Crouch_Idle_V2_IPC, measured 2026-10-04) (RIGHT knee up) while rifle
   crouch idle W2_Crouch_Idle_IPC and unarmed AnimPro_CrouchLoop_new are LEFT knee up; at commit chooser blends
   W2_Crouch_Idle_IPC -> AnimPro_CrouchLoop_new 0.5 s. Leads: retarget DMO_MOB1_Crouch_Idle_V2_IPC (Manny) as the unarmed
   crouch idle, or prime the target base under the holster (like the draw presentation). Doc checkpoint s.5.8.
@@ -152,3 +152,18 @@ Plan + status: docs/design-briefs/natural-grip-cpp-plugin.md.
   WrCap) and EvalThumbCfg.
 - OLD NEXT: S7 asset writers (socket/grip pose/BP flags/curves, backups),
   then the M16 left-hand power grasp on this solver ([[project-natural-grasp-2026-09-29]]).
+
+## 2026-10-04 crouched M16 switch leg swap: FIXED, PIE confirmed by user + log
+New clip AZ_RTG_MH_MOB1_Crouch_Idle_IPC (holster end pose exactly + DMO_MOB1 idle motion as bone-space deltas; sample RAW keys, should_retarget=False, or translations get retargeted twice). Profile field CrouchingSwitchRestIdle (M16 only; Winchester clips already match the unarmed crouch). Anim instance SwitchRestIdle replaces the direct-play idle pick while crouched/unarmed/still/idle; set only while the switch clip covers the whole body. Full-body blend in 0.35 s (out 0.15). Doc s.5.10.
+
+## 2026-10-04 later: pistol fixes, Winchester holster, TD-006 first pass (PIE pending)
+- Full body only for the profile's OWN crouch clip (bCrouchClip): the pistol has no crouch switch clips and its standing clip stood the hero up.
+- Hands-empty priming: during a switch, while bHolster == bSocketApplied, the anim instance's chooser inputs are unarmed (Weapon.None, profile null); fixed the pistol crouch hold flashing after the holster.
+- Winchester holster = TakeUp reversed (AZ_MST_Rifle01_St_TakeUp_Reversed / AZ_MST_Rifle_Cr_TakeUp_Reversed, exact), attach 1.30.
+- TD-006: AimAlpha / CombatReadyAlpha eased (smoothstep of a linear ramp, 4/speed s); AimIdleBlendTime 0.4 for idle<->aim-idle swaps in place; profile aim in 18 (rifles) / 16 (pistol), out 10; switch montage blend 0.20 / 0.25; CombatReady 12 / 9.
+- Winchester: AttachTime was 0.00 draw / 1.30 holster (wrong: the gun bone is 76 cm off the back at frame 0); measured grab -> draw 0.50 St / 0.47 Cr, holster 0.83 / 0.87. Draws re-baked to START from our idle (AZ_MST_*_TakeUp_FromIdle, 0.35/0.30 s smoothstep from AnimPro_Idle / AnimPro_CrouchLoop_new as seen on the hero mesh); holsters = those reversed. RifleMega take/hide start from a hunched pack stance (torso +14/+43 deg).
+- Winchester reach hunch = RifleMega stance inside the clip (recording proved the graph adds nothing); baked out: spine/neck/head bone-space delta to our idle (spine_01 absorbs the pelvis tilt), faded by the clip's own torso straightening. Recorder trap: the grip node only evaluates while the master grip alpha > 0, so the draw records from the hand-attach only.
+- Winchester own data (2026-10-04): carry socket BackWinchesterSocket (spine_04, copy of BackRifleSocket, in hero_sockets.json; user to tune by eye; the RifleMega take-up has no resting gun pose, so it cannot be derived); Quick Select icon Winchester_PrimaryIcon (Blender render of Art/CHALK_Winchester_Rig/SK_Winchester.fbx, 512x256, UI group) replacing the AK12 Rifle_PrimaryIcon; FireSound SniperRifleB_Fire_Cue (was the M16 RifleB). The L_001 pickup instance has its OWN manifest copy (ItemCategory=Equippable override) -> edited too; level left dirty for the user to save. Pickup package still lists stale deps on BP_Pickup_PistolMagazine / T_Ammo9mm (not in any live component/graph).
+- Winchester switch clips: baked by C++ UAZNaturalGripLibrary::BakeSwitchClip(FAZSwitchClipBake, bDryRun) (NGSwitchBake.cpp; Python: unreal.AZNaturalGripLibrary.bake_switch_clip(job, False); dry run first). Winchester 2026-10-04: standing margin 0.6, crouch margin 1.2; auto grab 0.533/0.567 s onto BackWinchesterSocket; attach draw 0.533/0.567, holster 0.800/0.767. Trap: package names have no extension - FPaths::ChangeExtension leaves them bare (backup files collided; fixed). PIE-confirmed by the user 2026-10-04 (attach times one frame late = normal); the Python prototype is DELETED (was untracked). Idle breaks are held during a switch (FAZ_LocoSMInputs::bHoldIdleBreak).
+- (history, script deleted) Winchester switch clips were first produced by Tools/wgs/winchester_switch_bake.py (start-from-idle + posture + gun-out-of-face as ONE smooth curve; holster = reverse). Face capsule in AZ Weapon Body Clearance (PA head body is a 3 cm capsule). Bake rule learned: a per-frame minimal correction baked key by key still reads as a twitch - bake corrections as smoothed curves (dilate + blur).
+
