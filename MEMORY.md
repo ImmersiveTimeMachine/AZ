@@ -35,6 +35,8 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [Mover + MetaHuman](project_mover_metahuman_2026-08-31.md) — ★★★ verdict: Mover + MetaHuman hero, IK off, CMC parked @210247b.
 - [MM spine continuity](feedback_mover_spine_search_continuity.md) — ★★★ read before touching the Mover spine MotionMatch call or any loop DB.
 
+- [NetLab learning project](project_netlab_learning.md) — ★★★ separate repo C:/Projects/NetLab: UE-style replication over WinSock; I give code IN CHAT piece by piece, Artur transfers it; on disk only the skeleton.
+
 ## Workflow rules
 - [feedback_rider_debugger_ensure_resume.md](feedback_rider_debugger_ensure_resume.md) — ★★★ editor under Rider debugger: an ensure PAUSES it → xdebug resume (F5).
 - [feedback_offer_runtime_solution_first.md](feedback_offer_runtime_solution_first.md) — ★★★ "universal" request → runtime markers+IK first; anticipate failure axes.
