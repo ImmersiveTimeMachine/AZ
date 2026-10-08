@@ -1,6 +1,6 @@
 ---
 name: project-netlab-learning
-description: "NetLab (C:\\Projects\\NetLab) — Artur's learning project: UE-style replication over WinSock UDP (prediction, reconciliation, interpolation, RPC via C++26 reflection). ★★★ Artur writes the code himself; I only scaffold + explain + review."
+description: "NetLab (C:\\Projects\\NetLab) — Artur's learning project: UE-style replication over WinSock UDP (prediction, reconciliation, interpolation, RPC via C++26 reflection). ★★★ code goes in CHAT piece by piece, Artur transfers it; on disk I only scaffold."
 metadata:
   node_type: memory
   type: project
@@ -30,3 +30,8 @@ Quote: "сам я навряд ли буду писать… будем обсу
 UE analog, run configs, docs). Implementation = small pieces in chat, each with the why + UE analog + what to observe;
 he pastes them. Never write the implementation into the project files. I MAY read his files to review/debug and build
 via CLion MCP to check. Same rule lives in NetLab/AGENTS.md.
+
+CLion setup (2026-10-08): CLion 2026.2.3.1 (installed over the "CLion 2025.2" folder). Its default "Debug" profile
+already uses the WinLibs GCC 16 toolchain → builds into cmake-build-debug (preset profiles exist but are disabled).
+CLion MCP = global `clion` entry, http://127.0.0.1:64362/stream, answers initialize without a token
+("CLion MCP Server"). Port 64462 is a different restricted endpoint — ignore it.
