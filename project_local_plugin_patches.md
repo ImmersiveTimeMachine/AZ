@@ -301,3 +301,16 @@ FUObjectHashTables` lines immediately before the log ends.
 
 **WORKAROUND (no source change): export to names that do not already exist.** Numbered duplicates like
 `..._SprintLoop2` / `_3` are a sign of a previous run and of re-exporting over existing names.
+
+## 6. Meshy for Unreal 0.2.1 — engine plugin, 3 security patches (installed 2026-10-09)
+- **Install.**
+  - Source from `F:\Downloads\meshy-for-unreal-source-0.2.1\meshy` (original untouched), copied to `C:\UnrealEngine\Engine\Plugins\Marketplace\meshy`.
+  - Enabled in `AZ.uproject` (`meshy`, Win64).
+  - Editor module; built clean on 5.8 with the editor closed. Only a C4996 FSlateFontInfo deprecation in meshyStyle.cpp.
+- **Use.**
+  - Window → "Meshy Bridge" toggles an HTTP server on port 5327. It is not auto-started.
+  - "Send to Unreal" on meshy.ai downloads the model and imports it to `/Game/MeshyImports`.
+- **Patches**, all marked `AZ local patch` in `Source/meshy/Private/MeshyBridge.cpp`. Re-apply on any plugin update:
+  1. Bind `FIPv4Address::InternalLoopback` instead of `0.0.0.0`.
+  2. `POST /import` → 403 unless the Origin is in AllowedOrigins / *.app.staging.meshy.ai. Upstream only picked the CORS header and still imported → any web page or LAN host could trigger download + import.
+  3. ExtractZipFile skips entries with `..`, drive letters, leading slashes, or a resolved path outside ExtractDir. Upstream had a zip-slip → arbitrary file write.

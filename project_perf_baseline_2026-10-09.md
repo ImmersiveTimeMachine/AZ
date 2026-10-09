@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3384aa9b-49dd-43e9-a26a-858cd5de9d54
-  modified: 2026-10-09T19:50:40.355Z
+  modified: 2026-10-09T20:22:52.486Z
 ---
 
 **Context.** Artur asked (2026-10-09) whether to rebuild the hero as fully single-player (strip all network code, maybe back to CMC) because "things feel tangled and performance drops". Agreed plan: MEASURE first, decide after. This is the measurement.
@@ -44,5 +44,32 @@ Next proposed:
 2. Cache the az.Cam.Debug lookup.
 3. Profile a cooked/packaged Development build for the real GC / PSO picture.
 4. Then the clarity work: dead classes, chooser clean-up — see [[project_architecture_rationale]].
+
+**DONE 2026-10-09 (step 1 only, per Artur):**
+- Re-saved the 6 Niagara systems that gameplay references, found by an asset-registry BFS from /Game/AZ + L_001:
+  - NS_AR_Muzzleflash_1_ONCE;
+  - NS_Breaking_Glass / Concrete / Plaster / Wood;
+  - NS_Grenade_Explosion.
+- Every one logged "Compiling System … took" on save, so all were stale. Backup `AZ_Backups/2026-10-09_NiagaraResave_161016`. These are vendor packs, not tracked in git.
+- Mechanism: PostLoad marks systems whose compile IDs are out of sync as `RequestPendingOnDemand`; in the editor and `-game` the compile then runs on the FIRST activation. `UNiagaraSystem::PreSave` → WaitForCompilationComplete, so a forced `save_loaded_asset(sys, False)` persists synced IDs. Python exposes no compile status.
+- Cached the `az.Cam.Debug` lookup as a function-local static in `AZ_MoverAnimInstance_Procedural.cpp` and `AZ_PawnMoverHeroCharacter_Camera.cpp` (Live Coding OK). A new `-game` process loads the DLL from disk, so this reaches standalone only after the next full build.
+- Not yet verified in a fresh capture.
+
+**Katimavik classroom (`L_Katimavik_Classroom_PostApoc_v01`), 2026-10-09:**
+- Artur sees ~40 fps in PIE. In standalone 1080p the median frame is 13.8 ms (~72 fps). PIE costs more: the editor viewport is bigger (1440p monitor) and the editor itself adds overhead.
+- **GPU-bound, ~14 ms GPU** (median per frame; Insights reports GPU timers twice per frame):
+  - lights + shadows ~5.3 ms ("UnbatchedLights"). The map has 13 MOVABLE shadow-casting lights: 4 "cool window" rect 256x256 r=950, 4 ceiling fill rect r=1000 (vol scatter 1.0), 3 spots, 2 directional (the "Moon standby" one is visible and casts shadows);
+  - TSR 2-4 ms (Epic TSR settings: History.ScreenPercentage 200, Resurrection, ReprojectionField);
+  - Lumen ~2 ms; hero grooms ~1.3 ms; sky / clouds / real-time sky capture ~1 ms.
+- Proposed (art decision, awaiting go): hide the moon; no shadows on the 4 fill lights.
+- Traps:
+  - Git Bash mangles `/Game/...` args → `MSYS_NO_PATHCONV=1`.
+  - The map had no saved PlayerStart → "FindPlayerStart: … NO PLAYERSTART" → spawn at WorldSettings (origin) → falls. Artur added `PlayerStart_1` (8362,-607,492.5) and saved.
+  - Alt+Enter / fullscreen mid-capture = 2.7 s hitch (ProcessKeyDown → ApplyResolutionSettings).
+- Anim log findings, NOT map-specific:
+  - re-press during a stop picks Loop (SM=2), then a Start/Pivot (SM=3) on the very next frame;
+  - holding W while blocked (spd=0) flaps Loop↔Stop;
+  - `[CmcJump] land-complete event never arrived within 2.5s` — watchdog ended the jump ability.
+  - No Snap / MMFallback.
 
 The decision on "fully non-networked" is still open: Artur's wish, my advice = do it as a cleanliness step later (Mover standalone liaison), not a rewrite.
