@@ -8,6 +8,7 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 `az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python`.
 
 ## ★★★ CURRENT DIRECTION — read first
+- [Perf baseline](project_perf_baseline_2026-10-09.md) — ★★★ first real profile: GPU-bound ~9-10 ms; Mover+NP 0.43 ms (NP 0.15) → no rewrite for perf; stutters = GC / runtime Niagara + PSO compile; tool Tools/perf/az_perf_capture.py.
 - [Leg IK knee twist fix](project_leg_ik_knee_twist_fix_2026-10-04.md) — ★★★ cause = leg solve (forced twist + fixed-hinge pole); fix weight 0 + knee-plane pole; user: "much better"; identity-test rule.
 - [Crouch start<->loop flap](project_crouch_start_loop_flap_2026-10-04.md) — ★★ fixed 2026-10-04: borrowed crouch turn starts, 5 PSDs → Master schema, SM pivot block; PIE pending.
 - [M16 sprint turns](project_m16_sprint_turns_2026-10-05.md) — ★★ left hand reaching on sprint turns = shared unarmed rows 88-93 leaked to M16; fixed 2026-10-05 (c9 + rows 537-548); run/sprint pivots = BAKED AZ_M16_RunPivot180_* (GraftUpperBody), user PIE OK 2026-10-05.
