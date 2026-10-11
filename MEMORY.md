@@ -9,6 +9,7 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 
 ## ★★★ CURRENT DIRECTION — read first
 - [Peeling plaster Designer v08](project_peeling_plaster_designer_v08.md) — ★★★ 2026-10-09 offline .sbs generator (Tools/substance) + plate-quantised peel; in progress, needs user review on mesh. Shared skill `substance-designer-offline-materials` (.agents/.claude/~/.codex). Rules: [Designer engine rules](reference_substance_designer_engine_rules.md) · taste: [varied edges](feedback_peeling_edges_varied.md).
+- [Wall two-windows semantic UV](project_wall_twowindows_semantic_uv.md) — ★★ 2026-10-11 Blender .001 cleaned (no z-fight) + UV v02, 3 texture sets, ID_Parts; UE not reimported. Blender socket + Ctrl+Z/undo traps: [socket exec](reference_blender_socket_exec.md).
 - [Perf baseline](project_perf_baseline_2026-10-09.md) — ★★★ first real profile: GPU-bound ~9-10 ms; Mover+NP 0.43 ms (NP 0.15) → no rewrite for perf; stutters = GC / runtime Niagara + PSO compile; tool Tools/perf/az_perf_capture.py.
 - [Leg IK knee twist fix](project_leg_ik_knee_twist_fix_2026-10-04.md) — ★★★ cause = leg solve (forced twist + fixed-hinge pole); fix weight 0 + knee-plane pole; user: "much better"; identity-test rule.
 - [Crouch start<->loop flap](project_crouch_start_loop_flap_2026-10-04.md) — ★★ fixed 2026-10-04: borrowed crouch turn starts, 5 PSDs → Master schema, SM pivot block; PIE pending.
