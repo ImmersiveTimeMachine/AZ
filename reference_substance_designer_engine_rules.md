@@ -15,3 +15,4 @@ Measured 2026-10-09 with sbsrender (Designer 16.0.4) while building [[project-pe
 - Histogram Scan, Contrast 1 = hard threshold at value (1 − Position); Contrast c gives a ramp of width ~(1−c). Position is not an area %.
 - Graph baseParameters must NOT set absolute outputsize, or `$outputsize` in sbsrender is ignored.
 - noise_cells_4_v2 color_source=2 (Image input) samples the input once per cell → per-cell quantisation of any field.
+- **sbsrender is NOT deterministic by default** (measured 2026-10-11, Designer 16): the same SBSAR rendered twice on the GPU engine or multi-threaded CPU (`--engine sse2`) differs in AO / height / roughness / crack masks (max 30-290 levels). Only `--engine sse2 --cpu-count 1` repeats bit-exactly (~12 s at 1K for a 1.2k-node graph). Use it for every before/after pixel comparison; never judge a refactor on default-engine diffs.
