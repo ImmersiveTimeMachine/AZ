@@ -5,9 +5,13 @@
 UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Elysium/Chalk" mutates addicts into chalk-skinned infected ("Chalkies") — body-horror, NOT zombies. Lore: [project_lore_chalk.md](project_lore_chalk.md). Quickref: [reference_project_quickref.md](reference_project_quickref.md). Engine `C:\UnrealEngine\Engine\`, project `C:\UnrealEngine\Games\AZ`.
 
 ## Skills (lazy-loaded)
-`az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python`.
+`az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python` · `blender-level-blockout` (building/floor drafts in background Blender from plan data; school reference) · `substance-designer-offline-materials`.
 
 ## ★★★ CURRENT DIRECTION — read first
+- [Painter MCP](reference_painter_mcp.md) — ★★★ drive Painter via MCP: start with Tools/painter_mcp/Start_Painter_MCP_OCIO.cmd (OCIO env!), sRGB colours, ONE bitmap channel per fill layer, Passthrough groups, UVTile projects, word search; references are style, not copy.
+- [School floors draft](project_school_floor2_draft.md) — ★★★ 2026-10-13 school floors 1-3 geometry DRAFT in one Blender file from plan v02 metres (classroom linked, stairs run by run) + corridor proposal; materials later by hand; rebuild with Blender 5.1.
+- [Window glass variants](project_window_glass_variants.md) — ★★★ 2026-10-13 cracked/broken glass: Painter variant groups + parametric Designer graph `Art/WindowGlass_Designer` (v13, seed = new window).
+- [UE→Blender tool](reference_ue_to_blender_tool.md) — ★★★ USER RULE: reuse Tools/ue_to_blender (level actors → .blend with rebuilt materials); classroom shell done 2026-10-12.
 - [Peeling plaster Designer v08](project_peeling_plaster_designer_v08.md) — ★★★ 2026-10-09 offline .sbs generator (Tools/substance) + plate-quantised peel; in progress, needs user review on mesh. Shared skill `substance-designer-offline-materials` (.agents/.claude/~/.codex). Rules: [Designer engine rules](reference_substance_designer_engine_rules.md) · taste: [varied edges](feedback_peeling_edges_varied.md).
 - [Wall two-windows semantic UV](project_wall_twowindows_semantic_uv.md) — ★★ 2026-10-11 Blender .001 cleaned (no z-fight) + UV v02, 3 texture sets, ID_Parts; UE not reimported. Blender socket + Ctrl+Z/undo traps: [socket exec](reference_blender_socket_exec.md).
 - [Perf baseline](project_perf_baseline_2026-10-09.md) — ★★★ first real profile: GPU-bound ~9-10 ms; Mover+NP 0.43 ms (NP 0.15) → no rewrite for perf; stutters = GC / runtime Niagara + PSO compile; tool Tools/perf/az_perf_capture.py.

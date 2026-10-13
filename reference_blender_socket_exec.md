@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: b0898a20-3540-4116-9321-4c45e9195191
-  modified: 2026-10-11T04:07:59.247Z
+  modified: 2026-10-13T21:16:08.242Z
 ---
 
 The user's Blender (5.2, `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe`) runs the blender-mcp addon on 127.0.0.1:9876.
@@ -17,4 +17,7 @@ Traps:
 - Non-convex n-gons: fan triangulation in validators/rasterizers gives false overlaps and can mask holes; use Blender's `loop_triangles`.
 - Exact Boolean union of coplanar-touching parts kept duplicate faces and made non-manifold edges; cut the smaller face along the bigger face outline (bisect_plane) and delete the covered piece instead.
 - tessellate_polygon loses area on polygons with collinear vertices → use a 2D even-odd point-in-polygon test.
+- (2026-10-13) The socket prints only stdout: use `print(...)`, a `result = ...` variable returns nothing.
+- (2026-10-13) Background Blender 5.2 crashes (EXCEPTION_ACCESS_VIOLATION) in `cycles prefs.get_devices()/refresh_devices()`; run background Cycles renders with Blender 5.1 (`.../Blender 5.1/blender.exe -b --factory-startup`, sees the RTX 4080 via OPTIX; opens 5.2 files). Use --factory-startup: the user's Substance addon load_pre handler errors in background.
+- (2026-10-13) New objects: `matrix_world` is not valid until `view_layer.update()`; compose the matrix yourself (T @ R @ S) instead of reading it right after setting location/scale.
 Unreal side: unreal-mcp CaptureViewport returns ~6 MB base64 into context; prefer Rider `ue_execute_python` and screenshots written to disk.
