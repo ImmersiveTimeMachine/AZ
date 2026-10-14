@@ -9,7 +9,7 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 
 ## ★★★ CURRENT DIRECTION — read first
 - [Painter MCP](reference_painter_mcp.md) — ★★★ drive Painter via MCP: start with Tools/painter_mcp/Start_Painter_MCP_OCIO.cmd (OCIO env!), sRGB colours, ONE bitmap channel per fill layer, Passthrough groups, UVTile projects, word search; references are style, not copy.
-- [School floors draft](project_school_floor2_draft.md) — ★★★ 2026-10-13 school floors 1-3 geometry DRAFT in one Blender file from plan v02 metres (classroom linked, stairs run by run) + corridor proposal; materials later by hand; rebuild with Blender 5.1.
+- [School floors draft](project_school_floor2_draft.md) — ★★★ v03 2026-10-14: corridor at classes 3.60 (north row +0.4, stair B landings shortened); v02: class 3.50 (Classroom_Block_v08) + corridors open to slab 3.70 (DerelictCorridor proportions); v01 2026-10-13 school floors 1-3 geometry DRAFT in one Blender file from plan v02 metres (classroom linked, stairs run by run) + corridor proposal; materials later by hand; rebuild with Blender 5.1.
 - [Window glass variants](project_window_glass_variants.md) — ★★★ 2026-10-13 cracked/broken glass: Painter variant groups + parametric Designer graph `Art/WindowGlass_Designer` (v13, seed = new window).
 - [UE→Blender tool](reference_ue_to_blender_tool.md) — ★★★ USER RULE: reuse Tools/ue_to_blender (level actors → .blend with rebuilt materials); classroom shell done 2026-10-12.
 - [Peeling plaster Designer v08](project_peeling_plaster_designer_v08.md) — ★★★ 2026-10-09 offline .sbs generator (Tools/substance) + plate-quantised peel; in progress, needs user review on mesh. Shared skill `substance-designer-offline-materials` (.agents/.claude/~/.codex). Rules: [Designer engine rules](reference_substance_designer_engine_rules.md) · taste: [varied edges](feedback_peeling_edges_varied.md).
@@ -121,3 +121,4 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [reference_punch_reaction_content_inventory.md](reference_punch_reaction_content_inventory.md) — punch/react content.
 - [reference_mirror_anim_bake.md](reference_mirror_anim_bake.md) — ★★ mirror = MirrorDataTable + baked copy in Unreal; API traps.
 - [reference_ue5_python_posesearch.md](reference_ue5_python_posesearch.md) — Python PoseSearch API.
+- [Launcher Add to Project](reference_launcher_add_to_project.md) — AZ is a source build (GUID), launcher never lists it; temp project + copy incl. __ExternalActors__.
