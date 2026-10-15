@@ -1,11 +1,11 @@
-# AZ Project Memory — "CHALK"
+﻿# AZ Project Memory — "CHALK"
 
 **★★★ LANGUAGE: Artur ALWAYS speaks Russian — answer in Russian; English-looking text = misrecognized Russian speech, never another language ([user_language_russian.md](user_language_russian.md)).**
 
 UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Elysium/Chalk" mutates addicts into chalk-skinned infected ("Chalkies") — body-horror, NOT zombies. Lore: [project_lore_chalk.md](project_lore_chalk.md). Quickref: [reference_project_quickref.md](reference_project_quickref.md). Engine `C:\UnrealEngine\Engine\`, project `C:\UnrealEngine\Games\AZ`.
 
 ## Skills (lazy-loaded)
-`az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python` · `blender-level-blockout` (building/floor drafts in background Blender from plan data; school reference) · `substance-designer-offline-materials`.
+`az-workspace` (load first) · `agent-and-research-discipline` · `cpp-build-livecoding` · `bp-to-cpp-port` · `unrealclaude-mcp-tools` · `anim-debug-pitfalls` · `az-cpp-utility-tools` · `gasp-parity-reference` · `asset-modification-via-python` · `blender-level-blockout` (building/floor drafts in background Blender from plan data; school reference) · `substance-designer-offline-materials` · `unreal-prop-optimization` (check/fix imported props: Nanite, collision, texture caps, VT + parent samplers).
 
 ## ★★★ CURRENT DIRECTION — read first
 - [Painter MCP](reference_painter_mcp.md) — ★★★ drive Painter via MCP: start with Tools/painter_mcp/Start_Painter_MCP_OCIO.cmd (OCIO env!), sRGB colours, ONE bitmap channel per fill layer, Passthrough groups, UVTile projects, word search; references are style, not copy.
@@ -122,3 +122,4 @@ UE 5.8 third-person survival-horror **CHALK**: 2024 Montreal outbreak, drug "Ely
 - [reference_mirror_anim_bake.md](reference_mirror_anim_bake.md) — ★★ mirror = MirrorDataTable + baked copy in Unreal; API traps.
 - [reference_ue5_python_posesearch.md](reference_ue5_python_posesearch.md) — Python PoseSearch API.
 - [Launcher Add to Project](reference_launcher_add_to_project.md) — AZ is a source build (GUID), launcher never lists it; temp project + copy incl. __ExternalActors__.
+- [Prop optimization + VT](project_prop_optimization_vt.md) — 2026-10-14 skill/tool for imported props; VT on project-wide; M_AZTransfer_29dd… virtual; cloakroom + window bay fixed.
