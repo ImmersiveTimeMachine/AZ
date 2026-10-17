@@ -45,9 +45,21 @@ UE 5.8 survival-horror **CHALK** (2024 Montreal, drug mutates addicts into "Chal
 - [Mover + MetaHuman](project_mover_metahuman_2026-08-31.md) — ★★★ verdict: Mover + MetaHuman hero, IK off, CMC parked @210247b.
 - [MM spine continuity](feedback_mover_spine_search_continuity.md) — ★★★ read before touching the Mover spine MotionMatch call or any loop DB.
 
+- [CryEngine MCP review](project_cryengine_mcp_review.md) — 2026-10-16 review + v05 follow-up; P1 request_id/P2 committed-failure fixed (bridge 2.2.2 live since 13:58); snapshot .pyc trap.
+- [CryEngine GameSDK & anim packs](reference_cryengine_gamesdk_assets.md) — CE work project now C:/CryEngine/AZ; GameSDK/Crysis FBX/Ryse on F: Launcher; FP = 2 chars (Char1P/Char3P) + GameSDK weapon proc clips; parity verdict = GameSDK host.
+- [CryEngine build recipe](reference_cryengine_build.md) — cmake configure/build commands; dash MSBuild switches in Git Bash; new module needs resource.h; AZNoesis plugin layout.
+- [CryEngine test level L_000](reference_cryengine_test_level_l000.md) — ★★★ USER RULE: l_000 = agent test level (school+lockers+cubes from TPS); export in Sandbox; Rider config L_000; decal fix facts.
+- [CryEngine Noesis UI](project_cryengine_noesis_ui.md) — ★★★ HUD accepted; 10-17 night quests ported (AZQuests plugin + Field Notes UI, J page); inventory + Quick Select (Tab tap) ported 10-17; JAW crosshair = rocket look (circle+dot, also zoomed) 10-17; player health (accepted) + Quiet Sage throw arc 10-17; menu + campaign save (AZSave: title/pause/load checkpoint/settings) 10-17, TD-009 closed (ExternalUI 10:57, stock DX12 heaps 11:58, null res 12:13, CryAction RT_EndFrame 12:31: exits dialog-free; open: Codex ~CAZCharacterAnimationComponent audio-clip exit crash); runs from Rider debugger; skill `cryengine-noesis-ui`.
+- [CryEngine DX12 state + ТЗ](project_cryengine_dx12.md) — ★★ crash classes C1 texture lifetime / C2 mapped upload masked by guards; 0 crashes since 10-15 20:34 build but Chalk/water/Woodland untested; ТЗ = stabilise then Noesis path A.
+- [CryEngine episodes/scenes research](project_cryengine_episode_scene_research.md) — 2026-10-17 report + recommended AZStory design (XML scenes, owner-keyed locks, locks not saved); engine traps.
+- [CryEngine DLSS research](project_cryengine_dlss_research.md) — 2026-10-17 report only: Streamline 2.14.16 manual hooking (sl.dlss → reflex/pcl → dlss_g); hook = ResolveSubsampledOutput; FG needs Noesis UI layer.
+- [CryEngine Chalkie NPC port](project_cryengine_npc_port.md) — ★★★ 2026-10-17 analysis + 13-stage plan in AZ/docs/implementation/npc-port, awaiting yes; mesh SK_ZombieAC_A 71 bones, Zombie_01 source FBX on disk; live sight 15/23 m.
 - [NetLab learning project](project_netlab_learning.md) — ★★★ C:/Projects/NetLab: UE-style replication over WinSock; I write commented code, Artur studies.
 
 ## Workflow rules
+- [keep_stated_goal_scope](feedback_keep_stated_goal_scope.md) — ★★★ build plans around the goal he names; side problems → separate task, not the main part.
+- [cryengine_rider_debug_runs](feedback_cryengine_rider_debug_runs.md) — ★★★ CryEngine games: run from Rider debug, stop the session (no quit); render bugs → tech debt, keep the main goal.
+- [screenshots_only_when_needed](feedback_screenshots_only_when_needed.md) — ★★★ USER RULE: no screenshots as proof; ask Artur to check; only when I need one for a fix or test.
 - [rider_debugger_ensure_resume](feedback_rider_debugger_ensure_resume.md) — ★★★ editor under Rider debugger: an ensure PAUSES it → xdebug resume (F5).
 - [offer_runtime_solution_first](feedback_offer_runtime_solution_first.md) — ★★★ "universal" request → runtime markers+IK first.
 - [bake_corrections_into_animation](feedback_bake_corrections_into_animation.md) — ★★★ USER RULE: fix poses OFFLINE, bake a clip per situation; no per-frame runtime solvers.

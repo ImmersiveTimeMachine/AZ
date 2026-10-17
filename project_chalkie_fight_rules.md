@@ -20,7 +20,7 @@ Thresholds marked (DA) migrate to DA_ChalkieConfig in the native batch.
 
 | # | Rule | Owner |
 |---|---|---|
-| 1 | **Sight commits.** Cone (70° half) + LOS + range 500; new targets get the ALERT BEAT (0.6s freeze-face) unless within InstantDetectRange 350; crouched targets invisible beyond 250 until engaged. | `AZ_InfectedAIController::UpdatePerception` |
+| 1 | **Sight commits.** Cone (70° half) + LOS + range 500 (STALE: live BP 2026-10-17 = Sight 1500 / LoseSight 2300 / Hearing 700); new targets get the ALERT BEAT (0.6s freeze-face) unless within InstantDetectRange 350; crouched targets invisible beyond 250 until engaged. | `AZ_InfectedAIController::UpdatePerception` |
 | 2 | **Pain locks, unconditionally.** Any damaging hit from a hostile = instant target lock on the causer — no cone, no range, no beat. Routed vitals→pawn→controller because the attribute-change delegate loses the causer (GEModData null on direct sets). | `UAZ_VitalsAttributeSet::PostGameplayEffectExecute` → `AAZ_PawnMoverInfectedCharacter::HandleDamaged` → `NotifyDamagedBy` |
 | 3 | **Point-blank can't be lost.** An ENGAGED target within InstantDetectRange stays fresh outside the cone (ears/touch at arm's length). Never acquires. | `UpdatePerception` proximity-retention block |
 | 4 | **Hearing draws the unengaged.** Heard hostile noise → investigation at the noise location. Noise TAG sets urgency: footsteps=calm walk-over, Combat/Scream=urgent run. Carry = listener HearingRange (700) × event loudness: steps ≤700, punch impacts ~980, stagger screams ~1400. Every landed hit re-pins the fight's location. | receive: `OnTargetPerceptionUpdated`; emit: `GA_MeleeAttack::OnMontageEvent` (Combat), `HandleDamaged` (Scream), hero `ReportMovementNoise` (steps) |
