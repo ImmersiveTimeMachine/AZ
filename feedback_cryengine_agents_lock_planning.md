@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 0cf39d47-f3b0-4a50-9b24-845e8ec0506f
-  modified: 2026-10-18T05:52:14.000Z
+  modified: 2026-10-19T04:57:00.713Z
 ---
 
 **Rule (Artur, 2026-10-18 01:37, given to every agent working in C:/CryEngine/AZ):**
@@ -27,5 +27,11 @@ metadata:
 - Before a build, launch or editor use, read the lock and the last Status lines and post `PLAN` or `QUEUE` with minutes.
 - Split long holds into blocks and release between them if someone is queued.
 - Never drive another agent's Sandbox or game; start your own through Rider Debug so it can be stopped from Rider.
+- The build itself must be gated by the lock's exit code: `agent_lock.py acquire ... && { post PLAN; cmake ...; }; release`.
+  Never write `acquire ... && post; cmake ...`. On 2026-10-19 00:55 claude-traversal did exactly that: acquire said "busy"
+  (claude-npc held a launch lock and a source hold), the PLAN post was skipped, and the build after `;` ran anyway. It replaced
+  Game.dll under claude-npc's running test.
+- Source holds (`agent_lock.py hold <agent> <min> <paths>`, from 2026-10-18) block builds of other agents. Read `.agent-hold`
+  before editing or building shared code.
 
 Related: [[feedback-cryengine-rider-debug-runs]], [[feedback_parallel_editor_edits]].

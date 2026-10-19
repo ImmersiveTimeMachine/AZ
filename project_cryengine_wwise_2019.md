@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: a151daa0-c065-4c1d-bfd0-23373f1d30eb
-  modified: 2026-10-18T05:32:46.105Z
+  modified: 2026-10-18T17:57:30.329Z
 ---
 
 On 2026-10-17 Artur decided to connect **Wwise 2019.1** to CryEngine AZ. The current audio is SDL Mixer, which he had accepted as is. Porting to the latest Wwise (2025.1) is deferred as TD-011.
@@ -65,6 +65,12 @@ The plan is in `C:/CryEngine/AZ/docs/implementation/wwise-2019-plan.md`. TD-011 
 - TRAP: the CE 5.7 AudioAreaEntity is a C++ component. The legacy GameSDK `<Properties audioEnvironmentEnvironment=...>` is ignored and exports `Environment=""`. Write a `<Components><Component typeId="a8ec43da-c8b0-46a8-9418-2c1c8c56f2d1" Environment=... EnvironmentDistance=.../>` block instead.
 - Every `-BatchMode -export` ends with a "Pure function call" (0xC0000409) after "Terminate Process after export". This happens with SDL too and is harmless; the export is complete.
 - codex-katimavik is importing classroom v08 into l_000; the zone may need moving.
+
+**2026-10-18 13:57 — startup errors:**
+- The CrySpatial DLL error and "Plug-in not found 65537030" are FIXED. `Init.bnk` was rebuilt without the CrySpatial mixer on `environment_hrtf` by `tools/audio/build_wwise_init_bank.py`, which compares HIRC/STMG/ENVS/PLAT and installs only the expected diff. CrySpatial in the GameSDK banks is company 64; the CE 5.7 source uses 137.
+- "AddOutput Device ShareSet not found (84)" is HARMLESS: GamepadConnected adds a `Wwise_Motion` output that the GameSDK project lacks.
+- `s_ExecuteTrigger` is VF_CHEAT in GameLauncher, so it cannot be used in tests.
+- `build_wwise_init_bank.py` is also the tool for mix tuning (Init holds buses, effects and game syncs).
 - Available GameSDK environments: cave, cliff_delays, forest, hangar, open_ground, room_small, tower.
 
 **How to apply:**

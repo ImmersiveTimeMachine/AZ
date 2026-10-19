@@ -43,20 +43,28 @@ UE 5.8 survival-horror **CHALK** (2024 Montreal, drug mutates addicts into "Chal
 - [MCP review](project_cryengine_mcp_review.md) — bridge 2.2.2; snapshot .pyc trap.
 - [GameSDK & anim packs](reference_cryengine_gamesdk_assets.md) — F: Launcher; FP = Char1P/Char3P; GameSDK host verdict.
 - [Build recipe](reference_cryengine_build.md) — cmake commands; dash MSBuild switches; resource.h.
-- [Test level L_000](reference_cryengine_test_level_l000.md) — ★★★ USER RULE: l_000 = agent test level.
+- [Test level L_000](reference_cryengine_test_level_l000.md) — ★★★ USER RULE: l_000 = agent test level; playtest recipe; Katimavik classroom had no collision 10-18.
 - [Noesis UI](project_cryengine_noesis_ui.md) — ★★★ HUD/quests/inventory/menu/save done 10-17; TD-009 closed; skill `cryengine-noesis-ui`.
 - [HMG rip-off](project_cryengine_hmg_ripoff.md) — ★★ az_hmg_rip_cut 0.52; az_fp_camera_align 1.
-- [DX12 state + ТЗ](project_cryengine_dx12.md) — ★★ crash classes C1/C2.
+- [DX12 state + ТЗ](project_cryengine_dx12.md) — ★★ crash classes C1/C2; 4096 shadow clamp → keep sizes ≤4096; SVO ResScaleAir must = Base.
 - [Episodes/scenes research](project_cryengine_episode_scene_research.md) — AZStory design.
 - [Wwise 2019.1](project_cryengine_wwise_2019.md) — ★★★ ACCEPTED 10-18 (Wwise audio + smoke grenade + classroom room_small reverb on l_000); keyless az_custom.bnk tool; TD-011 latest-Wwise deferred (PS5 needs it; later).
 - [DLSS research](project_cryengine_dlss_research.md) — Streamline manual hooking; report only.
-- [Chalkie NPC port](project_cryengine_npc_port.md) — ★★★ stages 0-11 done (crowd 10-17, grab DRAFT 10-18: rifle-butt escape, Player.cpp hook); 12 partial (perf OK; Sandbox placement waits for Artur); Mannequin Stop() vs ForceFinish trap.
+- [Chalkie NPC port](project_cryengine_npc_port.md) — ★★★ stages 0-11 done (grab DRAFT 10-18); 12 partial; 12 placed in l_000, suite s1-s12; player-eye pass 10-18 (screen blood, death keep-away, kill glance; post params need bForceValue); Mannequin Stop() vs ForceFinish trap.
+- [CE blend fold trap](reference_cryengine_quat_hemisphere_fold.md) — ★★★ joint bind ~180° off clips → body folds at 50/50 blends; check bind·clip dot.
+- [Traversal port](project_cryengine_traversal_port.md) — ★★★ mantle/hurdle/climb in CE: real Jump verified 10-18 (hooks H1-H3 + admission, Codex ack); quick vault over thin walls; skill `cryengine-traversal`.
+- [Ragdoll pipeline](project_cryengine_ragdoll.md) — ★★★ Chalkie chr ragdoll 10-18 (UE PhysicsAsset -> proxies + limits + joint frames); skill `cryengine-ragdoll`; rebuild chr = rerun ragdoll_build.
+- [M16 port](project_cryengine_m16_port.md) — ★★★ AZ.M16 on the GameSDK rifle rig 10-19 (data only, l_000 pickup); skill `cryengine-weapon-port`; z by SIGHT LINE; CDF attachments absolute.
+- [Doors, throws, RPG core](project_cryengine_doors_throws_rpg.md) — ★★★ night 10-19: K08 door, stone/bottle distraction, RPG phase 1 built + Rider-verified; traps (python -, sName dangling, Init after GAME_POST_INIT).
 - [NetLab learning](project_netlab_learning.md) — ★★★ C:/Projects/NetLab; commented code for Artur.
 
 ## Workflow rules
+- [mechanics_rpg_hooks](feedback_mechanics_rpg_hooks.md) — ★★★ USER RULE: CHALK has RPG elements; mechanics' tunables = base × one RPG layer (AZ Ability System), no hardcoding.
+- [creativity_deep_understanding](feedback_creativity_deep_understanding.md) — ★★★ USER RULE: max creativity + deep understanding; judge through the player's eyes, add missing reactions (no "чурбан").
 - [cryengine_agents_lock_planning](feedback_cryengine_agents_lock_planning.md) — ★★★ CryEngine AZ multi-agent: announce lock minutes/handoffs (PLAN/QUEUE/EXTEND/HANDOFF/TASK); never use another agent's editor/game.
 - [keep_stated_goal_scope](feedback_keep_stated_goal_scope.md) — ★★★ plan around his goal; side problems → separate task.
 - [cryengine_rider_debug_runs](feedback_cryengine_rider_debug_runs.md) — ★★★ CE: Rider debug runs; render bugs → tech debt.
+- [cryengine_check_runs_for_asserts](feedback_cryengine_check_runs_for_asserts.md) — ★★★ USER RULE: never leave a run on an assert dialog/Rider pause; run_game_test.py catches them (read 'asserts:').
 - [screenshots_only_when_needed](feedback_screenshots_only_when_needed.md) — ★★★ USER RULE: no screenshots as proof.
 - [rider_debugger_ensure_resume](feedback_rider_debugger_ensure_resume.md) — ★★★ ensure pauses → F5.
 - [offer_runtime_solution_first](feedback_offer_runtime_solution_first.md) — ★★★ "universal" → runtime markers+IK.
