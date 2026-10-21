@@ -49,13 +49,14 @@ UE 5.8 survival-horror **CHALK** (2024 Montreal, drug mutates addicts into "Chal
 - [DX12 state + ТЗ](project_cryengine_dx12.md) — ★★ crash classes C1/C2; 4096 shadow clamp → keep sizes ≤4096; SVO ResScaleAir must = Base.
 - [Episodes/scenes research](project_cryengine_episode_scene_research.md) — AZStory design.
 - [Wwise 2019.1](project_cryengine_wwise_2019.md) — ★★★ ACCEPTED 10-18 (Wwise audio + smoke grenade + classroom room_small reverb on l_000); keyless az_custom.bnk tool; TD-011 latest-Wwise deferred (PS5 needs it; later).
-- [DLSS](project_cryengine_dlss_research.md) — ★★ Streamline 2.14.16 manual hooking; DLAA, upscale, Reflex, frame generation + Noesis UI layer DONE 10-20; settings menu Graphics (game.cfg) DONE; next commit DLSS hunks; traps in file.
+- [DLSS](project_cryengine_dlss_research.md) — ★★ Streamline 2.14.16 manual hooking; DLAA, upscale, Reflex, frame generation + Noesis UI layer DONE 10-20; settings menu Graphics (game.cfg) + HDR10 output DONE; next commit DLSS+HDR hunks; traps in file.
+- [DXR ray tracing](project_cryengine_raytracing.md) — ★★ analysis DONE 10-21 (docs/implementation/raytracing-analysis.md): RayQuery+DXC-at-build; DENY_SHADER_RESOURCE on VB/IB trap; sun first (no CE flashlight); NRD before RR; plan 0a..6.
 - [Chalkie NPC port](project_cryengine_npc_port.md) — ★★★ stages 0-11 done (grab DRAFT 10-18); 12 partial; 12 placed in l_000, suite s1-s12; player-eye pass 10-18 (screen blood, death keep-away, kill glance; post params need bForceValue); Mannequin Stop() vs ForceFinish trap.
 - [CE blend fold trap](reference_cryengine_quat_hemisphere_fold.md) — ★★★ joint bind ~180° off clips → body folds at 50/50 blends; check bind·clip dot.
 - [Traversal port](project_cryengine_traversal_port.md) — ★★★ mantle/hurdle/climb in CE: real Jump verified 10-18 (hooks H1-H3 + admission, Codex ack); quick vault over thin walls; skill `cryengine-traversal`.
 - [Ragdoll pipeline](project_cryengine_ragdoll.md) — ★★★ Chalkie chr ragdoll 10-18 (UE PhysicsAsset -> proxies + limits + joint frames); skill `cryengine-ragdoll`; rebuild chr = rerun ragdoll_build.
 - [M16 port](project_cryengine_m16_port.md) — ★★★ AZ.M16 on the GameSDK rifle rig 10-19 (data only, l_000 pickup); skill `cryengine-weapon-port`; z by SIGHT LINE; CDF attachments absolute.
-- [Doors, throws, RPG core](project_cryengine_doors_throws_rpg.md) — ★★★ night 10-19: K08 door, stone/bottle distraction, RPG phase 1 built + Rider-verified; traps (python -, sName dangling, Init after GAME_POST_INIT).
+- [Doors, throws, RPG core](project_cryengine_doors_throws_rpg.md) — ★★★ night 10-19: K08 door, stone/bottle distraction, RPG phase 1; 10-21 one-cell throwables + native incendiary craft done; traps (python -, autosave slot B, az_inv_equip toggle, Rider MCP direct HTTP).
 - [NetLab learning](project_netlab_learning.md) — ★★★ C:/Projects/NetLab; commented code for Artur.
 
 ## Workflow rules

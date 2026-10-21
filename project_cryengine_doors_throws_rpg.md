@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8f8d09b9-3f5e-408a-8d76-c4e4c3910763
-  modified: 2026-10-19T05:59:28.580Z
+  modified: 2026-10-21T05:31:42.345Z
 ---
 
 Night of 2026-10-19 (Artur asleep, "работайте без меня… Вперёд", one cross-review per design). Session cryengine-gamesdk.
@@ -22,7 +22,16 @@ rpg-core-design.md v03 (A-RPG01-REVIEW by claude-traversal: cross-DLL static blo
 **Throws (T1, done):** CHALK hunks in Codex files (ammo class AZDistraction, <distraction> block in CAZParticleGrenade),
 items GameSDK.Stone/GlassBottle + GameSDKAmmo.stone/glassbottle (incendiary two-record model), recovery through the new
 IAZInventoryPlugin::SpawnWorldPickup. Data: Assets/Characters/AZPlayer/Weapons/Distraction/V1, stone mesh by the import session.
-Open: one combined cell for AZ Stone/Bottle (TASK 23:04 point 2), crafted AZ Incendiary is not the native throwable.
+**One cell (A-THROW-CELL, done 2026-10-21, 3 l_000 Rider runs throw_onecell/_b/_c, no asserts):** a GameSDK thrower + its
+native reserve = ONE grid cell (reserve has no placement; feed count = thrower rounds + reserve). Code: AZInventory
+NativeWeaponStorage.cpp (IsThrowableThrower/Reserve, AddThrowableReserve, DropThrowableUnit, TakeThrowableUnits,
+NormalizeThrowables, RetireSpentThrowables in CommitNativeSelection = the empty thrower leaves once the hand moves on),
+hooks in Inventory.cpp (AddRecord/Drop/CountOwned/CanCraft/Craft/LoadSnapshot), InventoryHudFeed.cpp.
+Recipes link AFTER all catalogues (ItemDefinitions LinkRecipes, InventoryPlugin LoadDefinitions); incendiary recipe =
+GameSDKAmmo.glassbottle in, GameSDKAmmo.incendiarybottle out (NOT GameSDK.IncendiaryBottle: Initial=0 -> empty thrower).
+l_000 Pickups.xml line 39 is now GameSDKAmmo.glassbottle Rounds 2; l_000_no_npc still has the old AZ "Bottle" (no go asked).
+Not run-verified: last stone with nothing else selectable (empty-hands commit path, code-read). Proposal doc:
+docs/implementation/throwable-one-cell-proposal.md.
 
 **RPG phase 1 (done):** Code/Rpg (RpgValue.h Get/Apply/Multiplier, RpgSystem), Assets/Libs/AZ/Attributes.xml, AZSave "AZRpg".
 Hooks: health.max (Health.cpp: hits scale by BASE 100, no clamp on load), weapon.reloadTime (clip speed 1/m),
@@ -35,6 +44,10 @@ weapon.spread in PLAYER-side callers only (not GetSpread: AI turrets share it). 
 - In the launcher, Schematyc registration (my Init) runs AFTER ESYSTEM_EVENT_GAME_POST_INIT: connect lazily at LEVEL_GAMEPLAY_START.
 - Rider config for l_000 is "AZ GameLauncher L_000 test (Profile build)"; the plain one loads `example`.
 - New sources stay OUT of Code/CMakeLists.txt until my own build window (A-WORLD-CMAKE); Codex-file hunks via a patch script with backups (Code/World/pending/apply_t1.py).
-- Back up user/savegames before a run that saves, restore after.
+- Back up user/savegames before EVERY run (since 10-21 01:2x a level-start autosave writes slot B on each launch), restore after.
+- Scenario traps: az_inv_take N must not exceed the owned count (refused whole -> grid stays full); az_inv_equip is a TOGGLE
+  (equipping the item already in hand empties the hands); "[VF_CHEAT]" errors are log-only in dev mode, the command runs.
+- Rider MCP connector down but rider64 listening: call http://127.0.0.1:64343/stream directly (initialize, then tools/call
+  execute_tool {command:"xdebug_start_debugger_session --configurationName ...", rootFolder}). Lock queue is FIFO (.agent-queue).
 
 Related: [[project_cryengine_noesis_ui]], [[project_cryengine_npc_port]], [[feedback_mechanics_rpg_hooks]].

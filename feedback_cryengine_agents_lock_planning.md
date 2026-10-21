@@ -35,3 +35,5 @@ metadata:
   before editing or building shared code.
 
 Related: [[feedback-cryengine-rider-debug-runs]], [[feedback_parallel_editor_edits]].
+
+- 2026-10-21: agent_lock.py has a FIFO queue (.agent-queue). acquire --wait joins it automatically, so a free lock goes to the first queued agent; a missed turn is dropped after 3 min. Fast-polling Claude sessions used to starve codex, which polls every 30 s. Builds still go only through `agent_lock.py run`.
