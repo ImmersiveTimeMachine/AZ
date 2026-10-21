@@ -42,14 +42,14 @@ UE 5.8 survival-horror **CHALK** (2024 Montreal, drug mutates addicts into "Chal
 ## CryEngine port (C:/CryEngine/AZ)
 - [MCP review](project_cryengine_mcp_review.md) — bridge 2.2.2; snapshot .pyc trap.
 - [GameSDK & anim packs](reference_cryengine_gamesdk_assets.md) — F: Launcher; FP = Char1P/Char3P; GameSDK host verdict.
-- [Build recipe](reference_cryengine_build.md) — cmake commands; dash MSBuild switches; resource.h.
+- [Build recipe](reference_cryengine_build.md) — cmake commands; dash MSBuild switches; resource.h; IncrediBuild ib_build.py (helper DESKTOP-HNBF0TK, small gain on unity builds).
 - [Test level L_000](reference_cryengine_test_level_l000.md) — ★★★ USER RULE: l_000 = agent test level; playtest recipe; Katimavik classroom had no collision 10-18.
 - [Noesis UI](project_cryengine_noesis_ui.md) — ★★★ HUD/quests/inventory/menu/save done 10-17; TD-009 closed; skill `cryengine-noesis-ui`.
 - [HMG rip-off](project_cryengine_hmg_ripoff.md) — ★★ az_hmg_rip_cut 0.52; az_fp_camera_align 1.
 - [DX12 state + ТЗ](project_cryengine_dx12.md) — ★★ crash classes C1/C2; 4096 shadow clamp → keep sizes ≤4096; SVO ResScaleAir must = Base.
 - [Episodes/scenes research](project_cryengine_episode_scene_research.md) — AZStory design.
 - [Wwise 2019.1](project_cryengine_wwise_2019.md) — ★★★ ACCEPTED 10-18 (Wwise audio + smoke grenade + classroom room_small reverb on l_000); keyless az_custom.bnk tool; TD-011 latest-Wwise deferred (PS5 needs it; later).
-- [DLSS research](project_cryengine_dlss_research.md) — Streamline manual hooking; report only.
+- [DLSS](project_cryengine_dlss_research.md) — ★★ Streamline 2.14.16 manual hooking; DLAA, upscale, Reflex, frame generation + Noesis UI layer DONE 10-20; settings menu Graphics (game.cfg) DONE; next commit DLSS hunks; traps in file.
 - [Chalkie NPC port](project_cryengine_npc_port.md) — ★★★ stages 0-11 done (grab DRAFT 10-18); 12 partial; 12 placed in l_000, suite s1-s12; player-eye pass 10-18 (screen blood, death keep-away, kill glance; post params need bForceValue); Mannequin Stop() vs ForceFinish trap.
 - [CE blend fold trap](reference_cryengine_quat_hemisphere_fold.md) — ★★★ joint bind ~180° off clips → body folds at 50/50 blends; check bind·clip dot.
 - [Traversal port](project_cryengine_traversal_port.md) — ★★★ mantle/hurdle/climb in CE: real Jump verified 10-18 (hooks H1-H3 + admission, Codex ack); quick vault over thin walls; skill `cryengine-traversal`.
