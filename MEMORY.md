@@ -25,6 +25,7 @@ UE 5.8 survival-horror **CHALK** (2024 Montreal, drug mutates addicts into "Chal
 - [Protected weapon sets](project_protected_weapon_sets.md) — ★★★ M16/pistol/unarmed clips: never touch.
 - [Consider the local model](feedback_consider_local_model.md) — ★★★ USER RULE: delegate mechanical steps (skill `local-model-delegation`).
 - [Master skeleton](project_master_skeleton_2026-09-25.md) — ★★★ clips NEED retarget_source_asset=SKM_AZ_Master.
+- [STG44 grip assessment](project_naturalgrip_stg44_assessment_2026-10-23.md) — ★★★ right hand = placement rake, criteria lack positive hold; R-1 awaits Artur.
 - [Natural Grip plugin](project_natural_grip_plugin_2026-10-02.md) — ★★★ Plugins/AZNaturalGrip; left hand + crouched legs solved.
 - [Natural grasp](project_natural_grasp_2026-09-29.md) — ★★★ re-grip + baked grasp.
 - [Weapon arm solver](project_weapon_arm_solver_2026-09-28.md) — ★★★ order: Winchester → shotgun → M16/pistol → knife.
